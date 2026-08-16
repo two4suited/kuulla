@@ -1,0 +1,84 @@
+@page "/shows/{ShowId}/episodes/{EpisodeId}"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PodcastCatalogClient CatalogClient
+
+<PageTitle>@(episode?.Title ?? "Episode")</PageTitle>
+
+@if (isLoading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (loadError is not null)
+{
+    <p class="text-danger">@loadError</p>
+}
+else if (episode is null)
+{
+    <p>Episode not found.</p>
+}
+else
+{
+    <a href="@($"shows/{ShowId}")" class="d-inline-block mb-3">&larr; Back to show</a>
+
+    <h1>@episode.Title</h1>
+
+    <div class="text-muted mb-3">
+        @if (episode.PublishedAt is { } publishedAt)
+        {
+            @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
+            <text> &middot; </text>
+        }
+        @if (episode.Duration is { } duration)
+        {
+            @EpisodeFormatting.FormatDuration(duration)
+        }
+    </div>
+
+    <audio controls preload="none" class="w-100 mb-4">
+        <source src="@episode.AudioUrl" />
+        Your browser does not support the audio element.
+    </audio>
+
+    @if (!string.IsNullOrEmpty(episode.Description))
+    {
+        <h2>Show notes</h2>
+        <p style="white-space: pre-wrap;">@episode.Description</p>
+    }
+    else
+    {
+        <p class="text-muted">No show notes available for this episode.</p>
+    }
+}
+
+@code {
+    [Parameter]
+    public string ShowId { get; set; } = "";
+
+    [Parameter]
+    public string EpisodeId { get; set; } = "";
+
+    private Episode? episode;
+    private bool isLoading;
+    private string? loadError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        episode = null;
+        loadError = null;
+        isLoading = true;
+        try
+        {
+            episode = await CatalogClient.GetEpisodeAsync(ShowId, EpisodeId);
+        }
+        catch (HttpRequestException)
+        {
+            loadError = "Something went wrong while loading this episode. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

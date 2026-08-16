@@ -9,4 +9,6 @@ public interface IEpisodeService
         string? continuationToken,
         int pageSize,
         CancellationToken cancellationToken);
+
+    Task<Episode?> GetEpisodeAsync(string showId, string episodeId, CancellationToken cancellationToken);
 }

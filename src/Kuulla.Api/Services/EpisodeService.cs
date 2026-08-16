@@ -37,6 +37,47 @@ public class EpisodeService(
         return page;
     }
 
+    public async Task<Episode?> GetEpisodeAsync(string showId, string episodeId, CancellationToken cancellationToken)
+    {
+        var episode = await ReadEpisodeAsync(showId, episodeId, cancellationToken);
+        if (episode is not null)
+        {
+            return episode;
+        }
+
+        // Not cached yet — mirror GetEpisodesAsync's first-load backfill so a direct or
+        // shared link to a single episode works even if this show's episode list has
+        // never been paged through in this app instance.
+        var show = await showService.GetByIdAsync(showId, cancellationToken);
+        if (string.IsNullOrEmpty(show?.FeedUrl))
+        {
+            return null;
+        }
+
+        var feed = await feedClient.FetchAsync(show.FeedUrl, cancellationToken);
+        if (feed is not { Episodes.Count: > 0 })
+        {
+            return null;
+        }
+
+        await CacheEpisodesAsync(showId, feed.Episodes, cancellationToken);
+        return await ReadEpisodeAsync(showId, episodeId, cancellationToken);
+    }
+
+    private async Task<Episode?> ReadEpisodeAsync(string showId, string episodeId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await episodesContainer.ReadItemAsync<Episode>(
+                episodeId, new PartitionKey(showId), cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     // Cosmos's MaxItemCount is only a page-size *hint* — the (preview) emulator, and
     // potentially the live service, is free to return more per round trip. OFFSET/LIMIT
     // is an actual query bound, so it's used here instead to guarantee the page size.
