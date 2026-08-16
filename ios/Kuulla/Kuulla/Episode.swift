@@ -51,14 +51,17 @@ struct Episode: Decodable, Identifiable {
         }
 
         let parts = text.split(separator: ":")
-        guard parts.count == 3,
-              let hours = Double(parts[0]),
-              let minutes = Double(parts[1]),
-              let seconds = Double(parts[2])
-        else {
+        if parts.count == 3,
+           let hours = Double(parts[0]),
+           let minutes = Double(parts[1]),
+           let seconds = Double(parts[2]) {
+            return sign * (days * 86400 + hours * 3600 + minutes * 60 + seconds)
+        } else if parts.count == 2,
+                  let minutes = Double(parts[0]),
+                  let seconds = Double(parts[1]) {
+            return sign * (days * 86400 + minutes * 60 + seconds)
+        } else {
             return nil
         }
-
-        return sign * (days * 86400 + hours * 3600 + minutes * 60 + seconds)
     }
 }

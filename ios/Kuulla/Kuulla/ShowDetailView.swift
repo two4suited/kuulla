@@ -25,7 +25,7 @@ struct ShowDetailView: View {
                     .foregroundStyle(.red)
             }
 
-            if !episodes.isEmpty || isLoadingEpisodes || episodeError != nil {
+            if show != nil || isLoadingEpisodes || episodeError != nil {
                 Section("Episodes") {
                     if let episodeError {
                         Text(episodeError)
