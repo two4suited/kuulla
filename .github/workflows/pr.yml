@@ -1,0 +1,42 @@
+name: PR Build
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-dotnet:
+    name: Build .NET
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Kuulla.sln
+
+      - name: Build
+        run: dotnet build Kuulla.sln --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test Kuulla.sln --no-build --configuration Release
+
+  build-ios:
+    name: Build iOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        working-directory: ios/Kuulla
+        run: |
+          xcodebuild build \
+            -project Kuulla.xcodeproj \
+            -scheme Kuulla \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
