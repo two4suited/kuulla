@@ -79,12 +79,17 @@ app.MapPost("/Account/Logout", async (HttpContext context) =>
     return Results.LocalRedirect("/");
 });
 
+#if DEBUG
 if (app.Environment.IsDevelopment())
 {
     // Local-testing-only (issue #48): signs the browser in with a cookie identity backed by a
     // token from the API's dev-only /dev/test-token endpoint, instead of the real Google OAuth
     // challenge, so the app can be exercised locally without Google credentials configured.
-    app.MapGet("/Account/LoginTest", async (string? returnUrl, IHttpClientFactory httpClientFactory, HttpContext context) =>
+    // POST (mirroring /Account/Logout below) rather than GET, and antiforgery-protected via the
+    // form in LoginDisplay.razor, so a state-changing sign-in can't be triggered cross-site
+    // (e.g. from an <img> tag on another page). Compiled out of Release builds entirely,
+    // regardless of ASPNETCORE_ENVIRONMENT.
+    app.MapPost("/Account/LoginTest", async (IHttpClientFactory httpClientFactory, HttpContext context) =>
     {
         var apiClient = httpClientFactory.CreateClient("api");
         var response = await apiClient.PostAsync("/dev/test-token", content: null);
@@ -99,12 +104,13 @@ if (app.Environment.IsDevelopment())
             new Claim(ClaimTypes.Name, "Local Test User"),
         ], CookieAuthenticationDefaults.AuthenticationScheme);
 
-        var properties = new AuthenticationProperties { RedirectUri = returnUrl ?? "/" };
+        var properties = new AuthenticationProperties();
         properties.StoreTokens([new AuthenticationToken { Name = "id_token", Value = idToken }]);
 
         await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity), properties);
-        return Results.LocalRedirect(returnUrl ?? "/");
+        return Results.LocalRedirect("/");
     });
 }
+#endif
 
 app.Run();

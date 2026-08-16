@@ -73,6 +73,7 @@ final class AuthManager {
         return URL(string: "http://localhost:5245")!
     }
 
+    @MainActor
     func signInAsTestUser(apiBaseURL: URL = AuthManager.localTestApiBaseURL) async throws {
         var request = URLRequest(url: apiBaseURL.appendingPathComponent("dev/test-token"))
         request.httpMethod = "POST"

@@ -12,7 +12,10 @@
         <a class="nav-link px-3" href="Account/Login">Log in</a>
         @if (HostEnvironment.IsDevelopment())
         {
-            <a class="nav-link px-3" href="Account/LoginTest">Sign in as test user (local only)</a>
+            <form action="Account/LoginTest" method="post">
+                <AntiforgeryToken />
+                <button type="submit" class="nav-link px-3 btn btn-link">Sign in as test user (local only)</button>
+            </form>
         }
     </NotAuthorized>
 </AuthorizeView>

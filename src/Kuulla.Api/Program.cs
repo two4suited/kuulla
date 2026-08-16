@@ -32,16 +32,26 @@ var googleAudiences = new[] { googleClientId, googleIosClientId }
 // Local testing (issue #48) needs to reach authenticated endpoints without real Google OAuth
 // credentials configured, so the "at least one audience configured" guard only applies outside
 // Development — the LocalTest scheme below covers auth in Development instead.
-if (googleAudiences.Length == 0 && !builder.Environment.IsDevelopment())
+if (googleAudiences.Length == 0)
 {
-    throw new InvalidOperationException(
-        "No Google OAuth client IDs configured. Set 'Google:ClientId' and/or 'Google:IosClientId' " +
-        "so JWT bearer authentication has a valid audience to check tokens against.");
+    if (!builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "No Google OAuth client IDs configured. Set 'Google:ClientId' and/or 'Google:IosClientId' " +
+            "so JWT bearer authentication has a valid audience to check tokens against.");
+    }
+
+    Console.WriteLine(
+        "warn: No Google OAuth client IDs configured — real Google sign-in will fail token " +
+        "validation. Local testing via POST /dev/test-token (issue #48) is unaffected.");
 }
 
+#if DEBUG
 const string GoogleScheme = "Google";
 const string LocalTestScheme = "LocalTest";
 const string LocalTestIssuer = "kuulla-local-test";
+const string LocalTestAudience = "kuulla-local-test-client";
+#endif
 
 async Task ValidateUserClaimsAsync(Microsoft.AspNetCore.Authentication.JwtBearer.TokenValidatedContext context, string missingClaimsTokenDescription)
 {
@@ -61,13 +71,18 @@ async Task ValidateUserClaimsAsync(Microsoft.AspNetCore.Authentication.JwtBearer
     await userService.GetOrCreateUserAsync(subject, email, name, pictureUrl, context.HttpContext.RequestAborted);
 }
 
+#if DEBUG
 // Only generated (and only ever validated against) when running locally, so a LocalTest-issued
-// token can never be accepted by a non-Development instance of the API.
+// token can never be accepted by a non-Development instance of the API. Guarded by #if DEBUG,
+// not just IsDevelopment(), so none of this exists in a Release build regardless of how
+// ASPNETCORE_ENVIRONMENT is configured on the deployed instance.
 SymmetricSecurityKey? localTestSigningKey = null;
+var jwtHandler = new JwtSecurityTokenHandler();
 if (builder.Environment.IsDevelopment())
 {
     localTestSigningKey = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(32));
 }
+#endif
 
 void ConfigureGoogleOptions(JwtBearerOptions options)
 {
@@ -93,6 +108,7 @@ void ConfigureGoogleOptions(JwtBearerOptions options)
 
 var authenticationBuilder = builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme);
 
+#if DEBUG
 if (builder.Environment.IsDevelopment())
 {
     // A policy scheme picks which real scheme handles the request by peeking at the token's
@@ -112,7 +128,7 @@ if (builder.Environment.IsDevelopment())
             var token = authorizationHeader["Bearer ".Length..].Trim();
             try
             {
-                var issuer = new JwtSecurityTokenHandler().ReadJwtToken(token).Issuer;
+                var issuer = jwtHandler.ReadJwtToken(token).Issuer;
                 return issuer == LocalTestIssuer ? LocalTestScheme : GoogleScheme;
             }
             catch (Exception)
@@ -130,9 +146,10 @@ if (builder.Environment.IsDevelopment())
             ValidateIssuer = true,
             ValidIssuer = LocalTestIssuer,
             ValidateAudience = true,
-            ValidAudience = LocalTestIssuer,
+            ValidAudience = LocalTestAudience,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = localTestSigningKey,
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
             NameClaimType = "name",
         };
         options.Events = new JwtBearerEvents
@@ -145,6 +162,9 @@ else
 {
     authenticationBuilder.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, ConfigureGoogleOptions);
 }
+#else
+authenticationBuilder.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, ConfigureGoogleOptions);
+#endif
 
 builder.Services.AddAuthorization();
 
@@ -157,11 +177,13 @@ app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
+#if DEBUG
 if (app.Environment.IsDevelopment())
 {
     // Local-testing-only (issue #48): mints a token that satisfies the same validation the
     // Google scheme applies (issuer, signature, sub/email claims) so Web/iOS can exercise
-    // authenticated flows without a real Google sign-in. Never registered outside Development.
+    // authenticated flows without a real Google sign-in. Never registered outside Development,
+    // and compiled out of Release builds entirely regardless of ASPNETCORE_ENVIRONMENT.
     app.MapPost("/dev/test-token", () =>
     {
         var claims = new[]
@@ -172,14 +194,15 @@ if (app.Environment.IsDevelopment())
         };
         var token = new JwtSecurityToken(
             issuer: LocalTestIssuer,
-            audience: LocalTestIssuer,
+            audience: LocalTestAudience,
             claims: claims,
             expires: DateTime.UtcNow.AddHours(12),
             signingCredentials: new SigningCredentials(localTestSigningKey, SecurityAlgorithms.HmacSha256));
 
-        return Results.Ok(new { token = new JwtSecurityTokenHandler().WriteToken(token) });
+        return Results.Ok(new { token = jwtHandler.WriteToken(token) });
     });
 }
+#endif
 
 app.MapGet("/me", (ClaimsPrincipal user) => Results.Ok(new
 {
