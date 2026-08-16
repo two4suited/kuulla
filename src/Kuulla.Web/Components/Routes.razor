@@ -1,6 +1,51 @@
-﻿<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+﻿@using Kuulla.Web.Services
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Components.Authorization
+
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <p>You need to <a href="Account/Login">log in</a> to view this page.</p>
+            </NotAuthorized>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>
+
+@implements IDisposable
+@code {
+    // HttpContext is only available during prerendering, which runs in a different
+    // DI scope than the interactive circuit that actually renders the page — so the
+    // TokenProvider populated here isn't the same instance the circuit sees. Persist
+    // the token via PersistentComponentState and restore it once the circuit starts.
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [Inject]
+    private TokenProvider TokenProvider { get; set; } = default!;
+
+    [Inject]
+    private PersistentComponentState ApplicationState { get; set; } = default!;
+
+    private PersistingComponentStateSubscription persistingSubscription;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (HttpContext is not null)
+        {
+            TokenProvider.IdToken = await HttpContext.GetTokenAsync("id_token");
+            persistingSubscription = ApplicationState.RegisterOnPersisting(() =>
+            {
+                ApplicationState.PersistAsJson(nameof(TokenProvider.IdToken), TokenProvider.IdToken);
+                return Task.CompletedTask;
+            });
+        }
+        else if (ApplicationState.TryTakeFromJson<string?>(nameof(TokenProvider.IdToken), out var idToken))
+        {
+            TokenProvider.IdToken = idToken;
+        }
+    }
+
+    public void Dispose() => persistingSubscription.Dispose();
+}
