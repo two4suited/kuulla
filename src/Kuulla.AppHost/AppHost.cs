@@ -1,20 +1,33 @@
+#pragma warning disable ASPIRECOSMOSDB001 // RunAsPreviewEmulator is experimental.
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 var cosmos = builder.AddAzureCosmosDB("cosmos")
-    .RunAsEmulator()
+    .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
     .AddCosmosDatabase("kuulladb");
 
 var redis = builder.AddRedis("redis");
 
+// Google OAuth credentials for "Login with Google" (milestone #1, issues #5-#8).
+// Values come from Parameters:<name> in the AppHost's user secrets locally —
+// see the `dotnet user-secrets set` commands below once the GCP OAuth app exists.
+var googleClientId = builder.AddParameter("google-client-id");
+var googleClientSecret = builder.AddParameter("google-client-secret", secret: true);
+var googleIosClientId = builder.AddParameter("google-ios-client-id");
+
 var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(cosmos)
     .WithReference(redis)
+    .WithEnvironment("Google__ClientId", googleClientId)
+    .WithEnvironment("Google__IosClientId", googleIosClientId)
     .WaitFor(cosmos)
     .WaitFor(redis);
 
 builder.AddProject<Projects.Kuulla_Web>("web")
     .WithExternalHttpEndpoints()
     .WithReference(api)
+    .WithEnvironment("Authentication__Google__ClientId", googleClientId)
+    .WithEnvironment("Authentication__Google__ClientSecret", googleClientSecret)
     .WaitFor(api);
 
 builder.Build().Run();
