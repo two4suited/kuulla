@@ -1,0 +1,52 @@
+@page "/jwt"
+@attribute [Authorize]
+@using System.Text.Json
+@using Kuulla.Web.Services
+@inject TokenProvider TokenProvider
+
+<PageTitle>JWT Viewer</PageTitle>
+
+<h1>ID Token</h1>
+
+@if (headerJson is null || payloadJson is null)
+{
+    <p>No ID token is available for the current session.</p>
+}
+else
+{
+    <h2>Header</h2>
+    <pre>@headerJson</pre>
+
+    <h2>Payload</h2>
+    <pre>@payloadJson</pre>
+}
+
+@code {
+    private string? headerJson;
+    private string? payloadJson;
+
+    protected override void OnInitialized()
+    {
+        if (TokenProvider.IdToken is not { } token)
+        {
+            return;
+        }
+
+        var parts = token.Split('.');
+        headerJson = FormatSegment(parts[0]);
+        payloadJson = FormatSegment(parts[1]);
+    }
+
+    private static string FormatSegment(string segment)
+    {
+        var bytes = Convert.FromBase64String(PadBase64Url(segment));
+        using var document = JsonDocument.Parse(bytes);
+        return JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static string PadBase64Url(string segment)
+    {
+        var base64 = segment.Replace('-', '+').Replace('_', '/');
+        return base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '=');
+    }
+}
