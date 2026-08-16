@@ -21,6 +21,11 @@ struct ContentView: View {
                 } else {
                     Button("Sign in with Google", action: signIn)
 
+#if DEBUG
+                    Button("Sign in as test user (local only)", action: signInAsTestUser)
+                        .font(.footnote)
+#endif
+
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.caption)
@@ -46,6 +51,19 @@ struct ContentView: View {
             }
         }
     }
+
+#if DEBUG
+    private func signInAsTestUser() {
+        Task {
+            do {
+                try await authManager.signInAsTestUser()
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+#endif
 }
 
 #Preview {
