@@ -23,6 +23,9 @@ struct ShowDetailView: View {
             } else if let showError {
                 Text(showError)
                     .foregroundStyle(.red)
+            } else if !isLoadingShow {
+                Text("Show not found.")
+                    .foregroundStyle(.secondary)
             }
 
             if show != nil || isLoadingEpisodes || episodeError != nil {
@@ -74,12 +77,15 @@ struct ShowDetailView: View {
         episodes = []
         continuationToken = nil
         episodeError = nil
+        isLoadingEpisodes = false
 
         isLoadingShow = true
         do {
             show = try await catalogClient.getShow(id: showId)
         } catch {
-            showError = "Something went wrong while loading this show. Please try again."
+            if !Task.isCancelled {
+                showError = "Something went wrong while loading this show. Please try again."
+            }
         }
         isLoadingShow = false
 
@@ -99,7 +105,9 @@ struct ShowDetailView: View {
             episodes.append(contentsOf: page.items)
             continuationToken = page.continuationToken
         } catch {
-            episodeError = "Something went wrong while loading episodes. Please try again."
+            if !Task.isCancelled {
+                episodeError = "Something went wrong while loading episodes. Please try again."
+            }
         }
 
         isLoadingEpisodes = false

@@ -35,7 +35,7 @@ struct Episode: Decodable, Identifiable {
         }
     }
 
-    // Parses .NET's TimeSpan format: [-][d.]hh:mm:ss[.fffffff]
+    // Parses .NET's TimeSpan format: [-][d.]hh:mm:ss[.fffffff], e.g. "00:45:00" or "1.02:03:04".
     static func parseDuration(_ text: String) -> TimeInterval? {
         var text = text
         var sign: Double = 1

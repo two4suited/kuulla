@@ -15,6 +15,12 @@ actor ApiClient {
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
         if !queryItems.isEmpty {
             components?.queryItems = queryItems
+            // URLComponents treats "+" as a legal, unescaped query character, but ASP.NET Core's
+            // query parser decodes unescaped "+" as a space — so a literal "+" in a query value
+            // (e.g. searching "C++") would silently arrive at the API as a space.
+            if let encodedQuery = components?.percentEncodedQuery {
+                components?.percentEncodedQuery = encodedQuery.replacingOccurrences(of: "+", with: "%2B")
+            }
         }
         guard let url = components?.url else {
             throw ApiError.requestFailed(statusCode: nil)
@@ -59,16 +65,20 @@ extension ApiClient {
 }
 
 enum ApiConfiguration {
-    // Aspire assigns the API a random local port on every `aspire start`/`aspire run`
-    // (see AuthManager's localTestApiBaseURL), so this resolves the same way: an
-    // explicit override, falling back to the port in Kuulla.Api's launchSettings.json
-    // http profile, which is only correct when the API is run directly (`dotnet run`).
     static var baseURL: URL {
+#if DEBUG
+        // Aspire assigns the API a random local port on every `aspire start`/`aspire run`
+        // (see AuthManager's localTestApiBaseURL), so this resolves the same way: an
+        // explicit override, falling back to the port in Kuulla.Api's launchSettings.json
+        // http profile, which is only correct when the API is run directly (`dotnet run`).
         if let override = ProcessInfo.processInfo.environment["KUULLA_API_BASE_URL"],
            let url = URL(string: override) {
             return url
         }
         return URL(string: "http://localhost:5245")!
+#else
+        fatalError("ApiConfiguration.baseURL needs a production API URL configured before Release builds can run.")
+#endif
     }
 }
 

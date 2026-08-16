@@ -55,10 +55,14 @@ struct SearchView: View {
         }
 
         searchTask = Task {
+            // Set immediately (not after the debounce delay) so the "No shows found" empty
+            // state can't flash on screen for the first ~300ms of every keystroke.
+            isSearching = true
+            defer { isSearching = false }
+
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
 
-            isSearching = true
             errorMessage = nil
 
             do {
@@ -68,9 +72,8 @@ struct SearchView: View {
             } catch {
                 guard !Task.isCancelled else { return }
                 errorMessage = "Something went wrong while searching. Please try again."
+                results = []
             }
-
-            isSearching = false
         }
     }
 }

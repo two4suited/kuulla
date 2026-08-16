@@ -7,7 +7,7 @@ struct EpisodeDetailView: View {
     @State private var episode: Episode?
     @State private var isLoading = false
     @State private var loadError: String?
-    @State private var audioPlayer = AudioPlayer()
+    @State private var audioPlayer = AudioPlayer.shared
 
     private let catalogClient = PodcastCatalogClient()
 
@@ -81,7 +81,9 @@ struct EpisodeDetailView: View {
         do {
             episode = try await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
         } catch {
-            loadError = "Something went wrong while loading this episode. Please try again."
+            if !Task.isCancelled {
+                loadError = "Something went wrong while loading this episode. Please try again."
+            }
         }
         isLoading = false
     }
@@ -89,7 +91,7 @@ struct EpisodeDetailView: View {
     private func togglePlayback(url: URL) {
         if audioPlayer.isPlaying {
             audioPlayer.pause()
-        } else if audioPlayer.currentTime > 0 {
+        } else if audioPlayer.currentURL == url {
             audioPlayer.resume()
         } else {
             audioPlayer.play(url: url)
