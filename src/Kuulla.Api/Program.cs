@@ -19,6 +19,13 @@ var googleAudiences = new[] { googleClientId, googleIosClientId }
     .Where(audience => !string.IsNullOrEmpty(audience))
     .ToArray();
 
+if (googleAudiences.Length == 0)
+{
+    throw new InvalidOperationException(
+        "No Google OAuth client IDs configured. Set 'Google:ClientId' and/or 'Google:IosClientId' " +
+        "so JWT bearer authentication has a valid audience to check tokens against.");
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
