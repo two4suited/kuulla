@@ -10,6 +10,10 @@
 {
     <p>Loading&hellip;</p>
 }
+else if (loadError is not null)
+{
+    <p class="text-danger">@loadError</p>
+}
 else if (episode is null)
 {
     <p>Episode not found.</p>
@@ -57,13 +61,25 @@ else
 
     private Episode? episode;
     private bool isLoading;
+    private string? loadError;
 
     protected override async Task OnParametersSetAsync()
     {
         episode = null;
+        loadError = null;
         isLoading = true;
-        episode = await CatalogClient.GetEpisodeAsync(ShowId, EpisodeId);
-        isLoading = false;
+        try
+        {
+            episode = await CatalogClient.GetEpisodeAsync(ShowId, EpisodeId);
+        }
+        catch (HttpRequestException)
+        {
+            loadError = "Something went wrong while loading this episode. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
     private static string FormatDuration(TimeSpan duration) =>

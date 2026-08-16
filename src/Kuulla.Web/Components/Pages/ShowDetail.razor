@@ -10,6 +10,10 @@
 {
     <p>Loading&hellip;</p>
 }
+else if (showError is not null)
+{
+    <p class="text-danger">@showError</p>
+}
 else if (show is null)
 {
     <p>Show not found.</p>
@@ -89,6 +93,7 @@ else
 
     private Show? show;
     private bool isLoadingShow;
+    private string? showError;
     private readonly List<Episode> episodes = [];
     private string? continuationToken;
     private bool isLoadingEpisodes;
@@ -97,13 +102,24 @@ else
     protected override async Task OnParametersSetAsync()
     {
         show = null;
+        showError = null;
         episodes.Clear();
         continuationToken = null;
         episodeError = null;
 
         isLoadingShow = true;
-        show = await CatalogClient.GetShowAsync(Id);
-        isLoadingShow = false;
+        try
+        {
+            show = await CatalogClient.GetShowAsync(Id);
+        }
+        catch (HttpRequestException)
+        {
+            showError = "Something went wrong while loading this show. Please try again.";
+        }
+        finally
+        {
+            isLoadingShow = false;
+        }
 
         if (show is not null)
         {
