@@ -2,10 +2,16 @@ import AVFoundation
 
 @Observable
 final class AudioPlayer {
+    // A single shared instance so playback survives navigation between episode screens
+    // (each screen creating its own player would tear down playback — and drop the shared
+    // AVAudioSession — the moment the view is popped, defeating background audio).
+    static let shared = AudioPlayer()
+
     private var player: AVPlayer?
     private(set) var isPlaying = false
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
+    private(set) var currentURL: URL?
 
     init() {
         configureAudioSession()
@@ -16,6 +22,7 @@ final class AudioPlayer {
         player = AVPlayer(playerItem: item)
         player?.play()
         isPlaying = true
+        currentURL = url
     }
 
     func pause() {
