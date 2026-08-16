@@ -1,5 +1,7 @@
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Kuulla.Api.Models;
 
@@ -19,9 +21,9 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
             return null;
         }
 
-        var description = FirstNonEmpty(
+        var description = StripHtml(FirstNonEmpty(
             channel.Element(ItunesNamespace + "summary")?.Value,
-            channel.Element("description")?.Value);
+            channel.Element("description")?.Value));
 
         var episodes = channel.Elements("item")
             .Select(ParseEpisode)
@@ -40,9 +42,9 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
             : (long?)null;
 
         var title = FirstNonEmpty(item.Element("title")?.Value, "Untitled episode")!;
-        var description = FirstNonEmpty(
+        var description = StripHtml(FirstNonEmpty(
             item.Element(ItunesNamespace + "summary")?.Value,
-            item.Element("description")?.Value);
+            item.Element("description")?.Value));
         var publishedAt = DateTimeOffset.TryParse(item.Element("pubDate")?.Value, out var pubDate)
             ? pubDate
             : (DateTimeOffset?)null;
@@ -102,6 +104,32 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
 
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
+
+    private static readonly Regex HtmlBlockBreakRegex = new(
+        "</p>|</div>|<br\\s*/?>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex HtmlTagRegex = new("<[^>]+>", RegexOptions.Compiled);
+    private static readonly Regex BlankLineRegex = new(@"\n[ \t]*\n(\s*\n)*", RegexOptions.Compiled);
+
+    // RSS description/summary fields are frequently HTML (podcast feeds commonly wrap show
+    // notes in <p>/<a> tags), but the UI renders these as plain text — Blazor HTML-encodes
+    // interpolated values, so unstripped markup would show up as literal "<p>...</p>" rather
+    // than being interpreted. Turn block-level breaks into newlines before stripping the
+    // remaining tags, so paragraph structure survives for the "white-space: pre-wrap" display.
+    private static string? StripHtml(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        var withBreaks = HtmlBlockBreakRegex.Replace(value, "\n");
+        var withoutTags = HtmlTagRegex.Replace(withBreaks, string.Empty);
+        var decoded = WebUtility.HtmlDecode(withoutTags);
+        var collapsedBlankLines = BlankLineRegex.Replace(decoded, "\n\n");
+        return string.Join('\n', collapsedBlankLines
+            .Split('\n')
+            .Select(line => line.Trim())).Trim();
+    }
 
     private static string Hash(string value)
     {

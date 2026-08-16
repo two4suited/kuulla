@@ -1,5 +1,5 @@
 @page "/shows/{ShowId}/episodes/{EpisodeId}"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject PodcastCatalogClient CatalogClient
@@ -32,7 +32,7 @@ else
         }
         @if (episode.Duration is { } duration)
         {
-            @FormatDuration(duration)
+            @EpisodeFormatting.FormatDuration(duration)
         }
     </div>
 
@@ -81,9 +81,4 @@ else
             isLoading = false;
         }
     }
-
-    private static string FormatDuration(TimeSpan duration) =>
-        duration.TotalHours >= 1
-            ? duration.ToString(@"h\:mm\:ss")
-            : duration.ToString(@"m\:ss");
 }

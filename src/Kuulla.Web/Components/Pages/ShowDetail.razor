@@ -1,5 +1,5 @@
 @page "/shows/{Id}"
-@rendermode InteractiveServer
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject PodcastCatalogClient CatalogClient
@@ -70,7 +70,7 @@ else
                     }
                     @if (episode.Duration is { } duration)
                     {
-                        @FormatDuration(duration)
+                        @EpisodeFormatting.FormatDuration(duration)
                     }
                 </div>
             </li>
@@ -129,6 +129,11 @@ else
 
     private async Task LoadMoreEpisodesAsync()
     {
+        if (isLoadingEpisodes)
+        {
+            return;
+        }
+
         isLoadingEpisodes = true;
         episodeError = null;
 
@@ -147,9 +152,4 @@ else
             isLoadingEpisodes = false;
         }
     }
-
-    private static string FormatDuration(TimeSpan duration) =>
-        duration.TotalHours >= 1
-            ? duration.ToString(@"h\:mm\:ss")
-            : duration.ToString(@"m\:ss");
 }

@@ -9,8 +9,8 @@
 <h1>Search Podcasts</h1>
 
 <EditForm Model="this" OnValidSubmit="SearchAsync" class="d-flex mb-4" style="max-width: 32rem;">
-    <input @bind="query" @bind:event="oninput" class="form-control me-2" placeholder="Search for a show..." aria-label="Search for a show" />
-    <button type="submit" class="btn btn-primary" disabled="@(isSearching || string.IsNullOrWhiteSpace(query))">Search</button>
+    <input @bind="query" class="form-control me-2" placeholder="Search for a show..." aria-label="Search for a show" />
+    <button type="submit" class="btn btn-primary" disabled="@isSearching">Search</button>
 </EditForm>
 
 @if (isSearching)
