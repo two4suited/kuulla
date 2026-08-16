@@ -40,6 +40,9 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
             : (long?)null;
 
         var title = FirstNonEmpty(item.Element("title")?.Value, "Untitled episode")!;
+        var description = FirstNonEmpty(
+            item.Element(ItunesNamespace + "summary")?.Value,
+            item.Element("description")?.Value);
         var publishedAt = DateTimeOffset.TryParse(item.Element("pubDate")?.Value, out var pubDate)
             ? pubDate
             : (DateTimeOffset?)null;
@@ -51,7 +54,7 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
         var guid = item.Element("guid")?.Value;
         var id = !string.IsNullOrEmpty(guid) ? Hash(guid) : Hash(audioUrl);
 
-        return new Episode(id, ShowId: string.Empty, title, publishedAt, duration, audioUrl, bitrateKbps, fileSizeBytes);
+        return new Episode(id, ShowId: string.Empty, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes);
     }
 
     // itunes:duration is either plain seconds ("1800") or "HH:MM:SS" / "MM:SS".

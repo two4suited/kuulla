@@ -130,4 +130,14 @@ shows.MapGet("/{id}/episodes", async (
     return Results.Ok(page);
 });
 
+shows.MapGet("/{id}/episodes/{episodeId}", async (
+    string id,
+    string episodeId,
+    IEpisodeService episodeService,
+    CancellationToken ct) =>
+{
+    var episode = await episodeService.GetEpisodeAsync(id, episodeId, ct);
+    return episode is not null ? Results.Ok(episode) : Results.NotFound();
+});
+
 app.Run();

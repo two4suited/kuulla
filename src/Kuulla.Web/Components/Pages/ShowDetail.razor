@@ -1,0 +1,139 @@
+@page "/shows/{Id}"
+@rendermode InteractiveServer
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PodcastCatalogClient CatalogClient
+
+<PageTitle>@(show?.Title ?? "Show")</PageTitle>
+
+@if (isLoadingShow)
+{
+    <p>Loading&hellip;</p>
+}
+else if (show is null)
+{
+    <p>Show not found.</p>
+}
+else
+{
+    <div class="d-flex mb-4">
+        @if (!string.IsNullOrEmpty(show.ArtworkUrl))
+        {
+            <img src="@show.ArtworkUrl" alt="@show.Title" style="width: 12rem; height: 12rem;" class="rounded me-4" />
+        }
+        <div>
+            <h1>@show.Title</h1>
+            <p class="text-muted">@show.Author</p>
+            @if (show.Categories.Count > 0)
+            {
+                <p>
+                    @foreach (var category in show.Categories)
+                    {
+                        <span class="badge text-bg-secondary me-1">@category</span>
+                    }
+                </p>
+            }
+            @if (!string.IsNullOrEmpty(show.Description))
+            {
+                <p>@show.Description</p>
+            }
+        </div>
+    </div>
+
+    <h2>Episodes</h2>
+
+    @if (episodeError is not null)
+    {
+        <p class="text-danger">@episodeError</p>
+    }
+    else if (episodes.Count == 0 && !isLoadingEpisodes)
+    {
+        <p>No episodes found for this show.</p>
+    }
+
+    <ul class="list-group mb-3">
+        @foreach (var episode in episodes)
+        {
+            <li class="list-group-item">
+                <a href="@($"shows/{Id}/episodes/{episode.Id}")" class="text-decoration-none">
+                    <div class="fw-bold">@episode.Title</div>
+                </a>
+                <div class="text-muted small">
+                    @if (episode.PublishedAt is { } publishedAt)
+                    {
+                        @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
+                        <text> &middot; </text>
+                    }
+                    @if (episode.Duration is { } duration)
+                    {
+                        @FormatDuration(duration)
+                    }
+                </div>
+            </li>
+        }
+    </ul>
+
+    @if (isLoadingEpisodes)
+    {
+        <p>Loading episodes&hellip;</p>
+    }
+    else if (continuationToken is not null)
+    {
+        <button class="btn btn-outline-primary" @onclick="LoadMoreEpisodesAsync">Load more</button>
+    }
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = "";
+
+    private Show? show;
+    private bool isLoadingShow;
+    private readonly List<Episode> episodes = [];
+    private string? continuationToken;
+    private bool isLoadingEpisodes;
+    private string? episodeError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        show = null;
+        episodes.Clear();
+        continuationToken = null;
+        episodeError = null;
+
+        isLoadingShow = true;
+        show = await CatalogClient.GetShowAsync(Id);
+        isLoadingShow = false;
+
+        if (show is not null)
+        {
+            await LoadMoreEpisodesAsync();
+        }
+    }
+
+    private async Task LoadMoreEpisodesAsync()
+    {
+        isLoadingEpisodes = true;
+        episodeError = null;
+
+        try
+        {
+            var page = await CatalogClient.GetEpisodesAsync(Id, continuationToken, pageSize: 20);
+            episodes.AddRange(page.Items);
+            continuationToken = page.ContinuationToken;
+        }
+        catch (HttpRequestException)
+        {
+            episodeError = "Something went wrong while loading episodes. Please try again.";
+        }
+        finally
+        {
+            isLoadingEpisodes = false;
+        }
+    }
+
+    private static string FormatDuration(TimeSpan duration) =>
+        duration.TotalHours >= 1
+            ? duration.ToString(@"h\:mm\:ss")
+            : duration.ToString(@"m\:ss");
+}

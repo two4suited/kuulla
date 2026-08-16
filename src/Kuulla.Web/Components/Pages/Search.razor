@@ -1,0 +1,80 @@
+@page "/search"
+@rendermode InteractiveServer
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PodcastCatalogClient CatalogClient
+
+<PageTitle>Search Podcasts</PageTitle>
+
+<h1>Search Podcasts</h1>
+
+<EditForm Model="this" OnValidSubmit="SearchAsync" class="d-flex mb-4" style="max-width: 32rem;">
+    <input @bind="query" @bind:event="oninput" class="form-control me-2" placeholder="Search for a show..." aria-label="Search for a show" />
+    <button type="submit" class="btn btn-primary" disabled="@(isSearching || string.IsNullOrWhiteSpace(query))">Search</button>
+</EditForm>
+
+@if (isSearching)
+{
+    <p>Searching&hellip;</p>
+}
+else if (errorMessage is not null)
+{
+    <p class="text-danger">@errorMessage</p>
+}
+else if (hasSearched && results is { Count: 0 })
+{
+    <p>No shows found for "@lastQuery".</p>
+}
+else if (results is { Count: > 0 })
+{
+    <div class="row row-cols-2 row-cols-md-4 g-4">
+        @foreach (var show in results)
+        {
+            <div class="col">
+                <a href="@($"shows/{show.Id}")" class="text-decoration-none text-body">
+                    @if (!string.IsNullOrEmpty(show.ArtworkUrl))
+                    {
+                        <img src="@show.ArtworkUrl" alt="@show.Title" class="img-fluid rounded" />
+                    }
+                    <h5 class="mt-2 mb-0">@show.Title</h5>
+                    <p class="text-muted small">@show.Author</p>
+                </a>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private string query = "";
+    private string? lastQuery;
+    private bool hasSearched;
+    private bool isSearching;
+    private string? errorMessage;
+    private IReadOnlyList<Show>? results;
+
+    private async Task SearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return;
+        }
+
+        isSearching = true;
+        errorMessage = null;
+
+        try
+        {
+            results = await CatalogClient.SearchShowsAsync(query);
+            lastQuery = query;
+            hasSearched = true;
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "Something went wrong while searching. Please try again.";
+        }
+        finally
+        {
+            isSearching = false;
+        }
+    }
+}

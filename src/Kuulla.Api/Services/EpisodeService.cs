@@ -37,6 +37,20 @@ public class EpisodeService(
         return page;
     }
 
+    public async Task<Episode?> GetEpisodeAsync(string showId, string episodeId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await episodesContainer.ReadItemAsync<Episode>(
+                episodeId, new PartitionKey(showId), cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     // Cosmos's MaxItemCount is only a page-size *hint* — the (preview) emulator, and
     // potentially the live service, is free to return more per round trip. OFFSET/LIMIT
     // is an actual query bound, so it's used here instead to guarantee the page size.

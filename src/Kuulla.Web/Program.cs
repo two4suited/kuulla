@@ -43,6 +43,7 @@ builder.Services.AddHttpClient("api", client =>
     client.BaseAddress = new Uri("https+http://api");
 });
 builder.Services.AddScoped<KuullaApiClient>();
+builder.Services.AddScoped<PodcastCatalogClient>();
 
 var app = builder.Build();
 

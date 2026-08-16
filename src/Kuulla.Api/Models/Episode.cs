@@ -14,5 +14,6 @@ public record Episode(
     DateTimeOffset? PublishedAt,
     TimeSpan? Duration,
     string AudioUrl,
+    string? Description,
     int? BitrateKbps,
     long? FileSizeBytes);
