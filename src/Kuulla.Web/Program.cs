@@ -92,9 +92,9 @@ if (app.Environment.IsDevelopment())
     app.MapPost("/Account/LoginTest", async (IHttpClientFactory httpClientFactory, HttpContext context) =>
     {
         var apiClient = httpClientFactory.CreateClient("api");
-        var response = await apiClient.PostAsync("/dev/test-token", content: null);
+        var response = await apiClient.PostAsync("/dev/test-token", content: null, context.RequestAborted);
         response.EnsureSuccessStatusCode();
-        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: context.RequestAborted);
         var idToken = payload.GetProperty("token").GetString()!;
 
         var identity = new ClaimsIdentity(

@@ -81,7 +81,8 @@ final class AuthManager {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
-            throw AuthError.noIdToken
+            let statusCode = (response as? HTTPURLResponse)?.statusCode
+            throw AuthError.localTestSignInFailed(statusCode: statusCode)
         }
 
         let payload = try JSONDecoder().decode(LocalTestTokenResponse.self, from: data)
@@ -99,4 +100,5 @@ final class AuthManager {
 enum AuthError: Error {
     case notSignedIn
     case noIdToken
+    case localTestSignInFailed(statusCode: Int?)
 }

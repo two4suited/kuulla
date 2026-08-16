@@ -148,7 +148,10 @@ if (builder.Environment.IsDevelopment())
             ValidateAudience = true,
             ValidAudience = LocalTestAudience,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = localTestSigningKey,
+            // Non-null: this scheme is only ever registered inside the enclosing
+            // `if (builder.Environment.IsDevelopment())`, the same condition under which
+            // localTestSigningKey is generated above.
+            IssuerSigningKey = localTestSigningKey!,
             ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
             NameClaimType = "name",
         };
@@ -184,8 +187,17 @@ if (app.Environment.IsDevelopment())
     // Google scheme applies (issuer, signature, sub/email claims) so Web/iOS can exercise
     // authenticated flows without a real Google sign-in. Never registered outside Development,
     // and compiled out of Release builds entirely regardless of ASPNETCORE_ENVIRONMENT.
-    app.MapPost("/dev/test-token", () =>
+    app.MapPost("/dev/test-token", (HttpContext context) =>
     {
+        // Restricted to loopback callers even though the whole endpoint is already
+        // Development/DEBUG-only, so it can't mint tokens for anyone who merely reaches the
+        // machine over a shared network.
+        var remoteIp = context.Connection.RemoteIpAddress;
+        if (remoteIp is null || !System.Net.IPAddress.IsLoopback(remoteIp))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
         var claims = new[]
         {
             new Claim(JwtRegisteredClaimNames.Sub, "local-test-user"),
