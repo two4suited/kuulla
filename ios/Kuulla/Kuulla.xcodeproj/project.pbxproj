@@ -12,6 +12,8 @@
 		A1000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000003; };
 		A1000004 /* ApiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004; };
 		A1000005 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005; };
+		A1000006 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006; };
+		B9000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B9000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -21,6 +23,8 @@
 		A2000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000004 /* ApiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClient.swift; sourceTree = "<group>"; };
 		A2000005 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		A2000006 /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
+		A2000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -39,7 +43,9 @@
 				A2000002 /* ContentView.swift */,
 				A2000004 /* ApiClient.swift */,
 				A2000005 /* AudioPlayer.swift */,
+				A2000006 /* AuthManager.swift */,
 				A2000003 /* Assets.xcassets */,
+				A2000007 /* Info.plist */,
 			);
 			path = Kuulla;
 			sourceTree = "<group>";
@@ -61,12 +67,16 @@
 			buildPhases = (
 				A5000001 /* Sources */,
 				A5000002 /* Resources */,
+				B9000004 /* Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = Kuulla;
+			packageProductDependencies = (
+				B9000002 /* GoogleSignIn */,
+			);
 			productName = Kuulla;
 			productReference = A2000000;
 			productType = "com.apple.product-type.application";
@@ -90,6 +100,9 @@
 				Base,
 			);
 			mainGroup = A3000000;
+			packageReferences = (
+				B9000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
 			productRefGroup = A3000002;
 			projectDirPath = "";
 			projectRoot = "";
@@ -108,6 +121,7 @@
 				A1000002,
 				A1000004,
 				A1000005,
+				A1000006,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -124,6 +138,17 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		B9000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9000003 /* GoogleSignIn in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin XCBuildConfiguration section */
 		A8000000 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -132,6 +157,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Kuulla/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -155,6 +181,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Kuulla/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -239,6 +266,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B9000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B9000002 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A7000000;
 }
