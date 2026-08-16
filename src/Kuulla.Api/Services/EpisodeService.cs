@@ -28,7 +28,7 @@ public class EpisodeService(
                 var feed = await feedClient.FetchAsync(show.FeedUrl, cancellationToken);
                 if (feed is { Episodes.Count: > 0 })
                 {
-                    await UpsertEpisodesAsync(showId, feed.Episodes, cancellationToken);
+                    await CacheEpisodesAsync(showId, feed.Episodes, cancellationToken);
                     page = await QueryEpisodesAsync(showId, continuationToken, pageSize, cancellationToken);
                 }
             }
@@ -40,19 +40,23 @@ public class EpisodeService(
     // Cosmos's MaxItemCount is only a page-size *hint* — the (preview) emulator, and
     // potentially the live service, is free to return more per round trip. OFFSET/LIMIT
     // is an actual query bound, so it's used here instead to guarantee the page size.
+    // Fetches one extra item beyond pageSize so we can tell whether a next page actually
+    // exists, rather than guessing from whether this page happened to come back full.
     private async Task<EpisodePage> QueryEpisodesAsync(
         string showId,
         string? continuationToken,
         int pageSize,
         CancellationToken cancellationToken)
     {
-        var offset = continuationToken is not null && int.TryParse(continuationToken, out var parsed) ? parsed : 0;
+        var offset = continuationToken is not null && int.TryParse(continuationToken, out var parsed) && parsed > 0
+            ? parsed
+            : 0;
 
         var queryDefinition = new QueryDefinition(
-                "SELECT * FROM episodes e WHERE e.ShowId = @showId ORDER BY e.PublishedAt DESC OFFSET @offset LIMIT @pageSize")
+                "SELECT * FROM episodes e WHERE e.ShowId = @showId ORDER BY e.PublishedAt DESC OFFSET @offset LIMIT @fetchCount")
             .WithParameter("@showId", showId)
             .WithParameter("@offset", offset)
-            .WithParameter("@pageSize", pageSize);
+            .WithParameter("@fetchCount", pageSize + 1);
 
         var requestOptions = new QueryRequestOptions { PartitionKey = new PartitionKey(showId) };
 
@@ -64,22 +68,34 @@ public class EpisodeService(
             items.AddRange(response);
         }
 
-        var nextToken = items.Count == pageSize ? (offset + pageSize).ToString() : null;
+        var hasMore = items.Count > pageSize;
+        if (hasMore)
+        {
+            items.RemoveAt(items.Count - 1);
+        }
+
+        var nextToken = hasMore ? (offset + pageSize).ToString() : null;
         return new EpisodePage(items, nextToken);
     }
 
-    private async Task UpsertEpisodesAsync(string showId, IReadOnlyList<Episode> episodes, CancellationToken cancellationToken)
+    // Create-only (never overwrites an existing cached episode) and capped at a modest
+    // degree of parallelism — firing one Cosmos write per episode unbounded would throttle
+    // on feeds with hundreds of episodes.
+    private async Task CacheEpisodesAsync(string showId, IReadOnlyList<Episode> episodes, CancellationToken cancellationToken)
     {
-        await Task.WhenAll(episodes.Select(async episode =>
-        {
-            var stamped = episode with { ShowId = showId };
-            try
+        await Parallel.ForEachAsync(
+            episodes,
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
+            async (episode, ct) =>
             {
-                await episodesContainer.CreateItemAsync(stamped, new PartitionKey(showId), cancellationToken: cancellationToken);
-            }
-            catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
-            {
-            }
-        }));
+                var stamped = episode with { ShowId = showId };
+                try
+                {
+                    await episodesContainer.CreateItemAsync(stamped, new PartitionKey(showId), cancellationToken: ct);
+                }
+                catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+                {
+                }
+            });
     }
 }

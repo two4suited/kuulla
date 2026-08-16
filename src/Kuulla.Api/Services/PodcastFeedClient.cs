@@ -69,29 +69,32 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
 
         var parts = raw.Split(':');
         int hours = 0, minutes, seconds;
+        switch (parts.Length)
+        {
+            case 3:
+                if (!int.TryParse(parts[0], out hours) || !int.TryParse(parts[1], out minutes) || !int.TryParse(parts[2], out seconds))
+                {
+                    return null;
+                }
+                break;
+            case 2:
+                if (!int.TryParse(parts[0], out minutes) || !int.TryParse(parts[1], out seconds))
+                {
+                    return null;
+                }
+                break;
+            default:
+                return null;
+        }
+
         try
         {
-            switch (parts.Length)
-            {
-                case 3:
-                    hours = int.Parse(parts[0]);
-                    minutes = int.Parse(parts[1]);
-                    seconds = int.Parse(parts[2]);
-                    break;
-                case 2:
-                    minutes = int.Parse(parts[0]);
-                    seconds = int.Parse(parts[1]);
-                    break;
-                default:
-                    return null;
-            }
+            return new TimeSpan(hours, minutes, seconds);
         }
-        catch (FormatException)
+        catch (ArgumentOutOfRangeException)
         {
             return null;
         }
-
-        return new TimeSpan(hours, minutes, seconds);
     }
 
     private static string? FirstNonEmpty(params string?[] values) =>
