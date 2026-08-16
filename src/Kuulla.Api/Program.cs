@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Kuulla.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -28,51 +29,123 @@ var googleAudiences = new[] { googleClientId, googleIosClientId }
     .Where(audience => !string.IsNullOrEmpty(audience))
     .ToArray();
 
-if (googleAudiences.Length == 0)
+// Local testing (issue #48) needs to reach authenticated endpoints without real Google OAuth
+// credentials configured, so the "at least one audience configured" guard only applies outside
+// Development — the LocalTest scheme below covers auth in Development instead.
+if (googleAudiences.Length == 0 && !builder.Environment.IsDevelopment())
 {
     throw new InvalidOperationException(
         "No Google OAuth client IDs configured. Set 'Google:ClientId' and/or 'Google:IosClientId' " +
         "so JWT bearer authentication has a valid audience to check tokens against.");
 }
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+const string GoogleScheme = "Google";
+const string LocalTestScheme = "LocalTest";
+const string LocalTestIssuer = "kuulla-local-test";
+
+async Task ValidateUserClaimsAsync(Microsoft.AspNetCore.Authentication.JwtBearer.TokenValidatedContext context, string missingClaimsTokenDescription)
+{
+    var principal = context.Principal!;
+    var subject = principal.FindFirstValue(JwtRegisteredClaimNames.Sub);
+    var email = principal.FindFirstValue(JwtRegisteredClaimNames.Email);
+    if (subject is null || email is null)
     {
-        // Authority-based discovery pulls Google's OpenID configuration (issuer + signing
-        // keys) from https://accounts.google.com/.well-known/openid-configuration, which
-        // covers issuer and signature validation. Audience still needs to be set explicitly
-        // per client (web + iOS use different Google OAuth client IDs).
-        options.Authority = "https://accounts.google.com";
-        // Without this, JwtSecurityTokenHandler remaps well-known claim types on the way in
-        // (e.g. "sub" -> ClaimTypes.NameIdentifier), so lookups by the raw JWT claim names
-        // below would silently miss.
+        context.Fail($"{missingClaimsTokenDescription} is missing required 'sub' or 'email' claims.");
+        return;
+    }
+
+    var name = principal.FindFirstValue("name");
+    var pictureUrl = principal.FindFirstValue("picture");
+
+    var userService = context.HttpContext.RequestServices.GetRequiredService<IUserService>();
+    await userService.GetOrCreateUserAsync(subject, email, name, pictureUrl, context.HttpContext.RequestAborted);
+}
+
+// Only generated (and only ever validated against) when running locally, so a LocalTest-issued
+// token can never be accepted by a non-Development instance of the API.
+SymmetricSecurityKey? localTestSigningKey = null;
+if (builder.Environment.IsDevelopment())
+{
+    localTestSigningKey = new SymmetricSecurityKey(RandomNumberGenerator.GetBytes(32));
+}
+
+void ConfigureGoogleOptions(JwtBearerOptions options)
+{
+    // Authority-based discovery pulls Google's OpenID configuration (issuer + signing
+    // keys) from https://accounts.google.com/.well-known/openid-configuration, which
+    // covers issuer and signature validation. Audience still needs to be set explicitly
+    // per client (web + iOS use different Google OAuth client IDs).
+    options.Authority = "https://accounts.google.com";
+    // Without this, JwtSecurityTokenHandler remaps well-known claim types on the way in
+    // (e.g. "sub" -> ClaimTypes.NameIdentifier), so lookups by the raw JWT claim names
+    // below would silently miss.
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidAudiences = googleAudiences,
+        NameClaimType = "name",
+    };
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context => ValidateUserClaimsAsync(context, "Google ID token"),
+    };
+}
+
+var authenticationBuilder = builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme);
+
+if (builder.Environment.IsDevelopment())
+{
+    // A policy scheme picks which real scheme handles the request by peeking at the token's
+    // (unvalidated) issuer claim, so Google-issued and LocalTest-issued tokens can both hit the
+    // same "Bearer" default scheme without the caller needing to know which one it has. This
+    // indirection (and the LocalTest scheme itself) only exists in Development.
+    authenticationBuilder.AddPolicyScheme(JwtBearerDefaults.AuthenticationScheme, JwtBearerDefaults.AuthenticationScheme, options =>
+    {
+        options.ForwardDefaultSelector = context =>
+        {
+            var authorizationHeader = context.Request.Headers.Authorization.ToString();
+            if (!authorizationHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                return GoogleScheme;
+            }
+
+            var token = authorizationHeader["Bearer ".Length..].Trim();
+            try
+            {
+                var issuer = new JwtSecurityTokenHandler().ReadJwtToken(token).Issuer;
+                return issuer == LocalTestIssuer ? LocalTestScheme : GoogleScheme;
+            }
+            catch (Exception)
+            {
+                return GoogleScheme;
+            }
+        };
+    });
+    authenticationBuilder.AddJwtBearer(GoogleScheme, ConfigureGoogleOptions);
+    authenticationBuilder.AddJwtBearer(LocalTestScheme, options =>
+    {
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidAudiences = googleAudiences,
+            ValidateIssuer = true,
+            ValidIssuer = LocalTestIssuer,
+            ValidateAudience = true,
+            ValidAudience = LocalTestIssuer,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = localTestSigningKey,
             NameClaimType = "name",
         };
         options.Events = new JwtBearerEvents
         {
-            OnTokenValidated = async context =>
-            {
-                var principal = context.Principal!;
-                var subject = principal.FindFirstValue(JwtRegisteredClaimNames.Sub);
-                var email = principal.FindFirstValue(JwtRegisteredClaimNames.Email);
-                if (subject is null || email is null)
-                {
-                    context.Fail("Google ID token is missing required 'sub' or 'email' claims.");
-                    return;
-                }
-
-                var name = principal.FindFirstValue("name");
-                var pictureUrl = principal.FindFirstValue("picture");
-
-                var userService = context.HttpContext.RequestServices.GetRequiredService<IUserService>();
-                await userService.GetOrCreateUserAsync(subject, email, name, pictureUrl, context.HttpContext.RequestAborted);
-            },
+            OnTokenValidated = context => ValidateUserClaimsAsync(context, "Local test token"),
         };
     });
+}
+else
+{
+    authenticationBuilder.AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, ConfigureGoogleOptions);
+}
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -83,6 +156,30 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+
+if (app.Environment.IsDevelopment())
+{
+    // Local-testing-only (issue #48): mints a token that satisfies the same validation the
+    // Google scheme applies (issuer, signature, sub/email claims) so Web/iOS can exercise
+    // authenticated flows without a real Google sign-in. Never registered outside Development.
+    app.MapPost("/dev/test-token", () =>
+    {
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, "local-test-user"),
+            new Claim(JwtRegisteredClaimNames.Email, "test@local.kuulla.dev"),
+            new Claim("name", "Local Test User"),
+        };
+        var token = new JwtSecurityToken(
+            issuer: LocalTestIssuer,
+            audience: LocalTestIssuer,
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(12),
+            signingCredentials: new SigningCredentials(localTestSigningKey, SecurityAlgorithms.HmacSha256));
+
+        return Results.Ok(new { token = new JwtSecurityTokenHandler().WriteToken(token) });
+    });
+}
 
 app.MapGet("/me", (ClaimsPrincipal user) => Results.Ok(new
 {
