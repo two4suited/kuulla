@@ -6,6 +6,8 @@ var cosmos = builder.AddAzureCosmosDB("cosmos")
     .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
     .AddCosmosDatabase("kuulladb");
 
+var users = cosmos.AddContainer("users", partitionKeyPath: "/id");
+
 var redis = builder.AddRedis("redis");
 
 // Google OAuth credentials for "Login with Google" (milestone #1, issues #5-#8).
@@ -17,10 +19,12 @@ var googleIosClientId = builder.AddParameter("google-ios-client-id");
 
 var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(cosmos)
+    .WithReference(users)
     .WithReference(redis)
     .WithEnvironment("Google__ClientId", googleClientId)
     .WithEnvironment("Google__IosClientId", googleIosClientId)
     .WaitFor(cosmos)
+    .WaitFor(users)
     .WaitFor(redis);
 
 builder.AddProject<Projects.Kuulla_Web>("web")
