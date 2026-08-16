@@ -6,10 +6,12 @@ Kuulla is a podcast app focused on audio quality and fast syncing, with a .NET b
 
 ## Tech Stack
 
-- **Backend**: .NET (C#)
-- **Web Frontend**: Blazor
+- **Backend**: .NET 10 (C#)
+- **Web Frontend**: Blazor (Server interactivity)
 - **iOS**: Swift
-- **Local Dev**: .NET Aspire
+- **Database**: Azure CosmosDB
+- **Cache**: Redis
+- **Local Dev**: .NET Aspire 13.4.6
 - **Cloud**: Azure
 
 ## Project Structure
