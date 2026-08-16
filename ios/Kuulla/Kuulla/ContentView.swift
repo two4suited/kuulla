@@ -7,31 +7,50 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Text("Kuulla")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
+            Group {
                 if authManager.isSignedIn {
-                    Text(authManager.userEmail ?? "Signed in")
-                        .foregroundStyle(.secondary)
-                    Button("Sign Out") {
-                        authManager.signOut()
-                    }
+                    SearchView()
                 } else {
-                    Button("Sign in with Google", action: signIn)
-
-#if DEBUG
-                    Button("Sign in as test user (local only)", action: signInAsTestUser)
-                        .font(.footnote)
-#endif
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.red)
+                    signInPrompt
+                }
+            }
+            .navigationDestination(for: CatalogRoute.self) { route in
+                switch route {
+                case .show(let id):
+                    ShowDetailView(showId: id)
+                case .episode(let showId, let episodeId):
+                    EpisodeDetailView(showId: showId, episodeId: episodeId)
+                }
+            }
+            .toolbar {
+                if authManager.isSignedIn {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Sign Out") {
+                            authManager.signOut()
+                        }
                     }
                 }
+            }
+        }
+    }
+
+    private var signInPrompt: some View {
+        VStack(spacing: 16) {
+            Text("Kuulla")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+
+            Button("Sign in with Google", action: signIn)
+
+#if DEBUG
+            Button("Sign in as test user (local only)", action: signInAsTestUser)
+                .font(.footnote)
+#endif
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
