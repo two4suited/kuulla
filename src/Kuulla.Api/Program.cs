@@ -9,9 +9,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddAzureCosmosClient("kuulladb");
 builder.AddAzureCosmosContainer("users");
+builder.AddKeyedAzureCosmosContainer("shows");
+builder.AddKeyedAzureCosmosContainer("episodes");
 builder.AddRedisClient("redis");
 
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IShowService, ShowService>();
+builder.Services.AddScoped<IEpisodeService, EpisodeService>();
+builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryClient>(client =>
+{
+    client.BaseAddress = new Uri("https://itunes.apple.com/");
+});
+builder.Services.AddHttpClient<IPodcastFeedClient, PodcastFeedClient>();
 
 var googleClientId = builder.Configuration["Google:ClientId"];
 var googleIosClientId = builder.Configuration["Google:IosClientId"];
@@ -82,5 +91,43 @@ app.MapGet("/me", (ClaimsPrincipal user) => Results.Ok(new
     Name = user.FindFirstValue("name"),
     PictureUrl = user.FindFirstValue("picture"),
 })).RequireAuthorization();
+
+var shows = app.MapGroup("/api/shows");
+
+shows.MapGet("/search", async (string? q, IShowService showService, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(q))
+    {
+        return Results.BadRequest(new { error = "Query parameter 'q' is required." });
+    }
+
+    var results = await showService.SearchAsync(q, ct);
+    return Results.Ok(results);
+});
+
+shows.MapGet("/{id}", async (string id, IShowService showService, CancellationToken ct) =>
+{
+    var show = await showService.GetByIdAsync(id, ct);
+    return show is not null ? Results.Ok(show) : Results.NotFound();
+});
+
+shows.MapGet("/{id}/episodes", async (
+    string id,
+    string? continuationToken,
+    int? pageSize,
+    IShowService showService,
+    IEpisodeService episodeService,
+    CancellationToken ct) =>
+{
+    var show = await showService.GetByIdAsync(id, ct);
+    if (show is null)
+    {
+        return Results.NotFound();
+    }
+
+    var size = Math.Clamp(pageSize ?? 20, 1, 100);
+    var page = await episodeService.GetEpisodesAsync(id, continuationToken, size, ct);
+    return Results.Ok(page);
+});
 
 app.Run();

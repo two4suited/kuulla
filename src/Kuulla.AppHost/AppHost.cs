@@ -7,6 +7,8 @@ var cosmos = builder.AddAzureCosmosDB("cosmos")
     .AddCosmosDatabase("kuulladb");
 
 var users = cosmos.AddContainer("users", partitionKeyPath: "/id");
+var shows = cosmos.AddContainer("shows", partitionKeyPath: "/id");
+var episodes = cosmos.AddContainer("episodes", partitionKeyPath: "/ShowId");
 
 var redis = builder.AddRedis("redis");
 
@@ -20,11 +22,15 @@ var googleIosClientId = builder.AddParameter("google-ios-client-id");
 var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(cosmos)
     .WithReference(users)
+    .WithReference(shows)
+    .WithReference(episodes)
     .WithReference(redis)
     .WithEnvironment("Google__ClientId", googleClientId)
     .WithEnvironment("Google__IosClientId", googleIosClientId)
     .WaitFor(cosmos)
     .WaitFor(users)
+    .WaitFor(shows)
+    .WaitFor(episodes)
     .WaitFor(redis);
 
 builder.AddProject<Projects.Kuulla_Web>("web")
