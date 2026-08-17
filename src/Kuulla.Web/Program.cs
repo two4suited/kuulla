@@ -29,10 +29,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         // that opt out of prerendering, where HttpContext.GetTokenAsync is never reachable.
         options.Events.OnCreatingTicket = context =>
         {
-            var idToken = context.TokenResponse.Response!.RootElement.GetProperty("id_token").GetString();
-            if (idToken is not null)
+            if (context.TokenResponse.Response?.RootElement.TryGetProperty("id_token", out var idTokenProperty) is true
+                && idTokenProperty.GetString() is { } idToken)
             {
-                context.Identity!.AddClaim(new Claim(TokenClaimTypes.IdToken, idToken));
+                context.Identity?.AddClaim(new Claim(TokenClaimTypes.IdToken, idToken));
             }
 
             return Task.CompletedTask;

@@ -28,12 +28,12 @@ else
         {
             <div class="col">
                 <div class="card h-100">
-                    <a href="@($"shows/{subscription.ShowId}")">
-                        @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
-                        {
+                    @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
+                    {
+                        <a href="@($"shows/{subscription.ShowId}")">
                             <img src="@subscription.ShowArtworkUrl" alt="@subscription.ShowTitle" class="card-img-top" />
-                        }
-                    </a>
+                        </a>
+                    }
                     <div class="card-body">
                         <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none">
                             <h6 class="card-title">@subscription.ShowTitle</h6>
@@ -84,7 +84,7 @@ else
         try
         {
             var results = await SubscriptionClient.GetSubscriptionsAsync();
-            subscriptions.AddRange(results.OrderBy(s => s.ShowTitle));
+            subscriptions.AddRange(results.OrderBy(s => s.ShowTitle, StringComparer.OrdinalIgnoreCase));
         }
         catch (HttpRequestException)
         {

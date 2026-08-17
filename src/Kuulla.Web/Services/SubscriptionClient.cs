@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kuulla.Web.Models;
@@ -11,7 +12,14 @@ public class SubscriptionClient(KuullaApiClient apiClient)
     public async Task<IReadOnlyList<Subscription>> GetSubscriptionsAsync(CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
-        var results = await client.GetFromJsonAsync<List<Subscription>>("api/subscriptions", JsonOptions, cancellationToken);
+        var response = await client.GetAsync("api/subscriptions", cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            return [];
+        }
+
+        response.EnsureSuccessStatusCode();
+        var results = await response.Content.ReadFromJsonAsync<List<Subscription>>(JsonOptions, cancellationToken);
         return results ?? [];
     }
 
