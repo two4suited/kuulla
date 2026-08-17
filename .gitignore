@@ -149,6 +149,11 @@ ipch/
 
 # Visual Studio Trace Files
 *.e2e
+# ...but not our Playwright E2E test project (git's default case-insensitive matching would
+# otherwise treat "Kuulla.Web.E2E" as ending in ".e2e" and ignore the whole directory). This
+# only unignores the directory itself so it's still traversed — bin/obj inside it remain
+# ignored by the normal rules above.
+!tests/Kuulla.Web.E2E/
 
 # TFS 2012 Local Workspace
 $tf/
