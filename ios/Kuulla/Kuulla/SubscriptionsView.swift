@@ -44,19 +44,21 @@ struct SubscriptionsView: View {
     }
 
     private func loadSubscriptions() async {
+        guard !isLoading else { return }
+
         isLoading = true
         errorMessage = nil
+        defer { isLoading = false }
 
         do {
-            subscriptions = try await subscriptionClient.getSubscriptions()
+            let results = try await subscriptionClient.getSubscriptions()
                 .sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
+            guard !Task.isCancelled else { return }
+            subscriptions = results
         } catch {
-            if !Task.isCancelled {
-                errorMessage = "Something went wrong while loading your subscriptions. Please try again."
-            }
+            guard !Task.isCancelled else { return }
+            errorMessage = "Something went wrong while loading your subscriptions. Please try again."
         }
-
-        isLoading = false
     }
 }
 
