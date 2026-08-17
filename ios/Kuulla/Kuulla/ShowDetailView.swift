@@ -140,9 +140,13 @@ struct ShowDetailView: View {
         } catch {
             if !Task.isCancelled {
                 isSubscribed = previouslySubscribed
-                subscriptionError = previouslySubscribed
-                    ? "Something went wrong while unsubscribing. Please try again."
-                    : "Something went wrong while subscribing. Please try again."
+                if case ApiError.requestFailed(let statusCode) = error, statusCode == 401 || statusCode == 403 {
+                    subscriptionError = "Please sign in to subscribe to shows."
+                } else {
+                    subscriptionError = previouslySubscribed
+                        ? "Something went wrong while unsubscribing. Please try again."
+                        : "Something went wrong while subscribing. Please try again."
+                }
             }
         }
 
