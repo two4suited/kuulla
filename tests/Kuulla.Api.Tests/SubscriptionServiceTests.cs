@@ -22,18 +22,17 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task GetSubscriptionsAsync_ReturnsAllPagesFromIterator()
     {
-        var subscriptions = new[]
-        {
-            new Subscription("1", UserId, "1", "Show 1", "Author", null, DateTimeOffset.UtcNow),
-            new Subscription("2", UserId, "2", "Show 2", "Author", null, DateTimeOffset.UtcNow),
-        };
+        // Two separate pages (not one list) so this actually exercises the service's
+        // `while (iterator.HasMoreResults)` loop aggregating across multiple ReadNextAsync calls.
+        var page1 = new[] { new Subscription("1", UserId, "1", "Show 1", "Author", null, DateTimeOffset.UtcNow) };
+        var page2 = new[] { new Subscription("2", UserId, "2", "Show 2", "Author", null, DateTimeOffset.UtcNow) };
         _subscriptionsContainer
             .Setup(c => c.GetItemQueryIterator<Subscription>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
-            .Returns(CosmosTestHelpers.FeedIterator(subscriptions));
+            .Returns(CosmosTestHelpers.FeedIterator<Subscription>(page1, page2));
 
         var results = await _sut.GetSubscriptionsAsync(UserId, CancellationToken.None);
 
-        Assert.Equal(subscriptions, results);
+        Assert.Equal(page1.Concat(page2), results);
     }
 
     [Fact]

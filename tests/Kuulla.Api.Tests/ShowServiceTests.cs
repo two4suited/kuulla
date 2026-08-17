@@ -76,7 +76,7 @@ public class ShowServiceTests
     [Fact]
     public async Task GetByIdAsync_ReturnsShowUnchangedWhenFeedUrlMissing()
     {
-        var show = CosmosTestHelpers.MakeShow(description: null, feedUrl: null);
+        var show = CosmosTestHelpers.MakeShow(description: null, feedUrl: "");
         _showsContainer
             .Setup(c => c.ReadItemAsync<Show>(show.Id, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(show));
