@@ -62,6 +62,19 @@ final class ApiClientTests: MockedApiTestCase {
         XCTAssertTrue(requestedURL.absoluteString.contains("a%2Fb"))
     }
 
+    // A path component that itself contains a literal "%" (e.g. from a pre-escaped id passed by
+    // mistake, or an id that happens to contain the character) must not be treated as already
+    // percent-encoded — otherwise "%2F" inside it would smuggle in an unintended path separator.
+    func testGetEscapesLiteralPercentSignWithinAPathComponent() async throws {
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: "{}".data(using: .utf8)!, headers: [:])) }
+
+        struct Empty: Decodable {}
+        let _: Empty = try await client.get(["api", "shows", "a%2Fb"])
+
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.contains("a%252Fb"))
+    }
+
     func testGetPercentEncodesReservedCharactersInPathComponents() async throws {
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: "{}".data(using: .utf8)!, headers: [:])) }
 

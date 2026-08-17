@@ -11,16 +11,30 @@ final class MockURLProtocol: URLProtocol {
         let headers: [String: String]
     }
 
-    nonisolated(unsafe) static var stubHandler: ((URLRequest) -> Result<Stub, Error>)?
-    nonisolated(unsafe) static var requestedURLs: [URL] = []
+    // Guards the two properties below: URLProtocol callbacks can run off the main thread, and
+    // XCTest could in principle run test methods concurrently, so plain globals would race.
+    private static let stateLock = NSLock()
+    private nonisolated(unsafe) static var _stubHandler: ((URLRequest) -> Result<Stub, Error>)?
+    private nonisolated(unsafe) static var _requestedURLs: [URL] = []
+
+    static var stubHandler: ((URLRequest) -> Result<Stub, Error>)? {
+        get { stateLock.withLock { _stubHandler } }
+        set { stateLock.withLock { _stubHandler = newValue } }
+    }
+
+    static var requestedURLs: [URL] {
+        stateLock.withLock { _requestedURLs }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        if let url = request.url {
-            Self.requestedURLs.append(url)
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
         }
+        Self.stateLock.withLock { Self._requestedURLs.append(url) }
         guard let handler = Self.stubHandler else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
@@ -28,7 +42,7 @@ final class MockURLProtocol: URLProtocol {
         switch handler(request) {
         case .success(let stub):
             let response = HTTPURLResponse(
-                url: request.url!,
+                url: url,
                 statusCode: stub.statusCode,
                 httpVersion: "HTTP/1.1",
                 headerFields: stub.headers
@@ -50,8 +64,10 @@ final class MockURLProtocol: URLProtocol {
     }
 
     static func reset() {
-        stubHandler = nil
-        requestedURLs = []
+        stateLock.withLock {
+            _stubHandler = nil
+            _requestedURLs = []
+        }
     }
 }
 
@@ -83,7 +99,8 @@ extension URLRequest {
         var buffer = [UInt8](repeating: 0, count: bufferSize)
         while stream.hasBytesAvailable {
             let read = stream.read(&buffer, maxLength: bufferSize)
-            if read > 0 { data.append(buffer, count: read) }
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
         }
         return data
     }
