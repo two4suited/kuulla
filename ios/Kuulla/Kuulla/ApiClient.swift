@@ -26,7 +26,28 @@ actor ApiClient {
             throw ApiError.requestFailed(statusCode: nil)
         }
 
-        var request = URLRequest(url: url)
+        let (data, _) = try await send(URLRequest(url: url))
+        return try Self.decoder.decode(T.self, from: data)
+    }
+
+    func post<T: Decodable>(_ path: String, body: some Encodable) async throws -> T {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try Self.bodyEncoder.encode(body)
+
+        let (data, _) = try await send(request)
+        return try Self.decoder.decode(T.self, from: data)
+    }
+
+    func delete(_ path: String) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.httpMethod = "DELETE"
+        _ = try await send(request)
+    }
+
+    private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var request = request
         if let idToken = try? await authManager.validIdToken() {
             request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
         }
@@ -40,7 +61,7 @@ actor ApiClient {
             throw ApiError.requestFailed(statusCode: httpResponse.statusCode)
         }
 
-        return try Self.decoder.decode(T.self, from: data)
+        return (data, httpResponse)
     }
 
     // The API serializes dates as .NET's DateTimeOffset "O" format, e.g.
@@ -58,6 +79,8 @@ actor ApiClient {
         }
         return decoder
     }()
+
+    private static let bodyEncoder = JSONEncoder()
 }
 
 extension ApiClient {

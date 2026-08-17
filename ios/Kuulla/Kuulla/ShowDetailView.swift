@@ -10,14 +10,27 @@ struct ShowDetailView: View {
     @State private var continuationToken: String?
     @State private var isLoadingEpisodes = false
     @State private var episodeError: String?
+    @State private var isSubscribed = false
+    @State private var isSubscriptionBusy = false
+    @State private var subscriptionError: String?
+    // Set once the user has manually subscribed/unsubscribed, so the initial (slower)
+    // subscription-status fetch doesn't clobber a faster, more current toggle result.
+    @State private var hasToggledSubscription = false
 
     private let catalogClient = PodcastCatalogClient()
+    private let subscriptionClient = SubscriptionClient()
 
     var body: some View {
         List {
             if let show {
                 Section {
-                    ShowHeader(show: show)
+                    ShowHeader(
+                        show: show,
+                        isSubscribed: isSubscribed,
+                        isSubscriptionBusy: isSubscriptionBusy,
+                        subscriptionError: subscriptionError,
+                        onSubscribeTapped: { Task { await toggleSubscription() } }
+                    )
                 }
                 .listRowSeparator(.hidden)
             } else if let showError {
@@ -78,6 +91,10 @@ struct ShowDetailView: View {
         continuationToken = nil
         episodeError = nil
         isLoadingEpisodes = false
+        isSubscribed = false
+        isSubscriptionBusy = false
+        subscriptionError = nil
+        hasToggledSubscription = false
 
         isLoadingShow = true
         do {
@@ -91,7 +108,45 @@ struct ShowDetailView: View {
 
         if show != nil {
             await loadMoreEpisodes()
+            await loadSubscriptionStatus()
         }
+    }
+
+    private func loadSubscriptionStatus() async {
+        do {
+            let subscriptions = try await subscriptionClient.getSubscriptions()
+            guard !Task.isCancelled, !hasToggledSubscription else { return }
+            isSubscribed = subscriptions.contains { $0.showId == showId }
+        } catch {
+            // Not authenticated or the call failed; leave the subscribe button in its default state.
+        }
+    }
+
+    private func toggleSubscription() async {
+        guard !isSubscriptionBusy else { return }
+
+        isSubscriptionBusy = true
+        subscriptionError = nil
+        hasToggledSubscription = true
+        let previouslySubscribed = isSubscribed
+        isSubscribed.toggle()
+
+        do {
+            if previouslySubscribed {
+                try await subscriptionClient.unsubscribe(showId: showId)
+            } else {
+                _ = try await subscriptionClient.subscribe(showId: showId)
+            }
+        } catch {
+            if !Task.isCancelled {
+                isSubscribed = previouslySubscribed
+                subscriptionError = previouslySubscribed
+                    ? "Something went wrong while unsubscribing. Please try again."
+                    : "Something went wrong while subscribing. Please try again."
+            }
+        }
+
+        isSubscriptionBusy = false
     }
 
     private func loadMoreEpisodes() async {
@@ -116,36 +171,61 @@ struct ShowDetailView: View {
 
 private struct ShowHeader: View {
     let show: Show
+    let isSubscribed: Bool
+    let isSubscriptionBusy: Bool
+    let subscriptionError: String?
+    let onSubscribeTapped: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            AsyncImage(url: show.artworkUrl.flatMap(URL.init)) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Color.secondary.opacity(0.2)
-            }
-            .frame(width: 96, height: 96)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 16) {
+                AsyncImage(url: show.artworkUrl.flatMap(URL.init)) { image in
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    Color.secondary.opacity(0.2)
+                }
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(show.title)
-                    .font(.title3)
-                    .bold()
-                Text(show.author)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                if !show.categories.isEmpty {
-                    Text(show.categories.joined(separator: " · "))
-                        .font(.caption)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(show.title)
+                        .font(.title3)
+                        .bold()
+                    Text(show.author)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                }
 
-                if let description = show.description, !description.isEmpty {
-                    Text(description)
-                        .font(.footnote)
-                        .padding(.top, 4)
+                    if !show.categories.isEmpty {
+                        Text(show.categories.joined(separator: " · "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let description = show.description, !description.isEmpty {
+                        Text(description)
+                            .font(.footnote)
+                            .padding(.top, 4)
+                    }
                 }
+            }
+
+            Button(action: onSubscribeTapped) {
+                if isSubscriptionBusy {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Text(isSubscribed ? "Unsubscribe" : "Subscribe")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.bordered)
+            .tint(isSubscribed ? .red : .accentColor)
+            .disabled(isSubscriptionBusy)
+
+            if let subscriptionError {
+                Text(subscriptionError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
             }
         }
         .padding(.vertical, 4)
