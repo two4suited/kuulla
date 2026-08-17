@@ -40,12 +40,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build
+      # Pin to a specific simulator model (e.g. "iPhone 16") instead of picking one available at
+      # runtime, and the runner's Xcode image updates its bundled simulator lineup out from under
+      # us — the pinned model disappears and CI fails for reasons unrelated to the PR's diff. Ask
+      # simctl for whatever iPhone simulator is actually installed instead.
+      - name: Determine simulator destination
+        run: |
+          DEVICE_NAME=$(xcrun simctl list devices available iOS -j \
+            | python3 -c "import json, sys; devices = [d for r in json.load(sys.stdin)['devices'].values() for d in r]; print(next(d['name'] for d in devices if d['name'].startswith('iPhone')))")
+          echo "Using simulator: $DEVICE_NAME"
+          echo "SIMULATOR_NAME=$DEVICE_NAME" >> "$GITHUB_ENV"
+
+      - name: Test
         working-directory: ios/Kuulla
         run: |
-          xcodebuild build \
+          xcodebuild test \
             -project Kuulla.xcodeproj \
             -scheme Kuulla \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO

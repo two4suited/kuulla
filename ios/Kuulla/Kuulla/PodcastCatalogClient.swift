@@ -8,12 +8,12 @@ struct PodcastCatalogClient {
     }
 
     func searchShows(query: String) async throws -> [Show] {
-        try await apiClient.get("api/shows/search", queryItems: [URLQueryItem(name: "q", value: query)])
+        try await apiClient.get(["api", "shows", "search"], queryItems: [URLQueryItem(name: "q", value: query)])
     }
 
     func getShow(id: String) async throws -> Show? {
         do {
-            return try await apiClient.get("api/shows/\(id)")
+            return try await apiClient.get(["api", "shows", id])
         } catch ApiError.requestFailed(statusCode: 404) {
             return nil
         }
@@ -24,12 +24,12 @@ struct PodcastCatalogClient {
         if let continuationToken {
             queryItems.append(URLQueryItem(name: "continuationToken", value: continuationToken))
         }
-        return try await apiClient.get("api/shows/\(showId)/episodes", queryItems: queryItems)
+        return try await apiClient.get(["api", "shows", showId, "episodes"], queryItems: queryItems)
     }
 
     func getEpisode(showId: String, episodeId: String) async throws -> Episode? {
         do {
-            return try await apiClient.get("api/shows/\(showId)/episodes/\(episodeId)")
+            return try await apiClient.get(["api", "shows", showId, "episodes", episodeId])
         } catch ApiError.requestFailed(statusCode: 404) {
             return nil
         }

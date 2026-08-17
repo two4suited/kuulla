@@ -26,7 +26,26 @@
 		A1000017 /* SubscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
 		A1000018 /* SubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
 		B9000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B9000002; };
+		D1000001 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000001; };
+		D1000002 /* ApiClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000002; };
+		D1000003 /* PodcastCatalogClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000003; };
+		D1000004 /* SubscriptionClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000004; };
+		D1000005 /* EpisodeDurationParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000005; };
+		D1000006 /* EpisodeDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000006; };
+		D1000007 /* EpisodeFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000007; };
+		D1000008 /* AudioPlayerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000008; };
+		D1000009 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000009; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D8000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A7000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A4000000;
+			remoteInfo = Kuulla;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		A2000000 /* Kuulla.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kuulla.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -49,6 +68,16 @@
 		A2000017 /* Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscription.swift; sourceTree = "<group>"; };
 		A2000018 /* SubscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClient.swift; sourceTree = "<group>"; };
 		A2000019 /* SubscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionsView.swift; sourceTree = "<group>"; };
+		D2000001 /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
+		D2000002 /* ApiClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClientTests.swift; sourceTree = "<group>"; };
+		D2000003 /* PodcastCatalogClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCatalogClientTests.swift; sourceTree = "<group>"; };
+		D2000004 /* SubscriptionClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClientTests.swift; sourceTree = "<group>"; };
+		D2000005 /* EpisodeDurationParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDurationParsingTests.swift; sourceTree = "<group>"; };
+		D2000006 /* EpisodeDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDecodingTests.swift; sourceTree = "<group>"; };
+		D2000007 /* EpisodeFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeFormattingTests.swift; sourceTree = "<group>"; };
+		D2000008 /* AudioPlayerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerTests.swift; sourceTree = "<group>"; };
+		D2000009 /* AuthManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManagerTests.swift; sourceTree = "<group>"; };
+		D3000000 /* KuullaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -56,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				A3000001 /* Kuulla */,
+				D4000000 /* KuullaTests */,
 				A3000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,8 +120,25 @@
 			isa = PBXGroup;
 			children = (
 				A2000000 /* Kuulla.app */,
+				D3000000 /* KuullaTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D4000000 /* KuullaTests */ = {
+			isa = PBXGroup;
+			children = (
+				D2000001 /* MockURLProtocol.swift */,
+				D2000002 /* ApiClientTests.swift */,
+				D2000003 /* PodcastCatalogClientTests.swift */,
+				D2000004 /* SubscriptionClientTests.swift */,
+				D2000005 /* EpisodeDurationParsingTests.swift */,
+				D2000006 /* EpisodeDecodingTests.swift */,
+				D2000007 /* EpisodeFormattingTests.swift */,
+				D2000008 /* AudioPlayerTests.swift */,
+				D2000009 /* AuthManagerTests.swift */,
+			);
+			path = KuullaTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -116,6 +163,23 @@
 			productName = Kuulla;
 			productReference = A2000000;
 			productType = "com.apple.product-type.application";
+		};
+		D5000000 /* KuullaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D7000000;
+			buildPhases = (
+				D6000001 /* Sources */,
+				D6000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D8000001 /* PBXTargetDependency */,
+			);
+			name = KuullaTests;
+			productName = KuullaTests;
+			productReference = D3000000 /* KuullaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -144,6 +208,7 @@
 			projectRoot = "";
 			targets = (
 				A4000000 /* Kuulla */,
+				D5000000 /* KuullaTests */,
 			);
 		};
 /* End PBXProject section */
@@ -173,6 +238,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D6000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D1000001,
+				D1000002,
+				D1000003,
+				D1000004,
+				D1000005,
+				D1000006,
+				D1000007,
+				D1000008,
+				D1000009,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -195,7 +276,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D6000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D8000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A4000000 /* Kuulla */;
+			targetProxy = D8000002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A8000000 /* Debug */ = {
@@ -204,6 +300,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Kuulla/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -292,6 +389,42 @@
 			};
 			name = Release;
 		};
+		D9000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kuulla.app.KuullaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kuulla.app/Kuulla";
+			};
+			name = Debug;
+		};
+		D9000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kuulla.app.KuullaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kuulla.app/Kuulla";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -309,6 +442,15 @@
 			buildConfigurations = (
 				A8000002 /* Debug */,
 				A8000003 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D7000000 /* Build configuration list for PBXNativeTarget "KuullaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D9000001 /* Debug */,
+				D9000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
