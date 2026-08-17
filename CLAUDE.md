@@ -102,6 +102,7 @@ Standalone SwiftUI app in `ios/Kuulla/`. Uses `@Observable` for state, actor-bas
 
 ## Pull Request Workflow
 
+- If the work is tied to a GitHub issue, the PR description must reference it with a closing keyword (e.g. `Closes #57`) so the issue auto-closes on merge and stays linked in the milestone. Do not rely on matching titles or manual issue-closing — check before opening the PR.
 - Before opening a PR, get an independent review of the diff from another model (e.g. `/code-review`) and address what it finds.
 - After opening the PR on GitHub, request a review from GitHub Copilot.
 - Then loop: poll the PR for new review comments, fix what's actionable, and resolve/reply to each thread once addressed — keep checking back until no unresolved comments remain.
