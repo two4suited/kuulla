@@ -3,6 +3,7 @@
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject PodcastCatalogClient CatalogClient
+@inject SubscriptionClient SubscriptionClient
 
 <PageTitle>@(show?.Title ?? "Show")</PageTitle>
 
@@ -41,6 +42,26 @@ else
             {
                 <p>@show.Description</p>
             }
+            <AuthorizeView>
+                <Authorized>
+                    @if (isSubscribed)
+                    {
+                        <button class="btn btn-outline-danger" disabled="@isSubscriptionBusy" @onclick="UnsubscribeAsync">
+                            Unsubscribe
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary" disabled="@isSubscriptionBusy" @onclick="SubscribeAsync">
+                            Subscribe
+                        </button>
+                    }
+                    @if (subscriptionError is not null)
+                    {
+                        <p class="text-danger mt-2">@subscriptionError</p>
+                    }
+                </Authorized>
+            </AuthorizeView>
         </div>
     </div>
 
@@ -98,6 +119,9 @@ else
     private string? continuationToken;
     private bool isLoadingEpisodes;
     private string? episodeError;
+    private bool isSubscribed;
+    private bool isSubscriptionBusy;
+    private string? subscriptionError;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -106,6 +130,8 @@ else
         episodes.Clear();
         continuationToken = null;
         episodeError = null;
+        isSubscribed = false;
+        subscriptionError = null;
 
         isLoadingShow = true;
         try
@@ -124,6 +150,64 @@ else
         if (show is not null)
         {
             await LoadMoreEpisodesAsync();
+            await LoadSubscriptionStatusAsync();
+        }
+    }
+
+    private async Task LoadSubscriptionStatusAsync()
+    {
+        try
+        {
+            var subscriptions = await SubscriptionClient.GetSubscriptionsAsync();
+            isSubscribed = subscriptions.Any(s => s.ShowId == Id);
+        }
+        catch (HttpRequestException)
+        {
+            // Not authenticated or the call failed; leave the subscribe button in its default state.
+        }
+    }
+
+    private async Task SubscribeAsync()
+    {
+        isSubscriptionBusy = true;
+        subscriptionError = null;
+        var previouslySubscribed = isSubscribed;
+        isSubscribed = true;
+
+        try
+        {
+            await SubscriptionClient.SubscribeAsync(Id);
+        }
+        catch (HttpRequestException)
+        {
+            isSubscribed = previouslySubscribed;
+            subscriptionError = "Something went wrong while subscribing. Please try again.";
+        }
+        finally
+        {
+            isSubscriptionBusy = false;
+        }
+    }
+
+    private async Task UnsubscribeAsync()
+    {
+        isSubscriptionBusy = true;
+        subscriptionError = null;
+        var previouslySubscribed = isSubscribed;
+        isSubscribed = false;
+
+        try
+        {
+            await SubscriptionClient.UnsubscribeAsync(Id);
+        }
+        catch (HttpRequestException)
+        {
+            isSubscribed = previouslySubscribed;
+            subscriptionError = "Something went wrong while unsubscribing. Please try again.";
+        }
+        finally
+        {
+            isSubscriptionBusy = false;
         }
     }
 

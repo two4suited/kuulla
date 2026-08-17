@@ -14,7 +14,6 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddCascadingAuthenticationState();
-builder.Services.AddScoped<TokenProvider>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie()
@@ -25,14 +24,15 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.SaveTokens = true;
         // SaveTokens only persists access_token/refresh_token/token_type/expires_at; the OAuth
         // handler never stores id_token, so it has to be pulled off the raw token response here.
+        // It's added as a claim (not just AuthenticationProperties/StoreTokens) so it flows via
+        // the cascading AuthenticationState into every interactive circuit — including pages
+        // that opt out of prerendering, where HttpContext.GetTokenAsync is never reachable.
         options.Events.OnCreatingTicket = context =>
         {
             var idToken = context.TokenResponse.Response!.RootElement.GetProperty("id_token").GetString();
             if (idToken is not null)
             {
-                var tokens = context.Properties.GetTokens().ToList();
-                tokens.Add(new AuthenticationToken { Name = "id_token", Value = idToken });
-                context.Properties.StoreTokens(tokens);
+                context.Identity!.AddClaim(new Claim(TokenClaimTypes.IdToken, idToken));
             }
 
             return Task.CompletedTask;
@@ -46,6 +46,7 @@ builder.Services.AddHttpClient("api", client =>
 });
 builder.Services.AddScoped<KuullaApiClient>();
 builder.Services.AddScoped<PodcastCatalogClient>();
+builder.Services.AddScoped<SubscriptionClient>();
 
 var app = builder.Build();
 
@@ -103,12 +104,10 @@ if (app.Environment.IsDevelopment())
             new Claim(ClaimTypes.NameIdentifier, "local-test-user"),
             new Claim(ClaimTypes.Email, "test@local.kuulla.dev"),
             new Claim(ClaimTypes.Name, "Local Test User"),
+            new Claim(TokenClaimTypes.IdToken, idToken),
         ], CookieAuthenticationDefaults.AuthenticationScheme);
 
-        var properties = new AuthenticationProperties();
-        properties.StoreTokens([new AuthenticationToken { Name = "id_token", Value = idToken }]);
-
-        await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity), properties);
+        await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
         return Results.LocalRedirect("/");
     });
 }

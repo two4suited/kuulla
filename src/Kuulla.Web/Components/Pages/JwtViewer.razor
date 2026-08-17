@@ -2,7 +2,7 @@
 @attribute [Authorize]
 @using System.Text.Json
 @using Kuulla.Web.Services
-@inject TokenProvider TokenProvider
+@inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>JWT Viewer</PageTitle>
 
@@ -25,9 +25,10 @@ else
     private string? headerJson;
     private string? payloadJson;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        if (TokenProvider.IdToken is not { } token)
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.FindFirst(TokenClaimTypes.IdToken)?.Value is not { } token)
         {
             return;
         }
