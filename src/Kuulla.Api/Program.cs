@@ -290,6 +290,11 @@ subscriptions.MapPost("", async (
     ISubscriptionService subscriptionService,
     CancellationToken ct) =>
 {
+    if (string.IsNullOrWhiteSpace(request.ShowId))
+    {
+        return Results.BadRequest(new { error = "'showId' is required." });
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var subscription = await subscriptionService.SubscribeAsync(userId, request.ShowId, ct);
     return subscription is not null ? Results.Ok(subscription) : Results.NotFound();
