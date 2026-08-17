@@ -30,7 +30,9 @@ jobs:
       # Kuulla.AppHost.Tests is excluded from CI for now: it boots the real Cosmos DB emulator
       # via DistributedApplicationTestingBuilder, and this runner hits a TLS handshake failure
       # ("corrupted frame") inside Aspire's own emulator health check that doesn't reproduce
-      # locally — see issue #57 / PR #72 discussion. Runs reliably locally in the meantime.
+      # locally — see issue #57 / PR #72 discussion. Kuulla.Web.E2E is excluded for the same
+      # reason (it boots the same AppHost, Cosmos emulator included), though it wasn't run in CI
+      # separately to confirm — see issue #59. Both run reliably locally in the meantime.
 
   build-ios:
     name: Build iOS
