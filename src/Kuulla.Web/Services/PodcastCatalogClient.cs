@@ -11,7 +11,7 @@ public class PodcastCatalogClient(KuullaApiClient apiClient)
 
     public async Task<IReadOnlyList<Show>> SearchShowsAsync(string query, CancellationToken cancellationToken = default)
     {
-        var client = apiClient.CreateClient();
+        var client = await apiClient.CreateClientAsync();
         var url = $"api/shows/search?q={Uri.EscapeDataString(query)}";
         var results = await client.GetFromJsonAsync<List<Show>>(url, JsonOptions, cancellationToken);
         return results ?? [];
@@ -19,7 +19,7 @@ public class PodcastCatalogClient(KuullaApiClient apiClient)
 
     public async Task<Show?> GetShowAsync(string id, CancellationToken cancellationToken = default)
     {
-        var client = apiClient.CreateClient();
+        var client = await apiClient.CreateClientAsync();
         var response = await client.GetAsync($"api/shows/{Uri.EscapeDataString(id)}", cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -36,7 +36,7 @@ public class PodcastCatalogClient(KuullaApiClient apiClient)
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        var client = apiClient.CreateClient();
+        var client = await apiClient.CreateClientAsync();
         var url = $"api/shows/{Uri.EscapeDataString(showId)}/episodes?pageSize={pageSize}";
         if (continuationToken is not null)
         {
@@ -49,7 +49,7 @@ public class PodcastCatalogClient(KuullaApiClient apiClient)
 
     public async Task<Episode?> GetEpisodeAsync(string showId, string episodeId, CancellationToken cancellationToken = default)
     {
-        var client = apiClient.CreateClient();
+        var client = await apiClient.CreateClientAsync();
         var response = await client.GetAsync(
             $"api/shows/{Uri.EscapeDataString(showId)}/episodes/{Uri.EscapeDataString(episodeId)}", cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
