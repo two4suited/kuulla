@@ -12,11 +12,13 @@ builder.AddAzureCosmosClient("kuulladb");
 builder.AddAzureCosmosContainer("users");
 builder.AddKeyedAzureCosmosContainer("shows");
 builder.AddKeyedAzureCosmosContainer("episodes");
+builder.AddKeyedAzureCosmosContainer("subscriptions");
 builder.AddRedisClient("redis");
 
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IShowService, ShowService>();
 builder.Services.AddScoped<IEpisodeService, EpisodeService>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryClient>(client =>
 {
     client.BaseAddress = new Uri("https://itunes.apple.com/");
