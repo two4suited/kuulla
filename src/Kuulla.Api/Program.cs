@@ -4,6 +4,8 @@ using System.Security.Cryptography;
 using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -186,17 +188,22 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 #if DEBUG
 if (app.Environment.IsDevelopment())
 {
+    // Restricts the /dev/* endpoints below to loopback callers even though they're already
+    // Development/DEBUG-only, so they can't be reached by anyone who merely reaches the
+    // machine over a shared network.
+    static bool IsLoopbackCaller(HttpContext context)
+    {
+        var remoteIp = context.Connection.RemoteIpAddress;
+        return remoteIp is not null && System.Net.IPAddress.IsLoopback(remoteIp);
+    }
+
     // Local-testing-only (issue #48): mints a token that satisfies the same validation the
     // Google scheme applies (issuer, signature, sub/email claims) so Web/iOS can exercise
     // authenticated flows without a real Google sign-in. Never registered outside Development,
     // and compiled out of Release builds entirely regardless of ASPNETCORE_ENVIRONMENT.
     app.MapPost("/dev/test-token", (HttpContext context) =>
     {
-        // Restricted to loopback callers even though the whole endpoint is already
-        // Development/DEBUG-only, so it can't mint tokens for anyone who merely reaches the
-        // machine over a shared network.
-        var remoteIp = context.Connection.RemoteIpAddress;
-        if (remoteIp is null || !System.Net.IPAddress.IsLoopback(remoteIp))
+        if (!IsLoopbackCaller(context))
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
@@ -215,6 +222,30 @@ if (app.Environment.IsDevelopment())
             signingCredentials: new SigningCredentials(localTestSigningKey, SecurityAlgorithms.HmacSha256));
 
         return Results.Ok(new { token = jwtHandler.WriteToken(token) });
+    });
+
+    // Local-testing-only (issue #57): lets integration tests seed a Show directly into Cosmos
+    // through the API's own already-configured client, instead of standing up a second Cosmos
+    // client/connection from the test process. Same loopback + Development + DEBUG guard as
+    // /dev/test-token above.
+    app.MapPost("/dev/seed-show", async (
+        HttpContext context,
+        Show show,
+        [FromKeyedServices("shows")] Container showsContainer,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        if (string.IsNullOrWhiteSpace(show.Id))
+        {
+            return Results.BadRequest(new { error = "'id' is required." });
+        }
+
+        await showsContainer.UpsertItemAsync(show, new PartitionKey(show.Id), cancellationToken: ct);
+        return Results.Ok(show);
     });
 }
 #endif
