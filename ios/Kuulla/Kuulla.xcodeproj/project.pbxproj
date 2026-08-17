@@ -22,6 +22,9 @@
 		A1000013 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014; };
 		A1000014 /* ShowDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
 		A1000015 /* EpisodeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
+		A1000016 /* Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
+		A1000017 /* SubscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
+		A1000018 /* SubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
 		B9000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B9000002; };
 /* End PBXBuildFile section */
 
@@ -43,6 +46,9 @@
 		A2000014 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		A2000015 /* ShowDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDetailView.swift; sourceTree = "<group>"; };
 		A2000016 /* EpisodeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailView.swift; sourceTree = "<group>"; };
+		A2000017 /* Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscription.swift; sourceTree = "<group>"; };
+		A2000018 /* SubscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClient.swift; sourceTree = "<group>"; };
+		A2000019 /* SubscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -71,6 +77,9 @@
 				A2000014 /* SearchView.swift */,
 				A2000015 /* ShowDetailView.swift */,
 				A2000016 /* EpisodeDetailView.swift */,
+				A2000017 /* Subscription.swift */,
+				A2000018 /* SubscriptionClient.swift */,
+				A2000019 /* SubscriptionsView.swift */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -158,6 +167,9 @@
 				A1000013,
 				A1000014,
 				A1000015,
+				A1000016,
+				A1000017,
+				A1000018,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
