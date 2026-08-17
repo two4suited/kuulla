@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.DependencyInjection;
 using Kuulla.Api.Models;
 
 namespace Kuulla.Api.Services;
@@ -11,7 +12,7 @@ public class SubscriptionService(
     public async Task<IReadOnlyList<Subscription>> GetSubscriptionsAsync(string userId, CancellationToken cancellationToken)
     {
         var results = new List<Subscription>();
-        var iterator = subscriptionsContainer.GetItemQueryIterator<Subscription>(
+        using var iterator = subscriptionsContainer.GetItemQueryIterator<Subscription>(
             new QueryDefinition("SELECT * FROM c"),
             requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
 
