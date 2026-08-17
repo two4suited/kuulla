@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
@@ -272,6 +273,42 @@ shows.MapGet("/{id}/episodes/{episodeId}", async (
 {
     var episode = await episodeService.GetEpisodeAsync(id, episodeId, ct);
     return episode is not null ? Results.Ok(episode) : Results.NotFound();
+});
+
+var subscriptions = app.MapGroup("/api/subscriptions").RequireAuthorization();
+
+subscriptions.MapGet("", async (ClaimsPrincipal user, ISubscriptionService subscriptionService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var results = await subscriptionService.GetSubscriptionsAsync(userId, ct);
+    return Results.Ok(results);
+});
+
+subscriptions.MapPost("", async (
+    SubscribeRequest request,
+    ClaimsPrincipal user,
+    ISubscriptionService subscriptionService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.ShowId))
+    {
+        return Results.BadRequest(new { error = "'showId' is required." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var subscription = await subscriptionService.SubscribeAsync(userId, request.ShowId, ct);
+    return subscription is not null ? Results.Ok(subscription) : Results.NotFound();
+});
+
+subscriptions.MapDelete("/{showId}", async (
+    string showId,
+    ClaimsPrincipal user,
+    ISubscriptionService subscriptionService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    await subscriptionService.UnsubscribeAsync(userId, showId, ct);
+    return Results.NoContent();
 });
 
 app.Run();
