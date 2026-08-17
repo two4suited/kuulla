@@ -6,31 +6,38 @@ struct ContentView: View {
     @State private var errorMessage: String?
 
     var body: some View {
+        if authManager.isSignedIn {
+            TabView {
+                tab { SearchView() }
+                    .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                tab { SubscriptionsView() }
+                    .tabItem { Label("Subscriptions", systemImage: "square.stack") }
+            }
+        } else {
+            NavigationStack {
+                signInPrompt
+            }
+        }
+    }
+
+    private func tab<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         NavigationStack {
-            Group {
-                if authManager.isSignedIn {
-                    SearchView()
-                } else {
-                    signInPrompt
+            content()
+                .navigationDestination(for: CatalogRoute.self) { route in
+                    switch route {
+                    case .show(let id):
+                        ShowDetailView(showId: id)
+                    case .episode(let showId, let episodeId):
+                        EpisodeDetailView(showId: showId, episodeId: episodeId)
+                    }
                 }
-            }
-            .navigationDestination(for: CatalogRoute.self) { route in
-                switch route {
-                case .show(let id):
-                    ShowDetailView(showId: id)
-                case .episode(let showId, let episodeId):
-                    EpisodeDetailView(showId: showId, episodeId: episodeId)
-                }
-            }
-            .toolbar {
-                if authManager.isSignedIn {
+                .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Sign Out") {
                             authManager.signOut()
                         }
                     }
                 }
-            }
         }
     }
 
