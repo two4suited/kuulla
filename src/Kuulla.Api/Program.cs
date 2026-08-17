@@ -239,12 +239,29 @@ if (app.Environment.IsDevelopment())
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        if (string.IsNullOrWhiteSpace(show.Id))
+        if (string.IsNullOrWhiteSpace(show.Id)
+            || string.IsNullOrWhiteSpace(show.Title)
+            || string.IsNullOrWhiteSpace(show.Author)
+            || string.IsNullOrWhiteSpace(show.FeedUrl)
+            || show.Categories is null)
         {
-            return Results.BadRequest(new { error = "'id' is required." });
+            return Results.BadRequest(new
+            {
+                error = "'id', 'title', 'author', 'feedUrl', and 'categories' are required.",
+            });
         }
 
-        await showsContainer.UpsertItemAsync(show, new PartitionKey(show.Id), cancellationToken: ct);
+        try
+        {
+            await showsContainer.CreateItemAsync(show, new PartitionKey(show.Id), cancellationToken: ct);
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            // Create-only, matching ShowService's caching behavior (src/Kuulla.Api/Services/ShowService.cs)
+            // — never clobber a show that's already been seeded or enriched with a feed-derived
+            // description.
+        }
+
         return Results.Ok(show);
     });
 }
