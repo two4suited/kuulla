@@ -105,6 +105,7 @@ Standalone SwiftUI app in `ios/Kuulla/`. Uses `@Observable` for state, actor-bas
 - Before opening a PR, get an independent review of the diff from another model (e.g. `/code-review`) and address what it finds.
 - After opening the PR on GitHub, request a review from GitHub Copilot.
 - Then loop: poll the PR for new review comments, fix what's actionable, and resolve/reply to each thread once addressed — keep checking back until no unresolved comments remain.
+- Once CI checks pass and there are no unresolved review comments, merge the PR and delete its branch.
 
 ## Aspire Skills
 
