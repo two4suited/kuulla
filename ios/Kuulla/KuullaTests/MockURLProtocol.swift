@@ -1,4 +1,6 @@
 import Foundation
+import XCTest
+@testable import Kuulla
 
 // Intercepts URLSession requests in tests so ApiClient and its callers can be
 // exercised without hitting a live API.
@@ -50,5 +52,39 @@ final class MockURLProtocol: URLProtocol {
     static func reset() {
         stubHandler = nil
         requestedURLs = []
+    }
+}
+
+// Shared setUp/tearDown for test classes that exercise ApiClient (and its PodcastCatalogClient /
+// SubscriptionClient wrappers) against a mocked network layer, so each subclass can't forget to
+// reset MockURLProtocol's shared state between tests.
+class MockedApiTestCase: XCTestCase {
+    let apiClient = ApiClient(baseURL: URL(string: "https://example.com")!, session: MockURLProtocol.makeSession())
+
+    override func tearDown() {
+        MockURLProtocol.reset()
+        super.tearDown()
+    }
+}
+
+extension URLRequest {
+    // URLSession moves a request's httpBody into httpBodyStream before handing it to a
+    // URLProtocol, so a mock reading the body back out (to assert what was sent) needs to drain
+    // the stream rather than read httpBody directly.
+    var capturedBodyData: Data? {
+        if let httpBody {
+            return httpBody
+        }
+        guard let stream = httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 1024
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: bufferSize)
+            if read > 0 { data.append(buffer, count: read) }
+        }
+        return data
     }
 }

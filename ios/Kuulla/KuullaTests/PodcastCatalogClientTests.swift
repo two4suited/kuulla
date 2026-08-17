@@ -1,19 +1,8 @@
 import XCTest
 @testable import Kuulla
 
-final class PodcastCatalogClientTests: XCTestCase {
-    private var client: PodcastCatalogClient!
-
-    override func setUp() {
-        super.setUp()
-        let apiClient = ApiClient(baseURL: URL(string: "https://example.com")!, session: MockURLProtocol.makeSession())
-        client = PodcastCatalogClient(apiClient: apiClient)
-    }
-
-    override func tearDown() {
-        MockURLProtocol.reset()
-        super.tearDown()
-    }
+final class PodcastCatalogClientTests: MockedApiTestCase {
+    private var client: PodcastCatalogClient { PodcastCatalogClient(apiClient: apiClient) }
 
     func testGetShowReturnsNilOn404() async throws {
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 404, data: Data(), headers: [:])) }

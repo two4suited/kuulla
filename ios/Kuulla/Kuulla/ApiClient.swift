@@ -11,18 +11,20 @@ actor ApiClient {
         self.authManager = authManager
     }
 
-    func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> T {
-        var components = URLComponents(url: Self.url(baseURL: baseURL, path: path), resolvingAgainstBaseURL: false)
+    func get<T: Decodable>(_ pathComponents: [String], queryItems: [URLQueryItem] = []) async throws -> T {
+        guard var components = Self.components(baseURL: baseURL, pathComponents: pathComponents) else {
+            throw ApiError.requestFailed(statusCode: nil)
+        }
         if !queryItems.isEmpty {
-            components?.queryItems = queryItems
+            components.queryItems = queryItems
             // URLComponents treats "+" as a legal, unescaped query character, but ASP.NET Core's
             // query parser decodes unescaped "+" as a space — so a literal "+" in a query value
             // (e.g. searching "C++") would silently arrive at the API as a space.
-            if let encodedQuery = components?.percentEncodedQuery {
-                components?.percentEncodedQuery = encodedQuery.replacingOccurrences(of: "+", with: "%2B")
+            if let encodedQuery = components.percentEncodedQuery {
+                components.percentEncodedQuery = encodedQuery.replacingOccurrences(of: "+", with: "%2B")
             }
         }
-        guard let url = components?.url else {
+        guard let url = components.url else {
             throw ApiError.requestFailed(statusCode: nil)
         }
 
@@ -30,8 +32,11 @@ actor ApiClient {
         return try Self.decoder.decode(T.self, from: data)
     }
 
-    func post<T: Decodable>(_ path: String, body: some Encodable) async throws -> T {
-        var request = URLRequest(url: Self.url(baseURL: baseURL, path: path))
+    func post<T: Decodable>(_ pathComponents: [String], body: some Encodable) async throws -> T {
+        guard let url = Self.components(baseURL: baseURL, pathComponents: pathComponents)?.url else {
+            throw ApiError.requestFailed(statusCode: nil)
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try Self.bodyEncoder.encode(body)
@@ -40,25 +45,36 @@ actor ApiClient {
         return try Self.decoder.decode(T.self, from: data)
     }
 
-    func delete(_ path: String) async throws {
-        var request = URLRequest(url: Self.url(baseURL: baseURL, path: path))
+    func delete(_ pathComponents: [String]) async throws {
+        guard let url = Self.components(baseURL: baseURL, pathComponents: pathComponents)?.url else {
+            throw ApiError.requestFailed(statusCode: nil)
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         _ = try await send(request)
     }
 
-    // URL.appendingPathComponent treats its argument as literal characters and percent-encodes
-    // "%" itself, so an already-escaped segment (e.g. SubscriptionClient's slash-escaped showId)
-    // would come out double-encoded ("a%2Fb" -> "a%252Fb"). Building the URL through
-    // percentEncodedPath instead preserves any pre-escaped characters in `path` as-is.
-    private static func url(baseURL: URL, path: String) -> URL {
+    // Callers pass each dynamic segment (e.g. a show or episode id) as its own array element
+    // rather than interpolating it into a path string, so escaping can happen once, here, instead
+    // of every call site being responsible for it. Each component is percent-encoded individually
+    // — including "/" — so a raw "/" inside an id's value can never be mistaken for a path
+    // separator (URL.appendingPathComponent could crash-free but silently misroute in that case,
+    // and interpolating a pre-escaped segment into a plain path string double-encodes it, e.g.
+    // "a%2Fb" becoming "a%252Fb").
+    private static func components(baseURL: URL, pathComponents: [String]) -> URLComponents? {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            return baseURL.appendingPathComponent(path)
+            return nil
+        }
+        let encodedSegments = pathComponents.map {
+            $0.addingPercentEncoding(withAllowedCharacters: pathSegmentAllowedCharacters) ?? $0
         }
         let existingPath = components.percentEncodedPath
-        let separator = existingPath.hasSuffix("/") || path.hasPrefix("/") ? "" : "/"
-        components.percentEncodedPath = existingPath + separator + path
-        return components.url ?? baseURL.appendingPathComponent(path)
+        let basePath = existingPath.hasSuffix("/") ? String(existingPath.dropLast()) : existingPath
+        components.percentEncodedPath = basePath + "/" + encodedSegments.joined(separator: "/")
+        return components
     }
+
+    private static let pathSegmentAllowedCharacters = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
 
     private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         var request = request

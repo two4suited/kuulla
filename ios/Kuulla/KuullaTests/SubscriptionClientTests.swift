@@ -1,19 +1,8 @@
 import XCTest
 @testable import Kuulla
 
-final class SubscriptionClientTests: XCTestCase {
-    private var client: SubscriptionClient!
-
-    override func setUp() {
-        super.setUp()
-        let apiClient = ApiClient(baseURL: URL(string: "https://example.com")!, session: MockURLProtocol.makeSession())
-        client = SubscriptionClient(apiClient: apiClient)
-    }
-
-    override func tearDown() {
-        MockURLProtocol.reset()
-        super.tearDown()
-    }
+final class SubscriptionClientTests: MockedApiTestCase {
+    private var client: SubscriptionClient { SubscriptionClient(apiClient: apiClient) }
 
     func testGetSubscriptionsReturnsEmptyOn401() async throws {
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 401, data: Data(), headers: [:])) }
