@@ -1,8 +1,13 @@
-name: PR Build
+name: PR Build (.NET)
 
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Kuulla.sln'
+      - '.github/workflows/pr.yml'
 
 jobs:
   build-dotnet:
@@ -31,50 +36,13 @@ jobs:
       - name: Test Web
         run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
 
-      # Kuulla.AppHost.Tests is excluded from CI for now: it boots the real Cosmos DB emulator
-      # via DistributedApplicationTestingBuilder, and this runner hits a TLS handshake failure
-      # ("corrupted frame") inside Aspire's own emulator health check that doesn't reproduce
-      # locally — see issue #57 / PR #72 discussion. Kuulla.Web.E2E is excluded for the same
-      # reason (it boots the same AppHost, Cosmos emulator included), though it wasn't run in CI
-      # separately to confirm — see issue #59. Both run reliably locally in the meantime.
-
-  build-ios:
-    name: Build iOS
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-
-      # Pin to a specific simulator model (e.g. "iPhone 16") instead of picking one available at
-      # runtime, and the runner's Xcode image updates its bundled simulator lineup out from under
-      # us — the pinned model disappears and CI fails for reasons unrelated to the PR's diff. Ask
-      # simctl for whatever iPhone simulator is actually installed instead.
-      - name: Determine simulator destination
-        run: |
-          DEVICE_NAME=$(xcrun simctl list devices available iOS -j \
-            | python3 -c "import json, sys; devices = [d for r in json.load(sys.stdin)['devices'].values() for d in r]; print(next(d['name'] for d in devices if d['name'].startswith('iPhone')))")
-          echo "Using simulator: $DEVICE_NAME"
-          echo "SIMULATOR_NAME=$DEVICE_NAME" >> "$GITHUB_ENV"
-
-      # KuullaUITests is excluded here: it drives the real app against a real, already-running
-      # Kuulla API (KUULLA_API_BASE_URL), and this runner has no AppHost to point it at — see
-      # issue #51 for getting the Simulator into the Aspire dev loop. It builds as part of this
-      # same `xcodebuild test` invocation (build-for-testing runs for every testable in the
-      # scheme regardless of -skip-testing), so it still gets compile coverage on every PR; only
-      # actually running it against a live API is deferred. Run it locally against an
-      # `aspire run`/`aspire start` API with:
-      #   TEST_RUNNER_KUULLA_API_BASE_URL=<api base url> xcodebuild test ... -only-testing:KuullaUITests
-      # The TEST_RUNNER_ prefix (not the bare KUULLA_API_BASE_URL the app/tests actually read) is
-      # required here: xcodebuild strips it and forwards the rest into the test process's own
-      # environment, which is the only way a value set in the invoking shell reaches
-      # ProcessInfo.processInfo.environment inside the Simulator — a plain `KUULLA_API_BASE_URL=`
-      # export does not cross that boundary.
-      - name: Test
-        working-directory: ios/Kuulla
-        run: |
-          xcodebuild test \
-            -project Kuulla.xcodeproj \
-            -scheme Kuulla \
-            -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
-            -configuration Debug \
-            -skip-testing:KuullaUITests \
-            CODE_SIGNING_ALLOWED=NO
+      # Kuulla.AppHost.Tests is excluded from CI: it boots the real Cosmos DB emulator via
+      # DistributedApplicationTestingBuilder, and while investigating issue #62 we root-caused
+      # its "corrupted frame" TLS failure to a real, fixable bug (microsoft/aspire#15620 — the
+      # emulator serves plain HTTP without a trusted dev cert, but Aspire's readiness probe still
+      # expects HTTPS), the emulator container's own startup time is separately slow and highly
+      # variable on this runner — one CI run had it healthy in ~2 minutes, another exhausted the
+      # fixture's full 3-attempt/5-minute-each retry budget (~17 minutes) and still timed out.
+      # That makes it unsuitable as a PR gate regardless of the TLS fix. Kuulla.Web.E2E is
+      # excluded for the same reason (it boots the same AppHost, Cosmos emulator included). Both
+      # run reliably locally via `dotnet test` against a real `aspire run`/`aspire start` API.
