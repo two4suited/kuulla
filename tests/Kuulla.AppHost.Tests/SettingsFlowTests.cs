@@ -42,6 +42,44 @@ public class SettingsFlowTests(AppHostFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
     }
 
+    // End-to-end against the real API + Cosmos emulator: a fresh user reads default (no-override)
+    // per-show settings, sets an override, reads it back, then clears it back to no-override.
+    [Fact]
+    public async Task ShowSettings_GetThenUpdateThenClear_RoundTripsThroughRealCosmos()
+    {
+        using var client = fixture.CreateApiClient();
+        await AuthenticateAsync(client);
+        const string showId = "show-1";
+
+        var defaultSettings = await client.GetFromJsonAsync<ShowSettingsResponse>($"/api/settings/shows/{showId}");
+        Assert.Equal(showId, defaultSettings?.ShowId);
+        Assert.Null(defaultSettings?.UnlistenedEpisodeCount);
+        Assert.Equal(1, defaultSettings?.Version);
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/settings/shows/{showId}", new { UnlistenedEpisodeCount = 2 });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<ShowSettingsResponse>();
+        Assert.Equal(2, updated?.UnlistenedEpisodeCount);
+        Assert.Equal(2, updated?.Version);
+
+        var clearResponse = await client.PutAsJsonAsync($"/api/settings/shows/{showId}", new { UnlistenedEpisodeCount = (int?)null });
+        Assert.Equal(HttpStatusCode.OK, clearResponse.StatusCode);
+        var cleared = await clearResponse.Content.ReadFromJsonAsync<ShowSettingsResponse>();
+        Assert.Null(cleared?.UnlistenedEpisodeCount);
+        Assert.Equal(3, cleared?.Version);
+    }
+
+    [Fact]
+    public async Task ShowSettings_Update_InvalidUnlistenedEpisodeCount_ReturnsBadRequest()
+    {
+        using var client = fixture.CreateApiClient();
+        await AuthenticateAsync(client);
+
+        var updateResponse = await client.PutAsJsonAsync("/api/settings/shows/show-1", new { UnlistenedEpisodeCount = 999 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+    }
+
     // Mints a local test token via /dev/test-token and attaches it to the client so subsequent
     // requests hit authenticated endpoints.
     private static async Task AuthenticateAsync(HttpClient client)
@@ -57,4 +95,6 @@ public class SettingsFlowTests(AppHostFixture fixture)
     private sealed record TestTokenResponse(string Token);
 
     private sealed record UserSettingsResponse(string UserId, int UnlistenedEpisodeCount, int Version);
+
+    private sealed record ShowSettingsResponse(string UserId, string ShowId, int? UnlistenedEpisodeCount, int Version);
 }

@@ -39,4 +39,36 @@ public class SettingsService(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
         return response.Resource;
     }
+
+    public async Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken)
+    {
+        var id = ShowSettings.BuildId(userId, showId);
+        try
+        {
+            var response = await settingsContainer.ReadItemAsync<ShowSettings>(
+                id, new PartitionKey(id), cancellationToken: cancellationToken);
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // No override document yet — hand back the default (no override) rather than
+            // writing it, so reading settings never has a side effect, matching GetSettingsAsync.
+            return ShowSettings.CreateDefault(userId, showId);
+        }
+    }
+
+    public async Task<ShowSettings> UpdateShowUnlistenedEpisodeCountAsync(
+        string userId, string showId, UnlistenedEpisodeCount? unlistenedEpisodeCount, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            UnlistenedEpisodeCount = unlistenedEpisodeCount,
+            Version = current.Version + 1,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
 }

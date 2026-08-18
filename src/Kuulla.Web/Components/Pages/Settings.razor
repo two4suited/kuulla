@@ -1,0 +1,97 @@
+@page "/settings"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject SettingsClient SettingsClient
+
+<PageTitle>Settings</PageTitle>
+
+<h1>Settings</h1>
+
+@if (isLoading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (loadError is not null)
+{
+    <p class="text-danger">@loadError</p>
+}
+else
+{
+    <div class="mb-3" style="max-width: 24rem;">
+        <label class="form-label" for="unlistened-episode-count">Unlistened episodes to show per podcast</label>
+        <select id="unlistened-episode-count" class="form-select" disabled="@isSaving"
+                value="@selectedUnlistenedEpisodeCount" @onchange="OnUnlistenedEpisodeCountChangedAsync">
+            @foreach (var option in UnlistenedEpisodeCountUi.Options)
+            {
+                <option value="@option">@UnlistenedEpisodeCountUi.Format(option)</option>
+            }
+        </select>
+    </div>
+
+    @if (saveError is not null)
+    {
+        <p class="text-danger">@saveError</p>
+    }
+    else if (showSavedConfirmation)
+    {
+        <p class="text-success">Saved.</p>
+    }
+}
+
+@code {
+    private bool isLoading;
+    private string? loadError;
+    private UnlistenedEpisodeCount selectedUnlistenedEpisodeCount;
+    private bool isSaving;
+    private string? saveError;
+    private bool showSavedConfirmation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var settings = await SettingsClient.GetSettingsAsync();
+            selectedUnlistenedEpisodeCount = settings.UnlistenedEpisodeCount;
+        }
+        catch (HttpRequestException)
+        {
+            loadError = "Something went wrong while loading your settings. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnUnlistenedEpisodeCountChangedAsync(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<UnlistenedEpisodeCount>(args.Value?.ToString(), out var value) || !Enum.IsDefined(value))
+        {
+            return;
+        }
+
+        var previous = selectedUnlistenedEpisodeCount;
+        selectedUnlistenedEpisodeCount = value;
+        isSaving = true;
+        saveError = null;
+        showSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateUnlistenedEpisodeCountAsync(value);
+            showSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedUnlistenedEpisodeCount = previous;
+            saveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

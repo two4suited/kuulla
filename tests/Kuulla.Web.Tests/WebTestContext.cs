@@ -17,6 +17,7 @@ public abstract class WebTestContext : TestContext
         Services.AddScoped<KuullaApiClient>();
         Services.AddScoped<PodcastCatalogClient>();
         Services.AddScoped<SubscriptionClient>();
+        Services.AddScoped<SettingsClient>();
     }
 
     protected void ConfigureApi(HttpMessageHandler handler)

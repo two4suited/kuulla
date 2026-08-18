@@ -17,6 +17,12 @@ public record UserSettings(
 {
     public static UserSettings CreateDefault(string userId) =>
         new(userId, UnlistenedEpisodeCount.Five, Version: 1);
+
+    // Discriminator so a future cross-partition/container-wide query can filter by document
+    // shape instead of guessing from the id string or risking a wrong-typed deserialization
+    // against ShowSettings, which shares the same "settings" container.
+    [JsonProperty("type")]
+    public string Type => "UserSettings";
 }
 
 // How many unlistened episodes to surface per show (e.g. on a show's page or in a "new

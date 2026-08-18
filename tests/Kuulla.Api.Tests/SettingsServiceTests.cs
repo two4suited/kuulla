@@ -75,4 +75,72 @@ public class SettingsServiceTests
         Assert.Equal(UnlistenedEpisodeCount.One, result.UnlistenedEpisodeCount);
         Assert.Equal(4, result.Version);
     }
+
+    [Fact]
+    public async Task GetShowSettingsAsync_ReturnsDefaultWhenNoDocumentExists()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+
+        var result = await _sut.GetShowSettingsAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(ShowSettings.CreateDefault(UserId, showId), result);
+    }
+
+    [Fact]
+    public async Task GetShowSettingsAsync_ReturnsExistingDocument()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+
+        var result = await _sut.GetShowSettingsAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(existing, result);
+    }
+
+    [Fact]
+    public async Task UpdateShowUnlistenedEpisodeCountAsync_UpsertsWithIncrementedVersionWhenNoDocumentExists()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowUnlistenedEpisodeCountAsync(UserId, showId, UnlistenedEpisodeCount.Two, CancellationToken.None);
+
+        Assert.Equal(UserId, result.UserId);
+        Assert.Equal(showId, result.ShowId);
+        Assert.Equal(UnlistenedEpisodeCount.Two, result.UnlistenedEpisodeCount);
+        Assert.Equal(2, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowUnlistenedEpisodeCountAsync_ClearsOverrideWhenValueIsNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowUnlistenedEpisodeCountAsync(UserId, showId, null, CancellationToken.None);
+
+        Assert.Null(result.UnlistenedEpisodeCount);
+        Assert.Equal(3, result.Version);
+    }
 }
