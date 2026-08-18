@@ -6,7 +6,9 @@ namespace Kuulla.Api.Models;
 // which can change (Workspace domain moves, account recovery, etc.) and shouldn't be a key.
 // The Cosmos SDK's default serializer is Newtonsoft-based (not System.Text.Json), so it's
 // Newtonsoft's [JsonProperty] that controls the wire format Cosmos requires ("id", not "Id").
-// UpdatedAt/DeviceId follow the sync-metadata convention in docs/sync-conventions.md.
+// UpdatedAt/DeviceId follow the sync-metadata convention in docs/sync-conventions.md,
+// which specifies lowerCamelCase field names on the wire — hence the explicit
+// [JsonProperty] here, unlike the other (pre-existing) PascalCase fields on this record.
 // No sync behavior consumes them yet — they're retrofitted now so a future user-profile
 // sync feature doesn't need a migration.
 public record User(
@@ -16,5 +18,5 @@ public record User(
     string? PictureUrl,
     DateTimeOffset CreatedAt,
     DateTimeOffset LastLoginAt,
-    DateTimeOffset UpdatedAt,
-    string? DeviceId = null);
+    [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonProperty("deviceId")] string? DeviceId = null);
