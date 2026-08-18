@@ -23,7 +23,7 @@ public class UserService(Container usersContainer) : IUserService
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
             var now = DateTimeOffset.UtcNow;
-            var newUser = new User(googleSubject, email, name, pictureUrl, now, now);
+            var newUser = new User(googleSubject, email, name, pictureUrl, now, now, now);
 
             try
             {
@@ -47,12 +47,14 @@ public class UserService(Container usersContainer) : IUserService
         PartitionKey partitionKey,
         CancellationToken cancellationToken)
     {
+        var now = DateTimeOffset.UtcNow;
         var updated = existing with
         {
             Email = email,
             Name = name,
             PictureUrl = pictureUrl,
-            LastLoginAt = DateTimeOffset.UtcNow,
+            LastLoginAt = now,
+            UpdatedAt = now,
         };
         await usersContainer.UpsertItemAsync(updated, partitionKey, cancellationToken: cancellationToken);
         return updated;

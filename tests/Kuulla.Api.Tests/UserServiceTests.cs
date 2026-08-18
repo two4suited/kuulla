@@ -33,6 +33,7 @@ public class UserServiceTests
         Assert.Equal("new@example.com", result.Email);
         Assert.Equal("New User", result.Name);
         Assert.Equal(result.CreatedAt, result.LastLoginAt);
+        Assert.Equal(result.CreatedAt, result.UpdatedAt);
         _usersContainer.Verify(c => c.UpsertItemAsync(It.IsAny<User>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
 
@@ -40,7 +41,7 @@ public class UserServiceTests
     public async Task GetOrCreateUserAsync_UpdatesProfileFieldsAndTouchesLastLoginForExistingUser()
     {
         var createdAt = DateTimeOffset.UtcNow.AddDays(-30);
-        var existing = new User(Subject, "old@example.com", "Old Name", null, createdAt, createdAt.AddDays(1));
+        var existing = new User(Subject, "old@example.com", "Old Name", null, createdAt, createdAt.AddDays(1), createdAt);
         _usersContainer
             .Setup(c => c.ReadItemAsync<User>(Subject, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
@@ -55,6 +56,7 @@ public class UserServiceTests
         Assert.Equal("https://pic.example/p.png", result.PictureUrl);
         Assert.Equal(createdAt, result.CreatedAt);
         Assert.True(result.LastLoginAt > existing.LastLoginAt);
+        Assert.True(result.UpdatedAt > existing.UpdatedAt);
         _usersContainer.Verify(c => c.CreateItemAsync(It.IsAny<User>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
 
@@ -62,7 +64,7 @@ public class UserServiceTests
     public async Task GetOrCreateUserAsync_FallsBackToTouchingLoginWhenConcurrentCreateLosesRace()
     {
         var createdAt = DateTimeOffset.UtcNow.AddMinutes(-1);
-        var winner = new User(Subject, "winner@example.com", "Winner", null, createdAt, createdAt);
+        var winner = new User(Subject, "winner@example.com", "Winner", null, createdAt, createdAt, createdAt);
 
         _usersContainer
             .SetupSequence(c => c.ReadItemAsync<User>(Subject, It.IsAny<PartitionKey>(), null, default))
