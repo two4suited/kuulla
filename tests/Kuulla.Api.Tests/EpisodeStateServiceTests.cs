@@ -57,8 +57,9 @@ public class EpisodeStateServiceTests
 
         Assert.Equal(stored, result);
         _database.Verify(
-            d => d.StringSetAsync($"episodestate:{UserId}:ep-1", It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(), It.IsAny<bool>(), It.IsAny<When>(), It.IsAny<CommandFlags>()),
-            Times.Never);
+            d => d.StringSetAsync(
+                $"episodestate:{UserId}:ep-1", It.IsAny<RedisValue>(), It.IsAny<Expiration>(), It.IsAny<ValueCondition>(), It.IsAny<CommandFlags>()),
+            Times.Once);
     }
 
     [Fact]

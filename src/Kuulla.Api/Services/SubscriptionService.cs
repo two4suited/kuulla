@@ -1,4 +1,5 @@
 using System.Net;
+using System.Xml;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Kuulla.Api.Models;
@@ -90,10 +91,12 @@ public class SubscriptionService(
                 page = await episodeService.GetEpisodesAsync(
                     subscription.ShowId, continuationToken: null, NewEpisodesPerShow, cancellationToken);
             }
-            catch (Exception) when (cancellationToken.IsCancellationRequested is false)
+            catch (Exception ex) when (ex is HttpRequestException or XmlException or TaskCanceledException)
             {
-                // One show's feed being unreachable/malformed shouldn't fail "new episodes" for
-                // every other subscription — treat it as "nothing new from this show" instead.
+                // One show's feed being unreachable, timing out, or malformed shouldn't fail "new
+                // episodes" for every other subscription — treat it as "nothing new from this show"
+                // instead. Deliberately narrow: Cosmos failures and other unexpected errors should
+                // still surface rather than be silently swallowed here.
                 return [];
             }
 

@@ -419,9 +419,23 @@ sync.MapPost("/episodes", async (
         return Results.BadRequest(new { error = "'deviceId' is required." });
     }
 
+    var changes = request.Changes ?? [];
+    foreach (var change in changes)
+    {
+        if (string.IsNullOrWhiteSpace(change.EpisodeId) || string.IsNullOrWhiteSpace(change.ShowId))
+        {
+            return Results.BadRequest(new { error = "Each change requires a non-empty 'episodeId' and 'showId'." });
+        }
+
+        if (change.PositionSeconds < 0)
+        {
+            return Results.BadRequest(new { error = "Each change's 'positionSeconds' must be non-negative." });
+        }
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await episodeStateService.SyncAsync(
-        userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, request.Changes, ct);
+        userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, changes, ct);
     return Results.Ok(result);
 });
 
