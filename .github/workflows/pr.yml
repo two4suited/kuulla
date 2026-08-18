@@ -24,8 +24,12 @@ jobs:
 
       # Debug, not Release: these tests exercise /dev/* endpoints that are #if DEBUG-only by
       # design (never shipped in a Release build).
-      - name: Test (Debug)
+      - name: Test API (Debug)
         run: dotnet test tests/Kuulla.Api.Tests/Kuulla.Api.Tests.csproj --configuration Debug
+
+      # bUnit component tests — no Cosmos emulator involved, safe to run in Release.
+      - name: Test Web
+        run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
 
       # Kuulla.AppHost.Tests is excluded from CI for now: it boots the real Cosmos DB emulator
       # via DistributedApplicationTestingBuilder, and this runner hits a TLS handshake failure
@@ -56,9 +60,14 @@ jobs:
       # issue #51 for getting the Simulator into the Aspire dev loop. It builds as part of this
       # same `xcodebuild test` invocation (build-for-testing runs for every testable in the
       # scheme regardless of -skip-testing), so it still gets compile coverage on every PR; only
-      # actually running it against a live API is deferred. Run it locally with
-      # `TEST_RUNNER_KUULLA_API_BASE_URL=<api base url> xcodebuild test ... -only-testing:KuullaUITests`
-      # against an `aspire run`/`aspire start` API.
+      # actually running it against a live API is deferred. Run it locally against an
+      # `aspire run`/`aspire start` API with:
+      #   TEST_RUNNER_KUULLA_API_BASE_URL=<api base url> xcodebuild test ... -only-testing:KuullaUITests
+      # The TEST_RUNNER_ prefix (not the bare KUULLA_API_BASE_URL the app/tests actually read) is
+      # required here: xcodebuild strips it and forwards the rest into the test process's own
+      # environment, which is the only way a value set in the invoking shell reaches
+      # ProcessInfo.processInfo.environment inside the Simulator — a plain `KUULLA_API_BASE_URL=`
+      # export does not cross that boundary.
       - name: Test
         working-directory: ios/Kuulla
         run: |
