@@ -18,8 +18,11 @@ final class PlaybackUITests: KuullaUITestCase {
         XCTAssertTrue(playButton.waitForExistence(timeout: 15))
         playButton.tap()
 
-        // AudioPlayer.play() starts an AVPlayer against a real episode audio URL; the button's
-        // label flips to "Pause" once AudioPlayer.isPlaying observes playback actually started.
+        // AudioPlayer.play() sets isPlaying synchronously right after handing the URL to
+        // AVPlayer, so this only confirms the tap wired through to AudioPlayer and the button
+        // reflects its state — not that the audio actually started buffering or playing. Genuine
+        // playback verification would need AudioPlayer to expose real AVPlayer status, which it
+        // doesn't today.
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 20))
     }
 }

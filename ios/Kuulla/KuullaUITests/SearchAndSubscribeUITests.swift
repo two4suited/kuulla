@@ -13,13 +13,7 @@ final class SearchAndSubscribeUITests: KuullaUITestCase {
         // The Subscribe/Unsubscribe button only renders once ShowDetailView has finished loading
         // the show, so its presence (in either state) is a signal-agnostic way to confirm
         // navigating into the show detail page actually worked.
-        let subscribeButton = app.buttons["Subscribe"]
-        let unsubscribeButton = app.buttons["Unsubscribe"]
-        let deadline = Date().addingTimeInterval(15)
-        while !subscribeButton.exists && !unsubscribeButton.exists && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        }
-        XCTAssertTrue(subscribeButton.exists || unsubscribeButton.exists)
+        XCTAssertNotNil(waitForSubscribeOrUnsubscribeButton())
     }
 
     func testSubscribe_ThenUnsubscribe_RoundTripsThroughSubscriptionsTab() {
@@ -71,17 +65,9 @@ final class SearchAndSubscribeUITests: KuullaUITestCase {
     }
 
     private func resetSubscriptionIfNeeded() {
-        let subscribeButton = app.buttons["Subscribe"]
-        let unsubscribeButton = app.buttons["Unsubscribe"]
-
-        let deadline = Date().addingTimeInterval(15)
-        while !subscribeButton.exists && !unsubscribeButton.exists && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        }
-
-        if unsubscribeButton.exists {
-            unsubscribeButton.tap()
-            XCTAssertTrue(subscribeButton.waitForExistence(timeout: 15))
+        if waitForSubscribeOrUnsubscribeButton()?.label == "Unsubscribe" {
+            app.buttons["Unsubscribe"].tap()
+            XCTAssertTrue(app.buttons["Subscribe"].waitForExistence(timeout: 15))
         }
     }
 }

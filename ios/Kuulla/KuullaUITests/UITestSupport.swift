@@ -62,4 +62,23 @@ class KuullaUITestCase: XCTestCase {
         XCTAssertTrue(navigationTitle.waitForExistence(timeout: 20))
         return navigationTitle.label
     }
+
+    // ShowDetailView renders exactly one of Subscribe/Unsubscribe once it finishes loading the
+    // show, and never both — waiting on either is the signal-agnostic way to confirm the page
+    // loaded, regardless of which subscription state it starts in. `waitForExistence` can't be
+    // used directly here since it only waits on one specific element at a time.
+    @discardableResult
+    func waitForSubscribeOrUnsubscribeButton(timeout: TimeInterval = 15) -> XCUIElement? {
+        let subscribeButton = app.buttons["Subscribe"]
+        let unsubscribeButton = app.buttons["Unsubscribe"]
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while !subscribeButton.exists && !unsubscribeButton.exists && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+
+        if unsubscribeButton.exists { return unsubscribeButton }
+        if subscribeButton.exists { return subscribeButton }
+        return nil
+    }
 }
