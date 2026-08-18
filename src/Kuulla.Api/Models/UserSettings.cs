@@ -5,8 +5,11 @@ namespace Kuulla.Api.Models;
 // Global per-user settings document. Partitioned (and keyed) by UserId so "get a user's
 // settings" is a single-partition point read, and a user has exactly one settings document —
 // there's nothing to disambiguate with a separate id, so Id and UserId are the same value.
-// Version is a plain counter (bumped on every update) rather than relying on Cosmos ETags,
-// so conflict detection works the same way whether the caller round-trips an ETag or not.
+// Version is a plain counter bumped on every update, surfaced to clients so they can tell
+// their local copy is stale. It is NOT yet compared against on write (updates are a plain
+// read-modify-write upsert), so it doesn't prevent a lost update under concurrent writes —
+// wiring it (or Cosmos's own ETag) into an optimistic-concurrency check on
+// SettingsService.UpdateUnlistenedEpisodeCountAsync is follow-up work.
 public record UserSettings(
     [property: JsonProperty("id")] string UserId,
     UnlistenedEpisodeCount UnlistenedEpisodeCount,
