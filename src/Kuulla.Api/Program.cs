@@ -16,12 +16,14 @@ builder.AddAzureCosmosContainer("users");
 builder.AddKeyedAzureCosmosContainer("shows");
 builder.AddKeyedAzureCosmosContainer("episodes");
 builder.AddKeyedAzureCosmosContainer("subscriptions");
+builder.AddKeyedAzureCosmosContainer("settings");
 builder.AddRedisClient("redis");
 
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IShowService, ShowService>();
 builder.Services.AddScoped<IEpisodeService, EpisodeService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryClient>(client =>
 {
     client.BaseAddress = new Uri("https://itunes.apple.com/");
@@ -357,6 +359,31 @@ subscriptions.MapDelete("/{showId}", async (
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     await subscriptionService.UnsubscribeAsync(userId, showId, ct);
     return Results.NoContent();
+});
+
+var settings = app.MapGroup("/api/settings").RequireAuthorization();
+
+settings.MapGet("", async (ClaimsPrincipal user, ISettingsService settingsService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.GetSettingsAsync(userId, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("", async (
+    UpdateSettingsRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!Enum.IsDefined(request.UnlistenedEpisodeCount))
+    {
+        return Results.BadRequest(new { error = "'unlistenedEpisodeCount' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateUnlistenedEpisodeCountAsync(userId, request.UnlistenedEpisodeCount, ct);
+    return Results.Ok(result);
 });
 
 app.Run();
