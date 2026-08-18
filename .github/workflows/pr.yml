@@ -5,6 +5,20 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            ios:
+              - 'ios/**'
+
   build-dotnet:
     name: Build .NET
     runs-on: ubuntu-latest
@@ -26,7 +40,12 @@ jobs:
       - name: Trust ASP.NET Core dev certificate
         run: |
           dotnet dev-certs https --clean
+          # --trust alone exits non-zero on Linux ("[110] For OpenSSL trust to take effect,
+          # '$HOME/.aspnet/dev-certs/trust' must be listed in SSL_CERT_DIR") — export it before
+          # trusting, then persist it to $GITHUB_ENV so later steps' OpenSSL calls see it too.
+          export SSL_CERT_DIR="$HOME/.aspnet/dev-certs/trust:/usr/lib/ssl/certs"
           dotnet dev-certs https --trust
+          echo "SSL_CERT_DIR=$SSL_CERT_DIR" >> "$GITHUB_ENV"
 
       - name: Restore
         run: dotnet restore Kuulla.sln
@@ -44,15 +63,15 @@ jobs:
         run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
 
       # Re-attempting Kuulla.AppHost.Tests in CI (issue #62) — previously excluded for a TLS
-      # handshake failure ("corrupted frame") against the Cosmos emulator. Gateway mode (see
-      # Program.cs) and relaxing this runner's OpenSSL security level both turned out to be red
-      # herrings; the actual cause was the emulator's self-signed Gateway certificate, which the
-      # SDK's default HttpClient doesn't trust — see Program.cs's HttpClientFactory override.
+      # handshake failure ("corrupted frame") against the Cosmos emulator, root-caused to
+      # microsoft/aspire#15620 (see the "Trust ASP.NET Core dev certificate" step above).
       - name: Test AppHost integration (Debug)
         run: dotnet test tests/Kuulla.AppHost.Tests/Kuulla.AppHost.Tests.csproj --configuration Debug
 
   build-ios:
     name: Build iOS
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
