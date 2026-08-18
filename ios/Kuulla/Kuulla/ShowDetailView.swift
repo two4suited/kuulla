@@ -55,6 +55,7 @@ struct ShowDetailView: View {
                         NavigationLink(value: CatalogRoute.episode(showId: showId, episodeId: episode.id)) {
                             EpisodeRow(episode: episode)
                         }
+                        .accessibilityIdentifier("episode-row")
                     }
 
                     if isLoadingEpisodes {
