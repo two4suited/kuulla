@@ -1,40 +1,17 @@
-name: PR Build
+name: PR Build (.NET)
 
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Kuulla.sln'
+      - '.github/workflows/pr.yml'
 
 jobs:
-  changes:
-    name: Detect changes
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-    outputs:
-      dotnet: ${{ steps.filter.outputs.dotnet }}
-      ios: ${{ steps.filter.outputs.ios }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          # The workflow file itself is listed under both filters — a pr.yml change should
-          # validate whichever job it touched, and there's no way to tell which from the path
-          # alone, so treat it as shared and run both.
-          filters: |
-            dotnet:
-              - 'src/**'
-              - 'tests/**'
-              - 'Kuulla.sln'
-              - '.github/workflows/pr.yml'
-            ios:
-              - 'ios/**'
-              - '.github/workflows/pr.yml'
-
   build-dotnet:
     name: Build .NET
-    needs: changes
-    if: needs.changes.outputs.dotnet == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,46 +58,3 @@ jobs:
       # microsoft/aspire#15620 (see the "Trust ASP.NET Core dev certificate" step above).
       - name: Test AppHost integration (Debug)
         run: dotnet test tests/Kuulla.AppHost.Tests/Kuulla.AppHost.Tests.csproj --configuration Debug
-
-  build-ios:
-    name: Build iOS
-    needs: changes
-    if: needs.changes.outputs.ios == 'true'
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-
-      # Pin to a specific simulator model (e.g. "iPhone 16") instead of picking one available at
-      # runtime, and the runner's Xcode image updates its bundled simulator lineup out from under
-      # us — the pinned model disappears and CI fails for reasons unrelated to the PR's diff. Ask
-      # simctl for whatever iPhone simulator is actually installed instead.
-      - name: Determine simulator destination
-        run: |
-          DEVICE_NAME=$(xcrun simctl list devices available iOS -j \
-            | python3 -c "import json, sys; devices = [d for r in json.load(sys.stdin)['devices'].values() for d in r]; print(next(d['name'] for d in devices if d['name'].startswith('iPhone')))")
-          echo "Using simulator: $DEVICE_NAME"
-          echo "SIMULATOR_NAME=$DEVICE_NAME" >> "$GITHUB_ENV"
-
-      # KuullaUITests is excluded here: it drives the real app against a real, already-running
-      # Kuulla API (KUULLA_API_BASE_URL), and this runner has no AppHost to point it at — see
-      # issue #51 for getting the Simulator into the Aspire dev loop. It builds as part of this
-      # same `xcodebuild test` invocation (build-for-testing runs for every testable in the
-      # scheme regardless of -skip-testing), so it still gets compile coverage on every PR; only
-      # actually running it against a live API is deferred. Run it locally against an
-      # `aspire run`/`aspire start` API with:
-      #   TEST_RUNNER_KUULLA_API_BASE_URL=<api base url> xcodebuild test ... -only-testing:KuullaUITests
-      # The TEST_RUNNER_ prefix (not the bare KUULLA_API_BASE_URL the app/tests actually read) is
-      # required here: xcodebuild strips it and forwards the rest into the test process's own
-      # environment, which is the only way a value set in the invoking shell reaches
-      # ProcessInfo.processInfo.environment inside the Simulator — a plain `KUULLA_API_BASE_URL=`
-      # export does not cross that boundary.
-      - name: Test
-        working-directory: ios/Kuulla
-        run: |
-          xcodebuild test \
-            -project Kuulla.xcodeproj \
-            -scheme Kuulla \
-            -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
-            -configuration Debug \
-            -skip-testing:KuullaUITests \
-            CODE_SIGNING_ALLOWED=NO
