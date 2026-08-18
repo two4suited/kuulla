@@ -1,3 +1,4 @@
+using Kuulla.Api.Services.Sync;
 using Newtonsoft.Json;
 
 namespace Kuulla.Api.Models;
@@ -7,6 +8,8 @@ namespace Kuulla.Api.Models;
 // partition), making point reads/writes idempotent per (user, episode) pair.
 // UpdatedAt/DeviceId follow the sync-metadata convention in docs/sync-conventions.md — server
 // stamps UpdatedAt on every write, client-supplied values are never trusted for storage.
+// Implements ISyncableRecord so the generic sync-summary cache/reconciler (#84) can hash and
+// reconcile episode states without episode-specific code.
 public record EpisodeState(
     [property: JsonProperty("id")] string Id,
     string UserId,
@@ -15,4 +18,4 @@ public record EpisodeState(
     int PositionSeconds,
     bool Completed,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt,
-    [property: JsonProperty("deviceId")] string? DeviceId = null);
+    [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord;

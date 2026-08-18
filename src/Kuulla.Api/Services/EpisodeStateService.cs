@@ -1,7 +1,6 @@
 using System.Net;
-using System.Security.Cryptography;
-using System.Text;
 using Kuulla.Api.Models;
+using Kuulla.Api.Services.Sync;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
@@ -20,14 +19,13 @@ public class EpisodeStateService(
     private const string HotStateKeyPrefix = "episodestate:";
     private static readonly TimeSpan HotStateTtl = TimeSpan.FromHours(24);
 
-    // The sync summary is only useful for as long as a device might plausibly still hold the
-    // hash it's compared against — an inactive device that never comes back shouldn't keep its
-    // user's summary cached in Redis forever.
-    private static readonly TimeSpan SyncSummaryTtl = TimeSpan.FromDays(30);
+    // Stateless wrapper (just a Redis client + domain name), so a second instance below for the
+    // reconciler costs nothing and avoids a field-initializer-ordering dependency between them.
+    private readonly SyncSummaryCache<EpisodeState> _syncSummaryCache = new(redis, "episodes");
+    private readonly SyncReconciler<EpisodeState, EpisodeStateChange> _reconciler =
+        new(new SyncSummaryCache<EpisodeState>(redis, "episodes"));
 
     private static string HotStateKey(string userId, string episodeId) => $"{HotStateKeyPrefix}{userId}:{episodeId}";
-
-    private static string SyncSummaryKey(string userId) => $"sync:episodes:{userId}";
 
     public async Task<EpisodeState?> GetStateAsync(string userId, string episodeId, CancellationToken cancellationToken)
     {
@@ -60,7 +58,8 @@ public class EpisodeStateService(
             episodeId, userId, episodeId, showId, positionSeconds, completed, DateTimeOffset.UtcNow, deviceId);
 
         await UpsertStateAsync(state, cancellationToken);
-        await RecomputeAndCacheSyncSummaryAsync(userId, cancellationToken);
+        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
+        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
 
         return state;
     }
@@ -73,32 +72,14 @@ public class EpisodeStateService(
         IReadOnlyList<EpisodeStateChange> changes,
         CancellationToken cancellationToken)
     {
-        // Fast path (docs/sync-conventions.md): nothing to push and the client's hash already
-        // matches the server's — skip the reconciliation query entirely.
-        if (changes.Count == 0)
-        {
-            var summary = await GetOrComputeSyncSummaryAsync(userId, cancellationToken);
-            if (summary.Hash == localHash)
-            {
-                return new SyncEpisodesResult([], DateTimeOffset.UtcNow, summary.Hash);
-            }
-        }
-
-        var storedStates = await Task.WhenAll(
-            changes.Select(change => ReadStateAsync(userId, change.EpisodeId, cancellationToken)));
-
-        var accepted = new List<EpisodeState>();
-        for (var i = 0; i < changes.Count; i++)
-        {
-            var change = changes[i];
-            var stored = storedStates[i];
-            if (stored is not null && stored.UpdatedAt >= change.UpdatedAt)
-            {
-                // Stored record wins — client's write is discarded (its version is stale).
-                continue;
-            }
-
-            accepted.Add(new EpisodeState(
+        var result = await _reconciler.ReconcileAsync(
+            userId,
+            lastSyncedAt,
+            localHash,
+            changes,
+            getChangeId: change => change.EpisodeId,
+            getChangeUpdatedAt: change => change.UpdatedAt,
+            buildAcceptedState: change => new EpisodeState(
                 change.EpisodeId,
                 userId,
                 change.EpisodeId,
@@ -106,24 +87,13 @@ public class EpisodeStateService(
                 change.PositionSeconds,
                 change.Completed,
                 DateTimeOffset.UtcNow,
-                deviceId));
-        }
+                deviceId),
+            readStoredAsync: (episodeId, ct) => ReadStateAsync(userId, episodeId, ct),
+            upsertAsync: UpsertStateAsync,
+            queryAllAsync: ct => QueryAllStatesAsync(userId, ct),
+            cancellationToken);
 
-        await Task.WhenAll(accepted.Select(state => UpsertStateAsync(state, cancellationToken)));
-        var acceptedEpisodeIds = accepted.Select(s => s.EpisodeId).ToHashSet();
-
-        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
-
-        // Delta: everything newer than the client's last sync that it doesn't already hold the
-        // winning version of (records it just pushed and had accepted above).
-        var serverChanges = allStates
-            .Where(s => s.UpdatedAt > lastSyncedAt && !acceptedEpisodeIds.Contains(s.EpisodeId))
-            .ToList();
-
-        var newSummary = ComputeSummary(allStates);
-        await CacheSyncSummaryAsync(userId, newSummary, cancellationToken);
-
-        return new SyncEpisodesResult(serverChanges, DateTimeOffset.UtcNow, newSummary.Hash);
+        return new SyncEpisodesResult(result.ServerChanges, result.SyncedAt, result.Hash);
     }
 
     private async Task<EpisodeState?> ReadStateAsync(string userId, string episodeId, CancellationToken cancellationToken)
@@ -168,49 +138,5 @@ public class EpisodeStateService(
         var db = redis.GetDatabase();
         await db.StringSetAsync(
             HotStateKey(state.UserId, state.EpisodeId), JsonConvert.SerializeObject(state), HotStateTtl);
-    }
-
-    private async Task<SyncSummary> GetOrComputeSyncSummaryAsync(string userId, CancellationToken cancellationToken)
-    {
-        var db = redis.GetDatabase();
-        var cached = await db.StringGetAsync(SyncSummaryKey(userId));
-        if (cached.HasValue)
-        {
-            return JsonConvert.DeserializeObject<SyncSummary>((string)cached!)!;
-        }
-
-        return await RecomputeAndCacheSyncSummaryAsync(userId, cancellationToken);
-    }
-
-    private async Task<SyncSummary> RecomputeAndCacheSyncSummaryAsync(string userId, CancellationToken cancellationToken)
-    {
-        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
-        var summary = ComputeSummary(allStates);
-        await CacheSyncSummaryAsync(userId, summary, cancellationToken);
-        return summary;
-    }
-
-    private async Task CacheSyncSummaryAsync(string userId, SyncSummary summary, CancellationToken cancellationToken)
-    {
-        var db = redis.GetDatabase();
-        await db.StringSetAsync(SyncSummaryKey(userId), JsonConvert.SerializeObject(summary), SyncSummaryTtl);
-    }
-
-    // docs/sync-conventions.md: hash = SHA-256 over the sorted set of "{recordId}:{updatedAt}"
-    // pairs; updatedAt = max updatedAt across the collection (DateTimeOffset.MinValue when empty,
-    // matching an always-caught-up client with nothing to sync).
-    private static SyncSummary ComputeSummary(IReadOnlyList<EpisodeState> states)
-    {
-        var pairs = states
-            .Select(s => $"{s.EpisodeId}:{s.UpdatedAt:O}")
-            .OrderBy(pair => pair, StringComparer.Ordinal)
-            .ToArray();
-
-        var joined = string.Join("\n", pairs);
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(joined));
-        var hash = Convert.ToHexString(hashBytes).ToLowerInvariant();
-
-        var maxUpdatedAt = states.Count > 0 ? states.Max(s => s.UpdatedAt) : DateTimeOffset.MinValue;
-        return new SyncSummary(hash, maxUpdatedAt);
     }
 }
