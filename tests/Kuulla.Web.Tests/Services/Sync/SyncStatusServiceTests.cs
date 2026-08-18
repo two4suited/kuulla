@@ -98,6 +98,25 @@ public class SyncStatusServiceTests
     }
 
     [Fact]
+    public async Task SyncOwnWriteAsync_UpdatesLocalStateWithoutFlaggingRemoteUpdate()
+    {
+        var sut = new SyncStatusService<TestState>(
+            poll: (localHash, _, _) => Task.FromResult(new SyncCheckResult<TestState>([], DateTimeOffset.UtcNow, "hash-after-write")),
+            applyServerChanges: _ => Assert.Fail("should not apply changes for the caller's own write"),
+            initialLocalHash: "old-hash",
+            initialLastSyncedAt: DateTimeOffset.UtcNow.AddHours(-1));
+
+        await sut.SyncOwnWriteAsync();
+
+        Assert.False(sut.HasRemoteUpdate);
+
+        // A subsequent poll compares against the hash SyncOwnWriteAsync just recorded, not the
+        // stale initial one, so it shouldn't see a change either.
+        await sut.CheckNowAsync();
+        Assert.False(sut.HasRemoteUpdate);
+    }
+
+    [Fact]
     public async Task SyncLocalState_PreventsNextCheckFromTreatingOwnPushAsRemoteUpdate()
     {
         var sut = new SyncStatusService<TestState>(

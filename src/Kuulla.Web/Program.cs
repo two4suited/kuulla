@@ -48,6 +48,7 @@ builder.Services.AddScoped<KuullaApiClient>();
 builder.Services.AddScoped<PodcastCatalogClient>();
 builder.Services.AddScoped<SubscriptionClient>();
 builder.Services.AddScoped<SettingsClient>();
+builder.Services.AddScoped<EpisodeStateClient>();
 
 var app = builder.Build();
 

@@ -1,8 +1,11 @@
 @page "/shows/{ShowId}/episodes/{EpisodeId}"
+@implements IAsyncDisposable
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject PodcastCatalogClient CatalogClient
+@inject EpisodeStateClient EpisodeStateClient
+@inject IJSRuntime JS
 
 <PageTitle>@(episode?.Title ?? "Episode")</PageTitle>
 
@@ -22,7 +25,10 @@ else
 {
     <a href="@($"shows/{ShowId}")" class="d-inline-block mb-3">&larr; Back to show</a>
 
-    <h1>@episode.Title</h1>
+    <div class="d-flex align-items-center gap-2 mb-1">
+        <h1 class="mb-0">@episode.Title</h1>
+        <span class="badge @StatusBadgeClass">@StatusLabel</span>
+    </div>
 
     <div class="text-muted mb-3">
         @if (episode.PublishedAt is { } publishedAt)
@@ -36,10 +42,19 @@ else
         }
     </div>
 
-    <audio controls preload="none" class="w-100 mb-4">
+    <audio @ref="audioElement" controls preload="none" class="w-100 mb-2">
         <source src="@episode.AudioUrl" />
         Your browser does not support the audio element.
     </audio>
+
+    <button class="btn btn-sm btn-outline-secondary mb-4" disabled="@isTogglingCompleted" @onclick="ToggleCompletedAsync">
+        @(isCompleted ? "Mark as unplayed" : "Mark as played")
+    </button>
+
+    @if (stateError is not null)
+    {
+        <p class="text-danger">@stateError</p>
+    }
 
     @if (!string.IsNullOrEmpty(episode.Description))
     {
@@ -63,10 +78,30 @@ else
     private bool isLoading;
     private string? loadError;
 
+    private ElementReference audioElement;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _watcher;
+    private DotNetObjectReference<EpisodeDetail>? _selfReference;
+
+    private int savedPositionSeconds;
+    private bool isCompleted;
+    private bool isTogglingCompleted;
+    private string? stateError;
+
+    private string StatusLabel => isCompleted ? "Played" : savedPositionSeconds > 0 ? "In progress" : "New";
+
+    private string StatusBadgeClass => isCompleted
+        ? "bg-success"
+        : savedPositionSeconds > 0 ? "bg-info text-dark" : "bg-secondary";
+
     protected override async Task OnParametersSetAsync()
     {
+        await DisposeInteropAsync();
+
         episode = null;
         loadError = null;
+        savedPositionSeconds = 0;
+        isCompleted = false;
         isLoading = true;
         try
         {
@@ -79,6 +114,134 @@ else
         finally
         {
             isLoading = false;
+        }
+
+        if (episode is null)
+        {
+            return;
+        }
+
+        // Kept out of the try/catch above on purpose: playback state is supplementary (it only
+        // seeds the resume position/badge), so a hiccup fetching it shouldn't hide an episode that
+        // already loaded successfully.
+        try
+        {
+            var state = await EpisodeStateClient.GetStateAsync(EpisodeId);
+            if (state is not null)
+            {
+                savedPositionSeconds = state.PositionSeconds;
+                isCompleted = state.Completed;
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (episode is null || _module is not null)
+        {
+            return;
+        }
+
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", Assets["Components/Pages/EpisodeDetail.razor.js"]);
+        _selfReference = DotNetObjectReference.Create(this);
+        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, savedPositionSeconds);
+    }
+
+    [JSInvokable]
+    public async Task OnPlaybackProgress(int positionSeconds)
+    {
+        await PersistStateAsync(positionSeconds, completed: false);
+    }
+
+    [JSInvokable]
+    public async Task OnPlaybackEnded(int durationSeconds)
+    {
+        await PersistStateAsync(durationSeconds, completed: true);
+    }
+
+    private async Task ToggleCompletedAsync()
+    {
+        if (isTogglingCompleted)
+        {
+            return;
+        }
+
+        isTogglingCompleted = true;
+        try
+        {
+            var newCompleted = !isCompleted;
+            // Marking unplayed keeps the listener's saved position rather than discarding it — only
+            // marking played jumps position to the end.
+            var position = newCompleted ? (int)(episode?.Duration ?? TimeSpan.Zero).TotalSeconds : savedPositionSeconds;
+            await PersistStateAsync(position, newCompleted);
+        }
+        finally
+        {
+            isTogglingCompleted = false;
+        }
+    }
+
+    // Called both from the manual toggle button and from JS playback-progress callbacks, which can
+    // legitimately overlap (e.g. 'pause' firing just before 'ended') — no in-flight guard here, so a
+    // slower-to-return progress update can never suppress the completed write that follows it.
+    private async Task PersistStateAsync(int positionSeconds, bool completed)
+    {
+        if (episode is null)
+        {
+            return;
+        }
+
+        stateError = null;
+        try
+        {
+            var updated = await EpisodeStateClient.UpdateStateAsync(EpisodeId, ShowId, positionSeconds, completed);
+            savedPositionSeconds = updated.PositionSeconds;
+            isCompleted = updated.Completed;
+        }
+        catch (HttpRequestException)
+        {
+            stateError = "Something went wrong while saving your playback progress.";
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync() => await DisposeInteropAsync();
+
+    private async Task DisposeInteropAsync()
+    {
+        if (_watcher is not null)
+        {
+            await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("dispose").AsTask());
+            await SafeInvokeAsync(() => _watcher.DisposeAsync().AsTask());
+            _watcher = null;
+        }
+
+        if (_module is not null)
+        {
+            await SafeInvokeAsync(() => _module.DisposeAsync().AsTask());
+            _module = null;
+        }
+
+        _selfReference?.Dispose();
+        _selfReference = null;
+    }
+
+    // A circuit that's already gone (e.g. the tab was closed) throws JSDisconnectedException from
+    // any further JS interop call — there's nothing left to clean up client-side in that case.
+    private static async Task SafeInvokeAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (JSDisconnectedException)
+        {
         }
     }
 }

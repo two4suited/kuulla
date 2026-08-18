@@ -71,6 +71,17 @@ public class SyncStatusService<TState>(
         _lastSyncedAt = syncedAt;
     }
 
+    // Convenience wrapper around SyncLocalState for the common case: the domain already pushed a
+    // write of its own through a plain CRUD call (not this service's poll), and just needs to learn
+    // the resulting hash/syncedAt so the next CheckNowAsync doesn't echo that write back as a
+    // remote update. Saves every domain page from re-deriving its own hash/lastSyncedAt bookkeeping
+    // just to call SyncLocalState (#34's Home.razor and #42's settings UI both need this).
+    public async Task SyncOwnWriteAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await poll(_localHash, _lastSyncedAt, cancellationToken);
+        SyncLocalState(result.Hash, result.SyncedAt);
+    }
+
     public Task AcknowledgeRemoteUpdateAsync(CancellationToken cancellationToken = default)
     {
         HasRemoteUpdate = false;

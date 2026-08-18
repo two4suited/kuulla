@@ -1,7 +1,164 @@
-﻿@page "/"
+@page "/"
+@attribute [Authorize]
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@using Kuulla.Web.Services.Sync
+@inject EpisodeStateClient EpisodeStateClient
 
 <PageTitle>Home</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="mb-0">New Episodes</h1>
+    @if (syncStatusService is not null)
+    {
+        <SyncStatusIndicator Service="syncStatusService" />
+    }
+</div>
 
-Welcome to your new app.
+@if (isLoading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (loadError is not null)
+{
+    <p class="text-danger">@loadError</p>
+}
+else if (episodes.Count == 0)
+{
+    <p>You're all caught up &mdash; no new episodes from your subscriptions.</p>
+}
+else
+{
+    <div class="row row-cols-1 row-cols-md-2 g-4">
+        @foreach (var episode in episodes)
+        {
+            <div class="col">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="text-decoration-none">
+                            <h6 class="card-title">@episode.Title</h6>
+                        </a>
+                        <p class="card-text text-muted small">
+                            @if (episode.PublishedAt is { } publishedAt)
+                            {
+                                @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
+                                <text> &middot; </text>
+                            }
+                            @if (episode.Duration is { } duration)
+                            {
+                                @EpisodeFormatting.FormatDuration(duration)
+                            }
+                        </p>
+                        <div class="d-flex gap-2">
+                            <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
+                                Play
+                            </a>
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(episode)">
+                                Mark as played
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (markPlayedError is not null)
+    {
+        <p class="text-danger mt-3">@markPlayedError</p>
+    }
+}
+
+@code {
+    private readonly List<Episode> episodes = [];
+    private bool isLoading;
+    private string? loadError;
+    private bool isBusy;
+    private string? markPlayedError;
+    private SyncStatusService<EpisodeState>? syncStatusService;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var results = await EpisodeStateClient.GetNewEpisodesAsync();
+            episodes.AddRange(results.OrderByDescending(e => e.PublishedAt));
+        }
+        catch (HttpRequestException)
+        {
+            loadError = "Something went wrong while loading your new episodes. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+
+        if (loadError is not null)
+        {
+            return;
+        }
+
+        // Kept out of the try/catch above on purpose: the sync-status indicator is supplementary,
+        // so a hiccup seeding it shouldn't hide an already-loaded episode list.
+        try
+        {
+            var initialSync = await EpisodeStateClient.SyncAsync(string.Empty, DateTimeOffset.MinValue);
+            syncStatusService = new SyncStatusService<EpisodeState>(
+                EpisodeStateClient.SyncAsync,
+                ApplyServerChanges,
+                initialSync.Hash,
+                initialSync.SyncedAt);
+        }
+        catch (HttpRequestException)
+        {
+        }
+    }
+
+    private void ApplyServerChanges(IReadOnlyList<EpisodeState> serverChanges)
+    {
+        // A state change from another device (e.g. marked played there) means the episode is no
+        // longer "new" here — drop it from the feed rather than showing stale content.
+        var changedEpisodeIds = serverChanges.Select(s => s.EpisodeId).ToHashSet();
+        episodes.RemoveAll(e => changedEpisodeIds.Contains(e.Id));
+        StateHasChanged();
+    }
+
+    private async Task MarkAsPlayedAsync(Episode episode)
+    {
+        isBusy = true;
+        markPlayedError = null;
+        episodes.Remove(episode);
+
+        try
+        {
+            var positionSeconds = (int)(episode.Duration ?? TimeSpan.Zero).TotalSeconds;
+            await EpisodeStateClient.UpdateStateAsync(episode.Id, episode.ShowId, positionSeconds, completed: true);
+        }
+        catch (HttpRequestException)
+        {
+            episodes.Add(episode);
+            episodes.Sort((a, b) => Comparer<DateTimeOffset?>.Default.Compare(b.PublishedAt, a.PublishedAt));
+            markPlayedError = "Something went wrong while updating this episode. Please try again.";
+            isBusy = false;
+            return;
+        }
+
+        isBusy = false;
+
+        // Bookkeeping-only from here: the write above already succeeded server-side, so a failure
+        // syncing our own hash/lastSyncedAt shouldn't roll back the UI or report an error — the next
+        // poll would just (harmlessly) treat this device's own write as a remote update instead.
+        if (syncStatusService is not null)
+        {
+            try
+            {
+                await syncStatusService.SyncOwnWriteAsync();
+            }
+            catch (HttpRequestException)
+            {
+            }
+        }
+    }
+}
