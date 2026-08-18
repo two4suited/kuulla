@@ -33,11 +33,21 @@ actor ApiClient {
     }
 
     func post<T: Decodable>(_ pathComponents: [String], body: some Encodable) async throws -> T {
+        try await mutate(pathComponents, body: body, httpMethod: "POST")
+    }
+
+    func put<T: Decodable>(_ pathComponents: [String], body: some Encodable) async throws -> T {
+        try await mutate(pathComponents, body: body, httpMethod: "PUT")
+    }
+
+    private func mutate<T: Decodable>(
+        _ pathComponents: [String], body: some Encodable, httpMethod: String
+    ) async throws -> T {
         guard let url = Self.components(baseURL: baseURL, pathComponents: pathComponents)?.url else {
             throw ApiError.requestFailed(statusCode: nil)
         }
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+        request.httpMethod = httpMethod
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try Self.bodyEncoder.encode(body)
 

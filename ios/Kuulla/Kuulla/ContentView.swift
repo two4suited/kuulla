@@ -12,6 +12,8 @@ struct ContentView: View {
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 tab { SubscriptionsView() }
                     .tabItem { Label("Subscriptions", systemImage: "square.stack") }
+                tab { SettingsView() }
+                    .tabItem { Label("Settings", systemImage: "gearshape") }
             }
         } else {
             NavigationStack {
