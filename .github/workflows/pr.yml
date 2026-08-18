@@ -16,6 +16,18 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Confirmed upstream Aspire bug (microsoft/aspire#15620): without a trusted ASP.NET Core
+      # dev cert, RunAsPreviewEmulator still switches the emulator's endpoint metadata to https,
+      # but the emulator container's own cert-config step silently no-ops (no cert → nothing to
+      # configure) and it starts on plain HTTP instead. Aspire's own internal readiness check then
+      # tries HTTPS against that plain-HTTP server, which is the actual source of the "corrupted
+      # frame" TLS failure — not a cert-trust or cipher issue in Kuulla.Api's own CosmosClient (all
+      # ruled out already). Having a dev cert present resolves both sides of that mismatch at once.
+      - name: Trust ASP.NET Core dev certificate
+        run: |
+          dotnet dev-certs https --clean
+          dotnet dev-certs https --trust
+
       - name: Restore
         run: dotnet restore Kuulla.sln
 
