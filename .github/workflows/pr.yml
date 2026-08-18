@@ -51,6 +51,14 @@ jobs:
           echo "Using simulator: $DEVICE_NAME"
           echo "SIMULATOR_NAME=$DEVICE_NAME" >> "$GITHUB_ENV"
 
+      # KuullaUITests is excluded here: it drives the real app against a real, already-running
+      # Kuulla API (KUULLA_API_BASE_URL), and this runner has no AppHost to point it at — see
+      # issue #51 for getting the Simulator into the Aspire dev loop. It builds as part of this
+      # same `xcodebuild test` invocation (build-for-testing runs for every testable in the
+      # scheme regardless of -skip-testing), so it still gets compile coverage on every PR; only
+      # actually running it against a live API is deferred. Run it locally with
+      # `TEST_RUNNER_KUULLA_API_BASE_URL=<api base url> xcodebuild test ... -only-testing:KuullaUITests`
+      # against an `aspire run`/`aspire start` API.
       - name: Test
         working-directory: ios/Kuulla
         run: |
@@ -59,4 +67,5 @@ jobs:
             -scheme Kuulla \
             -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
             -configuration Debug \
+            -skip-testing:KuullaUITests \
             CODE_SIGNING_ALLOWED=NO

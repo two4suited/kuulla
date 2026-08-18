@@ -29,6 +29,7 @@ struct SearchView: View {
                 NavigationLink(value: CatalogRoute.show(id: show.id)) {
                     ShowRow(show: show)
                 }
+                .accessibilityIdentifier("show-row")
             }
         }
         .listStyle(.plain)
