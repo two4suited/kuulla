@@ -19,11 +19,14 @@ public class EpisodeStateService(
     private const string HotStateKeyPrefix = "episodestate:";
     private static readonly TimeSpan HotStateTtl = TimeSpan.FromHours(24);
 
-    // Stateless wrapper (just a Redis client + domain name), so a second instance below for the
-    // reconciler costs nothing and avoids a field-initializer-ordering dependency between them.
     private readonly SyncSummaryCache<EpisodeState> _syncSummaryCache = new(redis, "episodes");
-    private readonly SyncReconciler<EpisodeState, EpisodeStateChange> _reconciler =
-        new(new SyncSummaryCache<EpisodeState>(redis, "episodes"));
+
+    // A field initializer can't reference _syncSummaryCache (CS0236: no referencing other
+    // instance fields before the constructor body runs), so the reconciler is built lazily on
+    // first use instead — that keeps this class on a primary constructor while still sharing the
+    // one _syncSummaryCache instance rather than standing up a second, separately-configured one.
+    private SyncReconciler<EpisodeState, EpisodeStateChange>? _reconciler;
+    private SyncReconciler<EpisodeState, EpisodeStateChange> Reconciler => _reconciler ??= new(_syncSummaryCache);
 
     private static string HotStateKey(string userId, string episodeId) => $"{HotStateKeyPrefix}{userId}:{episodeId}";
 
@@ -72,7 +75,7 @@ public class EpisodeStateService(
         IReadOnlyList<EpisodeStateChange> changes,
         CancellationToken cancellationToken)
     {
-        var result = await _reconciler.ReconcileAsync(
+        var result = await Reconciler.ReconcileAsync(
             userId,
             lastSyncedAt,
             localHash,

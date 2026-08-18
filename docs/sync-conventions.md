@@ -122,7 +122,7 @@ is also generic infrastructure rather than something each page hand-rolls:
 - **`SyncStatusIndicator.razor`** (`Components/Sync/SyncStatusIndicator.razor`) — the
   "syncing…" / "updated from another device" indicator. Binds to the non-generic
   `ISyncStatusService` surface (so the component itself isn't generic), and drives
-  poll-on-focus via `wwwroot/js/syncFocusWatcher.js`, which calls back into .NET on
+  poll-on-focus via the collocated `Components/Sync/SyncStatusIndicator.razor.js`, which calls back into .NET on
   `focus`/`visibilitychange`.
 
 A new page (e.g. #34 episode sync UI, #42 settings sync UI) consumes this by

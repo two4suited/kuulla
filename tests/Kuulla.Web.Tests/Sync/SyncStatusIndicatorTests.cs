@@ -9,7 +9,7 @@ public class SyncStatusIndicatorTests : TestContext
 {
     public SyncStatusIndicatorTests()
     {
-        // The focus-poll JS module (wwwroot/js/syncFocusWatcher.js) isn't loadable under bunit's
+        // The focus-poll JS module (Components/Sync/SyncStatusIndicator.razor.js) isn't loadable under bunit's
         // jsdom-less runtime; Loose mode auto-mocks the dynamic import/register calls so the
         // component's own IsSyncing/HasRemoteUpdate rendering can still be exercised directly.
         JSInterop.Mode = JSRuntimeMode.Loose;
