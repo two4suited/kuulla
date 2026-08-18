@@ -32,16 +32,11 @@ jobs:
         run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
 
       # Re-attempting Kuulla.AppHost.Tests in CI (issue #62) — previously excluded for a TLS
-      # handshake failure ("corrupted frame") that turned out to come from the Kuulla.Api
-      # process's own CosmosClient talking to the emulator, not from Aspire's health check (the
-      # fixture's own wait for "cosmos" healthy / "api" running succeeds; every test then fails
-      # in ~1ms on the first real Cosmos call). This matches a known .NET/Cosmos-emulator defect
-      # where HTTP/2 negotiation against the emulator's TLS stack corrupts the handshake frame —
-      # disabling HTTP/2 client support works around it without touching production code, since
-      # it only affects requests this process makes as a client.
+      # handshake failure ("corrupted frame") that turned out to come from Kuulla.Api's own
+      # CosmosClient defaulting to Direct (TCP) connection mode, which opens raw TLS connections
+      # straight to individual backend replica ports the emulator container never exposes (see
+      # Program.cs). Now pinned to Gateway mode.
       - name: Test AppHost integration (Debug)
-        env:
-          DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2SUPPORT: "0"
         run: dotnet test tests/Kuulla.AppHost.Tests/Kuulla.AppHost.Tests.csproj --configuration Debug
 
   build-ios:

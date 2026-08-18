@@ -11,7 +11,12 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddAzureCosmosClient("kuulladb");
+
+// Gateway mode, not the SDK's default Direct (TCP) mode: Direct opens raw TLS connections
+// straight to individual backend replica ports, which the Cosmos emulator container doesn't
+// expose — only its single Gateway port is published — so Direct-mode connections fail with a
+// TLS handshake error ("corrupted frame") the moment a real query runs.
+builder.AddAzureCosmosClient("kuulladb", configureClientOptions: options => options.ConnectionMode = ConnectionMode.Gateway);
 builder.AddAzureCosmosContainer("users");
 builder.AddKeyedAzureCosmosContainer("shows");
 builder.AddKeyedAzureCosmosContainer("episodes");
