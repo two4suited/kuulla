@@ -12,11 +12,14 @@ public class SubscriptionServiceTests
 
     private readonly Mock<Container> _subscriptionsContainer = new();
     private readonly Mock<IShowService> _showService = new();
+    private readonly Mock<IEpisodeService> _episodeService = new();
+    private readonly Mock<IEpisodeStateService> _episodeStateService = new();
     private readonly SubscriptionService _sut;
 
     public SubscriptionServiceTests()
     {
-        _sut = new SubscriptionService(_subscriptionsContainer.Object, _showService.Object);
+        _sut = new SubscriptionService(
+            _subscriptionsContainer.Object, _showService.Object, _episodeService.Object, _episodeStateService.Object);
     }
 
     [Fact]
@@ -108,5 +111,86 @@ public class SubscriptionServiceTests
         var exception = await Record.ExceptionAsync(() => _sut.UnsubscribeAsync(UserId, ShowId, CancellationToken.None));
 
         Assert.Null(exception);
+    }
+
+    private static Episode MakeEpisode(string id, string showId, DateTimeOffset publishedAt) =>
+        new(id, showId, $"Episode {id}", publishedAt, TimeSpan.FromMinutes(30), $"https://audio.example/{id}.mp3", null, null, null);
+
+    [Fact]
+    public async Task GetNewEpisodesAsync_ExcludesEpisodesWithExistingState()
+    {
+        var subscription = new Subscription(ShowId, UserId, ShowId, "Show 1", "Author", null, DateTimeOffset.UtcNow);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<Subscription>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<Subscription>([subscription]));
+
+        var seen = MakeEpisode("seen", ShowId, DateTimeOffset.UtcNow);
+        var unseen = MakeEpisode("unseen", ShowId, DateTimeOffset.UtcNow.AddDays(-1));
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync(ShowId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodePage([seen, unseen], null));
+
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "seen", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodeState("seen", UserId, "seen", ShowId, 10, false, DateTimeOffset.UtcNow));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "unseen", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EpisodeState?)null);
+
+        var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
+
+        Assert.Single(results);
+        Assert.Equal("unseen", results[0].Id);
+    }
+
+    [Fact]
+    public async Task GetNewEpisodesAsync_MergesAcrossShowsSortedByPublishedAtDescending()
+    {
+        var subscriptionA = new Subscription("show-a", UserId, "show-a", "Show A", "Author", null, DateTimeOffset.UtcNow);
+        var subscriptionB = new Subscription("show-b", UserId, "show-b", "Show B", "Author", null, DateTimeOffset.UtcNow);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<Subscription>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<Subscription>([subscriptionA, subscriptionB]));
+
+        var older = MakeEpisode("older", "show-a", DateTimeOffset.UtcNow.AddDays(-2));
+        var newer = MakeEpisode("newer", "show-b", DateTimeOffset.UtcNow.AddDays(-1));
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync("show-a", null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodePage([older], null));
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync("show-b", null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodePage([newer], null));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EpisodeState?)null);
+
+        var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
+
+        Assert.Equal(["newer", "older"], results.Select(e => e.Id));
+    }
+
+    [Fact]
+    public async Task GetNewEpisodesAsync_IsolatesOneShowsFeedFailureFromOthers()
+    {
+        var subscriptionA = new Subscription("show-a", UserId, "show-a", "Show A", "Author", null, DateTimeOffset.UtcNow);
+        var subscriptionB = new Subscription("show-b", UserId, "show-b", "Show B", "Author", null, DateTimeOffset.UtcNow);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<Subscription>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<Subscription>([subscriptionA, subscriptionB]));
+
+        var healthy = MakeEpisode("healthy", "show-b", DateTimeOffset.UtcNow);
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync("show-a", null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("feed unreachable"));
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync("show-b", null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodePage([healthy], null));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EpisodeState?)null);
+
+        var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
+
+        Assert.Equal(["healthy"], results.Select(e => e.Id));
     }
 }

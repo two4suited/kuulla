@@ -49,6 +49,29 @@ and other domains should reuse it rather than re-implement their own handshake.
 
 ## Adopted so far
 
+- `EpisodeState` (`src/Kuulla.Api/Models/EpisodeState.cs`) — the reference
+  implementation of this convention and the reconciliation protocol below, built
+  for #32/#33. Summary cached at `sync:episodes:{userId}`.
 - `User` (`src/Kuulla.Api/Models/User.cs`) — retrofitted with `updatedAt`/`deviceId`
   ahead of any user-profile sync work, so it won't need a migration later. No sync
   behavior exists for `User` yet.
+
+## Reconciliation protocol (`POST /api/sync/episodes`)
+
+One round trip, given `{ deviceId, lastSyncedAt, localHash, changes }`:
+
+1. For each incoming record in `changes`, apply last-write-wins: accept it (upsert,
+   server re-stamps `updatedAt`/`deviceId`) only if its `updatedAt` is newer than the
+   stored record's; otherwise the stored record wins and the client's write is
+   discarded.
+2. Compute the delta: every record with `updatedAt > lastSyncedAt` that the client
+   doesn't already hold the winning version of (i.e. excluding what step 1 just
+   accepted from that client).
+3. Return `{ serverChanges, syncedAt: now, hash: newHash }` using the sync-summary
+   cache above.
+
+Fast path: if `changes` is empty and `localHash` matches the freshly computed hash,
+skip the reconciliation query entirely and return `serverChanges: []`.
+
+See `EpisodeStateService` (`src/Kuulla.Api/Services/EpisodeStateService.cs`) for the
+implementation other domains (e.g. #41 settings sync) should mirror.

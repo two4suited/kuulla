@@ -17,6 +17,7 @@ builder.AddKeyedAzureCosmosContainer("shows");
 builder.AddKeyedAzureCosmosContainer("episodes");
 builder.AddKeyedAzureCosmosContainer("subscriptions");
 builder.AddKeyedAzureCosmosContainer("settings");
+builder.AddKeyedAzureCosmosContainer("episodestates");
 builder.AddRedisClient("redis");
 
 builder.Services.AddScoped<IUserService, UserService>();
@@ -24,6 +25,7 @@ builder.Services.AddScoped<IShowService, ShowService>();
 builder.Services.AddScoped<IEpisodeService, EpisodeService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
+builder.Services.AddScoped<IEpisodeStateService, EpisodeStateService>();
 builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryClient>(client =>
 {
     client.BaseAddress = new Uri("https://itunes.apple.com/");
@@ -359,6 +361,68 @@ subscriptions.MapDelete("/{showId}", async (
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     await subscriptionService.UnsubscribeAsync(userId, showId, ct);
     return Results.NoContent();
+});
+
+subscriptions.MapGet("/episodes", async (ClaimsPrincipal user, ISubscriptionService subscriptionService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var results = await subscriptionService.GetNewEpisodesAsync(userId, ct);
+    return Results.Ok(results);
+});
+
+var episodeState = app.MapGroup("/api/episodes").RequireAuthorization();
+
+episodeState.MapGet("/{id}/state", async (
+    string id,
+    ClaimsPrincipal user,
+    IEpisodeStateService episodeStateService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var state = await episodeStateService.GetStateAsync(userId, id, ct);
+    return state is not null ? Results.Ok(state) : Results.NotFound();
+});
+
+episodeState.MapPut("/{id}/state", async (
+    string id,
+    UpdateEpisodeStateRequest request,
+    ClaimsPrincipal user,
+    IEpisodeStateService episodeStateService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.ShowId))
+    {
+        return Results.BadRequest(new { error = "'showId' is required." });
+    }
+
+    if (request.PositionSeconds < 0)
+    {
+        return Results.BadRequest(new { error = "'positionSeconds' must be non-negative." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await episodeStateService.UpdateStateAsync(
+        userId, id, request.ShowId, request.PositionSeconds, request.Completed, request.DeviceId, ct);
+    return Results.Ok(result);
+});
+
+var sync = app.MapGroup("/api/sync").RequireAuthorization();
+
+sync.MapPost("/episodes", async (
+    SyncEpisodesRequest request,
+    ClaimsPrincipal user,
+    IEpisodeStateService episodeStateService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.DeviceId))
+    {
+        return Results.BadRequest(new { error = "'deviceId' is required." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await episodeStateService.SyncAsync(
+        userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, request.Changes, ct);
+    return Results.Ok(result);
 });
 
 var settings = app.MapGroup("/api/settings").RequireAuthorization();
