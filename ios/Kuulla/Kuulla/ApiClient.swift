@@ -120,7 +120,17 @@ actor ApiClient {
         return decoder
     }()
 
-    private static let bodyEncoder = JSONEncoder()
+    // Mirrors `decoder`'s date handling so round-tripping a value the client itself produced
+    // (e.g. a locally-stamped `updatedAt` sent up for sync reconciliation) survives encode/decode
+    // without drift, and so .NET's DateTimeOffset model binder — which expects ISO 8601 — accepts it.
+    private static let bodyEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(ApiDateParsing.string(from: date))
+        }
+        return encoder
+    }()
 }
 
 extension ApiClient {
@@ -160,6 +170,10 @@ private enum ApiDateParsing {
 
     static func date(from text: String) -> Date? {
         withFractionalSeconds.date(from: text) ?? withoutFractionalSeconds.date(from: text)
+    }
+
+    static func string(from date: Date) -> String {
+        withFractionalSeconds.string(from: date)
     }
 }
 

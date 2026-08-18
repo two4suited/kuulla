@@ -30,6 +30,11 @@
 		A1000021 /* SettingsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022; };
 		A1000023 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024; };
 		A1000024 /* ShowSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
+		F1000001 /* Syncable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001; };
+		F1000002 /* SyncCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000002; };
+		F1000003 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000003; };
+		F1000004 /* EpisodeStateRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000004; };
+		F1000005 /* EpisodeSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000005; };
 		B9000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B9000002; };
 		D1000001 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000001; };
 		D1000002 /* ApiClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000002; };
@@ -41,6 +46,7 @@
 		D1000008 /* AudioPlayerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000008; };
 		D1000009 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000009; };
 		D1000010 /* SettingsClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000010; };
+		D1000011 /* SyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000011; };
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002; };
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003; };
@@ -89,6 +95,11 @@
 		A2000022 /* SettingsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClient.swift; sourceTree = "<group>"; };
 		A2000024 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A2000025 /* ShowSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsSheet.swift; sourceTree = "<group>"; };
+		F2000001 /* Syncable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syncable.swift; sourceTree = "<group>"; };
+		F2000002 /* SyncCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCursor.swift; sourceTree = "<group>"; };
+		F2000003 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
+		F2000004 /* EpisodeStateRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStateRecord.swift; sourceTree = "<group>"; };
+		F2000005 /* EpisodeSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSyncAdapter.swift; sourceTree = "<group>"; };
 		D2000001 /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		D2000002 /* ApiClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClientTests.swift; sourceTree = "<group>"; };
 		D2000003 /* PodcastCatalogClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCatalogClientTests.swift; sourceTree = "<group>"; };
@@ -99,6 +110,7 @@
 		D2000008 /* AudioPlayerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerTests.swift; sourceTree = "<group>"; };
 		D2000009 /* AuthManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManagerTests.swift; sourceTree = "<group>"; };
 		D2000010 /* SettingsClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClientTests.swift; sourceTree = "<group>"; };
+		D2000011 /* SyncEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngineTests.swift; sourceTree = "<group>"; };
 		D3000000 /* KuullaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2000001 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
 		E2000002 /* SearchAndSubscribeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAndSubscribeUITests.swift; sourceTree = "<group>"; };
@@ -142,6 +154,11 @@
 				A2000022 /* SettingsClient.swift */,
 				A2000024 /* SettingsView.swift */,
 				A2000025 /* ShowSettingsSheet.swift */,
+				F2000001 /* Syncable.swift */,
+				F2000002 /* SyncCursor.swift */,
+				F2000003 /* SyncEngine.swift */,
+				F2000004 /* EpisodeStateRecord.swift */,
+				F2000005 /* EpisodeSyncAdapter.swift */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -171,6 +188,7 @@
 				D2000008 /* AudioPlayerTests.swift */,
 				D2000009 /* AuthManagerTests.swift */,
 				D2000010 /* SettingsClientTests.swift */,
+				D2000011 /* SyncEngineTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -302,6 +320,11 @@
 				A1000021,
 				A1000023,
 				A1000024,
+				F1000001,
+				F1000002,
+				F1000003,
+				F1000004,
+				F1000005,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -319,6 +342,7 @@
 				D1000008,
 				D1000009,
 				D1000010,
+				D1000011,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
