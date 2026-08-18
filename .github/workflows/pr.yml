@@ -11,18 +11,30 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
+      dotnet: ${{ steps.filter.outputs.dotnet }}
       ios: ${{ steps.filter.outputs.ios }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # The workflow file itself is listed under both filters — a pr.yml change should
+          # validate whichever job it touched, and there's no way to tell which from the path
+          # alone, so treat it as shared and run both.
           filters: |
+            dotnet:
+              - 'src/**'
+              - 'tests/**'
+              - 'Kuulla.sln'
+              - '.github/workflows/pr.yml'
             ios:
               - 'ios/**'
+              - '.github/workflows/pr.yml'
 
   build-dotnet:
     name: Build .NET
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
