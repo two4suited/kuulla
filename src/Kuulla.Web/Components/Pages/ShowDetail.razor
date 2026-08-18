@@ -201,7 +201,7 @@ else
         }
         catch (HttpRequestException)
         {
-            // The call failed; leave the selector at "use global default".
+            showSettingsError = "Something went wrong while loading this show's settings. Please try again.";
         }
     }
 
@@ -213,7 +213,7 @@ else
         {
             value = null;
         }
-        else if (Enum.TryParse(raw, out UnlistenedEpisodeCount parsed))
+        else if (Enum.TryParse(raw, out UnlistenedEpisodeCount parsed) && Enum.IsDefined(parsed))
         {
             value = parsed;
         }

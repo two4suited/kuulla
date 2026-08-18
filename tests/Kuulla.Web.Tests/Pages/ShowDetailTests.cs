@@ -169,4 +169,42 @@ public class ShowDetailTests : WebTestContext
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
+
+    [Fact]
+    public void SettingsSelector_ShowsErrorMessage_WhenLoadFails()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/settings/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            }
+
+            if (path == "/api/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(TestShow) };
+            }
+
+            if (path == "/api/shows/show-1/episodes" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new EpisodePage([TestEpisode], null)),
+                };
+            }
+
+            if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Something went wrong while loading this show's settings", cut.Markup));
+    }
 }

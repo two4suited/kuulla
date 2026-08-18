@@ -68,7 +68,7 @@ else
 
     private async Task OnUnlistenedEpisodeCountChangedAsync(ChangeEventArgs args)
     {
-        if (!Enum.TryParse<UnlistenedEpisodeCount>(args.Value?.ToString(), out var value))
+        if (!Enum.TryParse<UnlistenedEpisodeCount>(args.Value?.ToString(), out var value) || !Enum.IsDefined(value))
         {
             return;
         }
