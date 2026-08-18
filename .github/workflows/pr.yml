@@ -32,11 +32,16 @@ jobs:
         run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
 
       # Re-attempting Kuulla.AppHost.Tests in CI (issue #62) — previously excluded for a TLS
-      # handshake failure ("corrupted frame") that turned out to come from Kuulla.Api's own
-      # CosmosClient defaulting to Direct (TCP) connection mode, which opens raw TLS connections
-      # straight to individual backend replica ports the emulator container never exposes (see
-      # Program.cs). Now pinned to Gateway mode.
+      # handshake failure ("corrupted frame") against the Cosmos emulator. Pinning the CosmosClient
+      # to Gateway mode (see Program.cs) ruled out Direct-mode connections to unpublished replica
+      # ports as the cause; the failure persisted even in Gateway mode. This runner's OpenSSL 3.x
+      # defaults to SECLEVEL=2, which rejects the weaker TLS parameters/ciphers the emulator's
+      # older TLS stack offers — .NET's SslStream (backed by OpenSSL on Linux) sees that rejection
+      # as a garbled handshake rather than a clean negotiation failure. Relaxing to SECLEVEL=1 for
+      # this step's process tree only (not the whole runner) works around it.
       - name: Test AppHost integration (Debug)
+        env:
+          OPENSSL_CONF: ${{ github.workspace }}/.github/ci/openssl-relaxed.cnf
         run: dotnet test tests/Kuulla.AppHost.Tests/Kuulla.AppHost.Tests.csproj --configuration Debug
 
   build-ios:
