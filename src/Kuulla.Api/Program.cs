@@ -386,4 +386,32 @@ settings.MapPut("", async (
     return Results.Ok(result);
 });
 
+settings.MapGet("/shows/{showId}", async (
+    string showId,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.GetShowSettingsAsync(userId, showId, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}", async (
+    string showId,
+    UpdateShowSettingsRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.UnlistenedEpisodeCount is { } value && !Enum.IsDefined(value))
+    {
+        return Results.BadRequest(new { error = "'unlistenedEpisodeCount' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowUnlistenedEpisodeCountAsync(userId, showId, request.UnlistenedEpisodeCount, ct);
+    return Results.Ok(result);
+});
+
 app.Run();

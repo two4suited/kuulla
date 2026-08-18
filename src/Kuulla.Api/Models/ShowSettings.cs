@@ -1,0 +1,32 @@
+using Newtonsoft.Json;
+
+namespace Kuulla.Api.Models;
+
+// Per-show override of a user's global UserSettings. Stored in the same "settings" container
+// (partitioned by /id, so each document is its own partition — a point read), with a composite
+// id so a user's per-show override for a given show has a single, directly-addressable document
+// distinct from their UserSettings document (which is keyed by UserId alone).
+// UnlistenedEpisodeCount is nullable: null means "no override — inherit the user's global
+// setting", so clearing an override is a real, representable state rather than deleting the
+// document.
+public record ShowSettings(
+    [property: JsonProperty("id")] string Id,
+    string UserId,
+    string ShowId,
+    UnlistenedEpisodeCount? UnlistenedEpisodeCount,
+    int Version)
+{
+    // "show:" prefixed and with each part percent-escaped (which encodes ':' too), so a ShowSettings
+    // id can never collide with a UserSettings id (a raw, unprefixed UserId) or with a different
+    // (userId, showId) pair whose raw values happen to contain ':'.
+    public static string BuildId(string userId, string showId) =>
+        $"show:{Uri.EscapeDataString(userId)}:{Uri.EscapeDataString(showId)}";
+
+    public static ShowSettings CreateDefault(string userId, string showId) =>
+        new(BuildId(userId, showId), userId, showId, UnlistenedEpisodeCount: null, Version: 1);
+
+    // Discriminator so a future cross-partition/container-wide query can filter by document
+    // shape instead of guessing from the id string or risking a wrong-typed deserialization.
+    [JsonProperty("type")]
+    public string Type => "ShowSettings";
+}
