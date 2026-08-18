@@ -3,7 +3,13 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 var cosmos = builder.AddAzureCosmosDB("cosmos")
-    .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
+    .RunAsPreviewEmulator(emulator => emulator
+        .WithDataExplorer()
+        // Without this, the emulator's self-signed cert/listener binds to whatever address it
+        // autodetects inside the container, which can be wrong in headless CI runners and
+        // produces a TLS handshake failure ("corrupted frame") on the very first real query —
+        // Aspire's own health check passes because it doesn't exercise the same path.
+        .WithEnvironment("AZURE_COSMOS_EMULATOR_IP_ADDRESS_OVERRIDE", "127.0.0.1"))
     .AddCosmosDatabase("kuulladb");
 
 var users = cosmos.AddContainer("users", partitionKeyPath: "/id");
