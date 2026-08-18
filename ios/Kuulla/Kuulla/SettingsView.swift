@@ -4,7 +4,6 @@ struct SettingsView: View {
     @State private var settings: UserSettings?
     @State private var isLoading = false
     @State private var loadError: String?
-    @State private var isSaving = false
     @State private var saveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
@@ -71,7 +70,6 @@ struct SettingsView: View {
     private func updateUnlistenedEpisodeCount(_ value: UnlistenedEpisodeCount) async {
         guard let previous = settings else { return }
 
-        isSaving = true
         saveError = nil
         settings = UserSettings(userId: previous.userId, unlistenedEpisodeCount: value, version: previous.version)
 
@@ -85,10 +83,6 @@ struct SettingsView: View {
                 settings = previous
                 saveError = "Something went wrong while saving. Please try again."
             }
-        }
-
-        if !Task.isCancelled {
-            isSaving = false
         }
     }
 }
