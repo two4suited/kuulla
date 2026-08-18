@@ -16,6 +16,7 @@ struct ShowDetailView: View {
     // Set once the user has manually subscribed/unsubscribed, so the initial (slower)
     // subscription-status fetch doesn't clobber a faster, more current toggle result.
     @State private var hasToggledSubscription = false
+    @State private var isShowingSettings = false
 
     private let catalogClient = PodcastCatalogClient()
     private let subscriptionClient = SubscriptionClient()
@@ -75,6 +76,20 @@ struct ShowDetailView: View {
         .listStyle(.plain)
         .navigationTitle(show?.title ?? "Show")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isShowingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Podcast settings")
+                .disabled(show == nil)
+            }
+        }
+        .sheet(isPresented: $isShowingSettings) {
+            ShowSettingsSheet(showId: showId, showTitle: show?.title ?? "Show")
+        }
         .overlay {
             if isLoadingShow {
                 ProgressView()

@@ -25,6 +25,11 @@
 		A1000016 /* Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
 		A1000017 /* SubscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
 		A1000018 /* SubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
+		A1000019 /* UserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020; };
+		A1000020 /* ShowSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000021; };
+		A1000021 /* SettingsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022; };
+		A1000023 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024; };
+		A1000024 /* ShowSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
 		B9000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B9000002; };
 		D1000001 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000001; };
 		D1000002 /* ApiClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000002; };
@@ -35,6 +40,7 @@
 		D1000007 /* EpisodeFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000007; };
 		D1000008 /* AudioPlayerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000008; };
 		D1000009 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000009; };
+		D1000010 /* SettingsClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000010; };
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002; };
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003; };
@@ -78,6 +84,11 @@
 		A2000017 /* Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscription.swift; sourceTree = "<group>"; };
 		A2000018 /* SubscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClient.swift; sourceTree = "<group>"; };
 		A2000019 /* SubscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionsView.swift; sourceTree = "<group>"; };
+		A2000020 /* UserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettings.swift; sourceTree = "<group>"; };
+		A2000021 /* ShowSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettings.swift; sourceTree = "<group>"; };
+		A2000022 /* SettingsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClient.swift; sourceTree = "<group>"; };
+		A2000024 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A2000025 /* ShowSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsSheet.swift; sourceTree = "<group>"; };
 		D2000001 /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		D2000002 /* ApiClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClientTests.swift; sourceTree = "<group>"; };
 		D2000003 /* PodcastCatalogClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCatalogClientTests.swift; sourceTree = "<group>"; };
@@ -87,6 +98,7 @@
 		D2000007 /* EpisodeFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeFormattingTests.swift; sourceTree = "<group>"; };
 		D2000008 /* AudioPlayerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerTests.swift; sourceTree = "<group>"; };
 		D2000009 /* AuthManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManagerTests.swift; sourceTree = "<group>"; };
+		D2000010 /* SettingsClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClientTests.swift; sourceTree = "<group>"; };
 		D3000000 /* KuullaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2000001 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
 		E2000002 /* SearchAndSubscribeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAndSubscribeUITests.swift; sourceTree = "<group>"; };
@@ -125,6 +137,11 @@
 				A2000017 /* Subscription.swift */,
 				A2000018 /* SubscriptionClient.swift */,
 				A2000019 /* SubscriptionsView.swift */,
+				A2000020 /* UserSettings.swift */,
+				A2000021 /* ShowSettings.swift */,
+				A2000022 /* SettingsClient.swift */,
+				A2000024 /* SettingsView.swift */,
+				A2000025 /* ShowSettingsSheet.swift */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -153,6 +170,7 @@
 				D2000007 /* EpisodeFormattingTests.swift */,
 				D2000008 /* AudioPlayerTests.swift */,
 				D2000009 /* AuthManagerTests.swift */,
+				D2000010 /* SettingsClientTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -279,6 +297,11 @@
 				A1000016,
 				A1000017,
 				A1000018,
+				A1000019,
+				A1000020,
+				A1000021,
+				A1000023,
+				A1000024,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -295,6 +318,7 @@
 				D1000007,
 				D1000008,
 				D1000009,
+				D1000010,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
