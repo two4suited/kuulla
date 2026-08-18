@@ -40,7 +40,9 @@ struct KuullaApp: App {
                     Task { await episodeSyncEngine.syncNow() }
                 }
             case .background:
-                episodeSyncEngine.scheduleBackgroundRefresh()
+                if AuthManager.shared.isSignedIn {
+                    episodeSyncEngine.scheduleBackgroundRefresh()
+                }
             case .inactive:
                 break
             @unknown default:

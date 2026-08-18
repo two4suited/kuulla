@@ -181,7 +181,14 @@ extension SyncEngine {
     // does, saves, and schedules the debounced push.
     func write(_ mutate: (ModelContext) throws -> Void) async rethrows {
         try mutate(context)
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            // A failed save here means the caller's local write never reached disk — surface it
+            // loudly in debug builds rather than silently scheduling a sync of state that isn't
+            // actually persisted.
+            assertionFailure("SyncEngine.write failed to save: \(error)")
+        }
         if isSyncing {
             writeOccurredDuringSync = true
         }

@@ -179,14 +179,26 @@ final class SyncEngineTests: MockedApiTestCase {
         """.data(using: .utf8)!
         MockURLProtocol.stubHandler = { _ in
             requestReceived.signal()
-            releaseResponse.wait()
+            if releaseResponse.wait(timeout: .now() + 5) != .success {
+                return .failure(URLError(.timedOut))
+            }
             return .success(.init(statusCode: 200, data: json, headers: [:]))
         }
 
-        let engine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+        // A long debounceInterval keeps the `write` below from scheduling a real debounced sync
+        // that outlives this test — with the default ~5s interval, that leftover Task would fire
+        // mid-suite against the (by-then reset and reused) shared MockURLProtocol state and
+        // pollute a later test's request count.
+        let engine = SyncEngine(
+            modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1", debounceInterval: .seconds(3600))
         let syncTask = Task { await engine.syncNow() }
 
-        requestReceived.wait()
+        guard requestReceived.wait(timeout: .now() + 5) == .success else {
+            XCTFail("push was never issued")
+            releaseResponse.signal()
+            return
+        }
         // A second local write lands while the push above is still awaiting its response —
         // actors are reentrant across `await`, so this runs before performSync resumes.
         try await engine.write { context in

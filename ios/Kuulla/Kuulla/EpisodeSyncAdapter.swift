@@ -49,6 +49,11 @@ struct EpisodeSyncAdapter: SyncAdapter {
         )).first
 
         if let existing {
+            // Last-write-wins: a serverChange can be an update from another device that predates
+            // a not-yet-pushed local edit (e.g. still waiting on the debounce). Only overwrite —
+            // and only clear isDirty — when the incoming record is actually newer, so a pending
+            // local edit's dirty flag is never cleared without its value having actually landed.
+            guard record.updatedAt > existing.updatedAt else { return }
             existing.showId = record.showId
             existing.positionSeconds = record.positionSeconds
             existing.completed = record.completed
