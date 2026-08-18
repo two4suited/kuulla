@@ -9,4 +9,6 @@ public interface ISubscriptionService
     Task<Subscription?> SubscribeAsync(string userId, string showId, CancellationToken cancellationToken);
 
     Task UnsubscribeAsync(string userId, string showId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<Episode>> GetNewEpisodesAsync(string userId, CancellationToken cancellationToken);
 }
