@@ -23,6 +23,15 @@ struct SubscriptionClient {
     func unsubscribe(showId: String) async throws {
         try await apiClient.delete(["api", "subscriptions", showId])
     }
+
+    func getNewEpisodes() async throws -> [Episode] {
+        do {
+            return try await apiClient.get(["api", "subscriptions", "episodes"])
+        } catch ApiError.requestFailed(let statusCode) where statusCode == 401 || statusCode == 403 {
+            // Mirrors getSubscriptions(): an unauthenticated caller has no feed rather than an error.
+            return []
+        }
+    }
 }
 
 private struct SubscribeRequest: Encodable {

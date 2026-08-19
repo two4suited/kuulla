@@ -42,4 +42,30 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.currentURL, secondURL)
         XCTAssertTrue(player.isPlaying)
     }
+
+    func testPlayWithStartPositionSeedsCurrentTime() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 120)
+
+        XCTAssertEqual(player.currentTime, 120)
+    }
+
+    func testPlayWithoutStartPositionDefaultsCurrentTimeToZero() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        XCTAssertEqual(player.currentTime, 0)
+    }
+
+    func testPlayingANewURLResetsCurrentTimeAndDuration() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/first.mp3")!, startPosition: 120)
+        player.play(url: URL(string: "https://example.com/second.mp3")!)
+
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertEqual(player.duration, 0)
+    }
 }

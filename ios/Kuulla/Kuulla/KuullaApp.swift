@@ -22,6 +22,7 @@ struct KuullaApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(\.episodeSyncEngine, episodeSyncEngine)
                 .task {
                     await AuthManager.shared.restorePreviousSignIn()
                     if AuthManager.shared.isSignedIn {

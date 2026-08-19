@@ -13,16 +13,54 @@ final class AudioPlayer {
     private(set) var duration: TimeInterval = 0
     private(set) var currentURL: URL?
 
+    // Fires once, on the main queue, when the current item finishes playing naturally (not on a
+    // manual pause). A single slot rather than a broadcast mechanism — callers should assign this
+    // only at the point they start playback for a specific URL (not merely on screen appearance),
+    // so a screen that never presses play can't steal the callback from whichever episode is
+    // actually playing in the background.
+    var onDidFinishPlaying: ((URL) -> Void)?
+
+    private var timeObserverToken: Any?
+    private var endObserver: NSObjectProtocol?
+
     init() {
         configureAudioSession()
     }
 
-    func play(url: URL) {
+    func play(url: URL, startPosition: TimeInterval = 0) {
+        removeObservers()
+
         let item = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: item)
-        player?.play()
-        isPlaying = true
+        let newPlayer = AVPlayer(playerItem: item)
+        player = newPlayer
         currentURL = url
+        duration = 0
+        currentTime = startPosition
+
+        if startPosition > 0 {
+            newPlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
+        }
+
+        newPlayer.play()
+        isPlaying = true
+
+        timeObserverToken = newPlayer.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main
+        ) { [weak self] time in
+            guard let self else { return }
+            self.currentTime = time.seconds
+            if let itemDuration = newPlayer.currentItem?.duration.seconds, itemDuration.isFinite {
+                self.duration = itemDuration
+            }
+        }
+
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.isPlaying = false
+            self.onDidFinishPlaying?(url)
+        }
     }
 
     func pause() {
@@ -38,6 +76,18 @@ final class AudioPlayer {
     func seek(to time: TimeInterval) {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player?.seek(to: cmTime)
+        currentTime = time
+    }
+
+    private func removeObservers() {
+        if let timeObserverToken {
+            player?.removeTimeObserver(timeObserverToken)
+            self.timeObserverToken = nil
+        }
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
     }
 
     private func configureAudioSession() {
