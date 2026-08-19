@@ -12,6 +12,9 @@ final class EpisodeStateRecord: Syncable {
     var completed: Bool
     var updatedAt: Date
     var isDirty: Bool
+    // True only when the unlistened-episode-limit enforcement job marked this episode played
+    // rather than the user (#97) — lets the UI show "auto-marked played" with an undo.
+    var autoPlayed: Bool
 
     init(
         id: String,
@@ -19,7 +22,8 @@ final class EpisodeStateRecord: Syncable {
         positionSeconds: Int,
         completed: Bool,
         updatedAt: Date,
-        isDirty: Bool = false
+        isDirty: Bool = false,
+        autoPlayed: Bool = false
     ) {
         self.id = id
         self.showId = showId
@@ -27,5 +31,6 @@ final class EpisodeStateRecord: Syncable {
         self.completed = completed
         self.updatedAt = updatedAt
         self.isDirty = isDirty
+        self.autoPlayed = autoPlayed
     }
 }

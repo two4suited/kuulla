@@ -18,4 +18,7 @@ public record EpisodeState(
     int PositionSeconds,
     bool Completed,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt,
-    [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord;
+    [property: JsonProperty("deviceId")] string? DeviceId = null,
+    // True only when the unlistened-episode-limit enforcement job marked this episode played
+    // rather than the user (#97) — lets the UI show "auto-marked played" with an undo.
+    bool AutoPlayed = false) : ISyncableRecord;
