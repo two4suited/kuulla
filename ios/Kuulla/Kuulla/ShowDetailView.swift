@@ -1,12 +1,17 @@
+import SwiftData
 import SwiftUI
 
 struct ShowDetailView: View {
     let showId: String
 
+    @Environment(\.episodeSyncEngine) private var syncEngine
+    @Environment(\.modelContext) private var modelContext
+
     @State private var show: Show?
     @State private var isLoadingShow = false
     @State private var showError: String?
     @State private var episodes: [Episode] = []
+    @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
     @State private var continuationToken: String?
     @State private var isLoadingEpisodes = false
     @State private var episodeError: String?
@@ -54,7 +59,10 @@ struct ShowDetailView: View {
 
                     ForEach(episodes) { episode in
                         NavigationLink(value: CatalogRoute.episode(showId: showId, episodeId: episode.id)) {
-                            EpisodeRow(episode: episode)
+                            EpisodeRow(
+                                episode: episode,
+                                status: statusByEpisodeId[episode.id] ?? .new,
+                                onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } })
                         }
                         .accessibilityIdentifier("episode-row")
                     }
@@ -97,6 +105,11 @@ struct ShowDetailView: View {
         }
         .task(id: showId) {
             await loadShow()
+        }
+        .onAppear {
+            // Cheap local-only re-derivation (no network), mirroring FeedView, so a badge changed
+            // from EpisodeDetailView isn't left stale when popping back to this screen.
+            refreshStatuses()
         }
     }
 
@@ -179,6 +192,7 @@ struct ShowDetailView: View {
             let page = try await catalogClient.getEpisodes(showId: showId, continuationToken: continuationToken)
             episodes.append(contentsOf: page.items)
             continuationToken = page.continuationToken
+            refreshStatuses()
         } catch {
             if !Task.isCancelled {
                 episodeError = "Something went wrong while loading episodes. Please try again."
@@ -186,6 +200,18 @@ struct ShowDetailView: View {
         }
 
         isLoadingEpisodes = false
+    }
+
+    private func refreshStatuses() {
+        statusByEpisodeId = EpisodeStatus.statusMap(for: Set(episodes.map(\.id)), in: modelContext)
+    }
+
+    private func restoreAutoPlayed(episodeId: String) async {
+        // Derive the badge directly from the returned record rather than refreshStatuses() — that
+        // re-fetches every record through this view's own ModelContext, a different instance than
+        // the one the write just saved through (same hazard EpisodeDetailView.persist() avoids).
+        guard let restored = await syncEngine?.restoreAutoPlayed(episodeId: episodeId) else { return }
+        statusByEpisodeId[episodeId] = EpisodeStatus(record: restored)
     }
 }
 
@@ -254,26 +280,34 @@ private struct ShowHeader: View {
 
 private struct EpisodeRow: View {
     let episode: Episode
+    let status: EpisodeStatus
+    let onRestore: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(episode.title)
-                .font(.body)
-                .lineLimit(2)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(episode.title)
+                    .font(.body)
+                    .lineLimit(2)
 
-            HStack(spacing: 4) {
-                if let publishedAt = episode.publishedAt {
-                    Text(publishedAt.formatted(date: .abbreviated, time: .omitted))
+                HStack(spacing: 4) {
+                    if let publishedAt = episode.publishedAt {
+                        Text(publishedAt.formatted(date: .abbreviated, time: .omitted))
+                    }
+                    if episode.publishedAt != nil && episode.duration != nil {
+                        Text("·")
+                    }
+                    if let duration = episode.duration {
+                        Text(EpisodeFormatting.formatDuration(duration))
+                    }
                 }
-                if episode.publishedAt != nil && episode.duration != nil {
-                    Text("·")
-                }
-                if let duration = episode.duration {
-                    Text(EpisodeFormatting.formatDuration(duration))
-                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+
+            Spacer()
+
+            StatusBadgeWithRestore(status: status, onRestore: onRestore)
         }
     }
 }
