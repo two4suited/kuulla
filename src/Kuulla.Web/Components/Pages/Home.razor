@@ -2,250 +2,189 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
-@using Kuulla.Web.Services.Sync
+@inject SubscriptionClient SubscriptionClient
+@inject PlaylistClient PlaylistClient
 @inject EpisodeStateClient EpisodeStateClient
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Library</PageTitle>
 
 <AuthorizeView>
     <Authorized>
-        <div class="d-flex align-items-center justify-content-between mb-3">
-            <h1 class="mb-0">New Episodes</h1>
-            @if (syncStatusService is not null)
-            {
-                <SyncStatusIndicator Service="syncStatusService" />
-            }
-        </div>
+        <h1>Library</h1>
 
-        @if (isLoading)
+        <h2 class="h5 text-muted mt-4">Playlists</h2>
+        @if (isLoadingPlaylists)
         {
             <p>Loading&hellip;</p>
         }
-        else if (loadError is not null)
+        else if (playlistsLoadError is not null)
         {
-            <p class="text-danger">@loadError</p>
-        }
-        else if (episodes.Count == 0)
-        {
-            <p>You're all caught up &mdash; no new episodes from your subscriptions.</p>
+            <p class="text-danger">@playlistsLoadError</p>
         }
         else
         {
-            <div class="row row-cols-1 row-cols-md-2 g-4">
-                @foreach (var newEpisode in episodes)
+            <div class="d-flex flex-row flex-nowrap gap-3 overflow-auto pb-2 mb-4" style="scroll-snap-type: x proximity;">
+                <div class="card text-center flex-shrink-0" style="width: 8rem; opacity: 0.6; scroll-snap-align: start;" title="Coming soon">
+                    <div class="card-body">
+                        <div class="fs-3">▶</div>
+                        <div class="small mt-1">Up Next</div>
+                        <div class="text-muted" style="font-size: 0.7rem;">Coming soon</div>
+                    </div>
+                </div>
+                @foreach (var playlist in playlists)
                 {
-                    var episode = newEpisode.Episode;
-                    <div class="col">
-                        <div class="card h-100">
-                            <div class="card-body">
-                                <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="text-decoration-none">
-                                    <h6 class="card-title">@episode.Title</h6>
-                                </a>
-                                <p class="card-text text-muted small">
-                                    @if (episode.PublishedAt is { } publishedAt)
-                                    {
-                                        @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
-                                        <text> &middot; </text>
-                                    }
-                                    @if (episode.Duration is { } duration)
-                                    {
-                                        @EpisodeFormatting.FormatDuration(duration)
-                                    }
-                                </p>
-                                @if (newEpisode.AutoPlayed)
-                                {
-                                    <p class="text-muted small fst-italic mb-2">Auto-marked played</p>
-                                }
-                                <div class="d-flex gap-2">
-                                    <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
-                                        Play
-                                    </a>
-                                    @if (newEpisode.AutoPlayed)
-                                    {
-                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => RestoreAsync(newEpisode)">
-                                            Restore
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(newEpisode)">
-                                            Mark as played
-                                        </button>
-                                    }
-                                </div>
+                    <a href="@($"playlists/{playlist.Id}")" class="card text-center text-decoration-none text-body flex-shrink-0"
+                       style="width: 8rem; scroll-snap-align: start;">
+                        <div class="card-body">
+                            <div class="fs-3">🎵</div>
+                            <div class="small mt-1 text-truncate">@playlist.Name</div>
+                            <div class="text-muted" style="font-size: 0.7rem;">
+                                @playlist.Items.Count episode@(playlist.Items.Count == 1 ? "" : "s")
                             </div>
                         </div>
+                    </a>
+                }
+                <div class="card text-center flex-shrink-0" style="width: 8rem; opacity: 0.6; scroll-snap-align: start;" title="Coming soon">
+                    <div class="card-body">
+                        <div class="fs-3">⬇</div>
+                        <div class="small mt-1">Downloaded</div>
+                        <div class="text-muted" style="font-size: 0.7rem;">Coming soon</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <h2 class="h5 text-muted mt-4">Shows</h2>
+        @if (isLoadingShows)
+        {
+            <p>Loading&hellip;</p>
+        }
+        else if (showsLoadError is not null)
+        {
+            <p class="text-danger">@showsLoadError</p>
+        }
+        else if (subscriptions.Count == 0)
+        {
+            <p>You haven't subscribed to any shows yet. <a href="search">Find some shows</a> to get started.</p>
+        }
+        else
+        {
+            <div class="row row-cols-2 row-cols-md-4 g-4">
+                @foreach (var subscription in subscriptions)
+                {
+                    <div class="col">
+                        <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none text-body">
+                            <div class="card h-100 position-relative">
+                                @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount) && unplayedCount > 0)
+                                {
+                                    <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2">
+                                        @(unplayedCount >= NewEpisodesPerShowLimit ? $"{unplayedCount}+" : unplayedCount)
+                                    </span>
+                                }
+                                @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
+                                {
+                                    <img src="@subscription.ShowArtworkUrl" alt="@subscription.ShowTitle" class="card-img-top" />
+                                }
+                                <div class="card-body">
+                                    <h6 class="card-title">@subscription.ShowTitle</h6>
+                                </div>
+                            </div>
+                        </a>
                     </div>
                 }
             </div>
-
-            @if (markPlayedError is not null)
-            {
-                <p class="text-danger mt-3">@markPlayedError</p>
-            }
         }
     </Authorized>
     <NotAuthorized>
-        <h1 class="mb-3">New Episodes</h1>
-        <p>You need to <a href="Account/Login">log in</a> to see new episodes from your subscriptions.</p>
+        <h1>Library</h1>
+        <p>You need to <a href="Account/Login">log in</a> to view your library.</p>
     </NotAuthorized>
 </AuthorizeView>
 
 @code {
-    private readonly List<NewEpisode> episodes = [];
-    private bool isLoading;
-    private string? loadError;
-    private bool isBusy;
-    private string? markPlayedError;
-    private SyncStatusService<EpisodeState>? syncStatusService;
+    // Mirrors SubscriptionService.NewEpisodesPerShow on the API — the new-episodes endpoint this
+    // page cross-references for unplayed badges caps how many episodes it returns per show, so a
+    // badge sitting at that cap means "at least this many," not necessarily exact.
+    private const int NewEpisodesPerShowLimit = 10;
+
+    private readonly List<Subscription> subscriptions = [];
+    private readonly List<Playlist> playlists = [];
+    private readonly Dictionary<string, int> unplayedCounts = [];
+    private bool isLoadingShows;
+    private bool isLoadingPlaylists;
+    private string? showsLoadError;
+    private string? playlistsLoadError;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
-        // AuthorizeView alone only gates rendering; without this check the data load below would
-        // still run (and fail with a caught-but-wasted 401) for anonymous visitors hitting "/".
+        // AuthorizeView alone only gates rendering; without this check the data loads below would
+        // still run (and fail with caught-but-wasted 401s) for anonymous visitors hitting "/".
         var authState = await AuthenticationStateTask!;
         if (authState.User.Identity?.IsAuthenticated is not true)
         {
             return;
         }
 
-        isLoading = true;
+        await Task.WhenAll(LoadShowsAsync(), LoadPlaylistsAsync());
+    }
+
+    private async Task LoadShowsAsync()
+    {
+        isLoadingShows = true;
         try
         {
-            var results = await EpisodeStateClient.GetNewEpisodesAsync();
-            episodes.AddRange(results.OrderByDescending(e => e.Episode.PublishedAt));
+            var results = await SubscriptionClient.GetSubscriptionsAsync();
+            subscriptions.AddRange(results.OrderBy(s => s.ShowTitle, StringComparer.OrdinalIgnoreCase));
         }
         catch (HttpRequestException)
         {
-            loadError = "Something went wrong while loading your new episodes. Please try again.";
+            showsLoadError = "Something went wrong while loading your shows. Please try again.";
         }
         finally
         {
-            isLoading = false;
+            isLoadingShows = false;
         }
 
-        if (loadError is not null)
+        // Kept outside the try/catch above on purpose: unplayed badges are supplementary, so a
+        // hiccup computing them shouldn't hide the already-loaded show grid behind an error.
+        if (showsLoadError is null)
         {
-            return;
-        }
-
-        // Kept out of the try/catch above on purpose: the sync-status indicator is supplementary,
-        // so a hiccup seeding it shouldn't hide an already-loaded episode list.
-        try
-        {
-            var initialSync = await EpisodeStateClient.SyncAsync(string.Empty, DateTimeOffset.MinValue);
-            syncStatusService = new SyncStatusService<EpisodeState>(
-                EpisodeStateClient.SyncAsync,
-                ApplyServerChanges,
-                initialSync.Hash,
-                initialSync.SyncedAt);
-        }
-        catch (HttpRequestException)
-        {
-        }
-    }
-
-    private void ApplyServerChanges(IReadOnlyList<EpisodeState> serverChanges)
-    {
-        foreach (var change in serverChanges)
-        {
-            var index = episodes.FindIndex(e => e.Episode.Id == change.EpisodeId);
-            if (index < 0)
+            try
             {
-                continue;
+                var newEpisodes = await EpisodeStateClient.GetNewEpisodesAsync();
+                foreach (var group in newEpisodes.GroupBy(e => e.Episode.ShowId))
+                {
+                    unplayedCounts[group.Key] = group.Count();
+                }
             }
-
-            // Mirrors SubscriptionService.GetNewEpisodesAsync's "unseen" rule: still "new" if
-            // auto-played, or if the change left no real progress behind (the shape a Restore
-            // write leaves) — otherwise reflect the updated flag instead of dropping the episode,
-            // so it doesn't silently vanish (#98/#99). Any other change (a manual play, or
-            // progress recorded elsewhere) means it's no longer new here.
-            if (change.AutoPlayed || (!change.Completed && change.PositionSeconds == 0))
+            catch (HttpRequestException)
             {
-                episodes[index] = episodes[index] with { AutoPlayed = change.AutoPlayed };
-            }
-            else
-            {
-                episodes.RemoveAt(index);
             }
         }
 
         StateHasChanged();
     }
 
-    private async Task MarkAsPlayedAsync(NewEpisode newEpisode)
+    private async Task LoadPlaylistsAsync()
     {
-        var episode = newEpisode.Episode;
-        isBusy = true;
-        markPlayedError = null;
-        episodes.Remove(newEpisode);
-
+        isLoadingPlaylists = true;
         try
         {
-            var positionSeconds = (int)(episode.Duration ?? TimeSpan.Zero).TotalSeconds;
-            await EpisodeStateClient.UpdateStateAsync(episode.Id, episode.ShowId, positionSeconds, completed: true);
+            var results = await PlaylistClient.GetPlaylistsAsync();
+            playlists.AddRange(results.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
         }
         catch (HttpRequestException)
         {
-            episodes.Add(newEpisode);
-            episodes.Sort((a, b) => Comparer<DateTimeOffset?>.Default.Compare(b.Episode.PublishedAt, a.Episode.PublishedAt));
-            markPlayedError = "Something went wrong while updating this episode. Please try again.";
-            isBusy = false;
-            return;
+            playlistsLoadError = "Something went wrong while loading your playlists. Please try again.";
         }
-
-        isBusy = false;
-        await SyncOwnWriteBestEffortAsync();
-    }
-
-    private async Task RestoreAsync(NewEpisode newEpisode)
-    {
-        var episode = newEpisode.Episode;
-        isBusy = true;
-        markPlayedError = null;
-        var index = episodes.IndexOf(newEpisode);
-        if (index >= 0)
+        finally
         {
-            episodes[index] = newEpisode with { AutoPlayed = false };
+            isLoadingPlaylists = false;
         }
 
-        try
-        {
-            await EpisodeStateClient.UpdateStateAsync(episode.Id, episode.ShowId, positionSeconds: 0, completed: false);
-        }
-        catch (HttpRequestException)
-        {
-            if (index >= 0)
-            {
-                episodes[index] = newEpisode;
-            }
-
-            markPlayedError = "Something went wrong while restoring this episode. Please try again.";
-            isBusy = false;
-            return;
-        }
-
-        isBusy = false;
-        await SyncOwnWriteBestEffortAsync();
-    }
-
-    // Bookkeeping-only: the write already succeeded server-side, so a failure syncing our own
-    // hash/lastSyncedAt shouldn't roll back the UI or report an error — the next poll would just
-    // (harmlessly) treat this device's own write as a remote update instead.
-    private async Task SyncOwnWriteBestEffortAsync()
-    {
-        if (syncStatusService is not null)
-        {
-            try
-            {
-                await syncStatusService.SyncOwnWriteAsync();
-            }
-            catch (HttpRequestException)
-            {
-            }
-        }
+        StateHasChanged();
     }
 }
