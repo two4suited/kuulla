@@ -100,6 +100,22 @@ public class HomeTests : WebTestContext
     }
 
     [Fact]
+    public void RendersShowsWithoutBadges_WhenUnplayedCountLoadFails()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onGetNewEpisodes: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<Home>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("The Daily", cut.Markup);
+            Assert.DoesNotContain("Something went wrong", cut.Markup);
+            Assert.DoesNotContain("badge", cut.Markup);
+        });
+    }
+
+    [Fact]
     public void ShowsErrorMessage_WhenPlaylistsLoadFails()
     {
         AuthContext.SetAuthorized("user-1");

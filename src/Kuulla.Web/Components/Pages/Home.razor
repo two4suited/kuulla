@@ -136,16 +136,8 @@
         isLoadingShows = true;
         try
         {
-            var subscriptionsTask = SubscriptionClient.GetSubscriptionsAsync();
-            var newEpisodesTask = EpisodeStateClient.GetNewEpisodesAsync();
-            await Task.WhenAll(subscriptionsTask, newEpisodesTask);
-
-            subscriptions.AddRange((await subscriptionsTask).OrderBy(s => s.ShowTitle, StringComparer.OrdinalIgnoreCase));
-
-            foreach (var group in (await newEpisodesTask).GroupBy(e => e.Episode.ShowId))
-            {
-                unplayedCounts[group.Key] = group.Count();
-            }
+            var results = await SubscriptionClient.GetSubscriptionsAsync();
+            subscriptions.AddRange(results.OrderBy(s => s.ShowTitle, StringComparer.OrdinalIgnoreCase));
         }
         catch (HttpRequestException)
         {
@@ -155,6 +147,25 @@
         {
             isLoadingShows = false;
         }
+
+        // Kept outside the try/catch above on purpose: unplayed badges are supplementary, so a
+        // hiccup computing them shouldn't hide the already-loaded show grid behind an error.
+        if (showsLoadError is null)
+        {
+            try
+            {
+                var newEpisodes = await EpisodeStateClient.GetNewEpisodesAsync();
+                foreach (var group in newEpisodes.GroupBy(e => e.Episode.ShowId))
+                {
+                    unplayedCounts[group.Key] = group.Count();
+                }
+            }
+            catch (HttpRequestException)
+            {
+            }
+        }
+
+        StateHasChanged();
     }
 
     private async Task LoadPlaylistsAsync()
@@ -173,5 +184,7 @@
         {
             isLoadingPlaylists = false;
         }
+
+        StateHasChanged();
     }
 }
