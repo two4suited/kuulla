@@ -230,11 +230,12 @@ public class EpisodeServiceTests
         await _sut.EnforceUnlistenedLimitAsync(UserId, ShowId, CancellationToken.None);
 
         _episodeStateService.Verify(
-            s => s.MarkAutoPlayedAsync(UserId, It.IsIn("3", "4", "5"), ShowId, It.IsAny<CancellationToken>()), Times.Exactly(3));
-        _episodeStateService.Verify(
-            s => s.MarkAutoPlayedAsync(UserId, "1", ShowId, It.IsAny<CancellationToken>()), Times.Never);
-        _episodeStateService.Verify(
-            s => s.MarkAutoPlayedAsync(UserId, "2", ShowId, It.IsAny<CancellationToken>()), Times.Never);
+            s => s.MarkAutoPlayedAsync(
+                UserId,
+                It.Is<IReadOnlyList<(string EpisodeId, string ShowId)>>(list =>
+                    list.Select(x => x.EpisodeId).SequenceEqual(new[] { "3", "4", "5" })),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -254,8 +255,12 @@ public class EpisodeServiceTests
 
         await _sut.EnforceUnlistenedLimitAsync(UserId, ShowId, CancellationToken.None);
 
-        _episodeStateService.Verify(s => s.MarkAutoPlayedAsync(UserId, "2", ShowId, It.IsAny<CancellationToken>()), Times.Never);
-        _episodeStateService.Verify(s => s.MarkAutoPlayedAsync(UserId, "3", ShowId, It.IsAny<CancellationToken>()), Times.Once);
+        _episodeStateService.Verify(
+            s => s.MarkAutoPlayedAsync(
+                UserId,
+                It.Is<IReadOnlyList<(string EpisodeId, string ShowId)>>(list => list.Select(x => x.EpisodeId).SequenceEqual(new[] { "3" })),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -288,5 +293,31 @@ public class EpisodeServiceTests
 
         _settingsService.Verify(
             s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_SkipsEnforcementWhenNoEpisodesWereNewlyInserted()
+    {
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var feedEpisode = MakeEpisode("new-1");
+
+        _episodesContainer
+            .SetupSequence(c => c.GetItemQueryIterator<Episode>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator(Array.Empty<Episode>()))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { feedEpisode }));
+
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _feedClient
+            .Setup(c => c.FetchAsync(show.FeedUrl, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, [feedEpisode]));
+        // Every insert conflicts — the episode already existed, nothing was actually newly cached.
+        _episodesContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Episode>(), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(CosmosTestHelpers.Conflict());
+
+        await _sut.GetEpisodesAsync(ShowId, continuationToken: null, pageSize: 20, CancellationToken.None);
+
+        _subscriptionsContainer.Verify(
+            c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null), Times.Never);
     }
 }

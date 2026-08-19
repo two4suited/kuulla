@@ -6,6 +6,9 @@ public interface IEpisodeStateService
 {
     Task<EpisodeState?> GetStateAsync(string userId, string episodeId, CancellationToken cancellationToken);
 
+    Task<IReadOnlyDictionary<string, EpisodeState>> GetStatesAsync(
+        string userId, IReadOnlyList<string> episodeIds, CancellationToken cancellationToken);
+
     Task<EpisodeState> UpdateStateAsync(
         string userId,
         string episodeId,
@@ -15,8 +18,8 @@ public interface IEpisodeStateService
         string? deviceId,
         CancellationToken cancellationToken);
 
-    Task<EpisodeState> MarkAutoPlayedAsync(
-        string userId, string episodeId, string showId, CancellationToken cancellationToken);
+    Task MarkAutoPlayedAsync(
+        string userId, IReadOnlyList<(string EpisodeId, string ShowId)> episodes, CancellationToken cancellationToken);
 
     Task<SyncEpisodesResult> SyncAsync(
         string userId,

@@ -33,11 +33,12 @@ public class ShowDetailTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(page) };
             }
 
-            if (path == "/api/episodes/ep-1/state" && request.Method == HttpMethod.Get)
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
             {
-                return episodeState is null
-                    ? new HttpResponseMessage(HttpStatusCode.NotFound)
-                    : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(episodeState) };
+                var states = episodeState is null
+                    ? new Dictionary<string, EpisodeState>()
+                    : new Dictionary<string, EpisodeState> { ["ep-1"] = episodeState };
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(states) };
             }
 
             if (path == "/api/episodes/ep-1/state" && request.Method == HttpMethod.Put)
@@ -215,6 +216,11 @@ public class ShowDetailTests : WebTestContext
             if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
             {
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Dictionary<string, EpisodeState>()) };
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);

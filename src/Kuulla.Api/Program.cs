@@ -383,6 +383,17 @@ episodeState.MapGet("/{id}/state", async (
     return state is not null ? Results.Ok(state) : Results.NotFound();
 });
 
+episodeState.MapPost("/states", async (
+    GetEpisodeStatesRequest request,
+    ClaimsPrincipal user,
+    IEpisodeStateService episodeStateService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var states = await episodeStateService.GetStatesAsync(userId, request.EpisodeIds, ct);
+    return Results.Ok(states);
+});
+
 episodeState.MapPut("/{id}/state", async (
     string id,
     UpdateEpisodeStateRequest request,

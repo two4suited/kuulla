@@ -1,4 +1,5 @@
 using System.Net;
+using System.Threading;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Kuulla.Api.Models;
@@ -129,6 +130,7 @@ public class EpisodeService(
     // on feeds with hundreds of episodes.
     private async Task CacheEpisodesAsync(string showId, IReadOnlyList<Episode> episodes, CancellationToken cancellationToken)
     {
+        var insertedCount = 0;
         await Parallel.ForEachAsync(
             episodes,
             new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
@@ -138,11 +140,20 @@ public class EpisodeService(
                 try
                 {
                     await episodesContainer.CreateItemAsync(stamped, new PartitionKey(showId), cancellationToken: ct);
+                    Interlocked.Increment(ref insertedCount);
                 }
                 catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
                 {
                 }
             });
+
+        // Nothing new actually landed (every item already existed) — skip the subscriber scan
+        // entirely rather than re-running enforcement on every no-op refresh of an already-cached
+        // show.
+        if (insertedCount == 0)
+        {
+            return;
+        }
 
         // Single choke point where new episodes land in Cosmos — enforce every subscribed
         // user's unlistened-episode limit now rather than waiting for them to open the show.
@@ -180,24 +191,28 @@ public class EpisodeService(
         var episodes = await GetAllEpisodesOrderedAsync(showId, cancellationToken);
         var beyondLimit = episodes.Skip((int)effectiveLimit);
 
+        var toMark = new List<(string EpisodeId, string ShowId)>();
         foreach (var episode in beyondLimit)
         {
             // Never overwrite a manual play, an in-progress position, or a previous manual
             // "mark unplayed" — only touch episodes with no existing state at all.
             var existingState = await episodeStateService.GetStateAsync(userId, episode.Id, cancellationToken);
-            if (existingState is not null)
+            if (existingState is null)
             {
-                continue;
+                toMark.Add((episode.Id, showId));
             }
-
-            await episodeStateService.MarkAutoPlayedAsync(userId, episode.Id, showId, cancellationToken);
         }
+
+        // Batched so the sync summary is recomputed once per enforcement run rather than once per
+        // marked episode — a back catalog with hundreds of episodes beyond the limit would
+        // otherwise trigger hundreds of redundant QueryAllStatesAsync + cache-set round trips.
+        await episodeStateService.MarkAutoPlayedAsync(userId, toMark, cancellationToken);
     }
 
     private async Task<IReadOnlyList<Episode>> GetAllEpisodesOrderedAsync(string showId, CancellationToken cancellationToken)
     {
         var queryDefinition = new QueryDefinition(
-                "SELECT * FROM episodes e WHERE e.ShowId = @showId ORDER BY e.PublishedAt DESC")
+                "SELECT * FROM c WHERE c.ShowId = @showId ORDER BY c.PublishedAt DESC")
             .WithParameter("@showId", showId);
         var requestOptions = new QueryRequestOptions { PartitionKey = new PartitionKey(showId) };
 

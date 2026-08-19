@@ -357,30 +357,21 @@ else
         }
     }
 
-    // Mirrors the per-episode state check SubscriptionService.GetNewEpisodesAsync already does
-    // server-side (#98) — there's no bulk "states for these episode ids" endpoint, so this fans
-    // out one lookup per newly-loaded episode instead.
     private async Task LoadAutoPlayedStatusAsync(IReadOnlyList<Episode> loadedEpisodes)
     {
-        var checks = await Task.WhenAll(loadedEpisodes.Select(async episode =>
+        try
         {
-            try
+            var states = await EpisodeStateClient.GetStatesAsync(loadedEpisodes.Select(e => e.Id).ToList());
+            foreach (var (episodeId, state) in states)
             {
-                var state = await EpisodeStateClient.GetStateAsync(episode.Id);
-                return (episode.Id, autoPlayed: state?.AutoPlayed ?? false);
+                if (state.AutoPlayed)
+                {
+                    autoPlayedEpisodeIds.Add(episodeId);
+                }
             }
-            catch (HttpRequestException)
-            {
-                return (episode.Id, autoPlayed: false);
-            }
-        }));
-
-        foreach (var (episodeId, autoPlayed) in checks)
+        }
+        catch (HttpRequestException)
         {
-            if (autoPlayed)
-            {
-                autoPlayedEpisodeIds.Add(episodeId);
-            }
         }
     }
 
