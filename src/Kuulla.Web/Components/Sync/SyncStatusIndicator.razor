@@ -38,7 +38,9 @@ else if (Service.HasRemoteUpdate)
             return;
         }
 
-        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Sync/SyncStatusIndicator.razor.js");
+        // Dynamic import() specifiers must start with "/", "./", or "../" (or be a full URL) —
+        // a bare "Components/..." path is parsed as a bare module specifier and fails to resolve.
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", $"./{Assets["Components/Sync/SyncStatusIndicator.razor.js"]}");
         _selfReference = DotNetObjectReference.Create(this);
         _watcher = await _module.InvokeAsync<IJSObjectReference>("register", _selfReference);
     }

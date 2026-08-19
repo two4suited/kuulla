@@ -1,25 +1,32 @@
 @page "/jwt"
-@attribute [Authorize]
 @using System.Text.Json
 @using Kuulla.Web.Services
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>JWT Viewer</PageTitle>
 
-<h1>ID Token</h1>
+<AuthorizeView>
+    <Authorized>
+        <h1>ID Token</h1>
 
-@if (headerJson is null || payloadJson is null)
-{
-    <p>No ID token is available for the current session.</p>
-}
-else
-{
-    <h2>Header</h2>
-    <pre>@headerJson</pre>
+        @if (headerJson is null || payloadJson is null)
+        {
+            <p>No ID token is available for the current session.</p>
+        }
+        else
+        {
+            <h2>Header</h2>
+            <pre>@headerJson</pre>
 
-    <h2>Payload</h2>
-    <pre>@payloadJson</pre>
-}
+            <h2>Payload</h2>
+            <pre>@payloadJson</pre>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <h1>ID Token</h1>
+        <p>You need to <a href="Account/Login">log in</a> to view this page.</p>
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
     private string? headerJson;

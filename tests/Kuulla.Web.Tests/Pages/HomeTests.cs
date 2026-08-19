@@ -53,6 +53,7 @@ public class HomeTests : WebTestContext
     [Fact]
     public void RendersNewEpisodes_WhenLoadSucceeds()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(RouteHandler());
 
         var cut = RenderComponent<Home>();
@@ -63,6 +64,7 @@ public class HomeTests : WebTestContext
     [Fact]
     public void ShowsEmptyMessage_WhenNoNewEpisodes()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(RouteHandler(onGetEpisodes: _ =>
             new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Episode>()) }));
 
@@ -74,6 +76,7 @@ public class HomeTests : WebTestContext
     [Fact]
     public void ShowsErrorMessage_WhenLoadFails()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(TestHttpMessageHandler.Status(HttpStatusCode.InternalServerError));
 
         var cut = RenderComponent<Home>();
@@ -82,8 +85,19 @@ public class HomeTests : WebTestContext
     }
 
     [Fact]
+    public void ShowsSignInPrompt_WhenNotAuthenticated()
+    {
+        ConfigureApi(RouteHandler());
+
+        var cut = RenderComponent<Home>();
+
+        cut.WaitForAssertion(() => Assert.Contains("log in", cut.Markup));
+    }
+
+    [Fact]
     public void RemovesEpisode_WhenMarkedAsPlayed()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(RouteHandler());
 
         var cut = RenderComponent<Home>();
@@ -101,6 +115,7 @@ public class HomeTests : WebTestContext
     [Fact]
     public void BootstrapSyncFailure_DoesNotHideAlreadyLoadedEpisodes()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(RouteHandler(onSync: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
 
         var cut = RenderComponent<Home>();
@@ -115,6 +130,7 @@ public class HomeTests : WebTestContext
     [Fact]
     public void MarkAsPlayed_StaysRemoved_WhenOnlyBookkeepingSyncFails()
     {
+        AuthContext.SetAuthorized("user-1");
         var syncCallCount = 0;
         ConfigureApi(RouteHandler(onSync: _ =>
         {
