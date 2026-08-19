@@ -1,6 +1,6 @@
 @page "/subscriptions"
 @attribute [Authorize]
-@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@rendermode InteractiveServer
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject SubscriptionClient SubscriptionClient

@@ -151,7 +151,7 @@ else
             return;
         }
 
-        _module = await JS.InvokeAsync<IJSObjectReference>("import", Assets["Components/Pages/EpisodeDetail.razor.js"]);
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/EpisodeDetail.razor.js");
         _selfReference = DotNetObjectReference.Create(this);
         _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, savedPositionSeconds);
     }
