@@ -18,6 +18,7 @@ public abstract class WebTestContext : TestContext
         Services.AddScoped<PodcastCatalogClient>();
         Services.AddScoped<SubscriptionClient>();
         Services.AddScoped<SettingsClient>();
+        Services.AddScoped<EpisodeStateClient>();
     }
 
     protected void ConfigureApi(HttpMessageHandler handler)
