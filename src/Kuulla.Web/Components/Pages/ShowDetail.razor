@@ -93,18 +93,19 @@ else
     <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
         <div class="btn-group" role="group" aria-label="Filter episodes">
             <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.All ? "active" : "")"
-                    @onclick="() => SetFilter(EpisodeFilter.All)">
+                    aria-pressed="@(selectedFilter == EpisodeFilter.All)" @onclick="() => SetFilter(EpisodeFilter.All)">
                 All
             </button>
             <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.Unplayed ? "active" : "")"
-                    @onclick="() => SetFilter(EpisodeFilter.Unplayed)">
+                    aria-pressed="@(selectedFilter == EpisodeFilter.Unplayed)" @onclick="() => SetFilter(EpisodeFilter.Unplayed)">
                 Unplayed
             </button>
             <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.InProgress ? "active" : "")"
-                    @onclick="() => SetFilter(EpisodeFilter.InProgress)">
+                    aria-pressed="@(selectedFilter == EpisodeFilter.InProgress)" @onclick="() => SetFilter(EpisodeFilter.InProgress)">
                 In Progress
             </button>
-            <button type="button" class="btn btn-sm btn-outline-primary" style="opacity: 0.6;" disabled title="Coming soon">
+            <button type="button" class="btn btn-sm btn-outline-primary disabled" style="opacity: 0.6;"
+                    aria-disabled="true" aria-pressed="false" tabindex="-1" title="Coming soon">
                 Downloaded
             </button>
         </div>
