@@ -22,6 +22,7 @@ struct ShowDetailView: View {
     // subscription-status fetch doesn't clobber a faster, more current toggle result.
     @State private var hasToggledSubscription = false
     @State private var isShowingSettings = false
+    @State private var addToPlaylistEpisode: Episode?
 
     private let catalogClient = PodcastCatalogClient()
     private let subscriptionClient = SubscriptionClient()
@@ -65,6 +66,14 @@ struct ShowDetailView: View {
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } })
                         }
                         .accessibilityIdentifier("episode-row")
+                        .swipeActions(edge: .trailing) {
+                            Button {
+                                addToPlaylistEpisode = episode
+                            } label: {
+                                Label("Add to Playlist", systemImage: "text.badge.plus")
+                            }
+                            .tint(.blue)
+                        }
                     }
 
                     if isLoadingEpisodes {
@@ -97,6 +106,9 @@ struct ShowDetailView: View {
         }
         .sheet(isPresented: $isShowingSettings) {
             ShowSettingsSheet(showId: showId, showTitle: show?.title ?? "Show")
+        }
+        .sheet(item: $addToPlaylistEpisode) { episode in
+            AddToPlaylistSheet(episodeId: episode.id, showId: showId)
         }
         .overlay {
             if isLoadingShow {

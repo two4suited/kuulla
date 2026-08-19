@@ -8,25 +8,31 @@ struct KuullaApp: App {
 
     let modelContainer: ModelContainer
     let episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>
+    let playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>
 
     init() {
-        let container = try! ModelContainer(for: SyncCursor.self, EpisodeStateRecord.self)
+        let container = try! ModelContainer(for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self)
         modelContainer = container
-        let engine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter())
-        episodeSyncEngine = engine
+        let episodeEngine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter())
+        episodeSyncEngine = episodeEngine
+        let playlistEngine = SyncEngine(modelContainer: container, adapter: PlaylistSyncAdapter())
+        playlistSyncEngine = playlistEngine
         // Must happen before the app finishes launching (BGTaskScheduler's requirement) — App
         // init runs before the first scene appears, so this is the earliest SwiftUI hook for it.
-        engine.registerBackgroundTask()
+        episodeEngine.registerBackgroundTask()
+        playlistEngine.registerBackgroundTask()
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(\.episodeSyncEngine, episodeSyncEngine)
+                .environment(\.playlistSyncEngine, playlistSyncEngine)
                 .task {
                     await AuthManager.shared.restorePreviousSignIn()
                     if AuthManager.shared.isSignedIn {
                         await episodeSyncEngine.syncNow()
+                        await playlistSyncEngine.syncNow()
                     }
                 }
                 .onOpenURL { url in
@@ -39,10 +45,12 @@ struct KuullaApp: App {
             case .active:
                 if AuthManager.shared.isSignedIn {
                     Task { await episodeSyncEngine.syncNow() }
+                    Task { await playlistSyncEngine.syncNow() }
                 }
             case .background:
                 if AuthManager.shared.isSignedIn {
                     episodeSyncEngine.scheduleBackgroundRefresh()
+                    playlistSyncEngine.scheduleBackgroundRefresh()
                 }
             case .inactive:
                 break
