@@ -1,5 +1,4 @@
 @page "/"
-@attribute [Authorize]
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
@@ -8,67 +7,75 @@
 
 <PageTitle>Home</PageTitle>
 
-<div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="mb-0">New Episodes</h1>
-    @if (syncStatusService is not null)
-    {
-        <SyncStatusIndicator Service="syncStatusService" />
-    }
-</div>
+<AuthorizeView>
+    <Authorized>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <h1 class="mb-0">New Episodes</h1>
+            @if (syncStatusService is not null)
+            {
+                <SyncStatusIndicator Service="syncStatusService" />
+            }
+        </div>
 
-@if (isLoading)
-{
-    <p>Loading&hellip;</p>
-}
-else if (loadError is not null)
-{
-    <p class="text-danger">@loadError</p>
-}
-else if (episodes.Count == 0)
-{
-    <p>You're all caught up &mdash; no new episodes from your subscriptions.</p>
-}
-else
-{
-    <div class="row row-cols-1 row-cols-md-2 g-4">
-        @foreach (var episode in episodes)
+        @if (isLoading)
         {
-            <div class="col">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="text-decoration-none">
-                            <h6 class="card-title">@episode.Title</h6>
-                        </a>
-                        <p class="card-text text-muted small">
-                            @if (episode.PublishedAt is { } publishedAt)
-                            {
-                                @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
-                                <text> &middot; </text>
-                            }
-                            @if (episode.Duration is { } duration)
-                            {
-                                @EpisodeFormatting.FormatDuration(duration)
-                            }
-                        </p>
-                        <div class="d-flex gap-2">
-                            <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
-                                Play
-                            </a>
-                            <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(episode)">
-                                Mark as played
-                            </button>
+            <p>Loading&hellip;</p>
+        }
+        else if (loadError is not null)
+        {
+            <p class="text-danger">@loadError</p>
+        }
+        else if (episodes.Count == 0)
+        {
+            <p>You're all caught up &mdash; no new episodes from your subscriptions.</p>
+        }
+        else
+        {
+            <div class="row row-cols-1 row-cols-md-2 g-4">
+                @foreach (var episode in episodes)
+                {
+                    <div class="col">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="text-decoration-none">
+                                    <h6 class="card-title">@episode.Title</h6>
+                                </a>
+                                <p class="card-text text-muted small">
+                                    @if (episode.PublishedAt is { } publishedAt)
+                                    {
+                                        @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
+                                        <text> &middot; </text>
+                                    }
+                                    @if (episode.Duration is { } duration)
+                                    {
+                                        @EpisodeFormatting.FormatDuration(duration)
+                                    }
+                                </p>
+                                <div class="d-flex gap-2">
+                                    <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
+                                        Play
+                                    </a>
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(episode)">
+                                        Mark as played
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                }
             </div>
-        }
-    </div>
 
-    @if (markPlayedError is not null)
-    {
-        <p class="text-danger mt-3">@markPlayedError</p>
-    }
-}
+            @if (markPlayedError is not null)
+            {
+                <p class="text-danger mt-3">@markPlayedError</p>
+            }
+        }
+    </Authorized>
+    <NotAuthorized>
+        <h1 class="mb-3">New Episodes</h1>
+        <p>You need to <a href="Account/Login">log in</a> to see new episodes from your subscriptions.</p>
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
     private readonly List<Episode> episodes = [];
@@ -78,8 +85,19 @@ else
     private string? markPlayedError;
     private SyncStatusService<EpisodeState>? syncStatusService;
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
+        // AuthorizeView alone only gates rendering; without this check the data load below would
+        // still run (and fail with a caught-but-wasted 401) for anonymous visitors hitting "/".
+        var authState = await AuthenticationStateTask!;
+        if (authState.User.Identity?.IsAuthenticated is not true)
+        {
+            return;
+        }
+
         isLoading = true;
         try
         {

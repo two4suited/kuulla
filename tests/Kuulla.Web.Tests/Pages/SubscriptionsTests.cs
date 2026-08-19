@@ -15,6 +15,7 @@ public class SubscriptionsTests : WebTestContext
     [Fact]
     public void RendersSubscriptions_WhenLoadSucceeds()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(TestHttpMessageHandler.Json(Subscriptions));
 
         var cut = RenderComponent<Subscriptions>();
@@ -25,6 +26,7 @@ public class SubscriptionsTests : WebTestContext
     [Fact]
     public void ShowsEmptyMessage_WhenNoSubscriptions()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(TestHttpMessageHandler.Json(new List<Subscription>()));
 
         var cut = RenderComponent<Subscriptions>();
@@ -35,6 +37,7 @@ public class SubscriptionsTests : WebTestContext
     [Fact]
     public void ShowsErrorMessage_WhenLoadFails()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(TestHttpMessageHandler.Status(HttpStatusCode.InternalServerError));
 
         var cut = RenderComponent<Subscriptions>();
@@ -45,6 +48,7 @@ public class SubscriptionsTests : WebTestContext
     [Fact]
     public void RemovesSubscription_WhenUnsubscribeConfirmed()
     {
+        AuthContext.SetAuthorized("user-1");
         ConfigureApi(new TestHttpMessageHandler(request =>
             request.Method == HttpMethod.Delete && request.RequestUri!.AbsolutePath == "/api/subscriptions/show-1"
                 ? new HttpResponseMessage(HttpStatusCode.OK)
