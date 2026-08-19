@@ -38,6 +38,15 @@
 		G1000001 /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000001; };
 		G1000002 /* EpisodeStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000002; };
 		G1000003 /* EpisodeSyncEngineEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000003; };
+		J1000001 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000001; };
+		J1000002 /* PlaylistSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000002; };
+		J1000003 /* PlaylistSyncEngineEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000003; };
+		J1000004 /* PlaylistClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000004; };
+		J1000005 /* PlaylistsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000005; };
+		J1000006 /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000006; };
+		J1000007 /* AddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000007; };
+		J1000008 /* PlaylistSyncAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000008; };
+		J1000009 /* PlaylistClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000009; };
 		B9000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B9000002; };
 		D1000001 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000001; };
 		D1000002 /* ApiClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000002; };
@@ -107,6 +116,15 @@
 		G2000001 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
 		G2000002 /* EpisodeStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStatus.swift; sourceTree = "<group>"; };
 		G2000003 /* EpisodeSyncEngineEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSyncEngineEnvironment.swift; sourceTree = "<group>"; };
+		J2000001 /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
+		J2000002 /* PlaylistSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncAdapter.swift; sourceTree = "<group>"; };
+		J2000003 /* PlaylistSyncEngineEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncEngineEnvironment.swift; sourceTree = "<group>"; };
+		J2000004 /* PlaylistClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistClient.swift; sourceTree = "<group>"; };
+		J2000005 /* PlaylistsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistsView.swift; sourceTree = "<group>"; };
+		J2000006 /* PlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailView.swift; sourceTree = "<group>"; };
+		J2000007 /* AddToPlaylistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPlaylistSheet.swift; sourceTree = "<group>"; };
+		J2000008 /* PlaylistSyncAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncAdapterTests.swift; sourceTree = "<group>"; };
+		J2000009 /* PlaylistClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistClientTests.swift; sourceTree = "<group>"; };
 		D2000001 /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		D2000002 /* ApiClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClientTests.swift; sourceTree = "<group>"; };
 		D2000003 /* PodcastCatalogClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCatalogClientTests.swift; sourceTree = "<group>"; };
@@ -170,6 +188,13 @@
 				G2000001 /* FeedView.swift */,
 				G2000002 /* EpisodeStatus.swift */,
 				G2000003 /* EpisodeSyncEngineEnvironment.swift */,
+				J2000001 /* Playlist.swift */,
+				J2000002 /* PlaylistSyncAdapter.swift */,
+				J2000003 /* PlaylistSyncEngineEnvironment.swift */,
+				J2000004 /* PlaylistClient.swift */,
+				J2000005 /* PlaylistsView.swift */,
+				J2000006 /* PlaylistDetailView.swift */,
+				J2000007 /* AddToPlaylistSheet.swift */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -201,6 +226,8 @@
 				D2000010 /* SettingsClientTests.swift */,
 				D2000011 /* SyncEngineTests.swift */,
 				H2000001 /* EpisodeStatusTests.swift */,
+				J2000008 /* PlaylistSyncAdapterTests.swift */,
+				J2000009 /* PlaylistClientTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -340,6 +367,13 @@
 				G1000001,
 				G1000002,
 				G1000003,
+				J1000001,
+				J1000002,
+				J1000003,
+				J1000004,
+				J1000005,
+				J1000006,
+				J1000007,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -359,6 +393,8 @@
 				D1000010,
 				D1000011,
 				H1000001,
+				J1000008,
+				J1000009,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

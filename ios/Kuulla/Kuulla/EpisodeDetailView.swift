@@ -21,6 +21,7 @@ struct EpisodeDetailView: View {
 
     @State private var stateRecord: EpisodeStateRecord?
     @State private var progressTrackingTask: Task<Void, Never>?
+    @State private var isShowingAddToPlaylist = false
 
     private let catalogClient = PodcastCatalogClient()
 
@@ -83,6 +84,14 @@ struct EpisodeDetailView: View {
                     .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
 
+                    Button {
+                        isShowingAddToPlaylist = true
+                    } label: {
+                        Label("Add to Playlist", systemImage: "text.badge.plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
                     if let description = episode.description, !description.isEmpty {
                         Text("Show notes")
                             .font(.headline)
@@ -109,6 +118,9 @@ struct EpisodeDetailView: View {
         }
         .navigationTitle(episode?.title ?? "Episode")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $isShowingAddToPlaylist) {
+            AddToPlaylistSheet(episodeId: episodeId, showId: showId)
+        }
         .task(id: episodeId) {
             await load()
         }

@@ -15,6 +15,8 @@ struct ContentView: View {
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 tab { SubscriptionsView() }
                     .tabItem { Label("Subscriptions", systemImage: "square.stack") }
+                tab { PlaylistsView() }
+                    .tabItem { Label("Playlists", systemImage: "music.note.list") }
                 tab { SettingsView() }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
             }
@@ -34,6 +36,8 @@ struct ContentView: View {
                         ShowDetailView(showId: id)
                     case .episode(let showId, let episodeId):
                         EpisodeDetailView(showId: showId, episodeId: episodeId)
+                    case .playlist(let id):
+                        PlaylistDetailView(playlistId: id)
                     }
                 }
                 .toolbar {
