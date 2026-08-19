@@ -78,8 +78,19 @@ public class SyncStatusService<TState>(
     // just to call SyncLocalState (#34's Home.razor and #42's settings UI both need this).
     public async Task SyncOwnWriteAsync(CancellationToken cancellationToken = default)
     {
-        var result = await poll(_localHash, _lastSyncedAt, cancellationToken);
-        SyncLocalState(result.Hash, result.SyncedAt);
+        // Unlike CheckNowAsync's poll-on-focus, this call represents a write that already
+        // happened and must be accounted for — so it waits for any in-flight CheckNowAsync to
+        // finish rather than skipping, to avoid racing on _localHash/_lastSyncedAt.
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var result = await poll(_localHash, _lastSyncedAt, cancellationToken);
+            SyncLocalState(result.Hash, result.SyncedAt);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public Task AcknowledgeRemoteUpdateAsync(CancellationToken cancellationToken = default)

@@ -88,6 +88,12 @@ else
     private bool isTogglingCompleted;
     private string? stateError;
 
+    // Serializes PersistStateAsync calls so overlapping triggers (pause firing just before ended,
+    // or a timeupdate racing the manual toggle) apply in invocation order rather than completion
+    // order — otherwise a slower earlier call's response could land after and overwrite a later
+    // one's (e.g. a stale in-flight progress update clobbering a completed:true write).
+    private readonly SemaphoreSlim _persistGate = new(1, 1);
+
     private string StatusLabel => isCompleted ? "Played" : savedPositionSeconds > 0 ? "In progress" : "New";
 
     private string StatusBadgeClass => isCompleted
@@ -185,8 +191,8 @@ else
     }
 
     // Called both from the manual toggle button and from JS playback-progress callbacks, which can
-    // legitimately overlap (e.g. 'pause' firing just before 'ended') — no in-flight guard here, so a
-    // slower-to-return progress update can never suppress the completed write that follows it.
+    // legitimately overlap (e.g. 'pause' firing just before 'ended') — _persistGate serializes them
+    // so a slower earlier call can't apply after and overwrite a later, more current one.
     private async Task PersistStateAsync(int positionSeconds, bool completed)
     {
         if (episode is null)
@@ -194,9 +200,10 @@ else
             return;
         }
 
-        stateError = null;
+        await _persistGate.WaitAsync();
         try
         {
+            stateError = null;
             var updated = await EpisodeStateClient.UpdateStateAsync(EpisodeId, ShowId, positionSeconds, completed);
             savedPositionSeconds = updated.PositionSeconds;
             isCompleted = updated.Completed;
@@ -207,6 +214,7 @@ else
         }
         finally
         {
+            _persistGate.Release();
             StateHasChanged();
         }
     }
