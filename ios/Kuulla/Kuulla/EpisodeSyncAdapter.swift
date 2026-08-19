@@ -37,7 +37,8 @@ struct EpisodeSyncAdapter: SyncAdapter {
                 showId: $0.showId,
                 positionSeconds: $0.positionSeconds,
                 completed: $0.completed,
-                updatedAt: $0.updatedAt)
+                updatedAt: $0.updatedAt,
+                autoPlayed: $0.autoPlayed)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
@@ -58,10 +59,42 @@ struct EpisodeSyncAdapter: SyncAdapter {
             existing.positionSeconds = record.positionSeconds
             existing.completed = record.completed
             existing.updatedAt = record.updatedAt
+            existing.autoPlayed = record.autoPlayed
             existing.isDirty = false
         } else {
             context.insert(record)
         }
+    }
+}
+
+extension SyncEngine where Adapter == EpisodeSyncAdapter {
+    // Clears completed/autoPlayed on the local record and marks it dirty for the next sync push —
+    // the undo for an unlistened-episode-limit auto-mark (#97/#100). The server never trusts a
+    // client-supplied autoPlayed value (EpisodeStateChange carries no such field), so any push
+    // resulting from this — like any other user-initiated write — always lands as autoPlayed=false.
+    // Returns the post-write record (nil if there was no local record for this episode) so callers
+    // can update their own UI state directly from it rather than re-fetching through their own
+    // ModelContext, which — same hazard EpisodeDetailView.persist() works around — isn't
+    // guaranteed to observe a write made through this engine's own context synchronously.
+    @discardableResult
+    func restoreAutoPlayed(episodeId: String) async -> EpisodeStateRecord? {
+        var restored: EpisodeStateRecord?
+        do {
+            try await write { context in
+                let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
+                guard let existing = try context.fetch(descriptor).first else { return }
+                existing.completed = false
+                existing.autoPlayed = false
+                existing.updatedAt = Date()
+                existing.isDirty = true
+                restored = EpisodeStateRecord(
+                    id: existing.id, showId: existing.showId, positionSeconds: existing.positionSeconds,
+                    completed: existing.completed, updatedAt: existing.updatedAt, autoPlayed: existing.autoPlayed)
+            }
+        } catch {
+            assertionFailure("Failed to restore auto-played episode \(episodeId): \(error)")
+        }
+        return restored
     }
 }
 
@@ -93,4 +126,21 @@ private struct EpisodeStateDTO: Decodable {
     let positionSeconds: Int
     let completed: Bool
     let updatedAt: Date
+    let autoPlayed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case episodeId, showId, positionSeconds, completed, updatedAt, autoPlayed
+    }
+
+    // Defaults to false when absent so a server response that predates #100's field addition
+    // still decodes cleanly rather than failing the whole sync.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        episodeId = try container.decode(String.self, forKey: .episodeId)
+        showId = try container.decode(String.self, forKey: .showId)
+        positionSeconds = try container.decode(Int.self, forKey: .positionSeconds)
+        completed = try container.decode(Bool.self, forKey: .completed)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        autoPlayed = try container.decodeIfPresent(Bool.self, forKey: .autoPlayed) ?? false
+    }
 }

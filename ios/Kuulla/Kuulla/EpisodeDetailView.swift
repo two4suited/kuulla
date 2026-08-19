@@ -26,6 +26,14 @@ struct EpisodeDetailView: View {
 
     private var status: EpisodeStatus { EpisodeStatus(record: stateRecord) }
 
+    private var completedButtonTitle: String {
+        switch status {
+        case .played: "Mark as Unplayed"
+        case .autoPlayed: "Restore"
+        case .new, .inProgress: "Mark as Played"
+        }
+    }
+
     // AudioPlayer is a single shared instance, so isPlaying/currentURL are global, not scoped to
     // this screen's episode — a plain `audioPlayer.isPlaying` check would show "Pause" (and treat
     // a tap as pause-this-episode) while a *different* episode is actually playing.
@@ -69,8 +77,8 @@ struct EpisodeDetailView: View {
                         .buttonStyle(.borderedProminent)
                     }
 
-                    Button(status == .played ? "Mark as Unplayed" : "Mark as Played") {
-                        Task { await toggleCompleted() }
+                    Button(completedButtonTitle) {
+                        Task { await handleCompletedButtonTapped() }
                     }
                     .buttonStyle(.bordered)
                     .frame(maxWidth: .infinity)
@@ -180,6 +188,25 @@ struct EpisodeDetailView: View {
         progressTrackingTask = nil
     }
 
+    private func handleCompletedButtonTapped() async {
+        if status == .autoPlayed {
+            await restoreAutoPlayed()
+        } else {
+            await toggleCompleted()
+        }
+    }
+
+    private func restoreAutoPlayed() async {
+        stopProgressTracking()
+        guard let syncEngine else { return }
+        // Use the returned record directly rather than loadLocalState() — that re-fetches through
+        // this view's own @Environment(\.modelContext), a different instance than the one the
+        // write above just saved through (same hazard persist() avoids below).
+        if let restored = await syncEngine.restoreAutoPlayed(episodeId: episodeId) {
+            stateRecord = restored
+        }
+    }
+
     private func toggleCompleted() async {
         let newCompleted = status != .played
         if newCompleted {
@@ -213,6 +240,10 @@ struct EpisodeDetailView: View {
                     existing.positionSeconds = positionSeconds
                     existing.completed = completed
                     existing.updatedAt = updatedAt
+                    // Every call into persist() is a manual write path (playback progress, the
+                    // completed toggle) — restoreAutoPlayed() is the only path that clears the
+                    // flag on an auto-played episode, so any write reaching here always resets it.
+                    existing.autoPlayed = false
                     existing.isDirty = true
                 } else {
                     context.insert(EpisodeStateRecord(

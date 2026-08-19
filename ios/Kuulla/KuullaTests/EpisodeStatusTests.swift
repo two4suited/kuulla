@@ -27,4 +27,18 @@ final class EpisodeStatusTests: XCTestCase {
         let record = EpisodeStateRecord(id: "ep1", showId: "show1", positionSeconds: 0, completed: true, updatedAt: Date())
         XCTAssertEqual(EpisodeStatus(record: record), .played)
     }
+
+    func testAutoPlayedCompletedRecordIsAutoPlayed() {
+        let record = EpisodeStateRecord(
+            id: "ep1", showId: "show1", positionSeconds: 0, completed: true, updatedAt: Date(), autoPlayed: true)
+        XCTAssertEqual(EpisodeStatus(record: record), .autoPlayed)
+    }
+
+    func testAutoPlayedFlagWithoutCompletedIsNotAutoPlayed() {
+        // autoPlayed should never be set without completed by any real write path, but the
+        // classification shouldn't treat it as played on its own if it somehow is.
+        let record = EpisodeStateRecord(
+            id: "ep1", showId: "show1", positionSeconds: 10, completed: false, updatedAt: Date(), autoPlayed: true)
+        XCTAssertEqual(EpisodeStatus(record: record), .inProgress)
+    }
 }

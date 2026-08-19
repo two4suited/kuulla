@@ -89,6 +89,62 @@ final class SyncEngineTests: MockedApiTestCase {
         XCTAssertFalse(stored.isDirty)
     }
 
+    func testSyncNowAppliesAutoPlayedFlagFromServerChanges() async throws {
+        let container = try makeContainer()
+
+        stubSync(
+            serverChanges: """
+            [{"episodeId":"ep2","showId":"show2","positionSeconds":0,"completed":true,"updatedAt":"2026-08-18T09:00:00Z","autoPlayed":true}]
+            """,
+            hash: "h2")
+        let engine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+
+        await engine.syncNow()
+
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
+        XCTAssertTrue(stored.autoPlayed)
+    }
+
+    func testRestoreAutoPlayedClearsFlagsAndMarksDirty() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(EpisodeStateRecord(
+            id: "ep1", showId: "show1", positionSeconds: 0, completed: true,
+            updatedAt: Date(timeIntervalSince1970: 1_000), isDirty: false, autoPlayed: true))
+        try context.save()
+
+        stubSync()
+        let engine = SyncEngine(
+            modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1", debounceInterval: .seconds(3600))
+
+        let returned = await engine.restoreAutoPlayed(episodeId: "ep1")
+
+        // Callers derive their UI state directly from the returned record rather than re-fetching
+        // through their own ModelContext, so it must reflect the write that was just made.
+        XCTAssertEqual(returned?.completed, false)
+        XCTAssertEqual(returned?.autoPlayed, false)
+
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
+        XCTAssertFalse(stored.completed)
+        XCTAssertFalse(stored.autoPlayed)
+        XCTAssertTrue(stored.isDirty)
+    }
+
+    func testRestoreAutoPlayedReturnsNilWhenNoLocalRecordExists() async throws {
+        let container = try makeContainer()
+        stubSync()
+        let engine = SyncEngine(
+            modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1", debounceInterval: .seconds(3600))
+
+        let returned = await engine.restoreAutoPlayed(episodeId: "nonexistent")
+
+        XCTAssertNil(returned)
+    }
+
     func testSyncNowSkipsStoreWriteWhenHashUnchangedAndNothingToSync() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)

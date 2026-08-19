@@ -13,30 +13,35 @@ struct FeedView: View {
     private let subscriptionClient = SubscriptionClient()
 
     var body: some View {
-        ScrollView {
+        // A List (rather than ScrollView + LazyVStack, as before), matching ShowDetailView — its
+        // UIKit-backed row hosting reliably separates a nested control's tap target (the Restore
+        // button below) from the row's own NavigationLink activation, which a plain LazyVStack
+        // does not reliably do.
+        List {
             if let errorMessage {
                 Text(errorMessage)
                     .foregroundStyle(.red)
-                    .padding()
             } else if isLoading {
-                ProgressView()
-                    .padding()
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
             } else if episodes.isEmpty {
                 Text("You're all caught up — no new episodes from your subscriptions.")
                     .foregroundStyle(.secondary)
-                    .padding()
             } else {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(episodes) { episode in
-                        NavigationLink(value: CatalogRoute.episode(showId: episode.showId, episodeId: episode.id)) {
-                            FeedEpisodeRow(episode: episode, status: statusByEpisodeId[episode.id] ?? .new)
-                        }
-                        .buttonStyle(.plain)
-                        Divider()
+                ForEach(episodes) { episode in
+                    NavigationLink(value: CatalogRoute.episode(showId: episode.showId, episodeId: episode.id)) {
+                        FeedEpisodeRow(
+                            episode: episode,
+                            status: statusByEpisodeId[episode.id] ?? .new,
+                            onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } })
                     }
                 }
             }
         }
+        .listStyle(.plain)
         .navigationTitle("Home")
         .task {
             await load()
@@ -72,17 +77,23 @@ struct FeedView: View {
         }
     }
 
+    private func restoreAutoPlayed(episodeId: String) async {
+        // Derive the badge directly from the returned record rather than refreshStatuses() — that
+        // re-fetches every record through this view's own ModelContext, a different instance than
+        // the one the write just saved through (same hazard EpisodeDetailView.persist() avoids).
+        guard let restored = await syncEngine?.restoreAutoPlayed(episodeId: episodeId) else { return }
+        statusByEpisodeId[episodeId] = EpisodeStatus(record: restored)
+    }
+
     private func refreshStatuses() {
-        let idsInFeed = Set(episodes.map(\.id))
-        let records = (try? modelContext.fetch(FetchDescriptor<EpisodeStateRecord>())) ?? []
-        statusByEpisodeId = Dictionary(
-            uniqueKeysWithValues: records.filter { idsInFeed.contains($0.id) }.map { ($0.id, EpisodeStatus(record: $0)) })
+        statusByEpisodeId = EpisodeStatus.statusMap(for: Set(episodes.map(\.id)), in: modelContext)
     }
 }
 
 private struct FeedEpisodeRow: View {
     let episode: Episode
     let status: EpisodeStatus
+    let onRestore: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -109,7 +120,7 @@ private struct FeedEpisodeRow: View {
 
             Spacer()
 
-            StatusBadge(status: status)
+            StatusBadgeWithRestore(status: status, onRestore: onRestore)
         }
         .padding()
     }
