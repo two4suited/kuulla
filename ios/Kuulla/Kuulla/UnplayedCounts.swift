@@ -10,6 +10,8 @@ enum UnplayedCounts {
     static let newEpisodesPerShowCap = 10
 
     static func compute(from showIds: [String]) -> [String: Int] {
-        Dictionary(grouping: showIds, by: { $0 }).mapValues(\.count)
+        showIds.reduce(into: [:]) { counts, showId in
+            counts[showId, default: 0] += 1
+        }
     }
 }

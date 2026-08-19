@@ -32,14 +32,14 @@ struct LibraryView: View {
             }
         }
         .task {
-            async let shows: Void = loadShows()
-            async let playlists: Void = loadPlaylists()
-            _ = await (shows, playlists)
+            async let showsTask: Void = loadShows()
+            async let playlistsTask: Void = loadPlaylists()
+            _ = await (showsTask, playlistsTask)
         }
         .refreshable {
-            async let shows: Void = loadShows()
-            async let playlists: Void = loadPlaylists()
-            _ = await (shows, playlists)
+            async let showsTask: Void = loadShows()
+            async let playlistsTask: Void = loadPlaylists()
+            _ = await (showsTask, playlistsTask)
         }
     }
 
@@ -121,19 +121,24 @@ struct LibraryView: View {
         do {
             let results = try await subscriptionClient.getSubscriptions()
                 .sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
-            guard !Task.isCancelled else { return }
-            subscriptions = results
+            if !Task.isCancelled {
+                subscriptions = results
+            }
         } catch {
-            guard !Task.isCancelled else { return }
-            showsErrorMessage = "Something went wrong while loading your shows. Please try again."
+            if !Task.isCancelled {
+                showsErrorMessage = "Something went wrong while loading your shows. Please try again."
+            }
         }
 
+        // Always clears the flag, even if cancelled — mirrors loadPlaylists()'s defer, just
+        // spelled out here because isLoadingShows must go false before the best-effort fetch
+        // below, not only at the very end of the method.
         isLoadingShows = false
         guard !Task.isCancelled, showsErrorMessage == nil else { return }
 
         // Best-effort, run after the grid has already rendered: unplayed badges are supplementary,
         // so a failure here shouldn't hide the already-loaded show grid behind an error.
-        if let newEpisodes = try? await subscriptionClient.getNewEpisodes() {
+        if let newEpisodes = try? await subscriptionClient.getNewEpisodes(), !Task.isCancelled {
             unplayedCounts = UnplayedCounts.compute(from: newEpisodes.map(\.showId))
         }
     }

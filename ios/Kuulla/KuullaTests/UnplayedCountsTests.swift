@@ -13,7 +13,7 @@ final class UnplayedCountsTests: XCTestCase {
         XCTAssertTrue(UnplayedCounts.compute(from: []).isEmpty)
     }
 
-    func testShowWithNoEpisodesIsAbsentFromResult() {
+    func testShowIdNotInInputIsAbsentFromResult() {
         let counts = UnplayedCounts.compute(from: ["show-1"])
 
         XCTAssertNil(counts["show-2"])
