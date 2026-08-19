@@ -18,6 +18,7 @@ builder.AddKeyedAzureCosmosContainer("episodes");
 builder.AddKeyedAzureCosmosContainer("subscriptions");
 builder.AddKeyedAzureCosmosContainer("settings");
 builder.AddKeyedAzureCosmosContainer("episodestates");
+builder.AddKeyedAzureCosmosContainer("playlists");
 builder.AddRedisClient("redis");
 
 builder.Services.AddScoped<IUserService, UserService>();
