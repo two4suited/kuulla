@@ -13,6 +13,9 @@ public class ShowDetailTests : WebTestContext
     private static readonly Episode TestEpisode = new(
         "ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, null, null);
 
+    private static readonly Episode OlderEpisode = new(
+        "ep-2", "show-1", "Sunday Edition", DateTimeOffset.UtcNow.AddDays(-1), TimeSpan.FromMinutes(20), "https://audio2", null, null, null);
+
     private static readonly ShowSettings DefaultShowSettings = new("user-1:show-1", "user-1", "show-1", null, Version: 1);
 
     private TestHttpMessageHandler CreateHandler(
@@ -82,6 +85,39 @@ public class ShowDetailTests : WebTestContext
                 {
                     Content = JsonContent.Create(showSettings ?? DefaultShowSettings),
                 };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+
+    private TestHttpMessageHandler CreateHandlerWithEpisodes(
+        IReadOnlyList<Episode> episodes, IReadOnlyDictionary<string, EpisodeState> states) =>
+        new(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(TestShow) };
+            }
+
+            if (path == "/api/shows/show-1/episodes" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new EpisodePage(episodes, null)) };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(states) };
+            }
+
+            if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) };
+            }
+
+            if (path == "/api/settings/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultShowSettings) };
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -272,5 +308,96 @@ public class ShowDetailTests : WebTestContext
         cut.Find("li button.btn-outline-secondary").Click();
 
         cut.WaitForAssertion(() => Assert.DoesNotContain("Auto-marked played", cut.Markup));
+    }
+
+    [Fact]
+    public void UnplayedFilter_HidesInProgressAndPlayedEpisodes()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var inProgressState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "web");
+        ConfigureApi(CreateHandlerWithEpisodes(
+            [TestEpisode, OlderEpisode],
+            new Dictionary<string, EpisodeState> { ["ep-1"] = inProgressState }));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Monday Edition", cut.Markup);
+            Assert.Contains("Sunday Edition", cut.Markup);
+        });
+
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "Unplayed").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("Monday Edition", cut.Markup);
+            Assert.Contains("Sunday Edition", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void InProgressFilter_ShowsOnlyInProgressEpisodes()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var inProgressState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "web");
+        ConfigureApi(CreateHandlerWithEpisodes(
+            [TestEpisode, OlderEpisode],
+            new Dictionary<string, EpisodeState> { ["ep-1"] = inProgressState }));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Sunday Edition", cut.Markup));
+
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "In Progress").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Monday Edition", cut.Markup);
+            Assert.DoesNotContain("Sunday Edition", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void SortControl_ReversesEpisodeOrder_WhenOldestFirstSelected()
+    {
+        ConfigureApi(CreateHandlerWithEpisodes([TestEpisode, OlderEpisode], new Dictionary<string, EpisodeState>()));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() =>
+            Assert.True(cut.Markup.IndexOf("Monday Edition", StringComparison.Ordinal)
+                < cut.Markup.IndexOf("Sunday Edition", StringComparison.Ordinal)));
+
+        cut.Find("select.form-select-sm").Change("OldestFirst");
+
+        cut.WaitForAssertion(() =>
+            Assert.True(cut.Markup.IndexOf("Sunday Edition", StringComparison.Ordinal)
+                < cut.Markup.IndexOf("Monday Edition", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void ShowsProgressBar_ForInProgressEpisode()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var inProgressState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "web");
+        ConfigureApi(CreateHandler(episodeState: inProgressState));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("progress-bar", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsPlayedBadge_ForCompletedNonAutoPlayedEpisode()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var playedState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 1200, true, DateTimeOffset.UtcNow, "web", AutoPlayed: false);
+        ConfigureApi(CreateHandler(episodeState: playedState));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Played", cut.Markup);
+            Assert.DoesNotContain("Auto-marked played", cut.Markup);
+        });
     }
 }

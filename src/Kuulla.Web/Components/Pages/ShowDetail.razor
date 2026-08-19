@@ -90,6 +90,31 @@ else
 
     <h2>Episodes</h2>
 
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div class="btn-group" role="group" aria-label="Filter episodes">
+            <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.All ? "active" : "")"
+                    @onclick="() => SetFilter(EpisodeFilter.All)">
+                All
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.Unplayed ? "active" : "")"
+                    @onclick="() => SetFilter(EpisodeFilter.Unplayed)">
+                Unplayed
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.InProgress ? "active" : "")"
+                    @onclick="() => SetFilter(EpisodeFilter.InProgress)">
+                In Progress
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" style="opacity: 0.6;" disabled title="Coming soon">
+                Downloaded
+            </button>
+        </div>
+
+        <select class="form-select form-select-sm" style="width: auto;" value="@selectedSort.ToString()" @onchange="OnSortChanged">
+            <option value="@EpisodeSortOrder.NewestFirst">Newest first</option>
+            <option value="@EpisodeSortOrder.OldestFirst">Oldest first</option>
+        </select>
+    </div>
+
     @if (episodeError is not null)
     {
         <p class="text-danger">@episodeError</p>
@@ -98,41 +123,73 @@ else
     {
         <p>No episodes found for this show.</p>
     }
+    else if (DisplayedEpisodes.Count == 0 && !isLoadingEpisodes)
+    {
+        <p>
+            No episodes match this filter.
+            @if (continuationToken is not null)
+            {
+                <text>Try loading more episodes.</text>
+            }
+        </p>
+    }
 
     <ul class="list-group mb-3">
-        @foreach (var episode in episodes)
+        @foreach (var episode in DisplayedEpisodes)
         {
-            var isAutoPlayed = autoPlayedEpisodeIds.Contains(episode.Id);
+            var state = GetState(episode.Id);
+            var isAutoPlayed = state?.AutoPlayed ?? false;
+            var isPlayed = state is { Completed: true, AutoPlayed: false };
+            var progressPercent = ProgressPercent(episode, state);
             <li class="list-group-item">
-                <a href="@($"shows/{Id}/episodes/{episode.Id}")" class="text-decoration-none">
-                    <div class="fw-bold">@episode.Title</div>
-                </a>
-                <div class="text-muted small">
-                    @if (episode.PublishedAt is { } publishedAt)
+                <div class="d-flex gap-3">
+                    @if (!string.IsNullOrEmpty(show.ArtworkUrl))
                     {
-                        @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
-                        <text> &middot; </text>
+                        <img src="@show.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
                     }
-                    @if (episode.Duration is { } duration)
-                    {
-                        @EpisodeFormatting.FormatDuration(duration)
-                    }
-                </div>
-                <AuthorizeView>
-                    <Authorized>
-                        <div class="d-flex align-items-center gap-2 mt-1">
-                            @if (isAutoPlayed)
+                    <div class="flex-grow-1">
+                        <a href="@($"shows/{Id}/episodes/{episode.Id}")" class="text-decoration-none">
+                            <div class="fw-bold">@episode.Title</div>
+                        </a>
+                        <div class="text-muted small">
+                            @if (episode.PublishedAt is { } publishedAt)
                             {
-                                <span class="text-muted small fst-italic">Auto-marked played</span>
-                                <button class="btn btn-sm btn-outline-secondary" disabled="@restoringEpisodeIds.Contains(episode.Id)"
-                                        @onclick="() => RestoreAsync(episode)">
-                                    Restore
-                                </button>
+                                @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
+                                <text> &middot; </text>
                             }
-                            <AddToPlaylistButton EpisodeId="@episode.Id" ShowId="@Id" />
+                            @if (episode.Duration is { } duration)
+                            {
+                                @EpisodeFormatting.FormatDuration(duration)
+                            }
                         </div>
-                    </Authorized>
-                </AuthorizeView>
+                        @if (progressPercent is { } percent)
+                        {
+                            <div class="progress mt-1" role="progressbar" aria-label="Playback progress"
+                                 aria-valuenow="@percent" aria-valuemin="0" aria-valuemax="100" style="height: 4px;">
+                                <div class="progress-bar" style="width: @(percent)%;"></div>
+                            </div>
+                        }
+                        <AuthorizeView>
+                            <Authorized>
+                                <div class="d-flex align-items-center gap-2 mt-1">
+                                    @if (isAutoPlayed)
+                                    {
+                                        <span class="text-muted small fst-italic">Auto-marked played</span>
+                                        <button class="btn btn-sm btn-outline-secondary" disabled="@restoringEpisodeIds.Contains(episode.Id)"
+                                                @onclick="() => RestoreAsync(episode)">
+                                            Restore
+                                        </button>
+                                    }
+                                    else if (isPlayed)
+                                    {
+                                        <span class="badge text-bg-success">Played</span>
+                                    }
+                                    <AddToPlaylistButton EpisodeId="@episode.Id" ShowId="@Id" />
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
+                    </div>
+                </div>
             </li>
         }
     </ul>
@@ -170,12 +227,78 @@ else
     private bool isShowSettingsSaving;
     private string? showSettingsError;
     private bool showSettingsSavedConfirmation;
-    private readonly HashSet<string> autoPlayedEpisodeIds = [];
+    private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
     private readonly HashSet<string> restoringEpisodeIds = [];
     private string? restoreError;
     private bool isAuthenticated;
+    private EpisodeFilter selectedFilter = EpisodeFilter.All;
+    private EpisodeSortOrder selectedSort = EpisodeSortOrder.NewestFirst;
+
+    private enum EpisodeFilter { All, Unplayed, InProgress }
+
+    private enum EpisodeSortOrder { NewestFirst, OldestFirst }
 
     private string ShowSettingsSelectValue => showUnlistenedEpisodeCountOverride?.ToString() ?? "";
+
+    // Filter/sort apply to whatever pages have been fetched so far — the API only supports
+    // date-ordered continuation paging, not server-side filtering, so "Load more" always fetches
+    // the next raw page regardless of the active filter (see LoadMoreEpisodesAsync).
+    private List<Episode> DisplayedEpisodes
+    {
+        get
+        {
+            IEnumerable<Episode> filtered = selectedFilter switch
+            {
+                EpisodeFilter.Unplayed => episodes.Where(IsUnplayed),
+                EpisodeFilter.InProgress => episodes.Where(IsInProgress),
+                _ => episodes,
+            };
+
+            return (selectedSort == EpisodeSortOrder.OldestFirst ? filtered.Reverse() : filtered).ToList();
+        }
+    }
+
+    private EpisodeState? GetState(string episodeId) => episodeStatesById.GetValueOrDefault(episodeId);
+
+    private bool IsUnplayed(Episode episode)
+    {
+        var state = GetState(episode.Id);
+        // Mirrors SubscriptionService.GetNewEpisodesAsync's "unseen" rule: still unplayed if
+        // auto-played, or if the state left no real progress behind (the shape a Restore write
+        // leaves), not just episodes with no state at all (#98/#99).
+        return state is null || state.AutoPlayed || (!state.Completed && state.PositionSeconds == 0);
+    }
+
+    private bool IsInProgress(Episode episode)
+    {
+        var state = GetState(episode.Id);
+        return state is { Completed: false, PositionSeconds: > 0 };
+    }
+
+    private static int? ProgressPercent(Episode episode, EpisodeState? state)
+    {
+        if (state is null || state.Completed || state.PositionSeconds <= 0 ||
+            episode.Duration is not { } duration || duration <= TimeSpan.Zero)
+        {
+            return null;
+        }
+
+        var percent = (int)(state.PositionSeconds / duration.TotalSeconds * 100);
+        return Math.Clamp(percent, 1, 99);
+    }
+
+    private void SetFilter(EpisodeFilter filter)
+    {
+        selectedFilter = filter;
+    }
+
+    private void OnSortChanged(ChangeEventArgs args)
+    {
+        if (Enum.TryParse<EpisodeSortOrder>(args.Value?.ToString(), out var value))
+        {
+            selectedSort = value;
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -191,10 +314,12 @@ else
         isShowSettingsSaving = false;
         showSettingsError = null;
         showSettingsSavedConfirmation = false;
-        autoPlayedEpisodeIds.Clear();
+        episodeStatesById.Clear();
         restoringEpisodeIds.Clear();
         restoreError = null;
         isAuthenticated = false;
+        selectedFilter = EpisodeFilter.All;
+        selectedSort = EpisodeSortOrder.NewestFirst;
 
         isLoadingShow = true;
         try
@@ -349,7 +474,7 @@ else
 
             if (isAuthenticated)
             {
-                await LoadAutoPlayedStatusAsync(page.Items);
+                await LoadEpisodeStatesAsync(page.Items);
             }
         }
         catch (HttpRequestException)
@@ -362,17 +487,14 @@ else
         }
     }
 
-    private async Task LoadAutoPlayedStatusAsync(IReadOnlyList<Episode> loadedEpisodes)
+    private async Task LoadEpisodeStatesAsync(IReadOnlyList<Episode> loadedEpisodes)
     {
         try
         {
             var states = await EpisodeStateClient.GetStatesAsync(loadedEpisodes.Select(e => e.Id).ToList());
             foreach (var (episodeId, state) in states)
             {
-                if (state.AutoPlayed)
-                {
-                    autoPlayedEpisodeIds.Add(episodeId);
-                }
+                episodeStatesById[episodeId] = state;
             }
         }
         catch (HttpRequestException)
@@ -387,8 +509,8 @@ else
 
         try
         {
-            await EpisodeStateClient.UpdateStateAsync(episode.Id, Id, positionSeconds: 0, completed: false);
-            autoPlayedEpisodeIds.Remove(episode.Id);
+            var updated = await EpisodeStateClient.UpdateStateAsync(episode.Id, Id, positionSeconds: 0, completed: false);
+            episodeStatesById[episode.Id] = updated;
         }
         catch (HttpRequestException)
         {
