@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
+    @Environment(\.episodeSyncEngine) private var syncEngine
     @State private var authManager = AuthManager.shared
     @State private var errorMessage: String?
 
@@ -76,6 +77,7 @@ struct ContentView: View {
             do {
                 try await authManager.signIn(presenting: rootViewController)
                 errorMessage = nil
+                await syncEngine?.syncNow()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -88,6 +90,7 @@ struct ContentView: View {
             do {
                 try await authManager.signInAsTestUser()
                 errorMessage = nil
+                await syncEngine?.syncNow()
             } catch {
                 errorMessage = error.localizedDescription
             }
