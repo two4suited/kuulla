@@ -9,8 +9,8 @@ struct ContentView: View {
     var body: some View {
         if authManager.isSignedIn {
             TabView {
-                tab { FeedView() }
-                    .tabItem { Label("Home", systemImage: "house") }
+                tab { LibraryView() }
+                    .tabItem { Label("Library", systemImage: "house") }
                 tab { SearchView() }
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 tab { SubscriptionsView() }

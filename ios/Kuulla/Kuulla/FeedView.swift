@@ -42,7 +42,7 @@ struct FeedView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle("Home")
+        .navigationTitle("New Episodes")
         .task {
             await load()
         }
