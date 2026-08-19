@@ -27,8 +27,13 @@ public record Playlist(
 // CLAUDE.md flags rank strings for queue ordering because integer positions collide or require
 // renumbering under concurrent last-write-wins sync from two devices; a rank string lets a
 // single reorder/insert touch only the moved item.
+// ShowId is stored alongside EpisodeId (rather than looked up later) because the episodes
+// container is partitioned by ShowId (#105) — resolving an item's title/artwork needs both to do
+// a cheap single-partition point read instead of an expensive cross-partition scan by episode id
+// alone.
 public record PlaylistItem(
     string EpisodeId,
+    string ShowId,
     DateTimeOffset AddedAt,
     string Order);
 

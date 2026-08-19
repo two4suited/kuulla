@@ -39,6 +39,7 @@ final class PlaylistRecord: Syncable {
 // value type stored inline rather than a separate SwiftData entity.
 struct PlaylistItemRecord: Codable {
     var episodeId: String
+    var showId: String
     var addedAt: Date
     // Lexicographically sortable rank string (LexoRank-style), not an integer index — see
     // Kuulla.Api.Models.PlaylistItem for why (concurrent last-write-wins reorder/insert safety).

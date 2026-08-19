@@ -14,6 +14,7 @@ public record Playlist(
 // Web-side mirror of Kuulla.Api.Models.PlaylistItem's wire shape.
 public record PlaylistItem(
     string EpisodeId,
+    string ShowId,
     DateTimeOffset AddedAt,
     string Order);
 

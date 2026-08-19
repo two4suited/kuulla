@@ -27,6 +27,7 @@ builder.Services.AddScoped<IEpisodeService, EpisodeService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<IEpisodeStateService, EpisodeStateService>();
+builder.Services.AddScoped<IPlaylistService, PlaylistService>();
 builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryClient>(client =>
 {
     client.BaseAddress = new Uri("https://itunes.apple.com/");
@@ -418,6 +419,107 @@ episodeState.MapPut("/{id}/state", async (
     return Results.Ok(result);
 });
 
+var playlists = app.MapGroup("/api/playlists").RequireAuthorization();
+
+playlists.MapGet("", async (ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var results = await playlistService.GetPlaylistsAsync(userId, ct);
+    return Results.Ok(results);
+});
+
+playlists.MapPost("", async (
+    CreatePlaylistRequest request, ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name))
+    {
+        return Results.BadRequest(new { error = "'name' is required." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var playlist = await playlistService.CreatePlaylistAsync(userId, request.Name, ct);
+    return Results.Ok(playlist);
+});
+
+playlists.MapGet("/{id}", async (string id, ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var detail = await playlistService.GetPlaylistDetailAsync(userId, id, ct);
+    return detail is not null ? Results.Ok(detail) : Results.NotFound();
+});
+
+playlists.MapPut("/{id}", async (
+    string id,
+    RenamePlaylistRequest request,
+    ClaimsPrincipal user,
+    IPlaylistService playlistService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name))
+    {
+        return Results.BadRequest(new { error = "'name' is required." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var playlist = await playlistService.RenamePlaylistAsync(userId, id, request.Name, ct);
+    return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
+});
+
+playlists.MapDelete("/{id}", async (string id, ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    await playlistService.DeletePlaylistAsync(userId, id, ct);
+    return Results.NoContent();
+});
+
+playlists.MapPost("/{id}/items", async (
+    string id,
+    AddPlaylistItemRequest request,
+    ClaimsPrincipal user,
+    IPlaylistService playlistService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.EpisodeId) || string.IsNullOrWhiteSpace(request.ShowId))
+    {
+        return Results.BadRequest(new { error = "'episodeId' and 'showId' are required." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var playlist = await playlistService.AddItemAsync(userId, id, request.EpisodeId, request.ShowId, ct);
+    return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
+});
+
+playlists.MapDelete("/{id}/items/{episodeId}", async (
+    string id, string episodeId, ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var playlist = await playlistService.RemoveItemAsync(userId, id, episodeId, ct);
+    return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
+});
+
+playlists.MapPut("/{id}/items/{episodeId}/order", async (
+    string id,
+    string episodeId,
+    ReorderPlaylistItemRequest request,
+    ClaimsPrincipal user,
+    IPlaylistService playlistService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    try
+    {
+        var playlist = await playlistService.ReorderItemAsync(
+            userId, id, episodeId, request.BeforeEpisodeId, request.AfterEpisodeId, ct);
+        return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
+    }
+    catch (ArgumentException ex)
+    {
+        // Thrown for a stale/nonexistent neighbor id, or a before/after pair given in the wrong
+        // relative order — both are caller errors, not server faults.
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
 var sync = app.MapGroup("/api/sync").RequireAuthorization();
 
 sync.MapPost("/episodes", async (
@@ -447,6 +549,29 @@ sync.MapPost("/episodes", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await episodeStateService.SyncAsync(
+        userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, changes, ct);
+    return Results.Ok(result);
+});
+
+sync.MapPost("/playlists", async (
+    SyncPlaylistsRequest request, ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.DeviceId))
+    {
+        return Results.BadRequest(new { error = "'deviceId' is required." });
+    }
+
+    var changes = request.Changes ?? [];
+    foreach (var change in changes)
+    {
+        if (string.IsNullOrWhiteSpace(change.Id) || string.IsNullOrWhiteSpace(change.Name))
+        {
+            return Results.BadRequest(new { error = "Each change requires a non-empty 'id' and 'name'." });
+        }
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await playlistService.SyncAsync(
         userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, changes, ct);
     return Results.Ok(result);
 });
