@@ -26,7 +26,10 @@ struct SubscriptionClient {
 
     func getNewEpisodes() async throws -> [Episode] {
         do {
-            return try await apiClient.get(["api", "subscriptions", "episodes"])
+            // Wire shape is { episode, autoPlayed } per item (#98/#99) — the autoPlayed flag has no
+            // surfaced UI on iOS yet, so only the episode is projected out here.
+            let results: [NewEpisodeDTO] = try await apiClient.get(["api", "subscriptions", "episodes"])
+            return results.map(\.episode)
         } catch ApiError.requestFailed(let statusCode) where statusCode == 401 || statusCode == 403 {
             // Mirrors getSubscriptions(): an unauthenticated caller has no feed rather than an error.
             return []
@@ -36,4 +39,9 @@ struct SubscriptionClient {
 
 private struct SubscribeRequest: Encodable {
     let showId: String
+}
+
+private struct NewEpisodeDTO: Decodable {
+    let episode: Episode
+    let autoPlayed: Bool
 }

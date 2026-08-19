@@ -8,15 +8,31 @@ namespace Kuulla.Api.Tests;
 public class EpisodeServiceTests
 {
     private const string ShowId = "show-1";
+    private const string UserId = "user-1";
 
     private readonly Mock<Container> _episodesContainer = new();
+    private readonly Mock<Container> _subscriptionsContainer = new();
     private readonly Mock<IShowService> _showService = new();
     private readonly Mock<IPodcastFeedClient> _feedClient = new();
+    private readonly Mock<ISettingsService> _settingsService = new();
+    private readonly Mock<IEpisodeStateService> _episodeStateService = new();
     private readonly EpisodeService _sut;
 
     public EpisodeServiceTests()
     {
-        _sut = new EpisodeService(_episodesContainer.Object, _showService.Object, _feedClient.Object);
+        _sut = new EpisodeService(
+            _episodesContainer.Object,
+            _subscriptionsContainer.Object,
+            _showService.Object,
+            _feedClient.Object,
+            _settingsService.Object,
+            _episodeStateService.Object);
+
+        // No subscribers by default so the backfill tests (which trigger CacheEpisodesAsync)
+        // don't need to stub enforcement — tests that care about it opt in explicitly.
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(Array.Empty<string>()));
     }
 
     private static Episode MakeEpisode(string id) =>
@@ -184,5 +200,93 @@ public class EpisodeServiceTests
         var result = await _sut.GetEpisodeAsync(ShowId, "1", CancellationToken.None);
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task EnforceUnlistenedLimitAsync_DoesNothingWhenLimitIsUnlimited()
+    {
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+
+        await _sut.EnforceUnlistenedLimitAsync(UserId, ShowId, CancellationToken.None);
+
+        _episodesContainer.Verify(
+            c => c.GetItemQueryIterator<Episode>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task EnforceUnlistenedLimitAsync_MarksEpisodesBeyondLimitWithNoExistingStateAsAutoPlayed()
+    {
+        var episodes = Enumerable.Range(1, 5).Select(i => MakeEpisode(i.ToString())).ToList();
+        SetupQuery(episodes);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Two);
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EpisodeState?)null);
+
+        await _sut.EnforceUnlistenedLimitAsync(UserId, ShowId, CancellationToken.None);
+
+        _episodeStateService.Verify(
+            s => s.MarkAutoPlayedAsync(UserId, It.IsIn("3", "4", "5"), ShowId, It.IsAny<CancellationToken>()), Times.Exactly(3));
+        _episodeStateService.Verify(
+            s => s.MarkAutoPlayedAsync(UserId, "1", ShowId, It.IsAny<CancellationToken>()), Times.Never);
+        _episodeStateService.Verify(
+            s => s.MarkAutoPlayedAsync(UserId, "2", ShowId, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task EnforceUnlistenedLimitAsync_SkipsEpisodesThatAlreadyHaveState()
+    {
+        var episodes = Enumerable.Range(1, 3).Select(i => MakeEpisode(i.ToString())).ToList();
+        SetupQuery(episodes);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.One);
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodeState("2", UserId, "2", ShowId, 50, false, DateTimeOffset.UtcNow));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "3", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EpisodeState?)null);
+
+        await _sut.EnforceUnlistenedLimitAsync(UserId, ShowId, CancellationToken.None);
+
+        _episodeStateService.Verify(s => s.MarkAutoPlayedAsync(UserId, "2", ShowId, It.IsAny<CancellationToken>()), Times.Never);
+        _episodeStateService.Verify(s => s.MarkAutoPlayedAsync(UserId, "3", ShowId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_EnforcesLimitForEverySubscribedUser()
+    {
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var feedEpisode = MakeEpisode("new-1");
+
+        _episodesContainer
+            .SetupSequence(c => c.GetItemQueryIterator<Episode>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator(Array.Empty<Episode>()))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { feedEpisode }))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { feedEpisode }));
+
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _feedClient
+            .Setup(c => c.FetchAsync(show.FeedUrl, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, [feedEpisode]));
+        _episodesContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Episode>(), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Episode e, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(e));
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+
+        await _sut.GetEpisodesAsync(ShowId, continuationToken: null, pageSize: 20, CancellationToken.None);
+
+        _settingsService.Verify(
+            s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()), Times.Once);
     }
 }

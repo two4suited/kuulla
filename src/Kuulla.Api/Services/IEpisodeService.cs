@@ -11,4 +11,6 @@ public interface IEpisodeService
         CancellationToken cancellationToken);
 
     Task<Episode?> GetEpisodeAsync(string showId, string episodeId, CancellationToken cancellationToken);
+
+    Task EnforceUnlistenedLimitAsync(string userId, string showId, CancellationToken cancellationToken);
 }

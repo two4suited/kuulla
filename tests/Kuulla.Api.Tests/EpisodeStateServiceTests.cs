@@ -96,6 +96,25 @@ public class EpisodeStateServiceTests
     }
 
     [Fact]
+    public async Task MarkAutoPlayedAsync_UpsertsCompletedStateWithAutoPlayedFlag()
+    {
+        SetupEmptyStatesQuery();
+        EpisodeState? upserted = null;
+        _episodeStatesContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<EpisodeState, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted = s)
+            .ReturnsAsync((EpisodeState s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.MarkAutoPlayedAsync(UserId, "ep-1", ShowId, CancellationToken.None);
+
+        Assert.Equal("ep-1", result.Id);
+        Assert.True(result.Completed);
+        Assert.True(result.AutoPlayed);
+        Assert.Equal(0, result.PositionSeconds);
+        Assert.Equal(result, upserted);
+    }
+
+    [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
     {
         var summary = new SyncSummary("abc123", DateTimeOffset.UtcNow);

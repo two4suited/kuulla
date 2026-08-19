@@ -12,7 +12,7 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<IReadOnlyList<Episode>> GetNewEpisodesAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<NewEpisode>> GetNewEpisodesAsync(CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
         var response = await client.GetAsync("api/subscriptions/episodes", cancellationToken);
@@ -22,7 +22,7 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
         }
 
         response.EnsureSuccessStatusCode();
-        var results = await response.Content.ReadFromJsonAsync<List<Episode>>(JsonOptions, cancellationToken);
+        var results = await response.Content.ReadFromJsonAsync<List<NewEpisode>>(JsonOptions, cancellationToken);
         return results ?? [];
     }
 

@@ -55,7 +55,7 @@ final class SubscriptionClientTests: MockedApiTestCase {
 
     func testGetNewEpisodesDecodesResponse() async throws {
         let json = """
-        [{"id":"ep1","showId":"s1","title":"Episode One","publishedAt":"2024-01-15T10:30:00+00:00","duration":"00:45:00","audioUrl":"https://audio","description":null,"bitrateKbps":null,"fileSizeBytes":null}]
+        [{"episode":{"id":"ep1","showId":"s1","title":"Episode One","publishedAt":"2024-01-15T10:30:00+00:00","duration":"00:45:00","audioUrl":"https://audio","description":null,"bitrateKbps":null,"fileSizeBytes":null},"autoPlayed":false}]
         """.data(using: .utf8)!
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
 

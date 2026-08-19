@@ -143,4 +143,39 @@ public class SettingsServiceTests
         Assert.Null(result.UnlistenedEpisodeCount);
         Assert.Equal(3, result.Version);
     }
+
+    [Fact]
+    public async Task GetEffectiveUnlistenedEpisodeCountAsync_ReturnsShowOverrideWhenSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(showSettingsId, UserId, showId, UnlistenedEpisodeCount.One, Version: 2);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectiveUnlistenedEpisodeCountAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(UnlistenedEpisodeCount.One, result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectiveUnlistenedEpisodeCountAsync_FallsBackToUserSettingsWhenNoOverride()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        var userSettings = new UserSettings(UserId, UnlistenedEpisodeCount.Ten, Version: 1);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveUnlistenedEpisodeCountAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(UnlistenedEpisodeCount.Ten, result);
+    }
 }

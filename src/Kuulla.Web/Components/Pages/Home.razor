@@ -32,8 +32,9 @@
         else
         {
             <div class="row row-cols-1 row-cols-md-2 g-4">
-                @foreach (var episode in episodes)
+                @foreach (var newEpisode in episodes)
                 {
+                    var episode = newEpisode.Episode;
                     <div class="col">
                         <div class="card h-100">
                             <div class="card-body">
@@ -51,13 +52,26 @@
                                         @EpisodeFormatting.FormatDuration(duration)
                                     }
                                 </p>
+                                @if (newEpisode.AutoPlayed)
+                                {
+                                    <p class="text-muted small fst-italic mb-2">Auto-marked played</p>
+                                }
                                 <div class="d-flex gap-2">
                                     <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
                                         Play
                                     </a>
-                                    <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(episode)">
-                                        Mark as played
-                                    </button>
+                                    @if (newEpisode.AutoPlayed)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => RestoreAsync(newEpisode)">
+                                            Restore
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(newEpisode)">
+                                            Mark as played
+                                        </button>
+                                    }
                                 </div>
                             </div>
                         </div>
@@ -78,7 +92,7 @@
 </AuthorizeView>
 
 @code {
-    private readonly List<Episode> episodes = [];
+    private readonly List<NewEpisode> episodes = [];
     private bool isLoading;
     private string? loadError;
     private bool isBusy;
@@ -102,7 +116,7 @@
         try
         {
             var results = await EpisodeStateClient.GetNewEpisodesAsync();
-            episodes.AddRange(results.OrderByDescending(e => e.PublishedAt));
+            episodes.AddRange(results.OrderByDescending(e => e.Episode.PublishedAt));
         }
         catch (HttpRequestException)
         {
@@ -136,18 +150,38 @@
 
     private void ApplyServerChanges(IReadOnlyList<EpisodeState> serverChanges)
     {
-        // A state change from another device (e.g. marked played there) means the episode is no
-        // longer "new" here — drop it from the feed rather than showing stale content.
-        var changedEpisodeIds = serverChanges.Select(s => s.EpisodeId).ToHashSet();
-        episodes.RemoveAll(e => changedEpisodeIds.Contains(e.Id));
+        foreach (var change in serverChanges)
+        {
+            var index = episodes.FindIndex(e => e.Episode.Id == change.EpisodeId);
+            if (index < 0)
+            {
+                continue;
+            }
+
+            // Mirrors SubscriptionService.GetNewEpisodesAsync's "unseen" rule: still "new" if
+            // auto-played, or if the change left no real progress behind (the shape a Restore
+            // write leaves) — otherwise reflect the updated flag instead of dropping the episode,
+            // so it doesn't silently vanish (#98/#99). Any other change (a manual play, or
+            // progress recorded elsewhere) means it's no longer new here.
+            if (change.AutoPlayed || (!change.Completed && change.PositionSeconds == 0))
+            {
+                episodes[index] = episodes[index] with { AutoPlayed = change.AutoPlayed };
+            }
+            else
+            {
+                episodes.RemoveAt(index);
+            }
+        }
+
         StateHasChanged();
     }
 
-    private async Task MarkAsPlayedAsync(Episode episode)
+    private async Task MarkAsPlayedAsync(NewEpisode newEpisode)
     {
+        var episode = newEpisode.Episode;
         isBusy = true;
         markPlayedError = null;
-        episodes.Remove(episode);
+        episodes.Remove(newEpisode);
 
         try
         {
@@ -156,18 +190,53 @@
         }
         catch (HttpRequestException)
         {
-            episodes.Add(episode);
-            episodes.Sort((a, b) => Comparer<DateTimeOffset?>.Default.Compare(b.PublishedAt, a.PublishedAt));
+            episodes.Add(newEpisode);
+            episodes.Sort((a, b) => Comparer<DateTimeOffset?>.Default.Compare(b.Episode.PublishedAt, a.Episode.PublishedAt));
             markPlayedError = "Something went wrong while updating this episode. Please try again.";
             isBusy = false;
             return;
         }
 
         isBusy = false;
+        await SyncOwnWriteBestEffortAsync();
+    }
 
-        // Bookkeeping-only from here: the write above already succeeded server-side, so a failure
-        // syncing our own hash/lastSyncedAt shouldn't roll back the UI or report an error — the next
-        // poll would just (harmlessly) treat this device's own write as a remote update instead.
+    private async Task RestoreAsync(NewEpisode newEpisode)
+    {
+        var episode = newEpisode.Episode;
+        isBusy = true;
+        markPlayedError = null;
+        var index = episodes.IndexOf(newEpisode);
+        if (index >= 0)
+        {
+            episodes[index] = newEpisode with { AutoPlayed = false };
+        }
+
+        try
+        {
+            await EpisodeStateClient.UpdateStateAsync(episode.Id, episode.ShowId, positionSeconds: 0, completed: false);
+        }
+        catch (HttpRequestException)
+        {
+            if (index >= 0)
+            {
+                episodes[index] = newEpisode;
+            }
+
+            markPlayedError = "Something went wrong while restoring this episode. Please try again.";
+            isBusy = false;
+            return;
+        }
+
+        isBusy = false;
+        await SyncOwnWriteBestEffortAsync();
+    }
+
+    // Bookkeeping-only: the write already succeeded server-side, so a failure syncing our own
+    // hash/lastSyncedAt shouldn't roll back the UI or report an error — the next poll would just
+    // (harmlessly) treat this device's own write as a remote update instead.
+    private async Task SyncOwnWriteBestEffortAsync()
+    {
         if (syncStatusService is not null)
         {
             try

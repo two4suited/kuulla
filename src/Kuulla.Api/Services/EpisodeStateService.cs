@@ -67,6 +67,24 @@ public class EpisodeStateService(
         return state;
     }
 
+    // Used only by the unlistened-episode-limit enforcement job (#98) — distinct from
+    // UpdateStateAsync so a manual "mark as played" (always AutoPlayed = false) can never be
+    // confused with an automatic one, and so the enforcement job doesn't need to thread a
+    // positionSeconds/completed pair through that a user-driven update path requires.
+    public async Task<EpisodeState> MarkAutoPlayedAsync(
+        string userId, string episodeId, string showId, CancellationToken cancellationToken)
+    {
+        var state = new EpisodeState(
+            episodeId, userId, episodeId, showId, PositionSeconds: 0, Completed: true, DateTimeOffset.UtcNow,
+            DeviceId: null, AutoPlayed: true);
+
+        await UpsertStateAsync(state, cancellationToken);
+        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
+        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
+
+        return state;
+    }
+
     public async Task<SyncEpisodesResult> SyncAsync(
         string userId,
         string deviceId,

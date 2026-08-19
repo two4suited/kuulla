@@ -7,8 +7,13 @@ namespace Kuulla.Api.Services;
 
 public class EpisodeService(
     [FromKeyedServices("episodes")] Container episodesContainer,
+    // Read directly rather than through ISubscriptionService: SubscriptionService itself depends
+    // on IEpisodeService, and taking the interface dependency here would create a DI cycle.
+    [FromKeyedServices("subscriptions")] Container subscriptionsContainer,
     IShowService showService,
-    IPodcastFeedClient feedClient) : IEpisodeService
+    IPodcastFeedClient feedClient,
+    ISettingsService settingsService,
+    IEpisodeStateService episodeStateService) : IEpisodeService
 {
     public async Task<EpisodePage> GetEpisodesAsync(
         string showId,
@@ -138,5 +143,72 @@ public class EpisodeService(
                 {
                 }
             });
+
+        // Single choke point where new episodes land in Cosmos — enforce every subscribed
+        // user's unlistened-episode limit now rather than waiting for them to open the show.
+        var subscriberIds = await GetSubscriberUserIdsAsync(showId, cancellationToken);
+        await Parallel.ForEachAsync(
+            subscriberIds,
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
+            (userId, ct) => new ValueTask(EnforceUnlistenedLimitAsync(userId, showId, ct)));
+    }
+
+    private async Task<IReadOnlyList<string>> GetSubscriberUserIdsAsync(string showId, CancellationToken cancellationToken)
+    {
+        var results = new List<string>();
+        var queryDefinition = new QueryDefinition("SELECT VALUE c.UserId FROM c WHERE c.ShowId = @showId")
+            .WithParameter("@showId", showId);
+
+        using var iterator = subscriptionsContainer.GetItemQueryIterator<string>(queryDefinition);
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            results.AddRange(page);
+        }
+
+        return results;
+    }
+
+    public async Task EnforceUnlistenedLimitAsync(string userId, string showId, CancellationToken cancellationToken)
+    {
+        var effectiveLimit = await settingsService.GetEffectiveUnlistenedEpisodeCountAsync(userId, showId, cancellationToken);
+        if (effectiveLimit == UnlistenedEpisodeCount.Unlimited)
+        {
+            return;
+        }
+
+        var episodes = await GetAllEpisodesOrderedAsync(showId, cancellationToken);
+        var beyondLimit = episodes.Skip((int)effectiveLimit);
+
+        foreach (var episode in beyondLimit)
+        {
+            // Never overwrite a manual play, an in-progress position, or a previous manual
+            // "mark unplayed" — only touch episodes with no existing state at all.
+            var existingState = await episodeStateService.GetStateAsync(userId, episode.Id, cancellationToken);
+            if (existingState is not null)
+            {
+                continue;
+            }
+
+            await episodeStateService.MarkAutoPlayedAsync(userId, episode.Id, showId, cancellationToken);
+        }
+    }
+
+    private async Task<IReadOnlyList<Episode>> GetAllEpisodesOrderedAsync(string showId, CancellationToken cancellationToken)
+    {
+        var queryDefinition = new QueryDefinition(
+                "SELECT * FROM episodes e WHERE e.ShowId = @showId ORDER BY e.PublishedAt DESC")
+            .WithParameter("@showId", showId);
+        var requestOptions = new QueryRequestOptions { PartitionKey = new PartitionKey(showId) };
+
+        var items = new List<Episode>();
+        using var iterator = episodesContainer.GetItemQueryIterator<Episode>(queryDefinition, requestOptions: requestOptions);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            items.AddRange(response);
+        }
+
+        return items;
     }
 }
