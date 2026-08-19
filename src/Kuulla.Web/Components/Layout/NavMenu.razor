@@ -14,7 +14,7 @@
     <nav class="nav flex-column">
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Library
             </NavLink>
         </div>
 
@@ -23,6 +23,16 @@
                 <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Search
             </NavLink>
         </div>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="new-episodes">
+                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> New Episodes
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
 
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="counter">
