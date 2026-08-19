@@ -1,6 +1,8 @@
 namespace Kuulla.Web.Models;
 
-// Web-side mirror of Kuulla.Api.Models.Playlist's wire shape.
+// Web-side subset of Kuulla.Api.Models.Playlist's wire shape — deliberately drops UserId (the
+// Web client only ever deals with the authenticated user's own playlists) and DeviceId
+// (sync-internal metadata not consumed by any Blazor page), matching Subscription.cs's mirror.
 public record Playlist(
     string Id,
     string Name,
