@@ -37,11 +37,16 @@ final class AudioPlayer {
         duration = 0
         currentTime = startPosition
 
+        // AVPlayer.seek(to:) is asynchronous — calling play() immediately after would let playback
+        // start audibly at 0s and then jump once the seek lands. Deferring play() to the seek's
+        // completion handler makes resume-from-position actually start at that position.
         if startPosition > 0 {
-            newPlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600))
+            newPlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600)) { [weak newPlayer] _ in
+                newPlayer?.play()
+            }
+        } else {
+            newPlayer.play()
         }
-
-        newPlayer.play()
         isPlaying = true
 
         timeObserverToken = newPlayer.addPeriodicTimeObserver(

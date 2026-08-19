@@ -1,6 +1,12 @@
 import SwiftData
 import SwiftUI
 
+// @MainActor so every Task {} created inside this view's methods (e.g. startProgressTracking's
+// polling loop, the onDidFinishPlaying callback) inherits main-actor isolation rather than running
+// on an arbitrary executor — audioPlayer's properties are only ever mutated on the main queue
+// (AudioPlayer's periodic time observer and NotificationCenter observer both use queue: .main), so
+// reading them off-main would be a data race.
+@MainActor
 struct EpisodeDetailView: View {
     let showId: String
     let episodeId: String
@@ -199,19 +205,26 @@ struct EpisodeDetailView: View {
     private func persist(positionSeconds: Int, completed: Bool) async {
         guard let syncEngine else { return }
         let updatedAt = Date()
-        try? await syncEngine.write { context in
-            let descriptor = Self.stateDescriptor(for: episodeId)
-            if let existing = try context.fetch(descriptor).first {
-                existing.showId = showId
-                existing.positionSeconds = positionSeconds
-                existing.completed = completed
-                existing.updatedAt = updatedAt
-                existing.isDirty = true
-            } else {
-                context.insert(EpisodeStateRecord(
-                    id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                    completed: completed, updatedAt: updatedAt, isDirty: true))
+        do {
+            try await syncEngine.write { context in
+                let descriptor = Self.stateDescriptor(for: episodeId)
+                if let existing = try context.fetch(descriptor).first {
+                    existing.showId = showId
+                    existing.positionSeconds = positionSeconds
+                    existing.completed = completed
+                    existing.updatedAt = updatedAt
+                    existing.isDirty = true
+                } else {
+                    context.insert(EpisodeStateRecord(
+                        id: episodeId, showId: showId, positionSeconds: positionSeconds,
+                        completed: completed, updatedAt: updatedAt, isDirty: true))
+                }
             }
+        } catch {
+            // The mutation closure's own fetch failed, so nothing was written — don't update
+            // stateRecord to reflect values that were never actually persisted.
+            assertionFailure("Failed to persist episode state: \(error)")
+            return
         }
         // Set directly from the values just written rather than re-reading through modelContext:
         // that's a different ModelContext instance than the one syncEngine.write just saved
@@ -225,4 +238,5 @@ struct EpisodeDetailView: View {
     NavigationStack {
         EpisodeDetailView(showId: "preview-show", episodeId: "preview-episode")
     }
+    .modelContainer(for: EpisodeStateRecord.self, inMemory: true)
 }

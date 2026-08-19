@@ -119,4 +119,5 @@ private struct FeedEpisodeRow: View {
     NavigationStack {
         FeedView()
     }
+    .modelContainer(for: EpisodeStateRecord.self, inMemory: true)
 }
