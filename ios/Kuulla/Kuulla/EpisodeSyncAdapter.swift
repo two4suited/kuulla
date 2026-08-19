@@ -89,7 +89,8 @@ extension SyncEngine where Adapter == EpisodeSyncAdapter {
                 existing.isDirty = true
                 restored = EpisodeStateRecord(
                     id: existing.id, showId: existing.showId, positionSeconds: existing.positionSeconds,
-                    completed: existing.completed, updatedAt: existing.updatedAt, autoPlayed: existing.autoPlayed)
+                    completed: existing.completed, updatedAt: existing.updatedAt, isDirty: existing.isDirty,
+                    autoPlayed: existing.autoPlayed)
             }
         } catch {
             assertionFailure("Failed to restore auto-played episode \(episodeId): \(error)")

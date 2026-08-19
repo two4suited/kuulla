@@ -51,9 +51,9 @@ extension EpisodeStatus {
     // Local-only status lookup for a set of episode ids, shared by FeedView and ShowDetailView so
     // each row-list screen doesn't hand-roll the same fetch-and-classify query.
     static func statusMap(for episodeIds: Set<String>, in context: ModelContext) -> [String: EpisodeStatus] {
-        let records = (try? context.fetch(FetchDescriptor<EpisodeStateRecord>())) ?? []
-        return Dictionary(
-            uniqueKeysWithValues: records.filter { episodeIds.contains($0.id) }.map { ($0.id, EpisodeStatus(record: $0)) })
+        let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { episodeIds.contains($0.id) })
+        let records = (try? context.fetch(descriptor)) ?? []
+        return Dictionary(uniqueKeysWithValues: records.map { ($0.id, EpisodeStatus(record: $0)) })
     }
 }
 
