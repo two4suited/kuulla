@@ -16,7 +16,9 @@ public class ShowDetailTests : WebTestContext
     private static readonly ShowSettings DefaultShowSettings = new("user-1:show-1", "user-1", "show-1", null, Version: 1);
 
     private TestHttpMessageHandler CreateHandler(
-        IReadOnlyList<Subscription>? subscriptions = null, ShowSettings? showSettings = null) =>
+        IReadOnlyList<Subscription>? subscriptions = null,
+        ShowSettings? showSettings = null,
+        EpisodeState? episodeState = null) =>
         new(request =>
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -29,6 +31,22 @@ public class ShowDetailTests : WebTestContext
             {
                 var page = new EpisodePage([TestEpisode], null);
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(page) };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                var states = episodeState is null
+                    ? new Dictionary<string, EpisodeState>()
+                    : new Dictionary<string, EpisodeState> { ["ep-1"] = episodeState };
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(states) };
+            }
+
+            if (path == "/api/episodes/ep-1/state" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, false, DateTimeOffset.UtcNow, "web", AutoPlayed: false)),
+                };
             }
 
             if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
@@ -200,11 +218,59 @@ public class ShowDetailTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) };
             }
 
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Dictionary<string, EpisodeState>()) };
+            }
+
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         }));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
 
         cut.WaitForAssertion(() => Assert.Contains("Something went wrong while loading this show's settings", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsAutoPlayedIndicatorAndRestoreButton_ForAutoPlayedEpisode()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var autoPlayedState = new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, true, DateTimeOffset.UtcNow, null, AutoPlayed: true);
+        ConfigureApi(CreateHandler(episodeState: autoPlayedState));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Auto-marked played", cut.Markup);
+            Assert.Contains("Restore", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void NoAutoPlayedIndicator_ForOrdinaryEpisode()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+        Assert.DoesNotContain("Auto-marked played", cut.Markup);
+    }
+
+    [Fact]
+    public void RestoringAutoPlayedEpisode_ClearsIndicator()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var autoPlayedState = new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, true, DateTimeOffset.UtcNow, null, AutoPlayed: true);
+        ConfigureApi(CreateHandler(episodeState: autoPlayedState));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Auto-marked played", cut.Markup));
+
+        cut.Find("li button.btn-outline-secondary").Click();
+
+        cut.WaitForAssertion(() => Assert.DoesNotContain("Auto-marked played", cut.Markup));
     }
 }

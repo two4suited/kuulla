@@ -48,6 +48,21 @@ public class EpisodeStateService(
         return state;
     }
 
+    // Lets a page render N episodes' state with one HTTP round trip instead of N (e.g. ShowDetail's
+    // auto-played indicator) — still one GetStateAsync per id under the hood (each still benefits
+    // from the hot Redis cache), just fanned out in parallel behind a single request.
+    public async Task<IReadOnlyDictionary<string, EpisodeState>> GetStatesAsync(
+        string userId, IReadOnlyList<string> episodeIds, CancellationToken cancellationToken)
+    {
+        var states = await Task.WhenAll(episodeIds.Select(async episodeId =>
+        {
+            var state = await GetStateAsync(userId, episodeId, cancellationToken);
+            return (episodeId, state);
+        }));
+
+        return states.Where(x => x.state is not null).ToDictionary(x => x.episodeId, x => x.state!);
+    }
+
     public async Task<EpisodeState> UpdateStateAsync(
         string userId,
         string episodeId,
@@ -65,6 +80,33 @@ public class EpisodeStateService(
         await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
 
         return state;
+    }
+
+    // Used only by the unlistened-episode-limit enforcement job (#98) — distinct from
+    // UpdateStateAsync so a manual "mark as played" (always AutoPlayed = false) can never be
+    // confused with an automatic one, and so the enforcement job doesn't need to thread a
+    // positionSeconds/completed pair through that a user-driven update path requires.
+    // Batched (one call per enforcement run, not per episode) so the sync summary is recomputed
+    // once instead of once per marked episode — a back catalog with hundreds of episodes beyond
+    // the limit would otherwise trigger hundreds of redundant QueryAllStatesAsync/cache-set calls.
+    public async Task MarkAutoPlayedAsync(
+        string userId, IReadOnlyList<(string EpisodeId, string ShowId)> episodes, CancellationToken cancellationToken)
+    {
+        if (episodes.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (episodeId, showId) in episodes)
+        {
+            var state = new EpisodeState(
+                episodeId, userId, episodeId, showId, PositionSeconds: 0, Completed: true, DateTimeOffset.UtcNow,
+                DeviceId: null, AutoPlayed: true);
+            await UpsertStateAsync(state, cancellationToken);
+        }
+
+        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
+        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
     }
 
     public async Task<SyncEpisodesResult> SyncAsync(

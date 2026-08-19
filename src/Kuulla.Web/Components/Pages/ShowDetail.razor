@@ -6,6 +6,7 @@
 @inject SubscriptionClient SubscriptionClient
 @inject SettingsClient SettingsClient
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject EpisodeStateClient EpisodeStateClient
 
 <PageTitle>@(show?.Title ?? "Show")</PageTitle>
 
@@ -101,6 +102,7 @@ else
     <ul class="list-group mb-3">
         @foreach (var episode in episodes)
         {
+            var isAutoPlayed = autoPlayedEpisodeIds.Contains(episode.Id);
             <li class="list-group-item">
                 <a href="@($"shows/{Id}/episodes/{episode.Id}")" class="text-decoration-none">
                     <div class="fw-bold">@episode.Title</div>
@@ -116,9 +118,24 @@ else
                         @EpisodeFormatting.FormatDuration(duration)
                     }
                 </div>
+                @if (isAutoPlayed)
+                {
+                    <div class="d-flex align-items-center gap-2 mt-1">
+                        <span class="text-muted small fst-italic">Auto-marked played</span>
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@restoringEpisodeIds.Contains(episode.Id)"
+                                @onclick="() => RestoreAsync(episode)">
+                            Restore
+                        </button>
+                    </div>
+                }
             </li>
         }
     </ul>
+
+    @if (restoreError is not null)
+    {
+        <p class="text-danger">@restoreError</p>
+    }
 
     @if (isLoadingEpisodes)
     {
@@ -148,6 +165,10 @@ else
     private bool isShowSettingsSaving;
     private string? showSettingsError;
     private bool showSettingsSavedConfirmation;
+    private readonly HashSet<string> autoPlayedEpisodeIds = [];
+    private readonly HashSet<string> restoringEpisodeIds = [];
+    private string? restoreError;
+    private bool isAuthenticated;
 
     private string ShowSettingsSelectValue => showUnlistenedEpisodeCountOverride?.ToString() ?? "";
 
@@ -165,6 +186,10 @@ else
         isShowSettingsSaving = false;
         showSettingsError = null;
         showSettingsSavedConfirmation = false;
+        autoPlayedEpisodeIds.Clear();
+        restoringEpisodeIds.Clear();
+        restoreError = null;
+        isAuthenticated = false;
 
         isLoadingShow = true;
         try
@@ -183,7 +208,7 @@ else
         if (show is not null)
         {
             var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-            var isAuthenticated = authState.User.Identity?.IsAuthenticated ?? false;
+            isAuthenticated = authState.User.Identity?.IsAuthenticated ?? false;
 
             await Task.WhenAll(
                 LoadMoreEpisodesAsync(),
@@ -316,6 +341,11 @@ else
             var page = await CatalogClient.GetEpisodesAsync(Id, continuationToken, pageSize: 20);
             episodes.AddRange(page.Items);
             continuationToken = page.ContinuationToken;
+
+            if (isAuthenticated)
+            {
+                await LoadAutoPlayedStatusAsync(page.Items);
+            }
         }
         catch (HttpRequestException)
         {
@@ -324,6 +354,44 @@ else
         finally
         {
             isLoadingEpisodes = false;
+        }
+    }
+
+    private async Task LoadAutoPlayedStatusAsync(IReadOnlyList<Episode> loadedEpisodes)
+    {
+        try
+        {
+            var states = await EpisodeStateClient.GetStatesAsync(loadedEpisodes.Select(e => e.Id).ToList());
+            foreach (var (episodeId, state) in states)
+            {
+                if (state.AutoPlayed)
+                {
+                    autoPlayedEpisodeIds.Add(episodeId);
+                }
+            }
+        }
+        catch (HttpRequestException)
+        {
+        }
+    }
+
+    private async Task RestoreAsync(Episode episode)
+    {
+        restoreError = null;
+        restoringEpisodeIds.Add(episode.Id);
+
+        try
+        {
+            await EpisodeStateClient.UpdateStateAsync(episode.Id, Id, positionSeconds: 0, completed: false);
+            autoPlayedEpisodeIds.Remove(episode.Id);
+        }
+        catch (HttpRequestException)
+        {
+            restoreError = "Something went wrong while restoring this episode. Please try again.";
+        }
+        finally
+        {
+            restoringEpisodeIds.Remove(episode.Id);
         }
     }
 }

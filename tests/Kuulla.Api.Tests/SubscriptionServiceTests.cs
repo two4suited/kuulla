@@ -140,7 +140,57 @@ public class SubscriptionServiceTests
         var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
 
         Assert.Single(results);
-        Assert.Equal("unseen", results[0].Id);
+        Assert.Equal("unseen", results[0].Episode.Id);
+        Assert.False(results[0].AutoPlayed);
+    }
+
+    [Fact]
+    public async Task GetNewEpisodesAsync_IncludesAutoPlayedEpisodesWithFlagSet()
+    {
+        var subscription = new Subscription(ShowId, UserId, ShowId, "Show 1", "Author", null, DateTimeOffset.UtcNow);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<Subscription>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<Subscription>([subscription]));
+
+        var autoPlayed = MakeEpisode("auto", ShowId, DateTimeOffset.UtcNow.AddDays(-1));
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync(ShowId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodePage([autoPlayed], null));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "auto", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodeState("auto", UserId, "auto", ShowId, 0, true, DateTimeOffset.UtcNow, AutoPlayed: true));
+
+        var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
+
+        Assert.Single(results);
+        Assert.Equal("auto", results[0].Episode.Id);
+        Assert.True(results[0].AutoPlayed);
+    }
+
+    [Fact]
+    public async Task GetNewEpisodesAsync_IncludesRestoredEpisodeWithNoProgress()
+    {
+        // A Restore write (UpdateStateAsync with positionSeconds: 0, completed: false) leaves a
+        // state row with AutoPlayed=false and no progress — this must still count as "unseen" or
+        // the episode silently vanishes right after being restored (#99).
+        var subscription = new Subscription(ShowId, UserId, ShowId, "Show 1", "Author", null, DateTimeOffset.UtcNow);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<Subscription>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<Subscription>([subscription]));
+
+        var restored = MakeEpisode("restored", ShowId, DateTimeOffset.UtcNow.AddDays(-1));
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync(ShowId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodePage([restored], null));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "restored", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodeState("restored", UserId, "restored", ShowId, 0, false, DateTimeOffset.UtcNow, AutoPlayed: false));
+
+        var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
+
+        Assert.Single(results);
+        Assert.Equal("restored", results[0].Episode.Id);
+        Assert.False(results[0].AutoPlayed);
     }
 
     [Fact]
@@ -166,7 +216,7 @@ public class SubscriptionServiceTests
 
         var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
 
-        Assert.Equal(["newer", "older"], results.Select(e => e.Id));
+        Assert.Equal(["newer", "older"], results.Select(e => e.Episode.Id));
     }
 
     [Fact]
@@ -191,6 +241,6 @@ public class SubscriptionServiceTests
 
         var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
 
-        Assert.Equal(["healthy"], results.Select(e => e.Id));
+        Assert.Equal(["healthy"], results.Select(e => e.Episode.Id));
     }
 }

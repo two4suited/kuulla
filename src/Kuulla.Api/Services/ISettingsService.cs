@@ -13,4 +13,7 @@ public interface ISettingsService
 
     Task<ShowSettings> UpdateShowUnlistenedEpisodeCountAsync(
         string userId, string showId, UnlistenedEpisodeCount? unlistenedEpisodeCount, CancellationToken cancellationToken);
+
+    Task<UnlistenedEpisodeCount> GetEffectiveUnlistenedEpisodeCountAsync(
+        string userId, string showId, CancellationToken cancellationToken);
 }

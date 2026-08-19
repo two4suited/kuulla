@@ -10,5 +10,5 @@ public interface ISubscriptionService
 
     Task UnsubscribeAsync(string userId, string showId, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<Episode>> GetNewEpisodesAsync(string userId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<NewEpisode>> GetNewEpisodesAsync(string userId, CancellationToken cancellationToken);
 }

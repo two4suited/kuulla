@@ -79,7 +79,7 @@ public class SubscriptionService(
         }
     }
 
-    public async Task<IReadOnlyList<Episode>> GetNewEpisodesAsync(string userId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<NewEpisode>> GetNewEpisodesAsync(string userId, CancellationToken cancellationToken)
     {
         var subscriptions = await GetSubscriptionsAsync(userId, cancellationToken);
 
@@ -103,15 +103,21 @@ public class SubscriptionService(
             var unseenChecks = await Task.WhenAll(page.Items.Select(async episode =>
             {
                 var state = await episodeStateService.GetStateAsync(userId, episode.Id, cancellationToken);
-                return (episode, isUnseen: state is null);
+                // "Unseen" includes auto-played episodes and restored-but-untouched ones (state
+                // exists with Completed=false and no progress — the shape a Restore write leaves
+                // behind), not just episodes with no state at all. Otherwise an episode the limit
+                // job marked played, or one the user just restored, would silently vanish from this
+                // list with no way to notice or undo it (#98/#99).
+                var isUnseen = state is null || state.AutoPlayed || (!state.Completed && state.PositionSeconds == 0);
+                return (episode, isUnseen, autoPlayed: state?.AutoPlayed ?? false);
             }));
 
-            return unseenChecks.Where(x => x.isUnseen).Select(x => x.episode).ToList();
+            return unseenChecks.Where(x => x.isUnseen).Select(x => new NewEpisode(x.episode, x.autoPlayed)).ToList();
         }));
 
         return perShow
-            .SelectMany(episodes => episodes)
-            .OrderByDescending(episode => episode.PublishedAt)
+            .SelectMany(newEpisodes => newEpisodes)
+            .OrderByDescending(newEpisode => newEpisode.Episode.PublishedAt)
             .ToList();
     }
 }

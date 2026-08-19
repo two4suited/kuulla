@@ -96,6 +96,37 @@ public class EpisodeStateServiceTests
     }
 
     [Fact]
+    public async Task MarkAutoPlayedAsync_UpsertsCompletedStateWithAutoPlayedFlagForEachEpisode()
+    {
+        SetupEmptyStatesQuery();
+        var upserted = new List<EpisodeState>();
+        _episodeStatesContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<EpisodeState, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted.Add(s))
+            .ReturnsAsync((EpisodeState s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        await _sut.MarkAutoPlayedAsync(UserId, [("ep-1", ShowId), ("ep-2", ShowId)], CancellationToken.None);
+
+        Assert.Equal(2, upserted.Count);
+        Assert.All(upserted, s =>
+        {
+            Assert.True(s.Completed);
+            Assert.True(s.AutoPlayed);
+            Assert.Equal(0, s.PositionSeconds);
+        });
+        Assert.Equal(["ep-1", "ep-2"], upserted.Select(s => s.Id));
+    }
+
+    [Fact]
+    public async Task MarkAutoPlayedAsync_DoesNothingWhenEpisodeListIsEmpty()
+    {
+        await _sut.MarkAutoPlayedAsync(UserId, [], CancellationToken.None);
+
+        _episodeStatesContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
     {
         var summary = new SyncSummary("abc123", DateTimeOffset.UtcNow);

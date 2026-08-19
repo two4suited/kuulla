@@ -71,4 +71,17 @@ public class SettingsService(
             updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
         return response.Resource;
     }
+
+    public async Task<UnlistenedEpisodeCount> GetEffectiveUnlistenedEpisodeCountAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.UnlistenedEpisodeCount is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.UnlistenedEpisodeCount;
+    }
 }
