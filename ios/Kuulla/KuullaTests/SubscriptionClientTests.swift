@@ -52,4 +52,25 @@ final class SubscriptionClientTests: MockedApiTestCase {
         let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
         XCTAssertTrue(requestedURL.absoluteString.contains("a%2Fb"))
     }
+
+    func testGetNewEpisodesDecodesResponse() async throws {
+        let json = """
+        [{"id":"ep1","showId":"s1","title":"Episode One","publishedAt":"2024-01-15T10:30:00+00:00","duration":"00:45:00","audioUrl":"https://audio","description":null,"bitrateKbps":null,"fileSizeBytes":null}]
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let episodes = try await client.getNewEpisodes()
+
+        XCTAssertEqual(episodes.map(\.id), ["ep1"])
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/subscriptions/episodes"))
+    }
+
+    func testGetNewEpisodesReturnsEmptyOn401() async throws {
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 401, data: Data(), headers: [:])) }
+
+        let episodes = try await client.getNewEpisodes()
+
+        XCTAssertTrue(episodes.isEmpty)
+    }
 }
