@@ -1,0 +1,145 @@
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PlaylistClient PlaylistClient
+
+<div class="d-inline-block">
+    <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="ToggleOpenAsync">
+        Add to playlist
+    </button>
+
+    @if (isOpen)
+    {
+        @* Normal document flow rather than position:absolute — a floating overlay would cover
+           (and block clicks on) whatever list row follows this button, since each row's button is
+           an independent instance with no shared "close the others" coordination. *@
+        <div class="border rounded shadow-sm p-2 mt-1" style="max-width: 20rem;">
+            @if (isLoadingPlaylists)
+            {
+                <p class="small mb-1">Loading&hellip;</p>
+            }
+            else if (playlists.Count > 0)
+            {
+                <div class="list-group list-group-flush mb-2">
+                    @foreach (var playlist in playlists)
+                    {
+                        <button class="list-group-item list-group-item-action py-1 px-2 small" disabled="@isBusy"
+                                @onclick="() => AddToExistingAsync(playlist.Id)">
+                            @playlist.Name
+                        </button>
+                    }
+                </div>
+            }
+
+            <div class="d-flex gap-1">
+                <input class="form-control form-control-sm" placeholder="New playlist" @bind="newPlaylistName" @bind:event="oninput" disabled="@isBusy" />
+                <button class="btn btn-sm btn-primary text-nowrap" disabled="@(isBusy || string.IsNullOrWhiteSpace(newPlaylistName))"
+                        @onclick="AddToNewAsync">
+                    Add
+                </button>
+            </div>
+
+            @if (error is not null)
+            {
+                <p class="text-danger small mb-0 mt-1">@error</p>
+            }
+            @if (confirmation is not null)
+            {
+                <p class="text-success small mb-0 mt-1">@confirmation</p>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string EpisodeId { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public string ShowId { get; set; } = "";
+
+    private bool isOpen;
+    private bool isLoadingPlaylists;
+    private readonly List<Playlist> playlists = [];
+    private string newPlaylistName = "";
+    private bool isBusy;
+    private string? error;
+    private string? confirmation;
+
+    private async Task ToggleOpenAsync()
+    {
+        isOpen = !isOpen;
+        error = null;
+        confirmation = null;
+
+        if (isOpen && playlists.Count == 0)
+        {
+            isLoadingPlaylists = true;
+            try
+            {
+                var results = await PlaylistClient.GetPlaylistsAsync();
+                playlists.Clear();
+                playlists.AddRange(results.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase));
+            }
+            catch (HttpRequestException)
+            {
+                error = "Couldn't load your playlists.";
+            }
+            finally
+            {
+                isLoadingPlaylists = false;
+            }
+        }
+    }
+
+    private async Task AddToExistingAsync(string playlistId)
+    {
+        isBusy = true;
+        error = null;
+        confirmation = null;
+
+        try
+        {
+            await PlaylistClient.AddItemAsync(playlistId, EpisodeId, ShowId);
+            confirmation = "Added.";
+        }
+        catch (HttpRequestException)
+        {
+            error = "Something went wrong. Please try again.";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task AddToNewAsync()
+    {
+        var name = newPlaylistName.Trim();
+        if (name.Length == 0 || isBusy)
+        {
+            return;
+        }
+
+        isBusy = true;
+        error = null;
+        confirmation = null;
+
+        try
+        {
+            var created = await PlaylistClient.CreatePlaylistAsync(name);
+            await PlaylistClient.AddItemAsync(created.Id, EpisodeId, ShowId);
+            playlists.Add(created);
+            playlists.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            newPlaylistName = "";
+            confirmation = "Added.";
+        }
+        catch (HttpRequestException)
+        {
+            error = "Something went wrong. Please try again.";
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+}

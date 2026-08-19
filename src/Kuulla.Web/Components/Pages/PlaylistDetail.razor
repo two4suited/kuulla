@@ -1,0 +1,245 @@
+@page "/playlists/{Id}"
+@implements IAsyncDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PlaylistClient PlaylistClient
+@inject IJSRuntime JS
+
+<PageTitle>@(playlist?.Name ?? "Playlist")</PageTitle>
+
+@if (isLoading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (loadError is not null)
+{
+    <p class="text-danger">@loadError</p>
+}
+else if (playlist is null)
+{
+    <p>Playlist not found.</p>
+}
+else
+{
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h1 class="mb-0">@playlist.Name</h1>
+        @if (playlist.Items.Count > 0)
+        {
+            var first = playlist.Items[0];
+            <a class="btn btn-primary" href="@($"shows/{first.ShowId}/episodes/{first.EpisodeId}")">Play</a>
+        }
+    </div>
+
+    @if (playlist.Items.Count == 0)
+    {
+        <p>This playlist is empty. Add episodes to it from a show or episode page.</p>
+    }
+    else
+    {
+        <p class="text-muted small">Drag episodes to reorder.</p>
+
+        <ul class="list-group mb-3" @ref="listElement">
+            @foreach (var item in playlist.Items)
+            {
+                <li class="list-group-item d-flex align-items-center gap-3" draggable="true" data-episode-id="@item.EpisodeId" style="cursor: grab;">
+                    @if (!string.IsNullOrEmpty(item.ArtworkUrl))
+                    {
+                        <img src="@item.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
+                    }
+                    <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}")" class="text-decoration-none flex-grow-1">
+                        @(item.Title ?? "(episode unavailable)")
+                    </a>
+                    <button class="btn btn-sm btn-outline-danger flex-shrink-0" disabled="@busyEpisodeIds.Contains(item.EpisodeId)"
+                            @onclick="() => RemoveItemAsync(item.EpisodeId)">
+                        Remove
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+
+    @if (mutationError is not null)
+    {
+        <p class="text-danger">@mutationError</p>
+    }
+}
+
+@code {
+    [Parameter]
+    public string Id { get; set; } = "";
+
+    // Qualified because "PlaylistDetail" bare resolves to this component's own class (declared in
+    // the immediately enclosing namespace, which wins over the @using-imported Models.PlaylistDetail).
+    private Kuulla.Web.Models.PlaylistDetail? playlist;
+    private bool isLoading;
+    private string? loadError;
+    private readonly HashSet<string> busyEpisodeIds = [];
+    private string? mutationError;
+
+    private ElementReference listElement;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _watcher;
+    private DotNetObjectReference<PlaylistDetail>? _selfReference;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await DisposeInteropAsync();
+
+        playlist = null;
+        loadError = null;
+        mutationError = null;
+        busyEpisodeIds.Clear();
+
+        isLoading = true;
+        try
+        {
+            playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
+        }
+        catch (HttpRequestException)
+        {
+            loadError = "Something went wrong while loading this playlist. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (playlist is null || playlist.Items.Count == 0 || _module is not null)
+        {
+            return;
+        }
+
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", $"./{Assets["Components/Pages/PlaylistDetail.razor.js"]}");
+        _selfReference = DotNetObjectReference.Create(this);
+        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, listElement);
+    }
+
+    private async Task RemoveItemAsync(string episodeId)
+    {
+        if (playlist is null)
+        {
+            return;
+        }
+
+        mutationError = null;
+        busyEpisodeIds.Add(episodeId);
+        var removed = playlist.Items.FirstOrDefault(i => i.EpisodeId == episodeId);
+        var previousItems = playlist.Items;
+        if (removed is not null)
+        {
+            playlist = playlist with { Items = playlist.Items.Where(i => i.EpisodeId != episodeId).ToList() };
+        }
+
+        try
+        {
+            var result = await PlaylistClient.RemoveItemAsync(Id, episodeId);
+            if (result is null)
+            {
+                // The playlist itself is gone (deleted elsewhere) — the optimistic removal already
+                // matches reality, but say so rather than silently pretending this call succeeded.
+                mutationError = "This playlist no longer exists.";
+            }
+        }
+        catch (HttpRequestException)
+        {
+            playlist = playlist with { Items = previousItems };
+            mutationError = "Something went wrong while removing this episode. Please try again.";
+        }
+        finally
+        {
+            busyEpisodeIds.Remove(episodeId);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnReorderedAsync(string episodeId, string? beforeEpisodeId, string? afterEpisodeId)
+    {
+        if (playlist is null)
+        {
+            return;
+        }
+
+        mutationError = null;
+        var previousItems = playlist.Items;
+
+        // Optimistically reorder the local list to match the drop position immediately, rather
+        // than waiting for the server round-trip — the server call still supplies the
+        // authoritative rank string, but the UI shouldn't visibly snap back while it's in flight.
+        var moved = previousItems.FirstOrDefault(i => i.EpisodeId == episodeId);
+        if (moved is not null)
+        {
+            var reordered = previousItems.Where(i => i.EpisodeId != episodeId).ToList();
+            // beforeEpisodeId is the item that should precede the dragged item in the new order,
+            // so it slots in right after beforeEpisodeId's position; afterEpisodeId is the item
+            // that should follow, so it slots in right at afterEpisodeId's (pre-shift) position.
+            var insertAt = beforeEpisodeId is not null
+                ? reordered.FindIndex(i => i.EpisodeId == beforeEpisodeId) + 1
+                : afterEpisodeId is not null
+                    ? reordered.FindIndex(i => i.EpisodeId == afterEpisodeId)
+                    : reordered.Count;
+            reordered.Insert(Math.Clamp(insertAt, 0, reordered.Count), moved);
+            playlist = playlist with { Items = reordered };
+            StateHasChanged();
+        }
+
+        try
+        {
+            var updated = await PlaylistClient.ReorderItemAsync(Id, episodeId, beforeEpisodeId, afterEpisodeId);
+            if (updated is not null)
+            {
+                // The reorder endpoint returns the bare Playlist (no resolved title/artwork) — refresh
+                // from the detail endpoint instead of reusing this response, or the list would lose
+                // its display fields until the next full page load.
+                playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
+            }
+        }
+        catch (HttpRequestException)
+        {
+            // playlist is guaranteed non-null here: the only awaits in the try above either throw
+            // before reassigning it, or reassign it without throwing — the nullable analysis can't
+            // see that across the await boundary, hence the null-forgiving operator.
+            playlist = playlist! with { Items = previousItems };
+            mutationError = "Something went wrong while reordering. Please try again.";
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync() => await DisposeInteropAsync();
+
+    private async Task DisposeInteropAsync()
+    {
+        if (_watcher is not null)
+        {
+            await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("dispose").AsTask());
+            await SafeInvokeAsync(() => _watcher.DisposeAsync().AsTask());
+            _watcher = null;
+        }
+
+        if (_module is not null)
+        {
+            await SafeInvokeAsync(() => _module.DisposeAsync().AsTask());
+            _module = null;
+        }
+
+        _selfReference?.Dispose();
+        _selfReference = null;
+    }
+
+    private static async Task SafeInvokeAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}
