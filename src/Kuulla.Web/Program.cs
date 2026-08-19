@@ -49,6 +49,7 @@ builder.Services.AddScoped<PodcastCatalogClient>();
 builder.Services.AddScoped<SubscriptionClient>();
 builder.Services.AddScoped<SettingsClient>();
 builder.Services.AddScoped<EpisodeStateClient>();
+builder.Services.AddScoped<PlaylistClient>();
 
 var app = builder.Build();
 

@@ -47,9 +47,16 @@ else
         Your browser does not support the audio element.
     </audio>
 
-    <button class="btn btn-sm btn-outline-secondary mb-4" disabled="@isTogglingCompleted" @onclick="ToggleCompletedAsync">
-        @(isCompleted ? "Mark as unplayed" : "Mark as played")
-    </button>
+    <div class="d-flex align-items-center gap-2 mb-4">
+        <button class="btn btn-sm btn-outline-secondary" disabled="@isTogglingCompleted" @onclick="ToggleCompletedAsync">
+            @(isCompleted ? "Mark as unplayed" : "Mark as played")
+        </button>
+        <AuthorizeView>
+            <Authorized>
+                <AddToPlaylistButton EpisodeId="@EpisodeId" ShowId="@ShowId" />
+            </Authorized>
+        </AuthorizeView>
+    </div>
 
     @if (stateError is not null)
     {

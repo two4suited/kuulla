@@ -118,16 +118,21 @@ else
                         @EpisodeFormatting.FormatDuration(duration)
                     }
                 </div>
-                @if (isAutoPlayed)
-                {
-                    <div class="d-flex align-items-center gap-2 mt-1">
-                        <span class="text-muted small fst-italic">Auto-marked played</span>
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@restoringEpisodeIds.Contains(episode.Id)"
-                                @onclick="() => RestoreAsync(episode)">
-                            Restore
-                        </button>
-                    </div>
-                }
+                <AuthorizeView>
+                    <Authorized>
+                        <div class="d-flex align-items-center gap-2 mt-1">
+                            @if (isAutoPlayed)
+                            {
+                                <span class="text-muted small fst-italic">Auto-marked played</span>
+                                <button class="btn btn-sm btn-outline-secondary" disabled="@restoringEpisodeIds.Contains(episode.Id)"
+                                        @onclick="() => RestoreAsync(episode)">
+                                    Restore
+                                </button>
+                            }
+                            <AddToPlaylistButton EpisodeId="@episode.Id" ShowId="@Id" />
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
             </li>
         }
     </ul>

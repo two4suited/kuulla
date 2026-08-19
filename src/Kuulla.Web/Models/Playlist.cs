@@ -23,3 +23,22 @@ public enum PlaylistType
     Manual,
     Dynamic,
 }
+
+// Web-side mirror of Kuulla.Api.Models.PlaylistDetail's wire shape — GET /api/playlists/{id}'s
+// response, items resolved with episode title/show artwork.
+public record PlaylistDetail(
+    string Id,
+    string Name,
+    PlaylistType Type,
+    IReadOnlyList<PlaylistItemDetail> Items,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+// Web-side mirror of Kuulla.Api.Models.PlaylistItemDetail's wire shape.
+public record PlaylistItemDetail(
+    string EpisodeId,
+    string ShowId,
+    string? Title,
+    string? ArtworkUrl,
+    DateTimeOffset AddedAt,
+    string Order);
