@@ -9,4 +9,5 @@ public record EpisodeState(
     int PositionSeconds,
     bool Completed,
     DateTimeOffset UpdatedAt,
-    string? DeviceId);
+    string? DeviceId,
+    bool AutoPlayed = false);
