@@ -486,9 +486,14 @@ var playlists = app.MapGroup("/api/playlists").RequireAuthorization();
 // that drops or adds a show between the two arrays would silently misrank episodes if unvalidated.
 static string? ValidateDynamicPlaylistConfig(DynamicPlaylistConfig config)
 {
-    if (config.ShowIds.Count == 0)
+    if (config.ShowIds is null or [])
     {
         return "'showIds' must not be empty.";
+    }
+
+    if (config.PriorityList is null or [])
+    {
+        return "'priorityList' must not be empty.";
     }
 
     if (config.MaxEpisodes <= 0)
@@ -499,6 +504,13 @@ static string? ValidateDynamicPlaylistConfig(DynamicPlaylistConfig config)
     if (config.ShowIds.Count != config.ShowIds.Distinct().Count())
     {
         return "'showIds' must not contain duplicates.";
+    }
+
+    // PriorityList also can't contain duplicates — ComputeDynamicItemsAsync builds a
+    // showId -> rank dictionary from it, which throws on a duplicate key.
+    if (config.PriorityList.Count != config.PriorityList.Distinct().Count())
+    {
+        return "'priorityList' must not contain duplicates.";
     }
 
     if (config.PriorityList.ToHashSet().SetEquals(config.ShowIds))
@@ -522,6 +534,11 @@ playlists.MapPost("", async (
     if (string.IsNullOrWhiteSpace(request.Name))
     {
         return Results.BadRequest(new { error = "'name' is required." });
+    }
+
+    if (!Enum.IsDefined(request.Type))
+    {
+        return Results.BadRequest(new { error = "'type' must be 'Manual' or 'Dynamic'." });
     }
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;

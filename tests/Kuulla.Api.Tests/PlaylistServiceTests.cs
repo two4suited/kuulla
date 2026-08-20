@@ -77,11 +77,17 @@ public class PlaylistServiceTests
             ShowIds: [showA, showB], MaxEpisodes: 3, PriorityList: [showB, showA]);
 
         // showB is higher priority, so its episodes (newest first) should lead, followed by
-        // showA's, with the fourth episode overall dropped by the MaxEpisodes cap.
+        // showA's, with the fourth episode overall dropped by the MaxEpisodes cap. Distinct
+        // PublishedAt values (rather than all-UtcNow) make the within-show ordering meaningful —
+        // GetAllEpisodesOrderedAsync's mocked return order stands in for its real PublishedAt DESC
+        // query, and ComputeDynamicItemsAsync must preserve that order, not re-sort by anything else.
+        var epoch = DateTimeOffset.UnixEpoch;
         _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(showA, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("a-new", showA), MakeEpisode("a-old", showA)]);
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("a-new", showA, epoch.AddDays(2)), MakeEpisode("a-old", showA, epoch.AddDays(1))]);
         _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(showB, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("b-new", showB), MakeEpisode("b-old", showB)]);
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("b-new", showB, epoch.AddDays(4)), MakeEpisode("b-old", showB, epoch.AddDays(3))]);
         SetUpEmptyQuery();
 
         Playlist? created = null;
@@ -152,8 +158,8 @@ public class PlaylistServiceTests
         Assert.Null(result);
     }
 
-    private static Episode MakeEpisode(string id, string showId) =>
-        new(id, showId, id, DateTimeOffset.UtcNow, null, $"https://audio.example/{id}.mp3", null, null, null);
+    private static Episode MakeEpisode(string id, string showId, DateTimeOffset? publishedAt = null) =>
+        new(id, showId, id, publishedAt ?? DateTimeOffset.UtcNow, null, $"https://audio.example/{id}.mp3", null, null, null);
 
     [Fact]
     public async Task GetPlaylistDetailAsync_ReturnsNullWhenPlaylistDoesNotExist()
