@@ -18,7 +18,8 @@ public record Playlist(
     IReadOnlyList<PlaylistItem> Items,
     DateTimeOffset CreatedAt,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt,
-    [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord;
+    [property: JsonProperty("deviceId")] string? DeviceId = null,
+    DynamicPlaylistConfig? DynamicConfig = null) : ISyncableRecord;
 
 // Embedded on Playlist rather than a separate container/doc — items are always read/written
 // with their parent playlist, and doc size (a few hundred episode refs) is well within Cosmos's
@@ -46,3 +47,14 @@ public enum PlaylistType
     Manual,
     Dynamic,
 }
+
+// Present only when Playlist.Type == Dynamic. PriorityList is a plain ordered array of ShowId
+// rather than a rank-string scheme like PlaylistItem.Order — it's edited wholesale by one user in
+// a settings screen, not concurrently item-by-item, so reordering + last-write-wins on the whole
+// array is sufficient and simpler. PriorityList drives which episodes get inserted and in what
+// order when new ones arrive (Dynamic Playlist Auto-Ordering milestone); it isn't itself the item
+// ordering — Items/Order above still owns that.
+public record DynamicPlaylistConfig(
+    IReadOnlyList<string> ShowIds,
+    int MaxEpisodes,
+    IReadOnlyList<string> PriorityList);

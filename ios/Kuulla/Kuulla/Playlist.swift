@@ -14,6 +14,9 @@ final class PlaylistRecord: Syncable {
     var createdAt: Date
     var updatedAt: Date
     var isDirty: Bool
+    // Present only when type == .dynamic. Stored inline like `items`, matching the server's
+    // embedded DynamicPlaylistConfig field on Playlist.
+    var dynamicConfig: DynamicPlaylistConfigRecord?
 
     init(
         id: String,
@@ -22,7 +25,8 @@ final class PlaylistRecord: Syncable {
         items: [PlaylistItemRecord] = [],
         createdAt: Date,
         updatedAt: Date,
-        isDirty: Bool = false
+        isDirty: Bool = false,
+        dynamicConfig: DynamicPlaylistConfigRecord? = nil
     ) {
         self.id = id
         self.name = name
@@ -31,6 +35,7 @@ final class PlaylistRecord: Syncable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.isDirty = isDirty
+        self.dynamicConfig = dynamicConfig
     }
 }
 
@@ -51,4 +56,12 @@ struct PlaylistItemRecord: Codable {
 enum PlaylistType: Int, Codable {
     case manual = 0
     case dynamic = 1
+}
+
+// Local mirror of the API's Kuulla.Api.Models.DynamicPlaylistConfig. Not a @Model for the same
+// reason as PlaylistItemRecord — it's embedded on PlaylistRecord, not a standalone entity.
+struct DynamicPlaylistConfigRecord: Codable {
+    var showIds: [String]
+    var maxEpisodes: Int
+    var priorityList: [String]
 }
