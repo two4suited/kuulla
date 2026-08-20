@@ -116,5 +116,5 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
 
 // Per-show unplayed count, plus whether the raw (pre-filter) item count for that show hit the
 // API's page cap — if so, the true unplayed count may be higher than what was fetched, so
-// callers should render "cap+" rather than the filtered count even though it's under the cap.
+// callers should render "{Count}+" rather than the bare Count even though it's under the cap.
 public sealed record UnplayedCount(int Count, bool HitCap);

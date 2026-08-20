@@ -375,7 +375,7 @@ subscriptions.MapPost("", async (
     SubscribeRequest request,
     ClaimsPrincipal user,
     ISubscriptionService subscriptionService,
-    IEpisodeService episodeService,
+    IServiceScopeFactory scopeFactory,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.ShowId))
@@ -392,17 +392,24 @@ subscriptions.MapPost("", async (
 
     // A show's back catalog was never run through enforcement for this user before now — without
     // this, every episode beyond the unlistened-episode-count setting shows as unplayed until the
-    // show happens to publish a new episode. Best-effort, same rationale as the settings-update
-    // endpoints: the subscription above already succeeded, so a transient enforcement failure
-    // shouldn't turn it into a 5xx.
-    try
+    // show happens to publish a new episode. Fired off rather than awaited: a show's back catalog
+    // can be large (a full episode query plus a per-episode state read for everything beyond the
+    // limit), and subscribing is a common, latency-sensitive action that shouldn't block on it.
+    // Runs in its own DI scope since the request's scope (and its `ct`) won't outlive this handler.
+    _ = Task.Run(async () =>
     {
-        await episodeService.EnforceUnlistenedLimitAsync(userId, request.ShowId, ct);
-    }
-    catch (Exception ex) when (ex is not OperationCanceledException)
-    {
-        app.Logger.LogError(ex, "Failed to enforce unlistened-episode limit for user {UserId} on show {ShowId} after subscribing", userId, request.ShowId);
-    }
+        using var scope = scopeFactory.CreateScope();
+        try
+        {
+            var episodeService = scope.ServiceProvider.GetRequiredService<IEpisodeService>();
+            await episodeService.EnforceUnlistenedLimitAsync(userId, request.ShowId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
+                .LogError(ex, "Failed to enforce unlistened-episode limit for user {UserId} on show {ShowId} after subscribing", userId, request.ShowId);
+        }
+    });
 
     return Results.Ok(subscription);
 });
