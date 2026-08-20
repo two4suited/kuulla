@@ -1,4 +1,6 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+@inject IHostEnvironment HostEnvironment
+
+<div class="top-row navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="">
             <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
@@ -8,83 +10,34 @@
             </svg>
             Kuulla
         </a>
+
         <button type="button" class="theme-toggle" title="Toggle theme" aria-label="Toggle color theme" aria-pressed="true" onclick="window.kuullaTheme?.toggle()">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.4 5.4 0 0 1-7.54-7.54c-.44-.06-.9-.1-1.36-.1z"/></svg>
         </button>
+
+        <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+        <nav class="nav-links" onclick="document.querySelector('.navbar-toggler').click()">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">Library</NavLink>
+            <NavLink class="nav-link" href="search">Search</NavLink>
+
+            <AuthorizeView>
+                <Authorized>
+                    <NavLink class="nav-link" href="new-episodes">New Episodes</NavLink>
+                    <NavLink class="nav-link" href="subscriptions">Subscriptions</NavLink>
+                    <NavLink class="nav-link" href="up-next">Up Next</NavLink>
+                    <NavLink class="nav-link" href="playlists">Playlists</NavLink>
+                    <NavLink class="nav-link" href="settings">Settings</NavLink>
+                    @if (HostEnvironment.IsDevelopment())
+                    {
+                        <NavLink class="nav-link" href="jwt">JWT</NavLink>
+                    }
+                </Authorized>
+            </AuthorizeView>
+
+            <div class="nav-auth">
+                <LoginDisplay />
+            </div>
+        </nav>
     </div>
 </div>
-
-<div class="nav-item px-3">
-    <LoginDisplay />
-</div>
-
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Library
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="search">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Search
-            </NavLink>
-        </div>
-
-        <AuthorizeView>
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="new-episodes">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> New Episodes
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
-
-        <AuthorizeView>
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="subscriptions">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Subscriptions
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="up-next">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Up Next
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="playlists">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Playlists
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="settings">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Settings
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="jwt">
-                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> JWT
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-    </nav>
-</div>
-
