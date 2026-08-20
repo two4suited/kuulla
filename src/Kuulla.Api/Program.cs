@@ -589,6 +589,8 @@ settings.MapPut("", async (
     UpdateSettingsRequest request,
     ClaimsPrincipal user,
     ISettingsService settingsService,
+    ISubscriptionService subscriptionService,
+    IEpisodeService episodeService,
     CancellationToken ct) =>
 {
     if (!Enum.IsDefined(request.UnlistenedEpisodeCount))
@@ -598,6 +600,16 @@ settings.MapPut("", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateUnlistenedEpisodeCountAsync(userId, request.UnlistenedEpisodeCount, ct);
+
+    // The new global limit only takes effect for shows without a per-show override, but
+    // re-running enforcement for every subscribed show is simpler than filtering to those
+    // without one — EnforceUnlistenedLimitAsync is a no-op for shows that already comply.
+    var subscriptions = await subscriptionService.GetSubscriptionsAsync(userId, ct);
+    await Parallel.ForEachAsync(
+        subscriptions,
+        new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = ct },
+        (subscription, token) => new ValueTask(episodeService.EnforceUnlistenedLimitAsync(userId, subscription.ShowId, token)));
+
     return Results.Ok(result);
 });
 
@@ -617,6 +629,7 @@ settings.MapPut("/shows/{showId}", async (
     UpdateShowSettingsRequest request,
     ClaimsPrincipal user,
     ISettingsService settingsService,
+    IEpisodeService episodeService,
     CancellationToken ct) =>
 {
     if (request.UnlistenedEpisodeCount is { } value && !Enum.IsDefined(value))
@@ -626,6 +639,7 @@ settings.MapPut("/shows/{showId}", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateShowUnlistenedEpisodeCountAsync(userId, showId, request.UnlistenedEpisodeCount, ct);
+    await episodeService.EnforceUnlistenedLimitAsync(userId, showId, ct);
     return Results.Ok(result);
 });
 
