@@ -61,7 +61,8 @@ final class SubscriptionClientTests: MockedApiTestCase {
 
         let episodes = try await client.getNewEpisodes()
 
-        XCTAssertEqual(episodes.map(\.id), ["ep1"])
+        XCTAssertEqual(episodes.map(\.episode.id), ["ep1"])
+        XCTAssertEqual(episodes.map(\.autoPlayed), [false])
         let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
         XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/subscriptions/episodes"))
     }
