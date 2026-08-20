@@ -275,6 +275,8 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(episodeState: autoPlayedState));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => cut.FindAll(".btn-group button").Any(b => b.TextContent.Trim() == "All"));
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -303,6 +305,8 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(episodeState: autoPlayedState));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => cut.FindAll(".btn-group button").Any(b => b.TextContent.Trim() == "All"));
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
         cut.WaitForAssertion(() => Assert.Contains("Auto-marked played", cut.Markup));
 
         cut.Find("li button.btn-outline-secondary").Click();
@@ -311,7 +315,7 @@ public class ShowDetailTests : WebTestContext
     }
 
     [Fact]
-    public void UnplayedFilter_HidesInProgressAndPlayedEpisodes()
+    public void UnplayedFilter_IsActiveByDefault_AndHidesInProgressAndPlayedEpisodes()
     {
         AuthContext.SetAuthorized("user-1");
         var inProgressState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "web");
@@ -322,11 +326,37 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         cut.WaitForAssertion(() =>
         {
+            Assert.DoesNotContain("Monday Edition", cut.Markup);
+            Assert.Contains("Sunday Edition", cut.Markup);
+        });
+        Assert.Contains("active", cut.FindAll(".btn-group button")
+            .Single(b => b.TextContent.Trim() == "Unplayed").ClassList);
+
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
+        cut.WaitForAssertion(() =>
+        {
             Assert.Contains("Monday Edition", cut.Markup);
             Assert.Contains("Sunday Edition", cut.Markup);
         });
 
         cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "Unplayed").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("Monday Edition", cut.Markup);
+            Assert.Contains("Sunday Edition", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void UnplayedFilter_HidesAutoPlayedEpisodes()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var autoPlayedState = new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, true, DateTimeOffset.UtcNow, null, AutoPlayed: true);
+        ConfigureApi(CreateHandlerWithEpisodes(
+            [TestEpisode, OlderEpisode],
+            new Dictionary<string, EpisodeState> { ["ep-1"] = autoPlayedState }));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
 
         cut.WaitForAssertion(() =>
         {
@@ -381,6 +411,8 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(episodeState: inProgressState));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => cut.FindAll(".btn-group button").Any(b => b.TextContent.Trim() == "All"));
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("progress-bar", cut.Markup));
     }
@@ -393,6 +425,8 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(episodeState: playedState));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => cut.FindAll(".btn-group button").Any(b => b.TextContent.Trim() == "All"));
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
 
         cut.WaitForAssertion(() =>
         {
