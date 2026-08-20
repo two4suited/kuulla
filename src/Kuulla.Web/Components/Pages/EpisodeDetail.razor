@@ -49,7 +49,7 @@ else
 
     <div class="d-flex align-items-center gap-2 mb-4">
         <button class="btn btn-sm btn-outline-secondary" disabled="@isTogglingCompleted" @onclick="ToggleCompletedAsync">
-            @(isCompleted ? "Mark as unplayed" : "Mark as played")
+            @(isAutoPlayed ? "Restore" : isCompleted ? "Mark as unplayed" : "Mark as played")
         </button>
         <AuthorizeView>
             <Authorized>
@@ -92,6 +92,7 @@ else
 
     private int savedPositionSeconds;
     private bool isCompleted;
+    private bool isAutoPlayed;
     private bool isTogglingCompleted;
     private string? stateError;
 
@@ -101,10 +102,12 @@ else
     // one's (e.g. a stale in-flight progress update clobbering a completed:true write).
     private readonly SemaphoreSlim _persistGate = new(1, 1);
 
-    private string StatusLabel => isCompleted ? "Played" : savedPositionSeconds > 0 ? "In progress" : "New";
+    private string StatusLabel => isAutoPlayed ? "Auto-marked played"
+        : isCompleted ? "Played"
+        : savedPositionSeconds > 0 ? "In progress" : "New";
 
-    private string StatusBadgeClass => isCompleted
-        ? "bg-success"
+    private string StatusBadgeClass => isAutoPlayed ? "bg-secondary fst-italic"
+        : isCompleted ? "bg-success"
         : savedPositionSeconds > 0 ? "bg-info text-dark" : "bg-secondary";
 
     protected override async Task OnParametersSetAsync()
@@ -115,6 +118,7 @@ else
         loadError = null;
         savedPositionSeconds = 0;
         isCompleted = false;
+        isAutoPlayed = false;
         isLoading = true;
         try
         {
@@ -144,6 +148,7 @@ else
             {
                 savedPositionSeconds = state.PositionSeconds;
                 isCompleted = state.Completed;
+                isAutoPlayed = state.AutoPlayed;
             }
         }
         catch (HttpRequestException)
@@ -187,6 +192,15 @@ else
         isTogglingCompleted = true;
         try
         {
+            if (isAutoPlayed)
+            {
+                // Mirrors ShowDetail.razor's RestoreAsync: a restore always clears both Completed
+                // and AutoPlayed and resets position, rather than reusing the generic "mark
+                // unplayed" position-preserving path above.
+                await PersistStateAsync(positionSeconds: 0, completed: false);
+                return;
+            }
+
             var newCompleted = !isCompleted;
             // Marking unplayed keeps the listener's saved position rather than discarding it — only
             // marking played jumps position to the end.
@@ -216,6 +230,7 @@ else
             var updated = await EpisodeStateClient.UpdateStateAsync(EpisodeId, ShowId, positionSeconds, completed);
             savedPositionSeconds = updated.PositionSeconds;
             isCompleted = updated.Completed;
+            isAutoPlayed = updated.AutoPlayed;
         }
         catch (HttpRequestException)
         {
