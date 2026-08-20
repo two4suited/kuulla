@@ -3,6 +3,7 @@
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject SubscriptionClient SubscriptionClient
+@inject EpisodeStateClient EpisodeStateClient
 
 <PageTitle>Subscriptions</PageTitle>
 
@@ -28,7 +29,13 @@
                 @foreach (var subscription in subscriptions)
                 {
                     <div class="col">
-                        <div class="card h-100">
+                        <div class="card h-100 position-relative">
+                            @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount) && unplayedCount > 0)
+                            {
+                                <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2" style="pointer-events: none;">
+                                    @(unplayedCount >= EpisodeStateClient.NewEpisodesPerShowLimit ? $"{unplayedCount}+" : unplayedCount)
+                                </span>
+                            }
                             @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
                             {
                                 <a href="@($"shows/{subscription.ShowId}")">
@@ -79,6 +86,7 @@
 
 @code {
     private readonly List<Subscription> subscriptions = [];
+    private readonly Dictionary<string, int> unplayedCounts = [];
     private bool isLoading;
     private string? loadError;
     private string? confirmingShowId;
@@ -111,6 +119,22 @@
         finally
         {
             isLoading = false;
+        }
+
+        // Kept outside the try/catch above on purpose: unplayed badges are supplementary, so a
+        // hiccup computing them shouldn't hide the already-loaded subscriptions grid behind an error.
+        if (loadError is null)
+        {
+            try
+            {
+                foreach (var (showId, count) in await EpisodeStateClient.GetUnplayedCountsByShowAsync())
+                {
+                    unplayedCounts[showId] = count;
+                }
+            }
+            catch (HttpRequestException)
+            {
+            }
         }
     }
 
