@@ -6,7 +6,7 @@ import SwiftUI
 // notion in the API and the Playlist/PlaylistItem domain from milestone #14 already covers
 // everything a manually-managed reorderable queue needs.
 struct UpNextView: View {
-    private static let upNextPlaylistName = "Up Next"
+    static let upNextPlaylistName = "Up Next"
 
     @State private var playlistId: String?
     @State private var isResolving = false
