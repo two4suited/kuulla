@@ -106,7 +106,7 @@ else
         : isCompleted ? "Played"
         : savedPositionSeconds > 0 ? "In progress" : "New";
 
-    private string StatusBadgeClass => isAutoPlayed ? "bg-secondary fst-italic"
+    private string StatusBadgeClass => isAutoPlayed ? "bg-success fst-italic"
         : isCompleted ? "bg-success"
         : savedPositionSeconds > 0 ? "bg-info text-dark" : "bg-secondary";
 

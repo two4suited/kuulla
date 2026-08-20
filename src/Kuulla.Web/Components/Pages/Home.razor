@@ -74,10 +74,10 @@
                     <div class="col">
                         <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none text-body">
                             <div class="card h-100 position-relative">
-                                @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount) && unplayedCount > 0)
+                                @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount))
                                 {
                                     <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2">
-                                        @(unplayedCount >= EpisodeStateClient.NewEpisodesPerShowLimit ? $"{unplayedCount}+" : unplayedCount)
+                                        @(unplayedCount.HitCap ? $"{unplayedCount.Count}+" : unplayedCount.Count)
                                     </span>
                                 }
                                 @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
@@ -103,7 +103,7 @@
 @code {
     private readonly List<Subscription> subscriptions = [];
     private readonly List<Playlist> playlists = [];
-    private readonly Dictionary<string, int> unplayedCounts = [];
+    private readonly Dictionary<string, UnplayedCount> unplayedCounts = [];
     private bool isLoadingShows;
     private bool isLoadingPlaylists;
     private string? showsLoadError;
