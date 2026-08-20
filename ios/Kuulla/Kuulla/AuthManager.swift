@@ -21,6 +21,7 @@ final class AuthManager {
 
     private init() {}
 
+    @MainActor
     func restorePreviousSignIn() async {
         guard GIDSignIn.sharedInstance.hasPreviousSignIn() else { return }
         let epochAtStart = authActionEpoch
@@ -36,6 +37,7 @@ final class AuthManager {
         apply(result.user)
     }
 
+    @MainActor
     func signOut() {
         GIDSignIn.sharedInstance.signOut()
         localTestIdToken = nil
