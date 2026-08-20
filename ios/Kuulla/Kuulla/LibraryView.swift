@@ -60,7 +60,10 @@ struct LibraryView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ShelfTile(systemImage: "play.fill", title: "Up Next", subtitle: "Coming soon", isEnabled: false)
+                        NavigationLink(value: CatalogRoute.upNext) {
+                            ShelfTile(systemImage: "play.fill", title: "Up Next", subtitle: "Your queue", isEnabled: true)
+                        }
+                        .buttonStyle(.plain)
 
                         ForEach(playlists) { playlist in
                             NavigationLink(value: CatalogRoute.playlist(id: playlist.id)) {
@@ -150,7 +153,11 @@ struct LibraryView: View {
         defer { isLoadingPlaylists = false }
 
         do {
+            // Excludes "Up Next" — it's a regular playlist under the hood (see UpNextView), but
+            // it already has its own dedicated shelf tile above, so listing it again here would
+            // show a duplicate "Up Next" entry once the queue playlist gets created.
             let results = try await playlistClient.getPlaylists()
+                .filter { $0.name != UpNextView.upNextPlaylistName }
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             guard !Task.isCancelled else { return }
             playlists = results
