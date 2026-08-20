@@ -31,6 +31,31 @@ public class PlaylistClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<Playlist>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<Playlist> CreateDynamicPlaylistAsync(
+        string name, DynamicPlaylistConfig config, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var body = new { Name = name, Type = PlaylistType.Dynamic, DynamicConfig = config };
+        var response = await client.PostAsJsonAsync("api/playlists", body, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<Playlist>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<Playlist?> UpdateDynamicPlaylistConfigAsync(
+        string id, DynamicPlaylistConfig config, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/playlists/{Uri.EscapeDataString(id)}/config", config, JsonOptions, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<Playlist>(JsonOptions, cancellationToken);
+    }
+
     public async Task<PlaylistDetail?> GetPlaylistDetailAsync(string id, CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();

@@ -1,0 +1,211 @@
+@implements IAsyncDisposable
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject SubscriptionClient SubscriptionClient
+@inject IJSRuntime JS
+
+@if (isLoadingSubscriptions)
+{
+    <p>Loading your subscriptions&hellip;</p>
+}
+else if (subscriptionsError is not null)
+{
+    <p class="text-danger">@subscriptionsError</p>
+}
+else
+{
+    <div class="mb-3">
+        <label class="form-label">Max episodes</label>
+        <input type="number" min="1" class="form-control" style="max-width: 8rem;" @bind="MaxEpisodes" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Add a podcast</label>
+        <div class="d-flex gap-2" style="max-width: 24rem;">
+            <select class="form-select" @bind="pendingShowId">
+                <option value="">Choose a podcast&hellip;</option>
+                @foreach (var subscription in AvailableSubscriptions)
+                {
+                    <option value="@subscription.ShowId">@subscription.ShowTitle</option>
+                }
+            </select>
+            <button type="button" class="btn btn-outline-primary text-nowrap" disabled="@string.IsNullOrEmpty(pendingShowId)" @onclick="AddShow">
+                Add
+            </button>
+        </div>
+    </div>
+
+    @if (priorityList.Count == 0)
+    {
+        <p class="text-muted">No podcasts selected yet. Episodes are pulled from the highest-priority podcast first.</p>
+    }
+    else
+    {
+        <p class="text-muted small">Drag to reorder priority — episodes from higher podcasts are included first.</p>
+        <ul class="list-group mb-3" @ref="listElement">
+            @foreach (var showId in priorityList)
+            {
+                <li class="list-group-item d-flex align-items-center gap-3" draggable="true" data-show-id="@showId" style="cursor: grab;">
+                    <span class="flex-grow-1">@ShowTitle(showId)</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" @onclick="() => RemoveShow(showId)">
+                        Remove
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+
+    @if (saveError is not null)
+    {
+        <p class="text-danger">@saveError</p>
+    }
+
+    <button type="button" class="btn btn-primary" disabled="@(isSaving || priorityList.Count == 0)" @onclick="SaveAsync">
+        @(isSaving ? "Saving…" : SaveLabel)
+    </button>
+}
+
+@code {
+    [Parameter]
+    public IReadOnlyList<string> InitialShowIds { get; set; } = [];
+
+    [Parameter]
+    public int InitialMaxEpisodes { get; set; } = 20;
+
+    [Parameter, EditorRequired]
+    public string SaveLabel { get; set; } = "Save";
+
+    // May throw (e.g. HttpRequestException from the caller's API call) — SaveAsync catches it and
+    // surfaces saveError inline rather than requiring every caller to render its own error UI.
+    [Parameter, EditorRequired]
+    public EventCallback<DynamicPlaylistConfig> OnSave { get; set; }
+
+    private List<Subscription> subscriptions = [];
+    private List<string> priorityList = [];
+    private int MaxEpisodes;
+    private string pendingShowId = "";
+    private bool isLoadingSubscriptions;
+    private string? subscriptionsError;
+    private bool isSaving;
+    private string? saveError;
+
+    private ElementReference listElement;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _watcher;
+    private DotNetObjectReference<DynamicPlaylistConfigEditor>? _selfReference;
+
+    private IEnumerable<Subscription> AvailableSubscriptions =>
+        subscriptions.Where(s => !priorityList.Contains(s.ShowId)).OrderBy(s => s.ShowTitle, StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        MaxEpisodes = InitialMaxEpisodes;
+        priorityList = InitialShowIds.ToList();
+
+        isLoadingSubscriptions = true;
+        try
+        {
+            var results = await SubscriptionClient.GetSubscriptionsAsync();
+            subscriptions = results.ToList();
+        }
+        catch (HttpRequestException)
+        {
+            subscriptionsError = "Something went wrong while loading your subscriptions. Please try again.";
+        }
+        finally
+        {
+            isLoadingSubscriptions = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The draggable <ul @ref="listElement"> only renders once subscriptions have finished
+        // loading without error — attaching before then would capture an unbound ElementReference
+        // and crash the JS interop call (listEl.addEventListener is not a function).
+        if (isLoadingSubscriptions || subscriptionsError is not null || priorityList.Count == 0 || _module is not null)
+        {
+            return;
+        }
+
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", $"./{Assets["Components/DynamicPlaylistConfigEditor.razor.js"]}");
+        _selfReference = DotNetObjectReference.Create(this);
+        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, listElement);
+    }
+
+    private void AddShow()
+    {
+        if (string.IsNullOrEmpty(pendingShowId) || priorityList.Contains(pendingShowId))
+        {
+            return;
+        }
+
+        priorityList.Add(pendingShowId);
+        pendingShowId = "";
+    }
+
+    private void RemoveShow(string showId) => priorityList.Remove(showId);
+
+    private string ShowTitle(string showId) =>
+        subscriptions.FirstOrDefault(s => s.ShowId == showId)?.ShowTitle ?? showId;
+
+    [JSInvokable]
+    public void OnReorderedAsync(string[] newOrder)
+    {
+        priorityList = newOrder.ToList();
+        StateHasChanged();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (priorityList.Count == 0 || isSaving)
+        {
+            return;
+        }
+
+        isSaving = true;
+        saveError = null;
+        try
+        {
+            await OnSave.InvokeAsync(new DynamicPlaylistConfig(priorityList.ToList(), MaxEpisodes, priorityList.ToList()));
+        }
+        catch (HttpRequestException)
+        {
+            saveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_watcher is not null)
+        {
+            await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("dispose").AsTask());
+            await SafeInvokeAsync(() => _watcher.DisposeAsync().AsTask());
+            _watcher = null;
+        }
+
+        if (_module is not null)
+        {
+            await SafeInvokeAsync(() => _module.DisposeAsync().AsTask());
+            _module = null;
+        }
+
+        _selfReference?.Dispose();
+        _selfReference = null;
+    }
+
+    private static async Task SafeInvokeAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

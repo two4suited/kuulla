@@ -31,7 +31,37 @@ else
         }
     </div>
 
-    @if (playlist.Items.Count == 0)
+    @if (playlist.Type == PlaylistType.Dynamic)
+    {
+        <DynamicPlaylistConfigEditor
+            InitialShowIds="@(playlist.DynamicConfig?.ShowIds ?? [])"
+            InitialMaxEpisodes="@(playlist.DynamicConfig?.MaxEpisodes ?? 20)"
+            SaveLabel="Save Changes"
+            OnSave="SaveDynamicConfigAsync" />
+
+        @if (playlist.Items.Count == 0)
+        {
+            <p class="mt-3">No episodes match this playlist's rules yet.</p>
+        }
+        else
+        {
+            <ul class="list-group mt-3">
+                @foreach (var item in playlist.Items)
+                {
+                    <li class="list-group-item d-flex align-items-center gap-3">
+                        @if (!string.IsNullOrEmpty(item.ArtworkUrl))
+                        {
+                            <img src="@item.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
+                        }
+                        <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}")" class="text-decoration-none flex-grow-1">
+                            @(item.Title ?? "(episode unavailable)")
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+    }
+    else if (playlist.Items.Count == 0)
     {
         <p>This playlist is empty. Add episodes to it from a show or episode page.</p>
     }
@@ -108,7 +138,9 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (playlist is null || playlist.Items.Count == 0 || _module is not null)
+        // The drag-reorder list only renders for Manual playlists — Dynamic playlists' Items are
+        // config-driven (see DynamicPlaylistConfigEditor) and have no draggable list/listElement.
+        if (playlist is not { Type: PlaylistType.Manual, Items.Count: > 0 } || _module is not null)
         {
             return;
         }
@@ -153,6 +185,23 @@ else
         {
             busyEpisodeIds.Remove(episodeId);
         }
+    }
+
+    private async Task SaveDynamicConfigAsync(DynamicPlaylistConfig config)
+    {
+        mutationError = null;
+        var updated = await PlaylistClient.UpdateDynamicPlaylistConfigAsync(Id, config);
+        if (updated is null)
+        {
+            // Matches RemoveItemAsync's convention below: the playlist is gone, not a transport
+            // failure, so this doesn't throw back into the editor's own error handling.
+            mutationError = "This playlist no longer exists.";
+            return;
+        }
+
+        // The config endpoint returns the bare Playlist (no resolved title/artwork) — refresh from
+        // the detail endpoint so the recomputed Items show up with their display fields.
+        playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
     }
 
     [JSInvokable]
