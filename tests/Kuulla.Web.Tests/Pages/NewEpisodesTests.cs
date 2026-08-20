@@ -155,7 +155,7 @@ public class NewEpisodesTests : WebTestContext
     }
 
     [Fact]
-    public void ShowsAutoPlayedIndicatorAndRestoreButton_ForAutoPlayedEpisode()
+    public void HidesAutoPlayedEpisode_FromNewEpisodesList()
     {
         AuthContext.SetAuthorized("user-1");
         var autoPlayed = new List<NewEpisode>
@@ -169,36 +169,8 @@ public class NewEpisodesTests : WebTestContext
 
         cut.WaitForAssertion(() =>
         {
-            Assert.Contains("Auto-marked played", cut.Markup);
-            Assert.Contains("Restore", cut.Markup);
-        });
-    }
-
-    [Fact]
-    public void RestoringAutoPlayedEpisode_ClearsIndicatorAndKeepsEpisodeVisible()
-    {
-        AuthContext.SetAuthorized("user-1");
-        var autoPlayed = new List<NewEpisode>
-        {
-            new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: true),
-        };
-        ConfigureApi(RouteHandler(
-            onGetEpisodes: _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(autoPlayed) },
-            onPutState: _ => new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = JsonContent.Create(new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, false, DateTimeOffset.UtcNow, "web", AutoPlayed: false)),
-            }));
-
-        var cut = RenderComponent<NewEpisodes>();
-        cut.WaitForAssertion(() => Assert.Contains("Restore", cut.Markup));
-
-        cut.Find("button.btn-outline-secondary").Click();
-
-        cut.WaitForAssertion(() =>
-        {
-            Assert.Contains("Monday Edition", cut.Markup);
-            Assert.DoesNotContain("Auto-marked played", cut.Markup);
-            Assert.Contains("Mark as played", cut.Markup);
+            Assert.DoesNotContain("Monday Edition", cut.Markup);
+            Assert.Contains("caught up", cut.Markup);
         });
     }
 

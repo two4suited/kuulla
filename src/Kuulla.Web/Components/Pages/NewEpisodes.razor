@@ -12,12 +12,9 @@
         <div class="d-flex align-items-center justify-content-between mb-3">
             <div class="d-flex align-items-center gap-2">
                 <h1 class="mb-0">New Episodes</h1>
-                @{
-                    var unplayedCount = episodes.Count(e => !e.AutoPlayed);
-                }
-                @if (unplayedCount > 0)
+                @if (episodes.Count > 0)
                 {
-                    <span class="badge bg-primary rounded-pill">@unplayedCount</span>
+                    <span class="badge bg-primary rounded-pill">@episodes.Count</span>
                 }
             </div>
             @if (syncStatusService is not null)
@@ -61,26 +58,13 @@
                                         @EpisodeFormatting.FormatDuration(duration)
                                     }
                                 </p>
-                                @if (newEpisode.AutoPlayed)
-                                {
-                                    <p class="mb-2"><span class="badge text-bg-secondary">Auto-marked played</span></p>
-                                }
                                 <div class="d-flex gap-2">
                                     <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
                                         Play
                                     </a>
-                                    @if (newEpisode.AutoPlayed)
-                                    {
-                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => RestoreAsync(newEpisode)">
-                                            Restore
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(newEpisode)">
-                                            Mark as played
-                                        </button>
-                                    }
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(newEpisode)">
+                                        Mark as played
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -125,7 +109,7 @@
         try
         {
             var results = await EpisodeStateClient.GetNewEpisodesAsync();
-            episodes.AddRange(results.OrderByDescending(e => e.Episode.PublishedAt));
+            episodes.AddRange(results.Where(e => !e.AutoPlayed).OrderByDescending(e => e.Episode.PublishedAt));
         }
         catch (HttpRequestException)
         {
@@ -167,16 +151,10 @@
                 continue;
             }
 
-            // Mirrors SubscriptionService.GetNewEpisodesAsync's "unseen" rule: still "new" if
-            // auto-played, or if the change left no real progress behind (the shape a Restore
-            // write leaves) — otherwise reflect the updated flag instead of dropping the episode,
-            // so it doesn't silently vanish (#98/#99). Any other change (a manual play, or
-            // progress recorded elsewhere) means it's no longer new here.
-            if (change.AutoPlayed || (!change.Completed && change.PositionSeconds == 0))
-            {
-                episodes[index] = episodes[index] with { AutoPlayed = change.AutoPlayed };
-            }
-            else
+            // Still "new" only if the change left no real progress behind (the shape a Restore
+            // write leaves — not completed, no position). An auto-played episode, a manual play,
+            // or progress recorded elsewhere all mean it's no longer unplayed here.
+            if (change.AutoPlayed || change.Completed || change.PositionSeconds != 0)
             {
                 episodes.RemoveAt(index);
             }
@@ -202,37 +180,6 @@
             episodes.Add(newEpisode);
             episodes.Sort((a, b) => Comparer<DateTimeOffset?>.Default.Compare(b.Episode.PublishedAt, a.Episode.PublishedAt));
             markPlayedError = "Something went wrong while updating this episode. Please try again.";
-            isBusy = false;
-            return;
-        }
-
-        isBusy = false;
-        await SyncOwnWriteBestEffortAsync();
-    }
-
-    private async Task RestoreAsync(NewEpisode newEpisode)
-    {
-        var episode = newEpisode.Episode;
-        isBusy = true;
-        markPlayedError = null;
-        var index = episodes.IndexOf(newEpisode);
-        if (index >= 0)
-        {
-            episodes[index] = newEpisode with { AutoPlayed = false };
-        }
-
-        try
-        {
-            await EpisodeStateClient.UpdateStateAsync(episode.Id, episode.ShowId, positionSeconds: 0, completed: false);
-        }
-        catch (HttpRequestException)
-        {
-            if (index >= 0)
-            {
-                episodes[index] = newEpisode;
-            }
-
-            markPlayedError = "Something went wrong while restoring this episode. Please try again.";
             isBusy = false;
             return;
         }
