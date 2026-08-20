@@ -12,9 +12,12 @@
         <div class="d-flex align-items-center justify-content-between mb-3">
             <div class="d-flex align-items-center gap-2">
                 <h1 class="mb-0">New Episodes</h1>
-                @if (episodes.Count > 0)
+                @{
+                    var unplayedCount = episodes.Count(e => !e.AutoPlayed);
+                }
+                @if (unplayedCount > 0)
                 {
-                    <span class="badge bg-primary rounded-pill">@episodes.Count</span>
+                    <span class="badge bg-primary rounded-pill">@unplayedCount</span>
                 }
             </div>
             @if (syncStatusService is not null)
@@ -60,7 +63,7 @@
                                 </p>
                                 @if (newEpisode.AutoPlayed)
                                 {
-                                    <p class="text-muted small fst-italic mb-2">Auto-marked played</p>
+                                    <p class="mb-2"><span class="badge text-bg-secondary">Auto-marked played</span></p>
                                 }
                                 <div class="d-flex gap-2">
                                     <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">

@@ -156,7 +156,14 @@
                 var newEpisodes = await EpisodeStateClient.GetNewEpisodesAsync();
                 foreach (var group in newEpisodes.GroupBy(e => e.Episode.ShowId))
                 {
-                    unplayedCounts[group.Key] = group.Count();
+                    // Auto-played episodes are "unseen" but already marked played, so they
+                    // shouldn't count toward an "unplayed" badge — mirrors the New Episodes
+                    // header badge, which excludes them the same way.
+                    var count = group.Count(e => !e.AutoPlayed);
+                    if (count > 0)
+                    {
+                        unplayedCounts[group.Key] = count;
+                    }
                 }
             }
             catch (HttpRequestException)
