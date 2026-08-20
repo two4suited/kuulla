@@ -13,11 +13,11 @@
         <div class="mb-4" style="max-width: 24rem;">
             <div class="btn-group mb-2" role="group">
                 <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Manual ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => playlistType = PlaylistType.Manual">
+                        @onclick="() => SelectPlaylistType(PlaylistType.Manual)">
                     Manual
                 </button>
                 <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Dynamic ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => playlistType = PlaylistType.Dynamic">
+                        @onclick="() => SelectPlaylistType(PlaylistType.Dynamic)">
                     Dynamic
                 </button>
             </div>
@@ -91,6 +91,14 @@
     private bool isCreating;
     private string? createError;
     private PlaylistType playlistType = PlaylistType.Manual;
+
+    private void SelectPlaylistType(PlaylistType type)
+    {
+        playlistType = type;
+        // Otherwise a stale error from the previous creation flow (e.g. a failed manual create)
+        // stays visible while configuring the other flow.
+        createError = null;
+    }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }

@@ -16,7 +16,7 @@ else
 {
     <div class="mb-3">
         <label class="form-label">Max episodes</label>
-        <input type="number" min="1" class="form-control" style="max-width: 8rem;" @bind="MaxEpisodes" />
+        <input type="number" min="1" class="form-control" style="max-width: 8rem;" @bind="maxEpisodes" />
     </div>
 
     <div class="mb-3">
@@ -82,7 +82,7 @@ else
 
     private List<Subscription> subscriptions = [];
     private List<string> priorityList = [];
-    private int MaxEpisodes;
+    private int maxEpisodes;
     private string pendingShowId = "";
     private bool isLoadingSubscriptions;
     private string? subscriptionsError;
@@ -99,7 +99,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        MaxEpisodes = InitialMaxEpisodes;
+        maxEpisodes = InitialMaxEpisodes;
         priorityList = InitialShowIds.ToList();
 
         isLoadingSubscriptions = true;
@@ -120,10 +120,20 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (priorityList.Count == 0)
+        {
+            // The <ul> was just removed from the DOM (last show removed) — drop any existing
+            // attachment instead of leaving _module non-null. Otherwise, if shows get added back
+            // and a fresh <ul> renders, the guard below would skip re-attaching to it and dragging
+            // would silently stop working.
+            await DisposeInteropAsync();
+            return;
+        }
+
         // The draggable <ul @ref="listElement"> only renders once subscriptions have finished
         // loading without error — attaching before then would capture an unbound ElementReference
         // and crash the JS interop call (listEl.addEventListener is not a function).
-        if (isLoadingSubscriptions || subscriptionsError is not null || priorityList.Count == 0 || _module is not null)
+        if (isLoadingSubscriptions || subscriptionsError is not null || _module is not null)
         {
             return;
         }
@@ -167,7 +177,7 @@ else
         saveError = null;
         try
         {
-            await OnSave.InvokeAsync(new DynamicPlaylistConfig(priorityList.ToList(), MaxEpisodes, priorityList.ToList()));
+            await OnSave.InvokeAsync(new DynamicPlaylistConfig(priorityList.ToList(), maxEpisodes, priorityList.ToList()));
         }
         catch (HttpRequestException)
         {
@@ -179,7 +189,9 @@ else
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync() => await DisposeInteropAsync();
+
+    private async Task DisposeInteropAsync()
     {
         if (_watcher is not null)
         {
