@@ -9,7 +9,8 @@ struct UpNextView: View {
     static let upNextPlaylistName = "Up Next"
 
     @State private var playlistId: String?
-    @State private var isResolving = false
+    @State private var isResolving = true
+    @State private var isResolveInFlight = false
     @State private var resolveError: String?
 
     private let playlistClient = PlaylistClient()
@@ -25,9 +26,14 @@ struct UpNextView: View {
                 ProgressView()
                     .navigationTitle("Up Next")
             } else if let resolveError {
-                Text(resolveError)
-                    .foregroundStyle(.red)
-                    .navigationTitle("Up Next")
+                VStack(spacing: 12) {
+                    Text(resolveError)
+                        .foregroundStyle(.red)
+                    Button("Retry") {
+                        Task { await resolve() }
+                    }
+                }
+                .navigationTitle("Up Next")
             }
         }
         .task {
@@ -54,12 +60,19 @@ struct UpNextView: View {
     }
 
     private func resolve() async {
-        guard playlistId == nil else { return }
+        guard playlistId == nil, !isResolveInFlight else { return }
+        isResolveInFlight = true
         isResolving = true
         resolveError = nil
+        defer {
+            isResolving = false
+            isResolveInFlight = false
+        }
 
         do {
             let playlists = try await playlistClient.getPlaylists()
+            guard !Task.isCancelled else { return }
+
             // Oldest-by-createdAt so selection is deterministic even if a race (e.g. two sessions
             // both seeing no existing playlist) ends up creating more than one — the API has no
             // per-user unique-name guarantee, so this always converges on the same (oldest) one
@@ -70,6 +83,7 @@ struct UpNextView: View {
             {
                 playlistId = existing.id
             } else {
+                guard !Task.isCancelled else { return }
                 playlistId = try await playlistClient.createPlaylist(name: Self.upNextPlaylistName).id
             }
         } catch {
@@ -77,8 +91,6 @@ struct UpNextView: View {
                 resolveError = "Something went wrong while loading your queue. Please try again."
             }
         }
-
-        isResolving = false
     }
 }
 
