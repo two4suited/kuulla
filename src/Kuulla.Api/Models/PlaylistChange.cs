@@ -12,4 +12,5 @@ public record PlaylistChange(
     PlaylistType Type,
     IReadOnlyList<PlaylistItem> Items,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    DynamicPlaylistConfig? DynamicConfig = null);

@@ -9,7 +9,8 @@ public record Playlist(
     PlaylistType Type,
     IReadOnlyList<PlaylistItem> Items,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    DynamicPlaylistConfig? DynamicConfig = null);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistItem's wire shape.
 public record PlaylistItem(
@@ -23,6 +24,12 @@ public enum PlaylistType
     Manual,
     Dynamic,
 }
+
+// Web-side mirror of Kuulla.Api.Models.DynamicPlaylistConfig's wire shape.
+public record DynamicPlaylistConfig(
+    IReadOnlyList<string> ShowIds,
+    int MaxEpisodes,
+    IReadOnlyList<string> PriorityList);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistDetail's wire shape — GET /api/playlists/{id}'s
 // response, items resolved with episode title/show artwork.

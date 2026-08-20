@@ -26,7 +26,8 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 type: $0.type,
                 items: $0.items,
                 createdAt: $0.createdAt,
-                updatedAt: $0.updatedAt)
+                updatedAt: $0.updatedAt,
+                dynamicConfig: $0.dynamicConfig)
         }
         let request = SyncPlaylistsRequestDTO(
             deviceId: deviceId, lastSyncedAt: lastSyncedAt, localHash: localHash, changes: changes)
@@ -40,7 +41,8 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 type: $0.type,
                 items: $0.items,
                 createdAt: $0.createdAt,
-                updatedAt: $0.updatedAt)
+                updatedAt: $0.updatedAt,
+                dynamicConfig: $0.dynamicConfig)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
@@ -59,6 +61,7 @@ struct PlaylistSyncAdapter: SyncAdapter {
             existing.type = record.type
             existing.items = record.items
             existing.updatedAt = record.updatedAt
+            existing.dynamicConfig = record.dynamicConfig
             existing.isDirty = false
         } else {
             context.insert(record)
@@ -73,6 +76,7 @@ private struct PlaylistChangeDTO: Encodable {
     let items: [PlaylistItemRecord]
     let createdAt: Date
     let updatedAt: Date
+    let dynamicConfig: DynamicPlaylistConfigRecord?
 }
 
 private struct SyncPlaylistsRequestDTO: Encodable {
@@ -98,4 +102,5 @@ private struct PlaylistSyncDTO: Decodable {
     let items: [PlaylistItemRecord]
     let createdAt: Date
     let updatedAt: Date
+    let dynamicConfig: DynamicPlaylistConfigRecord?
 }
