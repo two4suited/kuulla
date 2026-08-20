@@ -54,6 +54,68 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void RendersDynamicConfigEditor_InsteadOfManualControls_WhenPlaylistIsDynamic()
+    {
+        var config = new DynamicPlaylistConfig(["show-1"], 5, ["show-1"]);
+        var detail = new PlaylistDetail(
+            "playlist-1", "Commute", PlaylistType.Dynamic, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, config);
+        var subscription = new Subscription("sub-1", "show-1", "Show One", "Author", null, DateTimeOffset.UtcNow);
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath.Contains("subscriptions")
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription> { subscription }) }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Show One", cut.Markup);
+            Assert.Contains("Max episodes", cut.Markup);
+        });
+        Assert.DoesNotContain("Drag episodes to reorder", cut.Markup);
+    }
+
+    [Fact]
+    public void SavesDynamicConfig_AndRefreshesItems_WhenSaveClicked()
+    {
+        var config = new DynamicPlaylistConfig(["show-1"], 5, ["show-1"]);
+        var initialDetail = new PlaylistDetail(
+            "playlist-1", "Commute", PlaylistType.Dynamic, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, config);
+        var refreshedDetail = initialDetail with
+        {
+            Items = [new PlaylistItemDetail("episode-1", "show-1", "Fresh Episode", null, DateTimeOffset.UtcNow, "m")],
+        };
+        var subscription = new Subscription("sub-1", "show-1", "Show One", "Author", null, DateTimeOffset.UtcNow);
+
+        var detailCallCount = 0;
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.Contains("subscriptions"))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription> { subscription }) };
+            }
+
+            if (request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new Playlist("playlist-1", "Commute", PlaylistType.Dynamic, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, config)),
+                };
+            }
+
+            detailCallCount++;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detailCallCount == 1 ? initialDetail : refreshedDetail) };
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Show One", cut.Markup));
+
+        cut.Find("button.btn-primary").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("Fresh Episode", cut.Markup));
+    }
+
+    [Fact]
     public void RemovesItem_WhenRemoveClicked()
     {
         var item = new PlaylistItemDetail("episode-1", "show-1", "Episode One", null, DateTimeOffset.UtcNow, "m");

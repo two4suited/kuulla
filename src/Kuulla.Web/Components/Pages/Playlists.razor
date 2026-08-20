@@ -10,13 +10,42 @@
     <Authorized>
         <h1>Playlists</h1>
 
-        <div class="d-flex gap-2 mb-4" style="max-width: 24rem;">
-            <input class="form-control" placeholder="New playlist name" @bind="newPlaylistName" @bind:event="oninput"
-                   disabled="@isCreating" @onkeydown="OnNewPlaylistNameKeyDownAsync" />
-            <button class="btn btn-primary text-nowrap" disabled="@(isCreating || string.IsNullOrWhiteSpace(newPlaylistName))"
-                    @onclick="CreatePlaylistAsync">
-                Create
-            </button>
+        <div class="mb-4" style="max-width: 24rem;">
+            <div class="btn-group mb-2" role="group">
+                <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Manual ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SelectPlaylistType(PlaylistType.Manual)">
+                    Manual
+                </button>
+                <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Dynamic ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SelectPlaylistType(PlaylistType.Dynamic)">
+                    Dynamic
+                </button>
+            </div>
+
+            @if (playlistType == PlaylistType.Manual)
+            {
+                <div class="d-flex gap-2">
+                    <input class="form-control" placeholder="New playlist name" @bind="newPlaylistName" @bind:event="oninput"
+                           disabled="@isCreating" @onkeydown="OnNewPlaylistNameKeyDownAsync" />
+                    <button class="btn btn-primary text-nowrap" disabled="@(isCreating || string.IsNullOrWhiteSpace(newPlaylistName))"
+                            @onclick="CreateManualPlaylistAsync">
+                        Create
+                    </button>
+                </div>
+            }
+            else
+            {
+                <input class="form-control mb-3" placeholder="New playlist name" @bind="newPlaylistName" @bind:event="oninput" />
+
+                @if (string.IsNullOrWhiteSpace(newPlaylistName))
+                {
+                    <p class="text-muted small">Enter a name to configure this playlist.</p>
+                }
+                else
+                {
+                    <DynamicPlaylistConfigEditor SaveLabel="Create Dynamic Playlist" OnSave="CreateDynamicPlaylistAsync" />
+                }
+            }
         </div>
         @if (createError is not null)
         {
@@ -61,6 +90,15 @@
     private string newPlaylistName = "";
     private bool isCreating;
     private string? createError;
+    private PlaylistType playlistType = PlaylistType.Manual;
+
+    private void SelectPlaylistType(PlaylistType type)
+    {
+        playlistType = type;
+        // Otherwise a stale error from the previous creation flow (e.g. a failed manual create)
+        // stays visible while configuring the other flow.
+        createError = null;
+    }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -91,13 +129,13 @@
 
     private async Task OnNewPlaylistNameKeyDownAsync(KeyboardEventArgs args)
     {
-        if (args.Key == "Enter" && !isCreating && !string.IsNullOrWhiteSpace(newPlaylistName))
+        if (playlistType == PlaylistType.Manual && args.Key == "Enter" && !isCreating && !string.IsNullOrWhiteSpace(newPlaylistName))
         {
-            await CreatePlaylistAsync();
+            await CreateManualPlaylistAsync();
         }
     }
 
-    private async Task CreatePlaylistAsync()
+    private async Task CreateManualPlaylistAsync()
     {
         var name = newPlaylistName.Trim();
         if (name.Length == 0 || isCreating)
@@ -111,9 +149,7 @@
         try
         {
             var created = await PlaylistClient.CreatePlaylistAsync(name);
-            playlists.Add(created);
-            playlists.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            newPlaylistName = "";
+            AddCreatedPlaylist(created);
         }
         catch (HttpRequestException)
         {
@@ -123,5 +159,28 @@
         {
             isCreating = false;
         }
+    }
+
+    // Left to throw on failure — DynamicPlaylistConfigEditor's own SaveAsync catches
+    // HttpRequestException and surfaces its inline saveError, so this doesn't need its own
+    // try/catch (matching PlaylistDetail.SaveDynamicConfigAsync's approach for the same editor).
+    private async Task CreateDynamicPlaylistAsync(DynamicPlaylistConfig config)
+    {
+        var name = newPlaylistName.Trim();
+        if (name.Length == 0)
+        {
+            return;
+        }
+
+        var created = await PlaylistClient.CreateDynamicPlaylistAsync(name, config);
+        AddCreatedPlaylist(created);
+        playlistType = PlaylistType.Manual;
+    }
+
+    private void AddCreatedPlaylist(Playlist created)
+    {
+        playlists.Add(created);
+        playlists.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        newPlaylistName = "";
     }
 }
