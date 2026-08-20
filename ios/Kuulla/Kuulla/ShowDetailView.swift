@@ -69,14 +69,21 @@ struct ShowDetailView: View {
                     }
 
                     ForEach(displayedEpisodes) { episode in
+                        let status = statusByEpisodeId[episode.id] ?? .new
                         NavigationLink(value: CatalogRoute.episode(showId: showId, episodeId: episode.id)) {
                             EpisodeRow(
                                 episode: episode,
                                 artworkUrl: show?.artworkUrl,
-                                status: statusByEpisodeId[episode.id] ?? .new,
-                                progressFraction: EpisodeProgress.fraction(
-                                    positionSeconds: positionSecondsByEpisodeId[episode.id] ?? 0,
-                                    duration: episode.duration),
+                                status: status,
+                                // Only in-progress episodes get a bar — a played episode persists
+                                // positionSeconds at the full duration, which would otherwise also
+                                // satisfy EpisodeProgress.fraction's guards and render a (stale,
+                                // misleading) near-full bar for an episode that's already done.
+                                progressFraction: status == .inProgress
+                                    ? EpisodeProgress.fraction(
+                                        positionSeconds: positionSecondsByEpisodeId[episode.id] ?? 0,
+                                        duration: episode.duration)
+                                    : nil,
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } })
                         }
                         .accessibilityIdentifier("episode-row")
@@ -238,9 +245,9 @@ struct ShowDetailView: View {
     }
 
     private func refreshStatuses() {
-        let ids = Set(episodes.map(\.id))
-        statusByEpisodeId = EpisodeStatus.statusMap(for: ids, in: modelContext)
-        positionSecondsByEpisodeId = EpisodeStatus.positionSecondsMap(for: ids, in: modelContext)
+        let (statuses, positions) = EpisodeStatus.statusAndPositionMaps(for: Set(episodes.map(\.id)), in: modelContext)
+        statusByEpisodeId = statuses
+        positionSecondsByEpisodeId = positions
     }
 
     private func restoreAutoPlayed(episodeId: String) async {
@@ -362,6 +369,7 @@ private struct EpisodeRow: View {
             }
             .frame(width: 48, height: 48)
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(episode.title)
