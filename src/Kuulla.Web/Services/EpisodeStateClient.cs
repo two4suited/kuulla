@@ -32,10 +32,10 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
     }
 
     // Shared by Library and Subscriptions so both pages' unplayed badges stay in sync.
-    public async Task<IReadOnlyDictionary<string, int>> GetUnplayedCountsByShowAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyDictionary<string, UnplayedCount>> GetUnplayedCountsByShowAsync(CancellationToken cancellationToken = default)
     {
         var newEpisodes = await GetNewEpisodesAsync(cancellationToken);
-        var counts = new Dictionary<string, int>();
+        var counts = new Dictionary<string, UnplayedCount>();
         foreach (var group in newEpisodes.GroupBy(e => e.Episode.ShowId))
         {
             // Auto-played episodes are "unseen" but already marked played, so they shouldn't
@@ -43,7 +43,11 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
             var count = group.Count(e => !e.AutoPlayed);
             if (count > 0)
             {
-                counts[group.Key] = count;
+                // HitCap is based on the raw (pre-filter) group size: if the page of new episodes
+                // for this show hit the server's cap, there may be more unplayed episodes beyond
+                // it that we don't know about, so the badge should read "N+" even if the filtered
+                // count itself sits below the cap.
+                counts[group.Key] = new UnplayedCount(count, group.Count() >= NewEpisodesPerShowLimit);
             }
         }
 
@@ -109,3 +113,8 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
 
     private sealed record SyncEpisodesResponse(IReadOnlyList<EpisodeState> ServerChanges, DateTimeOffset SyncedAt, string Hash);
 }
+
+// Per-show unplayed count, plus whether the raw (pre-filter) item count for that show hit the
+// API's page cap — if so, the true unplayed count may be higher than what was fetched, so
+// callers should render "cap+" rather than the filtered count even though it's under the cap.
+public sealed record UnplayedCount(int Count, bool HitCap);

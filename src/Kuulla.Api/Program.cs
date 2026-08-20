@@ -375,6 +375,7 @@ subscriptions.MapPost("", async (
     SubscribeRequest request,
     ClaimsPrincipal user,
     ISubscriptionService subscriptionService,
+    IEpisodeService episodeService,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.ShowId))
@@ -384,7 +385,26 @@ subscriptions.MapPost("", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var subscription = await subscriptionService.SubscribeAsync(userId, request.ShowId, ct);
-    return subscription is not null ? Results.Ok(subscription) : Results.NotFound();
+    if (subscription is null)
+    {
+        return Results.NotFound();
+    }
+
+    // A show's back catalog was never run through enforcement for this user before now — without
+    // this, every episode beyond the unlistened-episode-count setting shows as unplayed until the
+    // show happens to publish a new episode. Best-effort, same rationale as the settings-update
+    // endpoints: the subscription above already succeeded, so a transient enforcement failure
+    // shouldn't turn it into a 5xx.
+    try
+    {
+        await episodeService.EnforceUnlistenedLimitAsync(userId, request.ShowId, ct);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to enforce unlistened-episode limit for user {UserId} on show {ShowId} after subscribing", userId, request.ShowId);
+    }
+
+    return Results.Ok(subscription);
 });
 
 subscriptions.MapDelete("/{showId}", async (
