@@ -1,0 +1,82 @@
+@page "/up-next"
+@rendermode InteractiveServer
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PlaylistClient PlaylistClient
+
+<PageTitle>Up Next</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        @if (upNextPlaylistId is not null)
+        {
+            <div class="alert alert-secondary d-flex align-items-center gap-2 mb-3">
+                <span class="badge text-bg-secondary">Auto-add</span>
+                <span class="small text-muted">
+                    Automatically queueing new episodes from your subscriptions isn't available yet
+                    &mdash; add episodes to your queue manually from a show or episode page for now.
+                </span>
+            </div>
+
+            <PlaylistDetail Id="@upNextPlaylistId" />
+        }
+        else if (isResolving)
+        {
+            <h1>Up Next</h1>
+            <p>Loading&hellip;</p>
+        }
+        else if (resolveError is not null)
+        {
+            <h1>Up Next</h1>
+            <p class="text-danger">@resolveError</p>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <h1>Up Next</h1>
+        <p>You need to <a href="Account/Login">log in</a> to view your queue.</p>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    // The Overcast-style "Up Next" queue is just a regular playlist the app resolves (or creates)
+    // by this well-known name, rather than a separate backend concept — there's no per-user
+    // "default playlist" notion in the API, and the Playlist/PlaylistItem domain from milestone
+    // #14 already covers everything a manually-managed reorderable queue needs.
+    private const string UpNextPlaylistName = "Up Next";
+
+    private bool isResolving;
+    private string? resolveError;
+    private string? upNextPlaylistId;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateTask!;
+        if (authState.User.Identity?.IsAuthenticated is not true)
+        {
+            return;
+        }
+
+        isResolving = true;
+        try
+        {
+            var playlists = await PlaylistClient.GetPlaylistsAsync();
+            // Ordered by CreatedAt so selection is deterministic even if a race (e.g. two sessions
+            // both seeing no existing playlist) ends up creating more than one — the API has no
+            // per-user unique-name guarantee, so this always converges on the same (oldest) one
+            // rather than flapping between duplicates on every load.
+            var existing = playlists.Where(p => p.Name == UpNextPlaylistName).MinBy(p => p.CreatedAt);
+            upNextPlaylistId = existing?.Id ?? (await PlaylistClient.CreatePlaylistAsync(UpNextPlaylistName)).Id;
+        }
+        catch (HttpRequestException)
+        {
+            resolveError = "Something went wrong while loading your queue. Please try again.";
+        }
+        finally
+        {
+            isResolving = false;
+        }
+    }
+}
