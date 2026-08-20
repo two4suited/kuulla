@@ -62,6 +62,10 @@ struct SubscriptionsView: View {
 
         isLoading = true
         errorMessage = nil
+        // Clears any leftover unsubscribe state from a prior failed attempt so a stale error
+        // or confirm prompt doesn't linger across a reload.
+        unsubscribeError = nil
+        confirmingShowId = nil
 
         do {
             let results = try await subscriptionClient.getSubscriptions()
@@ -88,6 +92,8 @@ struct SubscriptionsView: View {
     }
 
     private func unsubscribe(showId: String) async {
+        guard !isUnsubscribeBusy else { return }
+
         isUnsubscribeBusy = true
         unsubscribeError = nil
         let removed = subscriptions.first { $0.showId == showId }
@@ -97,7 +103,10 @@ struct SubscriptionsView: View {
         do {
             try await subscriptionClient.unsubscribe(showId: showId)
         } catch {
-            if let removed {
+            // Re-add only if a concurrent reload (pull-to-refresh) hasn't already settled the
+            // list one way or the other — otherwise this stale snapshot could reintroduce a show
+            // the refresh legitimately dropped, or duplicate one it already restored.
+            if let removed, !subscriptions.contains(where: { $0.showId == removed.showId }) {
                 subscriptions.append(removed)
                 subscriptions.sort { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
             }
