@@ -481,6 +481,46 @@ episodeState.MapPut("/{id}/state", async (
 
 var playlists = app.MapGroup("/api/playlists").RequireAuthorization();
 
+// Shared by POST /api/playlists (Dynamic) and PUT /api/playlists/{id}/config — PriorityList must
+// be exactly ShowIds reordered (see DynamicPlaylistConfig.PriorityList's doc comment), so a config
+// that drops or adds a show between the two arrays would silently misrank episodes if unvalidated.
+static string? ValidateDynamicPlaylistConfig(DynamicPlaylistConfig config)
+{
+    if (config.ShowIds is null or [])
+    {
+        return "'showIds' must not be empty.";
+    }
+
+    if (config.PriorityList is null or [])
+    {
+        return "'priorityList' must not be empty.";
+    }
+
+    if (config.MaxEpisodes <= 0)
+    {
+        return "'maxEpisodes' must be positive.";
+    }
+
+    if (config.ShowIds.Count != config.ShowIds.Distinct().Count())
+    {
+        return "'showIds' must not contain duplicates.";
+    }
+
+    // PriorityList also can't contain duplicates — ComputeDynamicItemsAsync builds a
+    // showId -> rank dictionary from it, which throws on a duplicate key.
+    if (config.PriorityList.Count != config.PriorityList.Distinct().Count())
+    {
+        return "'priorityList' must not contain duplicates.";
+    }
+
+    if (config.PriorityList.ToHashSet().SetEquals(config.ShowIds))
+    {
+        return null;
+    }
+
+    return "'priorityList' must contain exactly the same shows as 'showIds'.";
+}
+
 playlists.MapGet("", async (ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
 {
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -496,9 +536,52 @@ playlists.MapPost("", async (
         return Results.BadRequest(new { error = "'name' is required." });
     }
 
+    if (!Enum.IsDefined(request.Type))
+    {
+        return Results.BadRequest(new { error = "'type' must be 'Manual' or 'Dynamic'." });
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+
+    if (request.Type == PlaylistType.Dynamic)
+    {
+        if (request.DynamicConfig is null)
+        {
+            return Results.BadRequest(new { error = "'dynamicConfig' is required when 'type' is 'Dynamic'." });
+        }
+
+        var configError = ValidateDynamicPlaylistConfig(request.DynamicConfig);
+        if (configError is not null)
+        {
+            return Results.BadRequest(new { error = configError });
+        }
+
+        var dynamicPlaylist = await playlistService.CreateDynamicPlaylistAsync(
+            userId, request.Name, request.DynamicConfig, ct);
+        return Results.Ok(dynamicPlaylist);
+    }
+
     var playlist = await playlistService.CreatePlaylistAsync(userId, request.Name, ct);
     return Results.Ok(playlist);
+});
+
+playlists.MapPut("/{id}/config", async (
+    string id,
+    UpdateDynamicPlaylistConfigRequest request,
+    ClaimsPrincipal user,
+    IPlaylistService playlistService,
+    CancellationToken ct) =>
+{
+    var config = new DynamicPlaylistConfig(request.ShowIds, request.MaxEpisodes, request.PriorityList);
+    var configError = ValidateDynamicPlaylistConfig(config);
+    if (configError is not null)
+    {
+        return Results.BadRequest(new { error = configError });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var playlist = await playlistService.UpdateDynamicPlaylistConfigAsync(userId, id, config, ct);
+    return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
 });
 
 playlists.MapGet("/{id}", async (string id, ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>

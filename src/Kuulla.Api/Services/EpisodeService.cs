@@ -209,7 +209,7 @@ public class EpisodeService(
         await episodeStateService.MarkAutoPlayedAsync(userId, toMark, cancellationToken);
     }
 
-    private async Task<IReadOnlyList<Episode>> GetAllEpisodesOrderedAsync(string showId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Episode>> GetAllEpisodesOrderedAsync(string showId, CancellationToken cancellationToken)
     {
         var queryDefinition = new QueryDefinition(
                 "SELECT * FROM c WHERE c.ShowId = @showId ORDER BY c.PublishedAt DESC")
