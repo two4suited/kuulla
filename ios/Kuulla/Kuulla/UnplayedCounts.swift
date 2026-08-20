@@ -30,9 +30,9 @@ enum UnplayedCounts {
                 unplayed[showId, default: 0] += 1
             }
         }
-        return raw.reduce(into: [:]) { counts, entry in
-            let (showId, rawCount) = entry
-            counts[showId] = Count(unplayed: unplayed[showId] ?? 0, hitCap: rawCount >= newEpisodesPerShowCap)
+        return unplayed.reduce(into: [:]) { counts, entry in
+            let (showId, unplayedCount) = entry
+            counts[showId] = Count(unplayed: unplayedCount, hitCap: (raw[showId] ?? 0) >= newEpisodesPerShowCap)
         }
     }
 }

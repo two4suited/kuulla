@@ -211,8 +211,7 @@ private struct ShowTile: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 if let unplayedCount, unplayedCount.unplayed > 0 {
-                    let capped = UnplayedCounts.newEpisodesPerShowCap
-                    Text(unplayedCount.hitCap ? "\(capped)+" : "\(unplayedCount.unplayed)")
+                    Text(unplayedCount.hitCap ? "\(unplayedCount.unplayed)+" : "\(unplayedCount.unplayed)")
                         .font(.caption2)
                         .fontWeight(.bold)
                         .foregroundStyle(.white)
