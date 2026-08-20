@@ -12,23 +12,34 @@ final class AuthManager {
 
     private var localTestIdToken: String?
 
+    // Bumped by every deliberate auth action (sign in, test sign in, sign out) so
+    // restorePreviousSignIn() — a launch-time restore racing a real network round-trip to Google
+    // — can tell whether the user has since acted on their own and, if so, discard its own
+    // stale result instead of clobbering whatever the user did (including a sign-out that
+    // happened while the restore was still in flight).
+    private var authActionEpoch = 0
+
     private init() {}
 
     func restorePreviousSignIn() async {
         guard GIDSignIn.sharedInstance.hasPreviousSignIn() else { return }
+        let epochAtStart = authActionEpoch
         let user = try? await GIDSignIn.sharedInstance.restorePreviousSignIn()
+        guard authActionEpoch == epochAtStart else { return }
         apply(user)
     }
 
     @MainActor
     func signIn(presenting viewController: UIViewController) async throws {
         let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: viewController)
+        authActionEpoch += 1
         apply(result.user)
     }
 
     func signOut() {
         GIDSignIn.sharedInstance.signOut()
         localTestIdToken = nil
+        authActionEpoch += 1
         apply(nil)
     }
 
@@ -87,6 +98,7 @@ final class AuthManager {
 
         let payload = try JSONDecoder().decode(LocalTestTokenResponse.self, from: data)
         localTestIdToken = payload.token
+        authActionEpoch += 1
         userEmail = "test@local.kuulla.dev"
         isSignedIn = true
     }
