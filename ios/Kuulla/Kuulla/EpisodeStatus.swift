@@ -55,6 +55,14 @@ extension EpisodeStatus {
         let records = (try? context.fetch(descriptor)) ?? []
         return Dictionary(uniqueKeysWithValues: records.map { ($0.id, EpisodeStatus(record: $0)) })
     }
+
+    // Local-only positionSeconds lookup, paired with statusMap so ShowDetailView's progress bar
+    // doesn't need its own EpisodeStateRecord query logic.
+    static func positionSecondsMap(for episodeIds: Set<String>, in context: ModelContext) -> [String: Int] {
+        let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { episodeIds.contains($0.id) })
+        let records = (try? context.fetch(descriptor)) ?? []
+        return Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0.positionSeconds) })
+    }
 }
 
 // Shared pill rendering for an EpisodeStatus, used by both FeedView's episode rows and
