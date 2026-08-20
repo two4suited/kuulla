@@ -3,7 +3,7 @@ import SwiftUI
 struct LibraryView: View {
     @State private var subscriptions: [Subscription] = []
     @State private var playlists: [Playlist] = []
-    @State private var unplayedCounts: [String: Int] = [:]
+    @State private var unplayedCounts: [String: UnplayedCounts.Count] = [:]
     @State private var isLoadingShows = false
     @State private var isLoadingPlaylists = false
     @State private var showsErrorMessage: String?
@@ -106,7 +106,7 @@ struct LibraryView: View {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(subscriptions) { subscription in
                         NavigationLink(value: CatalogRoute.show(id: subscription.showId)) {
-                            ShowTile(subscription: subscription, unplayedCount: unplayedCounts[subscription.showId] ?? 0)
+                            ShowTile(subscription: subscription, unplayedCount: unplayedCounts[subscription.showId])
                         }
                         .buttonStyle(.plain)
                     }
@@ -142,7 +142,7 @@ struct LibraryView: View {
         // Best-effort, run after the grid has already rendered: unplayed badges are supplementary,
         // so a failure here shouldn't hide the already-loaded show grid behind an error.
         if let newEpisodes = try? await subscriptionClient.getNewEpisodes(), !Task.isCancelled {
-            unplayedCounts = UnplayedCounts.compute(from: newEpisodes.map(\.showId))
+            unplayedCounts = UnplayedCounts.compute(from: newEpisodes)
         }
     }
 
@@ -197,7 +197,7 @@ private struct ShelfTile: View {
 
 private struct ShowTile: View {
     let subscription: Subscription
-    let unplayedCount: Int
+    let unplayedCount: UnplayedCounts.Count?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -210,9 +210,9 @@ private struct ShowTile: View {
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                if unplayedCount > 0 {
+                if let unplayedCount, unplayedCount.unplayed > 0 {
                     let capped = UnplayedCounts.newEpisodesPerShowCap
-                    Text(unplayedCount >= capped ? "\(capped)+" : "\(unplayedCount)")
+                    Text(unplayedCount.hitCap ? "\(capped)+" : "\(unplayedCount.unplayed)")
                         .font(.caption2)
                         .fontWeight(.bold)
                         .foregroundStyle(.white)

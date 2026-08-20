@@ -66,7 +66,12 @@ struct FeedView: View {
         defer { isLoading = false }
 
         do {
+            // Excludes autoPlayed episodes — they're already marked played by the unlistened-episode
+            // limit, so they shouldn't clutter the "New Episodes" list (mirrors NewEpisodes.razor on
+            // Web). A restore path for those still exists via ShowDetailView's status filter chips.
             let results = try await subscriptionClient.getNewEpisodes()
+                .filter { !$0.autoPlayed }
+                .map(\.episode)
                 .sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
             guard !Task.isCancelled else { return }
             episodes = results
