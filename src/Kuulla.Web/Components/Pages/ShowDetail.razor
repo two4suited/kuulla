@@ -232,7 +232,7 @@ else
     private readonly HashSet<string> restoringEpisodeIds = [];
     private string? restoreError;
     private bool isAuthenticated;
-    private EpisodeFilter selectedFilter = EpisodeFilter.All;
+    private EpisodeFilter selectedFilter = EpisodeFilter.Unplayed;
     private EpisodeSortOrder selectedSort = EpisodeSortOrder.NewestFirst;
 
     private enum EpisodeFilter { All, Unplayed, InProgress }
@@ -264,10 +264,11 @@ else
     private bool IsUnplayed(Episode episode)
     {
         var state = GetState(episode.Id);
-        // Mirrors SubscriptionService.GetNewEpisodesAsync's "unseen" rule: still unplayed if
-        // auto-played, or if the state left no real progress behind (the shape a Restore write
-        // leaves), not just episodes with no state at all (#98/#99).
-        return state is null || state.AutoPlayed || (!state.Completed && state.PositionSeconds == 0);
+        // Auto-played episodes are treated as played here — they show their own
+        // "Auto-marked played" badge with a Restore action, so they shouldn't also
+        // clutter the Unplayed filter/tab. Only episodes with no real progress
+        // (the shape a Restore write leaves, or no state at all) count as unplayed.
+        return state is null || (!state.Completed && state.PositionSeconds == 0);
     }
 
     private bool IsInProgress(Episode episode)
@@ -319,7 +320,7 @@ else
         restoringEpisodeIds.Clear();
         restoreError = null;
         isAuthenticated = false;
-        selectedFilter = EpisodeFilter.All;
+        selectedFilter = EpisodeFilter.Unplayed;
         selectedSort = EpisodeSortOrder.NewestFirst;
 
         isLoadingShow = true;
