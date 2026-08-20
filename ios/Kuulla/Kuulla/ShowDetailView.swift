@@ -12,6 +12,9 @@ struct ShowDetailView: View {
     @State private var showError: String?
     @State private var episodes: [Episode] = []
     @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
+    @State private var positionSecondsByEpisodeId: [String: Int] = [:]
+    @State private var selectedFilter: EpisodeFilter = .all
+    @State private var selectedSort: EpisodeSortOrder = .newestFirst
     @State private var continuationToken: String?
     @State private var isLoadingEpisodes = false
     @State private var episodeError: String?
@@ -50,19 +53,37 @@ struct ShowDetailView: View {
 
             if show != nil || isLoadingEpisodes || episodeError != nil {
                 Section("Episodes") {
+                    if show != nil {
+                        filterAndSortControls
+                    }
+
                     if let episodeError {
                         Text(episodeError)
                             .foregroundStyle(.red)
                     } else if episodes.isEmpty && !isLoadingEpisodes {
                         Text("No episodes found for this show.")
                             .foregroundStyle(.secondary)
+                    } else if displayedEpisodes.isEmpty && !isLoadingEpisodes {
+                        Text("No episodes match this filter.")
+                            .foregroundStyle(.secondary)
                     }
 
-                    ForEach(episodes) { episode in
+                    ForEach(displayedEpisodes) { episode in
+                        let status = statusByEpisodeId[episode.id] ?? .new
                         NavigationLink(value: CatalogRoute.episode(showId: showId, episodeId: episode.id)) {
                             EpisodeRow(
                                 episode: episode,
-                                status: statusByEpisodeId[episode.id] ?? .new,
+                                artworkUrl: show?.artworkUrl,
+                                status: status,
+                                // Only in-progress episodes get a bar — a played episode persists
+                                // positionSeconds at the full duration, which would otherwise also
+                                // satisfy EpisodeProgress.fraction's guards and render a (stale,
+                                // misleading) near-full bar for an episode that's already done.
+                                progressFraction: status == .inProgress
+                                    ? EpisodeProgress.fraction(
+                                        positionSeconds: positionSecondsByEpisodeId[episode.id] ?? 0,
+                                        duration: episode.duration)
+                                    : nil,
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } })
                         }
                         .accessibilityIdentifier("episode-row")
@@ -129,6 +150,10 @@ struct ShowDetailView: View {
         show = nil
         showError = nil
         episodes = []
+        statusByEpisodeId = [:]
+        positionSecondsByEpisodeId = [:]
+        selectedFilter = .all
+        selectedSort = .newestFirst
         continuationToken = nil
         episodeError = nil
         isLoadingEpisodes = false
@@ -214,8 +239,15 @@ struct ShowDetailView: View {
         isLoadingEpisodes = false
     }
 
+    private var displayedEpisodes: [Episode] {
+        EpisodeListFilter.apply(
+            episodes: episodes, statuses: statusByEpisodeId, filter: selectedFilter, sort: selectedSort)
+    }
+
     private func refreshStatuses() {
-        statusByEpisodeId = EpisodeStatus.statusMap(for: Set(episodes.map(\.id)), in: modelContext)
+        let (statuses, positions) = EpisodeStatus.statusAndPositionMaps(for: Set(episodes.map(\.id)), in: modelContext)
+        statusByEpisodeId = statuses
+        positionSecondsByEpisodeId = positions
     }
 
     private func restoreAutoPlayed(episodeId: String) async {
@@ -224,6 +256,37 @@ struct ShowDetailView: View {
         // the one the write just saved through (same hazard EpisodeDetailView.persist() avoids).
         guard let restored = await syncEngine?.restoreAutoPlayed(episodeId: episodeId) else { return }
         statusByEpisodeId[episodeId] = EpisodeStatus(record: restored)
+        positionSecondsByEpisodeId[episodeId] = restored.positionSeconds
+    }
+
+    private var filterAndSortControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(EpisodeFilter.allCases, id: \.self) { filter in
+                        Button(filter.label) {
+                            selectedFilter = filter
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(selectedFilter == filter ? .accentColor : .secondary)
+                    }
+
+                    Button("Downloaded") {}
+                        .buttonStyle(.bordered)
+                        .tint(.secondary)
+                        .disabled(true)
+                        .opacity(0.6)
+                }
+            }
+
+            Picker("Sort", selection: $selectedSort) {
+                ForEach(EpisodeSortOrder.allCases, id: \.self) { order in
+                    Text(order.label).tag(order)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+        .listRowSeparator(.hidden)
     }
 }
 
@@ -292,12 +355,23 @@ private struct ShowHeader: View {
 
 private struct EpisodeRow: View {
     let episode: Episode
+    let artworkUrl: String?
     let status: EpisodeStatus
+    let progressFraction: Double?
     let onRestore: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+            AsyncImage(url: artworkUrl.flatMap(URL.init)) { image in
+                image.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Color.secondary.opacity(0.2)
+            }
+            .frame(width: 48, height: 48)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(episode.title)
                     .font(.body)
                     .lineLimit(2)
@@ -315,6 +389,11 @@ private struct EpisodeRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if let progressFraction {
+                    ProgressView(value: progressFraction)
+                        .tint(.orange)
+                }
             }
 
             Spacer()
