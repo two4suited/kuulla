@@ -3,6 +3,7 @@
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject SubscriptionClient SubscriptionClient
+@inject EpisodeStateClient EpisodeStateClient
 
 <PageTitle>Subscriptions</PageTitle>
 
@@ -28,7 +29,13 @@
                 @foreach (var subscription in subscriptions)
                 {
                     <div class="col">
-                        <div class="card h-100">
+                        <div class="card h-100 position-relative">
+                            @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount) && unplayedCount > 0)
+                            {
+                                <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2">
+                                    @(unplayedCount >= NewEpisodesPerShowLimit ? $"{unplayedCount}+" : unplayedCount)
+                                </span>
+                            }
                             @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
                             {
                                 <a href="@($"shows/{subscription.ShowId}")">
@@ -78,7 +85,13 @@
 </AuthorizeView>
 
 @code {
+    // Mirrors SubscriptionService.NewEpisodesPerShow on the API — the new-episodes endpoint this
+    // page cross-references for unplayed badges caps how many episodes it returns per show, so a
+    // badge sitting at that cap means "at least this many," not necessarily exact.
+    private const int NewEpisodesPerShowLimit = 10;
+
     private readonly List<Subscription> subscriptions = [];
+    private readonly Dictionary<string, int> unplayedCounts = [];
     private bool isLoading;
     private string? loadError;
     private string? confirmingShowId;
@@ -111,6 +124,30 @@
         finally
         {
             isLoading = false;
+        }
+
+        // Kept outside the try/catch above on purpose: unplayed badges are supplementary, so a
+        // hiccup computing them shouldn't hide the already-loaded subscriptions grid behind an error.
+        if (loadError is null)
+        {
+            try
+            {
+                var newEpisodes = await EpisodeStateClient.GetNewEpisodesAsync();
+                foreach (var group in newEpisodes.GroupBy(e => e.Episode.ShowId))
+                {
+                    // Auto-played episodes are "unseen" but already marked played, so they
+                    // shouldn't count toward an "unplayed" badge — mirrors the New Episodes
+                    // header badge and Library, which exclude them the same way.
+                    var count = group.Count(e => !e.AutoPlayed);
+                    if (count > 0)
+                    {
+                        unplayedCounts[group.Key] = count;
+                    }
+                }
+            }
+            catch (HttpRequestException)
+            {
+            }
         }
     }
 

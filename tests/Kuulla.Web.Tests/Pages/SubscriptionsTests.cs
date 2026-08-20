@@ -12,11 +12,41 @@ public class SubscriptionsTests : WebTestContext
         new("sub-1", "show-1", "The Daily", "NYT", null, DateTimeOffset.UtcNow),
     ];
 
+    private static readonly List<NewEpisode> NewEpisodes =
+    [
+        new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: false),
+    ];
+
+    private static TestHttpMessageHandler RouteHandler(
+        Func<HttpRequestMessage, HttpResponseMessage>? onGetSubscriptions = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onGetNewEpisodes = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onDelete = null) => new(request =>
+    {
+        if (request.Method == HttpMethod.Delete)
+        {
+            return onDelete?.Invoke(request) ?? new HttpResponseMessage(HttpStatusCode.OK);
+        }
+
+        if (request.RequestUri!.AbsolutePath == "/api/subscriptions" && request.Method == HttpMethod.Get)
+        {
+            return onGetSubscriptions?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Subscriptions) };
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/subscriptions/episodes" && request.Method == HttpMethod.Get)
+        {
+            return onGetNewEpisodes?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(NewEpisodes) };
+        }
+
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
+    });
+
     [Fact]
     public void RendersSubscriptions_WhenLoadSucceeds()
     {
         AuthContext.SetAuthorized("user-1");
-        ConfigureApi(TestHttpMessageHandler.Json(Subscriptions));
+        ConfigureApi(RouteHandler());
 
         var cut = RenderComponent<Subscriptions>();
 
@@ -24,10 +54,37 @@ public class SubscriptionsTests : WebTestContext
     }
 
     [Fact]
+    public void ShowsUnplayedBadge_ForShowWithNewEpisodes()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler());
+
+        var cut = RenderComponent<Subscriptions>();
+
+        cut.WaitForAssertion(() => Assert.Contains("badge", cut.Markup));
+    }
+
+    [Fact]
+    public void RendersSubscriptionsWithoutBadges_WhenUnplayedCountLoadFails()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onGetNewEpisodes: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<Subscriptions>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("The Daily", cut.Markup);
+            Assert.DoesNotContain("Something went wrong", cut.Markup);
+            Assert.DoesNotContain("badge", cut.Markup);
+        });
+    }
+
+    [Fact]
     public void ShowsEmptyMessage_WhenNoSubscriptions()
     {
         AuthContext.SetAuthorized("user-1");
-        ConfigureApi(TestHttpMessageHandler.Json(new List<Subscription>()));
+        ConfigureApi(RouteHandler(onGetSubscriptions: _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) }));
 
         var cut = RenderComponent<Subscriptions>();
 
@@ -38,7 +95,7 @@ public class SubscriptionsTests : WebTestContext
     public void ShowsErrorMessage_WhenLoadFails()
     {
         AuthContext.SetAuthorized("user-1");
-        ConfigureApi(TestHttpMessageHandler.Status(HttpStatusCode.InternalServerError));
+        ConfigureApi(RouteHandler(onGetSubscriptions: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
 
         var cut = RenderComponent<Subscriptions>();
 
@@ -49,10 +106,10 @@ public class SubscriptionsTests : WebTestContext
     public void RemovesSubscription_WhenUnsubscribeConfirmed()
     {
         AuthContext.SetAuthorized("user-1");
-        ConfigureApi(new TestHttpMessageHandler(request =>
-            request.Method == HttpMethod.Delete && request.RequestUri!.AbsolutePath == "/api/subscriptions/show-1"
+        ConfigureApi(RouteHandler(onDelete: request =>
+            request.RequestUri!.AbsolutePath == "/api/subscriptions/show-1"
                 ? new HttpResponseMessage(HttpStatusCode.OK)
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Subscriptions) }));
+                : new HttpResponseMessage(HttpStatusCode.NotFound)));
 
         var cut = RenderComponent<Subscriptions>();
         cut.WaitForAssertion(() => Assert.Contains("Unsubscribe", cut.Markup));
