@@ -10,7 +10,7 @@
     <script>
         // Inlined so the theme attribute lands before first paint (avoids a flash of the wrong
         // theme); theme.js (loaded below) re-applies this and adds the toggle.
-        (function(){var t=localStorage.getItem("kuulla-theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}document.documentElement.setAttribute("data-bs-theme",t);var m=document.querySelector('meta[name="theme-color"]');if(m){m.setAttribute("content",t==="dark"?"#171A21":"#faf9f7");}})();
+        (function(){var t=null;try{t=localStorage.getItem("kuulla-theme");}catch(e){}if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}document.documentElement.setAttribute("data-bs-theme",t);var m=document.querySelector('meta[name="theme-color"]');if(m){m.setAttribute("content",t==="dark"?"#171A21":"#faf9f7");}})();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
