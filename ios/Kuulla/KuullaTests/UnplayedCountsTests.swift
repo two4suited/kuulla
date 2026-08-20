@@ -55,16 +55,33 @@ final class UnplayedCountsTests: XCTestCase {
         XCTAssertNil(counts["show-1"])
     }
 
-    func testHitCapReflectsRawCountNotFilteredCount() {
+    func testHitCapIsFalseWhenRawCountHitsCapButMostAreAutoPlayed() {
+        // The unlistened-episode-limit enforcement job auto-marks every episode beyond a user's
+        // limit as played across a show's *entire* back catalog, not just this fetched page — so a
+        // raw page full of auto-played episodes plus a couple of genuinely unplayed ones means
+        // exactly that many are unplayed, full stop. There's no larger unplayed count hiding beyond
+        // the page cap in this case, so hitCap must be false here even though the raw count hit
+        // newEpisodesPerShowCap.
         let cap = UnplayedCounts.newEpisodesPerShowCap
-        var rawEpisodes = (0..<cap).map { makeNewEpisode(id: "e\($0)", showId: "show-1", autoPlayed: true) }
+        var rawEpisodes = (0..<(cap - 1)).map { makeNewEpisode(id: "e\($0)", showId: "show-1", autoPlayed: true) }
         rawEpisodes.append(makeNewEpisode(id: "e-unplayed", showId: "show-1", autoPlayed: false))
 
         let counts = UnplayedCounts.compute(from: rawEpisodes)
 
-        // Raw per-show count hit the server's page cap, even though only one episode is unplayed —
-        // callers should treat unplayed as a lower bound rather than an exact count.
         XCTAssertEqual(counts["show-1"]?.unplayed, 1)
+        XCTAssertEqual(counts["show-1"]?.hitCap, false)
+    }
+
+    func testHitCapIsTrueWhenUnplayedCountItselfHitsCap() {
+        // Every fetched item for the show is unplayed (nothing auto-played within the page), so we
+        // can't tell whether more genuinely-unplayed episodes exist beyond this page — hitCap should
+        // be true.
+        let cap = UnplayedCounts.newEpisodesPerShowCap
+        let rawEpisodes = (0..<cap).map { makeNewEpisode(id: "e\($0)", showId: "show-1", autoPlayed: false) }
+
+        let counts = UnplayedCounts.compute(from: rawEpisodes)
+
+        XCTAssertEqual(counts["show-1"]?.unplayed, cap)
         XCTAssertEqual(counts["show-1"]?.hitCap, true)
     }
 

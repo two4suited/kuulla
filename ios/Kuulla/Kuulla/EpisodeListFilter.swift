@@ -22,9 +22,10 @@ enum EpisodeFilter: CaseIterable {
         case .all:
             true
         case .unplayed:
-            // Mirrors the Web filter's "unseen" rule: still unplayed if auto-played, since that's
-            // a system action rather than the user actually finishing the episode (#98/#99).
-            status == .new || status == .autoPlayed
+            // Auto-played episodes show their own "Auto-marked Played" badge with a Restore
+            // action, so they shouldn't also clutter the Unplayed tab (mirrors ShowDetail.razor's
+            // IsUnplayed on Web). Only genuinely-untouched episodes count as unplayed here.
+            status == .new
         case .inProgress:
             status == .inProgress
         }

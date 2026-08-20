@@ -43,11 +43,15 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
             var count = group.Count(e => !e.AutoPlayed);
             if (count > 0)
             {
-                // HitCap is based on the raw (pre-filter) group size: if the page of new episodes
-                // for this show hit the server's cap, there may be more unplayed episodes beyond
-                // it that we don't know about, so the badge should read "N+" even if the filtered
-                // count itself sits below the cap.
-                counts[group.Key] = new UnplayedCount(count, group.Count() >= NewEpisodesPerShowLimit);
+                // HitCap is based on the *filtered* count, not the raw per-show page size: the
+                // unlistened-episode-limit enforcement job auto-marks every episode beyond a user's
+                // limit as played across a show's entire back catalog, not just this fetched page.
+                // So once this page contains any auto-played episode, every genuinely-unplayed
+                // episode for the show is guaranteed to already be in it — the raw count hitting the
+                // cap carries no extra information there. The only case where more unplayed episodes
+                // could exist beyond this page is when the whole page is unplayed (nothing to
+                // auto-play within it), i.e. count == raw group size == cap.
+                counts[group.Key] = new UnplayedCount(count, count >= NewEpisodesPerShowLimit);
             }
         }
 
@@ -114,7 +118,7 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
     private sealed record SyncEpisodesResponse(IReadOnlyList<EpisodeState> ServerChanges, DateTimeOffset SyncedAt, string Hash);
 }
 
-// Per-show unplayed count, plus whether the raw (pre-filter) item count for that show hit the
-// API's page cap — if so, the true unplayed count may be higher than what was fetched, so
-// callers should render "{Count}+" rather than the bare Count even though it's under the cap.
+// Per-show unplayed count, plus whether that count hit the API's page cap — if so, the fetched
+// page may not contain every genuinely-unplayed episode for the show, so callers should render
+// "{Count}+" rather than the bare Count even though it's exactly at the cap.
 public sealed record UnplayedCount(int Count, bool HitCap);
