@@ -1,17 +1,56 @@
-name: PR Build (.NET)
+name: PR Build
 
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'Kuulla.sln'
-      - '.github/workflows/pr.yml'
 
 jobs:
+  # Single source of truth for "what changed" so build-dotnet and build-ios can each skip work
+  # the diff doesn't touch, while still agreeing on the cases that must run everything: an API
+  # change (shared contracts/DTOs consumed by both Web and iOS) or a shared/common project or
+  # workflow-file change.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+      ios: ${{ steps.filter.outputs.ios }}
+      shared: ${{ steps.filter.outputs.shared }}
+      dotnet_other: ${{ steps.filter.outputs.dotnet_other }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'src/Kuulla.Api/**'
+              - 'tests/Kuulla.Api.Tests/**'
+            web:
+              - 'src/Kuulla.Web/**'
+              - 'tests/Kuulla.Web.Tests/**'
+            ios:
+              - 'ios/**'
+            shared:
+              - 'src/Kuulla.ServiceDefaults/**'
+              - 'src/Kuulla.AppHost/**'
+              - 'Kuulla.sln'
+              - '.github/workflows/**'
+            # Not run by this workflow (see the Kuulla.AppHost.Tests comment below), but still
+            # part of Kuulla.sln — a change here should still get build/compile coverage.
+            dotnet_other:
+              - 'tests/Kuulla.AppHost.Tests/**'
+              - 'tests/Kuulla.Web.E2E/**'
+
   build-dotnet:
     name: Build .NET
+    needs: changes
+    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.dotnet_other == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,12 +67,16 @@ jobs:
         run: dotnet build Kuulla.sln --no-restore --configuration Release
 
       # Debug, not Release: these tests exercise /dev/* endpoints that are #if DEBUG-only by
-      # design (never shipped in a Release build).
+      # design (never shipped in a Release build). Skipped unless the diff actually touches the
+      # API (a shared/common change also counts, since it can affect API behavior indirectly).
       - name: Test API (Debug)
+        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
         run: dotnet test tests/Kuulla.Api.Tests/Kuulla.Api.Tests.csproj --configuration Debug
 
-      # bUnit component tests — no Cosmos emulator involved, safe to run in Release.
+      # bUnit component tests — no Cosmos emulator involved, safe to run in Release. Also runs on
+      # an API change: the API can change shared contracts/DTOs that Web consumes.
       - name: Test Web
+        if: needs.changes.outputs.web == 'true' || needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
         run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
 
       # Kuulla.AppHost.Tests is excluded from CI: it boots the real Cosmos DB emulator via
@@ -46,3 +89,47 @@ jobs:
       # That makes it unsuitable as a PR gate regardless of the TLS fix. Kuulla.Web.E2E is
       # excluded for the same reason (it boots the same AppHost, Cosmos emulator included). Both
       # run reliably locally via `dotnet test` against a real `aspire run`/`aspire start` API.
+
+  build-ios:
+    name: Build iOS
+    needs: changes
+    # Also runs on an API change: the API can change contracts the iOS client consumes.
+    if: needs.changes.outputs.ios == 'true' || needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin to a specific simulator model (e.g. "iPhone 16") instead of picking one available at
+      # runtime, and the runner's Xcode image updates its bundled simulator lineup out from under
+      # us — the pinned model disappears and CI fails for reasons unrelated to the PR's diff. Ask
+      # simctl for whatever iPhone simulator is actually installed instead.
+      - name: Determine simulator destination
+        run: |
+          DEVICE_NAME=$(xcrun simctl list devices available iOS -j \
+            | python3 -c "import json, sys; devices = [d for r in json.load(sys.stdin)['devices'].values() for d in r]; print(next(d['name'] for d in devices if d['name'].startswith('iPhone')))")
+          echo "Using simulator: $DEVICE_NAME"
+          echo "SIMULATOR_NAME=$DEVICE_NAME" >> "$GITHUB_ENV"
+
+      # KuullaUITests is excluded here: it drives the real app against a real, already-running
+      # Kuulla API (KUULLA_API_BASE_URL), and this runner has no AppHost to point it at — see
+      # issue #51 for getting the Simulator into the Aspire dev loop. It builds as part of this
+      # same `xcodebuild test` invocation (build-for-testing runs for every testable in the
+      # scheme regardless of -skip-testing), so it still gets compile coverage on every PR; only
+      # actually running it against a live API is deferred. Run it locally against an
+      # `aspire run`/`aspire start` API with:
+      #   TEST_RUNNER_KUULLA_API_BASE_URL=<api base url> xcodebuild test ... -only-testing:KuullaUITests
+      # The TEST_RUNNER_ prefix (not the bare KUULLA_API_BASE_URL the app/tests actually read) is
+      # required here: xcodebuild strips it and forwards the rest into the test process's own
+      # environment, which is the only way a value set in the invoking shell reaches
+      # ProcessInfo.processInfo.environment inside the Simulator — a plain `KUULLA_API_BASE_URL=`
+      # export does not cross that boundary.
+      - name: Test
+        working-directory: ios/Kuulla
+        run: |
+          xcodebuild test \
+            -project Kuulla.xcodeproj \
+            -scheme Kuulla \
+            -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
+            -configuration Debug \
+            -skip-testing:KuullaUITests \
+            CODE_SIGNING_ALLOWED=NO
