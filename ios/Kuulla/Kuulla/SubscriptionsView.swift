@@ -2,8 +2,12 @@ import SwiftUI
 
 struct SubscriptionsView: View {
     @State private var subscriptions: [Subscription] = []
+    @State private var unplayedCounts: [String: Int] = [:]
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var confirmingShowId: String?
+    @State private var isUnsubscribeBusy = false
+    @State private var unsubscribeError: String?
 
     private let subscriptionClient = SubscriptionClient()
 
@@ -25,13 +29,23 @@ struct SubscriptionsView: View {
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(subscriptions) { subscription in
-                        NavigationLink(value: CatalogRoute.show(id: subscription.showId)) {
-                            SubscriptionTile(subscription: subscription)
-                        }
-                        .buttonStyle(.plain)
+                        SubscriptionTile(
+                            subscription: subscription,
+                            unplayedCount: unplayedCounts[subscription.showId] ?? 0,
+                            isConfirming: confirmingShowId == subscription.showId,
+                            isBusy: isUnsubscribeBusy,
+                            onUnsubscribeTapped: { confirmingShowId = subscription.showId },
+                            onConfirm: { Task { await unsubscribe(showId: subscription.showId) } },
+                            onCancel: { confirmingShowId = nil })
                     }
                 }
                 .padding()
+
+                if let unsubscribeError {
+                    Text(unsubscribeError)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal)
+                }
             }
         }
         .navigationTitle("Subscriptions")
@@ -48,37 +62,115 @@ struct SubscriptionsView: View {
 
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
 
         do {
             let results = try await subscriptionClient.getSubscriptions()
                 .sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
-            guard !Task.isCancelled else { return }
-            subscriptions = results
+            if !Task.isCancelled {
+                subscriptions = results
+            }
         } catch {
-            guard !Task.isCancelled else { return }
-            errorMessage = "Something went wrong while loading your subscriptions. Please try again."
+            if !Task.isCancelled {
+                errorMessage = "Something went wrong while loading your subscriptions. Please try again."
+            }
         }
+
+        // Always clears the flag, even if cancelled — mirrors LibraryView.loadShows(): the
+        // best-effort badge fetch below must run after loading state clears, not only at the end.
+        isLoading = false
+        guard !Task.isCancelled, errorMessage == nil else { return }
+
+        // Best-effort, run after the grid has already rendered: unplayed badges are supplementary,
+        // so a failure here shouldn't hide the already-loaded subscriptions grid behind an error.
+        if let newEpisodes = try? await subscriptionClient.getNewEpisodes(), !Task.isCancelled {
+            unplayedCounts = UnplayedCounts.compute(from: newEpisodes.map(\.showId))
+        }
+    }
+
+    private func unsubscribe(showId: String) async {
+        isUnsubscribeBusy = true
+        unsubscribeError = nil
+        let removed = subscriptions.first { $0.showId == showId }
+        subscriptions.removeAll { $0.showId == showId }
+        confirmingShowId = nil
+
+        do {
+            try await subscriptionClient.unsubscribe(showId: showId)
+        } catch {
+            if let removed {
+                subscriptions.append(removed)
+                subscriptions.sort { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
+            }
+            unsubscribeError = "Something went wrong while unsubscribing. Please try again."
+        }
+
+        isUnsubscribeBusy = false
     }
 }
 
 private struct SubscriptionTile: View {
     let subscription: Subscription
+    let unplayedCount: Int
+    let isConfirming: Bool
+    let isBusy: Bool
+    let onUnsubscribeTapped: () -> Void
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: subscription.showArtworkUrl.flatMap(URL.init)) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Color.secondary.opacity(0.2)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            NavigationLink(value: CatalogRoute.show(id: subscription.showId)) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ZStack(alignment: .topTrailing) {
+                        AsyncImage(url: subscription.showArtworkUrl.flatMap(URL.init)) { image in
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } placeholder: {
+                            Color.secondary.opacity(0.2)
+                        }
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            Text(subscription.showTitle)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .lineLimit(2)
+                        if unplayedCount > 0 {
+                            let capped = UnplayedCounts.newEpisodesPerShowCap
+                            Text(unplayedCount >= capped ? "\(capped)+" : "\(unplayedCount)")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.accentColor, in: Capsule())
+                                .padding(4)
+                        }
+                    }
+
+                    Text(subscription.showTitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isConfirming {
+                Text("Unsubscribe from \(subscription.showTitle)?")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    Button("Confirm", role: .destructive, action: onConfirm)
+                    Button("Cancel", action: onCancel)
+                }
+                .font(.caption2)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .disabled(isBusy)
+            } else {
+                Button("Unsubscribe", action: onUnsubscribeTapped)
+                    .font(.caption2)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .tint(.red)
+            }
         }
     }
 }
