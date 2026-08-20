@@ -207,17 +207,20 @@ if (app.Environment.IsDevelopment())
     // Google scheme applies (issuer, signature, sub/email claims) so Web/iOS can exercise
     // authenticated flows without a real Google sign-in. Never registered outside Development,
     // and compiled out of Release builds entirely regardless of ASPNETCORE_ENVIRONMENT.
-    app.MapPost("/dev/test-token", (HttpContext context) =>
+    // Optional ?sub= lets integration tests mint a token for an isolated per-test user instead
+    // of all sharing "local-test-user" and colliding on that user's global settings/subscriptions.
+    app.MapPost("/dev/test-token", (HttpContext context, string? sub) =>
     {
         if (!IsLoopbackCaller(context))
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
+        var subject = string.IsNullOrWhiteSpace(sub) ? "local-test-user" : sub;
         var claims = new[]
         {
-            new Claim(JwtRegisteredClaimNames.Sub, "local-test-user"),
-            new Claim(JwtRegisteredClaimNames.Email, "test@local.kuulla.dev"),
+            new Claim(JwtRegisteredClaimNames.Sub, subject),
+            new Claim(JwtRegisteredClaimNames.Email, $"{subject}@local.kuulla.dev"),
             new Claim("name", "Local Test User"),
         };
         var token = new JwtSecurityToken(
@@ -269,6 +272,36 @@ if (app.Environment.IsDevelopment())
         }
 
         return Results.Ok(show);
+    });
+
+    // Local-testing-only: lets integration tests seed Episodes directly into Cosmos, mirroring
+    // EpisodeService.CacheEpisodesAsync's create-only insert, without standing up a real feed
+    // for the show or a second Cosmos client from the test process. Same loopback + Development
+    // + DEBUG guard as the other /dev/* endpoints above.
+    app.MapPost("/dev/seed-episodes", async (
+        HttpContext context,
+        List<Episode> episodes,
+        [FromKeyedServices("episodes")] Container episodesContainer,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        foreach (var episode in episodes)
+        {
+            try
+            {
+                await episodesContainer.CreateItemAsync(
+                    episode, new PartitionKey(episode.ShowId), cancellationToken: ct);
+            }
+            catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+            }
+        }
+
+        return Results.Ok(episodes);
     });
 }
 #endif
@@ -589,6 +622,8 @@ settings.MapPut("", async (
     UpdateSettingsRequest request,
     ClaimsPrincipal user,
     ISettingsService settingsService,
+    ISubscriptionService subscriptionService,
+    IEpisodeService episodeService,
     CancellationToken ct) =>
 {
     if (!Enum.IsDefined(request.UnlistenedEpisodeCount))
@@ -598,6 +633,26 @@ settings.MapPut("", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateUnlistenedEpisodeCountAsync(userId, request.UnlistenedEpisodeCount, ct);
+
+    // The new global limit only takes effect for shows without a per-show override, but
+    // re-running enforcement for every subscribed show is simpler than filtering to those
+    // without one — EnforceUnlistenedLimitAsync is a no-op for shows that already comply.
+    // Best-effort: the settings update above already succeeded, so a transient enforcement
+    // failure (e.g. Cosmos throttling) shouldn't turn a successful update into a 5xx — it'll
+    // self-heal next time this show gets a new episode or the limit changes again.
+    try
+    {
+        var subscriptions = await subscriptionService.GetSubscriptionsAsync(userId, ct);
+        await Parallel.ForEachAsync(
+            subscriptions,
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = ct },
+            (subscription, token) => new ValueTask(episodeService.EnforceUnlistenedLimitAsync(userId, subscription.ShowId, token)));
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to enforce unlistened-episode limit for user {UserId} after a global settings update", userId);
+    }
+
     return Results.Ok(result);
 });
 
@@ -617,6 +672,7 @@ settings.MapPut("/shows/{showId}", async (
     UpdateShowSettingsRequest request,
     ClaimsPrincipal user,
     ISettingsService settingsService,
+    IEpisodeService episodeService,
     CancellationToken ct) =>
 {
     if (request.UnlistenedEpisodeCount is { } value && !Enum.IsDefined(value))
@@ -626,6 +682,17 @@ settings.MapPut("/shows/{showId}", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateShowUnlistenedEpisodeCountAsync(userId, showId, request.UnlistenedEpisodeCount, ct);
+
+    // Best-effort, same rationale as the global settings endpoint above.
+    try
+    {
+        await episodeService.EnforceUnlistenedLimitAsync(userId, showId, ct);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to enforce unlistened-episode limit for user {UserId} on show {ShowId} after a per-show settings update", userId, showId);
+    }
+
     return Results.Ok(result);
 });
 
