@@ -38,6 +38,8 @@ struct ContentView: View {
                         EpisodeDetailView(showId: showId, episodeId: episodeId)
                     case .playlist(let id):
                         PlaylistDetailView(playlistId: id)
+                    case .upNext:
+                        UpNextView()
                     }
                 }
                 .toolbar {

@@ -60,7 +60,10 @@ struct LibraryView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ShelfTile(systemImage: "play.fill", title: "Up Next", subtitle: "Coming soon", isEnabled: false)
+                        NavigationLink(value: CatalogRoute.upNext) {
+                            ShelfTile(systemImage: "play.fill", title: "Up Next", subtitle: "Your queue", isEnabled: true)
+                        }
+                        .buttonStyle(.plain)
 
                         ForEach(playlists) { playlist in
                             NavigationLink(value: CatalogRoute.playlist(id: playlist.id)) {

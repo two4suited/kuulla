@@ -47,6 +47,7 @@
 		J1000007 /* AddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000007; };
 		J1000008 /* PlaylistSyncAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000008; };
 		J1000009 /* PlaylistClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000009; };
+		J1000010 /* UpNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000010; };
 		K1000001 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000001; };
 		K1000002 /* UnplayedCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000002; };
 		K1000003 /* UnplayedCountsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000003; };
@@ -132,6 +133,7 @@
 		J2000007 /* AddToPlaylistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPlaylistSheet.swift; sourceTree = "<group>"; };
 		J2000008 /* PlaylistSyncAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncAdapterTests.swift; sourceTree = "<group>"; };
 		J2000009 /* PlaylistClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistClientTests.swift; sourceTree = "<group>"; };
+		J2000010 /* UpNextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextView.swift; sourceTree = "<group>"; };
 		K2000001 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		K2000002 /* UnplayedCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnplayedCounts.swift; sourceTree = "<group>"; };
 		K2000003 /* UnplayedCountsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnplayedCountsTests.swift; sourceTree = "<group>"; };
@@ -209,6 +211,7 @@
 				J2000005 /* PlaylistsView.swift */,
 				J2000006 /* PlaylistDetailView.swift */,
 				J2000007 /* AddToPlaylistSheet.swift */,
+				J2000010 /* UpNextView.swift */,
 				K2000001 /* LibraryView.swift */,
 				K2000002 /* UnplayedCounts.swift */,
 				L2000001 /* EpisodeProgress.swift */,
@@ -395,6 +398,7 @@
 				J1000005,
 				J1000006,
 				J1000007,
+				J1000010,
 				K1000001,
 				K1000002,
 				L1000001,
