@@ -32,8 +32,8 @@
                         <div class="card h-100 position-relative">
                             @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount) && unplayedCount > 0)
                             {
-                                <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2">
-                                    @(unplayedCount >= NewEpisodesPerShowLimit ? $"{unplayedCount}+" : unplayedCount)
+                                <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2" style="pointer-events: none;">
+                                    @(unplayedCount >= EpisodeStateClient.NewEpisodesPerShowLimit ? $"{unplayedCount}+" : unplayedCount)
                                 </span>
                             }
                             @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
@@ -85,11 +85,6 @@
 </AuthorizeView>
 
 @code {
-    // Mirrors SubscriptionService.NewEpisodesPerShow on the API — the new-episodes endpoint this
-    // page cross-references for unplayed badges caps how many episodes it returns per show, so a
-    // badge sitting at that cap means "at least this many," not necessarily exact.
-    private const int NewEpisodesPerShowLimit = 10;
-
     private readonly List<Subscription> subscriptions = [];
     private readonly Dictionary<string, int> unplayedCounts = [];
     private bool isLoading;
@@ -132,17 +127,9 @@
         {
             try
             {
-                var newEpisodes = await EpisodeStateClient.GetNewEpisodesAsync();
-                foreach (var group in newEpisodes.GroupBy(e => e.Episode.ShowId))
+                foreach (var (showId, count) in await EpisodeStateClient.GetUnplayedCountsByShowAsync())
                 {
-                    // Auto-played episodes are "unseen" but already marked played, so they
-                    // shouldn't count toward an "unplayed" badge — mirrors the New Episodes
-                    // header badge and Library, which exclude them the same way.
-                    var count = group.Count(e => !e.AutoPlayed);
-                    if (count > 0)
-                    {
-                        unplayedCounts[group.Key] = count;
-                    }
+                    unplayedCounts[showId] = count;
                 }
             }
             catch (HttpRequestException)

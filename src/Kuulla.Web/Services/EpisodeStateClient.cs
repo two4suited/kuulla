@@ -10,6 +10,11 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
 {
     private const string DeviceId = "web";
 
+    // Mirrors SubscriptionService.NewEpisodesPerShow on the API — the new-episodes endpoint
+    // this caps how many episodes it returns per show, so an unplayed count sitting at this
+    // cap means "at least this many," not necessarily exact.
+    public const int NewEpisodesPerShowLimit = 10;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<IReadOnlyList<NewEpisode>> GetNewEpisodesAsync(CancellationToken cancellationToken = default)
@@ -24,6 +29,25 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
         response.EnsureSuccessStatusCode();
         var results = await response.Content.ReadFromJsonAsync<List<NewEpisode>>(JsonOptions, cancellationToken);
         return results ?? [];
+    }
+
+    // Shared by Library and Subscriptions so both pages' unplayed badges stay in sync.
+    public async Task<IReadOnlyDictionary<string, int>> GetUnplayedCountsByShowAsync(CancellationToken cancellationToken = default)
+    {
+        var newEpisodes = await GetNewEpisodesAsync(cancellationToken);
+        var counts = new Dictionary<string, int>();
+        foreach (var group in newEpisodes.GroupBy(e => e.Episode.ShowId))
+        {
+            // Auto-played episodes are "unseen" but already marked played, so they shouldn't
+            // count toward an "unplayed" badge — mirrors the New Episodes header badge.
+            var count = group.Count(e => !e.AutoPlayed);
+            if (count > 0)
+            {
+                counts[group.Key] = count;
+            }
+        }
+
+        return counts;
     }
 
     public async Task<EpisodeState?> GetStateAsync(string episodeId, CancellationToken cancellationToken = default)
