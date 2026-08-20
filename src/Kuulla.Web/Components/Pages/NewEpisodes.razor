@@ -10,7 +10,13 @@
 <AuthorizeView>
     <Authorized>
         <div class="d-flex align-items-center justify-content-between mb-3">
-            <h1 class="mb-0">New Episodes</h1>
+            <div class="d-flex align-items-center gap-2">
+                <h1 class="mb-0">New Episodes</h1>
+                @if (episodes.Count > 0)
+                {
+                    <span class="badge bg-primary rounded-pill">@episodes.Count</span>
+                }
+            </div>
             @if (syncStatusService is not null)
             {
                 <SyncStatusIndicator Service="syncStatusService" />
