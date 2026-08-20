@@ -268,7 +268,12 @@ else
         // "Auto-marked played" badge with a Restore action, so they shouldn't also
         // clutter the Unplayed filter/tab. Only episodes with no real progress
         // (the shape a Restore write leaves, or no state at all) count as unplayed.
-        return state is null || (!state.Completed && state.PositionSeconds == 0);
+        if (state is null)
+        {
+            return true;
+        }
+
+        return !state.AutoPlayed && !state.Completed && state.PositionSeconds == 0;
     }
 
     private bool IsInProgress(Episode episode)

@@ -351,7 +351,7 @@ public class ShowDetailTests : WebTestContext
     public void UnplayedFilter_HidesAutoPlayedEpisodes()
     {
         AuthContext.SetAuthorized("user-1");
-        var autoPlayedState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 0, true, DateTimeOffset.UtcNow, null, AutoPlayed: true);
+        var autoPlayedState = new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, true, DateTimeOffset.UtcNow, null, AutoPlayed: true);
         ConfigureApi(CreateHandlerWithEpisodes(
             [TestEpisode, OlderEpisode],
             new Dictionary<string, EpisodeState> { ["ep-1"] = autoPlayedState }));
