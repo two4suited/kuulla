@@ -39,7 +39,8 @@ public record PlaylistDetail(
     PlaylistType Type,
     IReadOnlyList<PlaylistItemDetail> Items,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    DynamicPlaylistConfig? DynamicConfig = null);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistItemDetail's wire shape.
 public record PlaylistItemDetail(

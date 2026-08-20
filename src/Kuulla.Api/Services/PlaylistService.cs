@@ -33,6 +33,82 @@ public class PlaylistService(
         return playlist;
     }
 
+    public async Task<Playlist> CreateDynamicPlaylistAsync(
+        string userId, string name, DynamicPlaylistConfig config, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var playlist = new Playlist(
+            Guid.NewGuid().ToString(), userId, name, PlaylistType.Dynamic, [], now, now, DynamicConfig: config);
+
+        var items = await ComputeDynamicItemsAsync(config, cancellationToken);
+        var populated = playlist with { Items = items };
+        await UpsertAsync(populated, cancellationToken);
+        await RecomputeSummaryAsync(userId, cancellationToken);
+        return populated;
+    }
+
+    public async Task<Playlist?> UpdateDynamicPlaylistConfigAsync(
+        string userId, string id, DynamicPlaylistConfig config, CancellationToken cancellationToken)
+    {
+        var playlist = await ReadAsync(userId, id, cancellationToken);
+        if (playlist is null || playlist.Type != PlaylistType.Dynamic)
+        {
+            return null;
+        }
+
+        var items = await ComputeDynamicItemsAsync(config, cancellationToken);
+        var updated = playlist with { DynamicConfig = config, Items = items, UpdatedAt = DateTimeOffset.UtcNow };
+        await UpsertAsync(updated, cancellationToken);
+        await RecomputeSummaryAsync(userId, cancellationToken);
+        return updated;
+    }
+
+    public async Task<Playlist?> RecomputeDynamicPlaylistAsync(string userId, string id, CancellationToken cancellationToken)
+    {
+        var playlist = await ReadAsync(userId, id, cancellationToken);
+        if (playlist is not { Type: PlaylistType.Dynamic, DynamicConfig: not null })
+        {
+            return null;
+        }
+
+        var items = await ComputeDynamicItemsAsync(playlist.DynamicConfig, cancellationToken);
+        var updated = playlist with { Items = items, UpdatedAt = DateTimeOffset.UtcNow };
+        await UpsertAsync(updated, cancellationToken);
+        await RecomputeSummaryAsync(userId, cancellationToken);
+        return updated;
+    }
+
+    // Shared by CreateDynamicPlaylistAsync/UpdateDynamicPlaylistConfigAsync/
+    // RecomputeDynamicPlaylistAsync — see IPlaylistService.RecomputeDynamicPlaylistAsync for why
+    // this full-rebuild logic is factored out as its own method rather than inlined.
+    private async Task<IReadOnlyList<PlaylistItem>> ComputeDynamicItemsAsync(
+        DynamicPlaylistConfig config, CancellationToken cancellationToken)
+    {
+        var showRank = config.PriorityList
+            .Select((showId, index) => (showId, index))
+            .ToDictionary(x => x.showId, x => x.index);
+
+        var episodesByShow = await Task.WhenAll(config.ShowIds.Select(async showId =>
+            (showId, episodes: await episodeService.GetAllEpisodesOrderedAsync(showId, cancellationToken))));
+
+        var addedAt = DateTimeOffset.UtcNow;
+        var ordered = episodesByShow
+            .OrderBy(x => showRank.TryGetValue(x.showId, out var rank) ? rank : int.MaxValue)
+            .SelectMany(x => x.episodes.Select(episode => (x.showId, episode)))
+            .Take(config.MaxEpisodes);
+
+        var items = new List<PlaylistItem>();
+        string? previousOrder = null;
+        foreach (var (showId, episode) in ordered)
+        {
+            var order = PlaylistRankGenerator.Between(previousOrder, null);
+            items.Add(new PlaylistItem(episode.Id, showId, addedAt, order));
+            previousOrder = order;
+        }
+
+        return items;
+    }
+
     public async Task<PlaylistDetail?> GetPlaylistDetailAsync(string userId, string id, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
@@ -56,7 +132,8 @@ public class PlaylistService(
                 item.EpisodeId, item.ShowId, episode?.Title, show?.ArtworkUrl, item.AddedAt, item.Order);
         }));
 
-        return new PlaylistDetail(playlist.Id, playlist.Name, playlist.Type, items, playlist.CreatedAt, playlist.UpdatedAt);
+        return new PlaylistDetail(
+            playlist.Id, playlist.Name, playlist.Type, items, playlist.CreatedAt, playlist.UpdatedAt, playlist.DynamicConfig);
     }
 
     public async Task<Playlist?> RenamePlaylistAsync(string userId, string id, string name, CancellationToken cancellationToken)

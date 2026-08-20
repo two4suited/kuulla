@@ -69,6 +69,93 @@ public class PlaylistServiceTests
     }
 
     [Fact]
+    public async Task CreateDynamicPlaylistAsync_OrdersByPriorityThenPublishedAtAndTruncatesToMaxEpisodes()
+    {
+        const string showA = "show-a";
+        const string showB = "show-b";
+        var config = new DynamicPlaylistConfig(
+            ShowIds: [showA, showB], MaxEpisodes: 3, PriorityList: [showB, showA]);
+
+        // showB is higher priority, so its episodes (newest first) should lead, followed by
+        // showA's, with the fourth episode overall dropped by the MaxEpisodes cap.
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(showA, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("a-new", showA), MakeEpisode("a-old", showA)]);
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(showB, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("b-new", showB), MakeEpisode("b-old", showB)]);
+        SetUpEmptyQuery();
+
+        Playlist? created = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => created = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+
+        Assert.Equal(PlaylistType.Dynamic, result.Type);
+        Assert.Equal(config, result.DynamicConfig);
+        Assert.Equal(["b-new", "b-old", "a-new"], result.Items.Select(i => i.EpisodeId));
+        Assert.Equal(result.Items.Select(i => i.Order).Order(StringComparer.Ordinal), result.Items.Select(i => i.Order));
+        Assert.NotNull(created);
+    }
+
+    [Fact]
+    public async Task UpdateDynamicPlaylistConfigAsync_ReturnsNullWhenPlaylistIsNotDynamic()
+    {
+        var playlist = MakePlaylist();
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+
+        var config = new DynamicPlaylistConfig([ShowId], 10, [ShowId]);
+        var result = await _sut.UpdateDynamicPlaylistConfigAsync(UserId, PlaylistId, config, CancellationToken.None);
+
+        Assert.Null(result);
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateDynamicPlaylistConfigAsync_RecomputesItemsFromNewConfig()
+    {
+        var oldConfig = new DynamicPlaylistConfig([ShowId], 10, [ShowId]);
+        var playlist = new Playlist(
+            PlaylistId, UserId, "Dynamic Playlist", PlaylistType.Dynamic,
+            [new PlaylistItem("stale-episode", ShowId, DateTimeOffset.UtcNow, "m")],
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DynamicConfig: oldConfig);
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("fresh-episode", ShowId)]);
+        SetUpEmptyQuery();
+
+        var newConfig = new DynamicPlaylistConfig([ShowId], 1, [ShowId]);
+        var result = await _sut.UpdateDynamicPlaylistConfigAsync(UserId, PlaylistId, newConfig, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(newConfig, result!.DynamicConfig);
+        var item = Assert.Single(result.Items);
+        Assert.Equal("fresh-episode", item.EpisodeId);
+    }
+
+    [Fact]
+    public async Task RecomputeDynamicPlaylistAsync_ReturnsNullForManualPlaylist()
+    {
+        var playlist = MakePlaylist();
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+
+        var result = await _sut.RecomputeDynamicPlaylistAsync(UserId, PlaylistId, CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    private static Episode MakeEpisode(string id, string showId) =>
+        new(id, showId, id, DateTimeOffset.UtcNow, null, $"https://audio.example/{id}.mp3", null, null, null);
+
+    [Fact]
     public async Task GetPlaylistDetailAsync_ReturnsNullWhenPlaylistDoesNotExist()
     {
         _playlistsContainer
