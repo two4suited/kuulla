@@ -35,6 +35,17 @@ public class SyncSummaryCache<T>(IConnectionMultiplexer redis, string domain)
         await db.StringSetAsync(Key(userId), JsonConvert.SerializeObject(summary), Ttl);
     }
 
+    // Drops a stale cached summary rather than recomputing it inline — used by the /dev/seed-*
+    // endpoints (#249), which write straight to Cosmos without going through the owning
+    // service's Set/RecomputeSummaryAsync call. Without this, a summary cached before seeding
+    // (e.g. from an earlier /api/sync/{domain} call for the same user) would keep reporting
+    // "no changes" for up to the 30-day TTL even though Cosmos now has new/updated records.
+    public async Task InvalidateAsync(string userId, CancellationToken cancellationToken)
+    {
+        var db = redis.GetDatabase();
+        await db.KeyDeleteAsync(Key(userId));
+    }
+
     // Cache-or-recompute: used on the fast path where there's nothing to reconcile and only the
     // hash needs checking.
     public async Task<SyncSummary> GetOrComputeAsync(

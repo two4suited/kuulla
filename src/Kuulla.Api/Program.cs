@@ -3,10 +3,12 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Kuulla.Api.Models;
 using Kuulla.Api.Services;
+using Kuulla.Api.Services.Sync;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -302,6 +304,115 @@ if (app.Environment.IsDevelopment())
         }
 
         return Results.Ok(episodes);
+    });
+
+    // Local-testing-only (issue #249): lets integration tests seed manual and dynamic Playlists
+    // directly into Cosmos, mirroring PlaylistService's own UpsertItemAsync (playlists are
+    // upserted, not create-only, so a re-seed with the same id just overwrites — no special
+    // conflict handling needed here). Same loopback + Development + DEBUG guard as the other
+    // /dev/* endpoints above.
+    app.MapPost("/dev/seed-playlists", async (
+        HttpContext context,
+        List<Playlist> playlists,
+        [FromKeyedServices("playlists")] Container playlistsContainer,
+        IConnectionMultiplexer redis,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        foreach (var playlist in playlists)
+        {
+            await playlistsContainer.UpsertItemAsync(
+                playlist, new PartitionKey(playlist.UserId), cancellationToken: ct);
+        }
+
+        // Writing straight to Cosmos bypasses PlaylistService's own RecomputeSummaryAsync call,
+        // so drop any stale cached sync summary (see SyncSummaryCache.InvalidateAsync) rather
+        // than let /api/sync/playlists miss these seeded playlists for up to its 30-day TTL.
+        var playlistSummaryCache = new SyncSummaryCache<Playlist>(redis, "playlists");
+        foreach (var userId in playlists.Select(p => p.UserId).Distinct())
+        {
+            await playlistSummaryCache.InvalidateAsync(userId, ct);
+        }
+
+        return Results.Ok(playlists);
+    });
+
+    // Local-testing-only (issue #249): lets integration tests seed Subscriptions directly into
+    // Cosmos, mirroring SubscriptionService's create-only insert (POST /api/subscriptions),
+    // without going through show-search + subscribe just to get a user subscribed to a
+    // fixture show. Same loopback + Development + DEBUG guard as the other /dev/* endpoints
+    // above.
+    app.MapPost("/dev/seed-subscriptions", async (
+        HttpContext context,
+        List<Subscription> subscriptions,
+        [FromKeyedServices("subscriptions")] Container subscriptionsContainer,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var seeded = new List<Subscription>(subscriptions.Count);
+        foreach (var subscription in subscriptions)
+        {
+            try
+            {
+                await subscriptionsContainer.CreateItemAsync(
+                    subscription, new PartitionKey(subscription.UserId), cancellationToken: ct);
+                seeded.Add(subscription);
+            }
+            catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                // Matches SubscriptionService.SubscribeAsync: create-only, and on conflict the
+                // response reflects what's actually stored rather than the (possibly different)
+                // payload that lost the race, so a re-seed can't mislead a test into asserting
+                // against data that was never written.
+                var existing = await subscriptionsContainer.ReadItemAsync<Subscription>(
+                    subscription.Id, new PartitionKey(subscription.UserId), cancellationToken: ct);
+                seeded.Add(existing.Resource);
+            }
+        }
+
+        return Results.Ok(seeded);
+    });
+
+    // Local-testing-only (issue #249): lets integration tests seed EpisodeStates (playback
+    // position/listened status) directly into Cosmos, mirroring EpisodeStateService's own
+    // UpsertItemAsync, so tests covering playback-sync/unlistened-limit/auto-archive flows can
+    // set up prior listening history without replaying PUT /api/episodes/{id}/state one call at
+    // a time. Same loopback + Development + DEBUG guard as the other /dev/* endpoints above.
+    app.MapPost("/dev/seed-episode-states", async (
+        HttpContext context,
+        List<EpisodeState> episodeStates,
+        [FromKeyedServices("episodestates")] Container episodeStatesContainer,
+        IConnectionMultiplexer redis,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        foreach (var episodeState in episodeStates)
+        {
+            await episodeStatesContainer.UpsertItemAsync(
+                episodeState, new PartitionKey(episodeState.UserId), cancellationToken: ct);
+        }
+
+        // Same rationale as /dev/seed-playlists above: drop any stale cached sync summary so
+        // /api/sync/episodes can't miss these seeded states for up to its 30-day TTL.
+        var episodeStateSummaryCache = new SyncSummaryCache<EpisodeState>(redis, "episodes");
+        foreach (var userId in episodeStates.Select(s => s.UserId).Distinct())
+        {
+            await episodeStateSummaryCache.InvalidateAsync(userId, ct);
+        }
+
+        return Results.Ok(episodeStates);
     });
 }
 #endif
