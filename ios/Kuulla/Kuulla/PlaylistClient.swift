@@ -98,7 +98,8 @@ struct PlaylistDetail: Decodable, Identifiable {
 
 struct DynamicPlaylistConfig: Codable, Equatable {
     var showIds: [String]
-    var maxEpisodes: Int
+    // Nil means unlimited — mirrors the server's nullable Kuulla.Api.Models.DynamicPlaylistConfig.MaxEpisodes.
+    var maxEpisodes: Int?
     var priorityList: [String]
 }
 

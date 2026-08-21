@@ -51,6 +51,17 @@ final class PlaylistClientTests: MockedApiTestCase {
         XCTAssertEqual((bodyJSON["dynamicConfig"] as? [String: Any])?["maxEpisodes"] as? Int, 10)
     }
 
+    func testGetPlaylistDetailDecodesNullMaxEpisodesAsUnlimited() async throws {
+        let json = """
+        {"id":"p1","name":"Unlimited","type":1,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00","dynamicConfig":{"showIds":["show1"],"maxEpisodes":null,"priorityList":["show1"]}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let detail = try await client.getPlaylistDetail(id: "p1")
+
+        XCTAssertNil(detail?.dynamicConfig?.maxEpisodes)
+    }
+
     func testUpdateDynamicPlaylistConfigSendsConfig() async throws {
         let json = """
         {"id":"p1","userId":"u1","name":"Update","type":1,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00","dynamicConfig":{"showIds":["show1","show2"],"maxEpisodes":6,"priorityList":["show2","show1"]}}

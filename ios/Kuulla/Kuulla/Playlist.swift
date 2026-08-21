@@ -62,6 +62,7 @@ enum PlaylistType: Int, Codable {
 // reason as PlaylistItemRecord — it's embedded on PlaylistRecord, not a standalone entity.
 struct DynamicPlaylistConfigRecord: Codable {
     var showIds: [String]
-    var maxEpisodes: Int
+    // Nil means unlimited — mirrors the server's nullable Kuulla.Api.Models.DynamicPlaylistConfig.MaxEpisodes.
+    var maxEpisodes: Int?
     var priorityList: [String]
 }

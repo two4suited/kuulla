@@ -180,10 +180,9 @@ else
             isLoading = false;
         }
 
-        if (showOnlyUnplayed)
-        {
-            await LoadEpisodeStatesAsync();
-        }
+        // Unplayed-only is the default filter (set above), so hydrate episode states up front
+        // rather than waiting for the user to toggle it.
+        await LoadEpisodeStatesAsync();
     }
 
     private async Task LoadEpisodeStatesAsync()
