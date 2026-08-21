@@ -87,7 +87,7 @@ final class AudioPlayerTests: XCTestCase {
     }
 
     func testShouldTriggerOutroSkipFiresOnceCurrentTimeReachesTheOutroThreshold() {
-        XCTAssertFalse(AudioPlayer.shouldTriggerOutroSkip(currentTime: 580, duration: 600, autoSkipOutroSeconds: 30))
+        XCTAssertFalse(AudioPlayer.shouldTriggerOutroSkip(currentTime: 560, duration: 600, autoSkipOutroSeconds: 30))
         XCTAssertTrue(AudioPlayer.shouldTriggerOutroSkip(currentTime: 570, duration: 600, autoSkipOutroSeconds: 30))
         XCTAssertTrue(AudioPlayer.shouldTriggerOutroSkip(currentTime: 590, duration: 600, autoSkipOutroSeconds: 30))
     }
