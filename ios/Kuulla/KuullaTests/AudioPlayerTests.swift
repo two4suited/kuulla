@@ -68,4 +68,41 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.currentTime, 0)
         XCTAssertEqual(player.duration, 0)
     }
+
+    func testPlayWithAutoSkipIntroSeeksCurrentTimeToIntroSecondsOnFreshStart() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, autoSkipIntroSeconds: 15)
+
+        XCTAssertEqual(player.currentTime, 15)
+    }
+
+    func testPlayWithAutoSkipIntroIsIgnoredWhenResumingFromASavedPosition() {
+        let player = AudioPlayer()
+
+        player.play(
+            url: URL(string: "https://example.com/audio.mp3")!, startPosition: 300, autoSkipIntroSeconds: 15)
+
+        XCTAssertEqual(player.currentTime, 300)
+    }
+
+    func testShouldTriggerOutroSkipFiresOnceCurrentTimeReachesTheOutroThreshold() {
+        XCTAssertFalse(AudioPlayer.shouldTriggerOutroSkip(currentTime: 580, duration: 600, autoSkipOutroSeconds: 30))
+        XCTAssertTrue(AudioPlayer.shouldTriggerOutroSkip(currentTime: 570, duration: 600, autoSkipOutroSeconds: 30))
+        XCTAssertTrue(AudioPlayer.shouldTriggerOutroSkip(currentTime: 590, duration: 600, autoSkipOutroSeconds: 30))
+    }
+
+    func testShouldTriggerOutroSkipIsFalseWhenOutroSkipIsOff() {
+        XCTAssertFalse(AudioPlayer.shouldTriggerOutroSkip(currentTime: 590, duration: 600, autoSkipOutroSeconds: 0))
+    }
+
+    func testShouldTriggerOutroSkipIsFalseWhenOutroSkipIsLongerThanTheEpisode() {
+        // A misconfigured outro-skip longer than the episode itself should never fire — it's
+        // treated as a no-op, not "skip the whole episode instantly".
+        XCTAssertFalse(AudioPlayer.shouldTriggerOutroSkip(currentTime: 590, duration: 600, autoSkipOutroSeconds: 700))
+    }
+
+    func testShouldTriggerOutroSkipIsFalseBeforeDurationIsKnown() {
+        XCTAssertFalse(AudioPlayer.shouldTriggerOutroSkip(currentTime: 0, duration: 0, autoSkipOutroSeconds: 30))
+    }
 }
