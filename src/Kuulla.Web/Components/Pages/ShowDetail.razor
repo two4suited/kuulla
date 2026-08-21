@@ -181,9 +181,16 @@ else
                                             Restore
                                         </button>
                                     }
-                                    else if (isPlayed)
+                                    else
                                     {
-                                        <span class="badge text-bg-success">Played</span>
+                                        <button class="btn btn-sm btn-outline-secondary" disabled="@togglingEpisodeIds.Contains(episode.Id)"
+                                                @onclick="() => ToggleCompletedAsync(episode)">
+                                            @(isPlayed ? "Mark as unplayed" : "Mark as played")
+                                        </button>
+                                        @if (isPlayed)
+                                        {
+                                            <span class="badge text-bg-success">Played</span>
+                                        }
                                     }
                                     <AddToPlaylistButton EpisodeId="@episode.Id" ShowId="@Id" />
                                 </div>
@@ -230,6 +237,7 @@ else
     private bool showSettingsSavedConfirmation;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
     private readonly HashSet<string> restoringEpisodeIds = [];
+    private readonly HashSet<string> togglingEpisodeIds = [];
     private string? restoreError;
     private bool isAuthenticated;
     private EpisodeFilter selectedFilter = EpisodeFilter.Unplayed;
@@ -323,6 +331,7 @@ else
         showSettingsSavedConfirmation = false;
         episodeStatesById.Clear();
         restoringEpisodeIds.Clear();
+        togglingEpisodeIds.Clear();
         restoreError = null;
         isAuthenticated = false;
         selectedFilter = EpisodeFilter.Unplayed;
@@ -526,6 +535,34 @@ else
         finally
         {
             restoringEpisodeIds.Remove(episode.Id);
+        }
+    }
+
+    private async Task ToggleCompletedAsync(Episode episode)
+    {
+        if (togglingEpisodeIds.Contains(episode.Id))
+        {
+            return;
+        }
+
+        togglingEpisodeIds.Add(episode.Id);
+        restoreError = null;
+
+        try
+        {
+            var state = GetState(episode.Id);
+            var newCompleted = state is not { Completed: true, AutoPlayed: false };
+            var positionSeconds = newCompleted ? (int)(episode.Duration ?? TimeSpan.Zero).TotalSeconds : state?.PositionSeconds ?? 0;
+            var updated = await EpisodeStateClient.UpdateStateAsync(episode.Id, Id, positionSeconds, newCompleted);
+            episodeStatesById[episode.Id] = updated;
+        }
+        catch (HttpRequestException)
+        {
+            restoreError = "Something went wrong while updating this episode. Please try again.";
+        }
+        finally
+        {
+            togglingEpisodeIds.Remove(episode.Id);
         }
     }
 }
