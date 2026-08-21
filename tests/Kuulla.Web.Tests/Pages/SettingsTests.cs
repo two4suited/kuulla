@@ -10,7 +10,8 @@ public class SettingsTests : WebTestContext
     private static readonly UserSettings DefaultSettings = new("user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never);
 
     private static TestHttpMessageHandler CreateHandler(
-        UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null) =>
+        UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,
+        UserSettings? autoSkipPutResponse = null) =>
         new(request =>
         {
             if (request.RequestUri!.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
@@ -34,6 +35,14 @@ public class SettingsTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(archivePutResponse ?? DefaultSettings),
+                };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/settings/auto-skip" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(autoSkipPutResponse ?? DefaultSettings),
                 };
             }
 
@@ -119,5 +128,56 @@ public class SettingsTests : WebTestContext
         cut.Find("#auto-archive-rule").Change("AfterPlayed");
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void RendersCurrentAutoSkipSeconds_WhenLoadSucceeds()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            AutoSkipIntroSeconds: 15, AutoSkipOutroSeconds: 30)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("15", cut.Find("#auto-skip-intro-seconds").GetAttribute("value"));
+            Assert.Equal("30", cut.Find("#auto-skip-outro-seconds").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void SavesAndConfirmsAutoSkipSeconds_WhenSelectionChanges()
+    {
+        ConfigureApi(CreateHandler(autoSkipPutResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
+            AutoSkipIntroSeconds: 10, AutoSkipOutroSeconds: 0)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Auto-skip intro", cut.Markup));
+
+        cut.Find("#auto-skip-intro-seconds").Change("10");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsErrorAndRevertsAutoSkipSeconds_WhenSaveFails()
+    {
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/settings/auto-skip" && request.Method == HttpMethod.Put
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("0", cut.Find("#auto-skip-intro-seconds").GetAttribute("value")));
+
+        cut.Find("#auto-skip-intro-seconds").Change("10");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.Equal("0", cut.Find("#auto-skip-intro-seconds").GetAttribute("value"));
+        });
     }
 }

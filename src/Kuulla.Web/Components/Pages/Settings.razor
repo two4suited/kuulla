@@ -50,6 +50,36 @@
                 }
             </div>
 
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="auto-skip-intro-seconds">Auto-skip intro</label>
+                <select id="auto-skip-intro-seconds" class="form-select" disabled="@isAutoSkipSaving"
+                        value="@selectedAutoSkipIntroSeconds" @onchange="OnAutoSkipIntroSecondsChangedAsync">
+                    @foreach (var option in AutoSkipDurationUi.OptionsIncluding(selectedAutoSkipIntroSeconds))
+                    {
+                        <option value="@option">@AutoSkipDurationUi.Format(option)</option>
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="auto-skip-outro-seconds">Auto-skip outro</label>
+                <select id="auto-skip-outro-seconds" class="form-select" disabled="@isAutoSkipSaving"
+                        value="@selectedAutoSkipOutroSeconds" @onchange="OnAutoSkipOutroSecondsChangedAsync">
+                    @foreach (var option in AutoSkipDurationUi.OptionsIncluding(selectedAutoSkipOutroSeconds))
+                    {
+                        <option value="@option">@AutoSkipDurationUi.Format(option)</option>
+                    }
+                </select>
+                @if (autoSkipSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@autoSkipSaveError</p>
+                }
+                else if (autoSkipSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
             @if (saveError is not null)
             {
                 <p class="text-danger">@saveError</p>
@@ -77,6 +107,13 @@
     private bool isArchiveSaving;
     private string? archiveSaveError;
     private bool archiveSaveSavedConfirmation;
+    private int selectedAutoSkipIntroSeconds;
+    private int selectedAutoSkipOutroSeconds;
+    private bool isAutoSkipSaving;
+    private string? autoSkipSaveError;
+    private bool autoSkipSaveSavedConfirmation;
+    private int autoSkipSaveVersion;
+    private readonly SemaphoreSlim autoSkipSaveLock = new(1, 1);
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -97,6 +134,8 @@
             var settings = await SettingsClient.GetSettingsAsync();
             selectedUnlistenedEpisodeCount = settings.UnlistenedEpisodeCount;
             selectedAutoArchiveRule = settings.AutoArchiveRule;
+            selectedAutoSkipIntroSeconds = settings.AutoSkipIntroSeconds;
+            selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
         }
         catch (HttpRequestException)
         {
@@ -163,6 +202,70 @@
         finally
         {
             isArchiveSaving = false;
+        }
+    }
+
+    private async Task OnAutoSkipIntroSecondsChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        await SaveAutoSkipAsync(introSeconds: value, outroSeconds: selectedAutoSkipOutroSeconds);
+    }
+
+    private async Task OnAutoSkipOutroSecondsChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        await SaveAutoSkipAsync(introSeconds: selectedAutoSkipIntroSeconds, outroSeconds: value);
+    }
+
+    private async Task SaveAutoSkipAsync(int introSeconds, int outroSeconds)
+    {
+        // Guards against the intro and outro selects racing each other. The lock ensures at most
+        // one PUT /api/settings/auto-skip is in flight at a time, so requests always reach the
+        // server in order and an older one can never finish after (and overwrite) a newer one.
+        // The version check drops a call that was superseded while it waited for the lock —
+        // whichever call is last to acquire the lock already holds the latest selected values, so
+        // an earlier queued call has nothing left to contribute and must not send a stale PUT.
+        var requestVersion = ++autoSkipSaveVersion;
+        var previousIntro = selectedAutoSkipIntroSeconds;
+        var previousOutro = selectedAutoSkipOutroSeconds;
+        selectedAutoSkipIntroSeconds = introSeconds;
+        selectedAutoSkipOutroSeconds = outroSeconds;
+        isAutoSkipSaving = true;
+        autoSkipSaveError = null;
+        autoSkipSaveSavedConfirmation = false;
+
+        await autoSkipSaveLock.WaitAsync();
+        try
+        {
+            if (requestVersion != autoSkipSaveVersion)
+            {
+                return;
+            }
+
+            await SettingsClient.UpdateAutoSkipAsync(introSeconds, outroSeconds);
+            autoSkipSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedAutoSkipIntroSeconds = previousIntro;
+            selectedAutoSkipOutroSeconds = previousOutro;
+            autoSkipSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            autoSkipSaveLock.Release();
+            if (requestVersion == autoSkipSaveVersion)
+            {
+                isAutoSkipSaving = false;
+            }
         }
     }
 }
