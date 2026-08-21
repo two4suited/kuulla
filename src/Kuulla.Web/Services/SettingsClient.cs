@@ -77,4 +77,14 @@ public class SettingsClient(KuullaApiClient apiClient)
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
     }
+
+    public async Task<UserSettings> UpdatePlaybackSpeedAsync(
+        float playbackSpeed, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/playback-speed", new { PlaybackSpeed = playbackSpeed }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
 }
