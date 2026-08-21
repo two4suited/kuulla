@@ -50,6 +50,36 @@
                 }
             </div>
 
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="auto-skip-intro-seconds">Auto-skip intro</label>
+                <select id="auto-skip-intro-seconds" class="form-select" disabled="@isAutoSkipSaving"
+                        value="@selectedAutoSkipIntroSeconds" @onchange="OnAutoSkipIntroSecondsChangedAsync">
+                    @foreach (var option in AutoSkipDurationUi.OptionsIncluding(selectedAutoSkipIntroSeconds))
+                    {
+                        <option value="@option">@AutoSkipDurationUi.Format(option)</option>
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="auto-skip-outro-seconds">Auto-skip outro</label>
+                <select id="auto-skip-outro-seconds" class="form-select" disabled="@isAutoSkipSaving"
+                        value="@selectedAutoSkipOutroSeconds" @onchange="OnAutoSkipOutroSecondsChangedAsync">
+                    @foreach (var option in AutoSkipDurationUi.OptionsIncluding(selectedAutoSkipOutroSeconds))
+                    {
+                        <option value="@option">@AutoSkipDurationUi.Format(option)</option>
+                    }
+                </select>
+                @if (autoSkipSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@autoSkipSaveError</p>
+                }
+                else if (autoSkipSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
             @if (saveError is not null)
             {
                 <p class="text-danger">@saveError</p>
@@ -77,6 +107,12 @@
     private bool isArchiveSaving;
     private string? archiveSaveError;
     private bool archiveSaveSavedConfirmation;
+    private int selectedAutoSkipIntroSeconds;
+    private int selectedAutoSkipOutroSeconds;
+    private bool isAutoSkipSaving;
+    private string? autoSkipSaveError;
+    private bool autoSkipSaveSavedConfirmation;
+    private int autoSkipSaveVersion;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -97,6 +133,8 @@
             var settings = await SettingsClient.GetSettingsAsync();
             selectedUnlistenedEpisodeCount = settings.UnlistenedEpisodeCount;
             selectedAutoArchiveRule = settings.AutoArchiveRule;
+            selectedAutoSkipIntroSeconds = settings.AutoSkipIntroSeconds;
+            selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
         }
         catch (HttpRequestException)
         {
@@ -163,6 +201,71 @@
         finally
         {
             isArchiveSaving = false;
+        }
+    }
+
+    private async Task OnAutoSkipIntroSecondsChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        await SaveAutoSkipAsync(introSeconds: value, outroSeconds: selectedAutoSkipOutroSeconds);
+    }
+
+    private async Task OnAutoSkipOutroSecondsChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        await SaveAutoSkipAsync(introSeconds: selectedAutoSkipIntroSeconds, outroSeconds: value);
+    }
+
+    private async Task SaveAutoSkipAsync(int introSeconds, int outroSeconds)
+    {
+        // Guards against the intro and outro selects racing each other: if the user changes one
+        // before the other's save has round-tripped, only the most recent call is allowed to
+        // apply its result (success or revert-on-failure) — an earlier, now-stale response must
+        // not clobber the newer selection.
+        var requestVersion = ++autoSkipSaveVersion;
+        var previousIntro = selectedAutoSkipIntroSeconds;
+        var previousOutro = selectedAutoSkipOutroSeconds;
+        selectedAutoSkipIntroSeconds = introSeconds;
+        selectedAutoSkipOutroSeconds = outroSeconds;
+        isAutoSkipSaving = true;
+        autoSkipSaveError = null;
+        autoSkipSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateAutoSkipAsync(introSeconds, outroSeconds);
+            if (requestVersion != autoSkipSaveVersion)
+            {
+                return;
+            }
+
+            autoSkipSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            if (requestVersion != autoSkipSaveVersion)
+            {
+                return;
+            }
+
+            selectedAutoSkipIntroSeconds = previousIntro;
+            selectedAutoSkipOutroSeconds = previousOutro;
+            autoSkipSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            if (requestVersion == autoSkipSaveVersion)
+            {
+                isAutoSkipSaving = false;
+            }
         }
     }
 }

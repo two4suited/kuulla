@@ -65,4 +65,16 @@ public class SettingsClient(KuullaApiClient apiClient)
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
     }
+
+    public async Task<UserSettings> UpdateAutoSkipAsync(
+        int autoSkipIntroSeconds, int autoSkipOutroSeconds, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/auto-skip",
+            new { AutoSkipIntroSeconds = autoSkipIntroSeconds, AutoSkipOutroSeconds = autoSkipOutroSeconds },
+            JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
 }
