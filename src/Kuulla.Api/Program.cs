@@ -3,10 +3,12 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Kuulla.Api.Models;
 using Kuulla.Api.Services;
+using Kuulla.Api.Services.Sync;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -313,6 +315,7 @@ if (app.Environment.IsDevelopment())
         HttpContext context,
         List<Playlist> playlists,
         [FromKeyedServices("playlists")] Container playlistsContainer,
+        IConnectionMultiplexer redis,
         CancellationToken ct) =>
     {
         if (!IsLoopbackCaller(context))
@@ -324,6 +327,15 @@ if (app.Environment.IsDevelopment())
         {
             await playlistsContainer.UpsertItemAsync(
                 playlist, new PartitionKey(playlist.UserId), cancellationToken: ct);
+        }
+
+        // Writing straight to Cosmos bypasses PlaylistService's own RecomputeSummaryAsync call,
+        // so drop any stale cached sync summary (see SyncSummaryCache.InvalidateAsync) rather
+        // than let /api/sync/playlists miss these seeded playlists for up to its 30-day TTL.
+        var playlistSummaryCache = new SyncSummaryCache<Playlist>(redis, "playlists");
+        foreach (var userId in playlists.Select(p => p.UserId).Distinct())
+        {
+            await playlistSummaryCache.InvalidateAsync(userId, ct);
         }
 
         return Results.Ok(playlists);
@@ -345,19 +357,28 @@ if (app.Environment.IsDevelopment())
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
+        var seeded = new List<Subscription>(subscriptions.Count);
         foreach (var subscription in subscriptions)
         {
             try
             {
                 await subscriptionsContainer.CreateItemAsync(
                     subscription, new PartitionKey(subscription.UserId), cancellationToken: ct);
+                seeded.Add(subscription);
             }
             catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
             {
+                // Matches SubscriptionService.SubscribeAsync: create-only, and on conflict the
+                // response reflects what's actually stored rather than the (possibly different)
+                // payload that lost the race, so a re-seed can't mislead a test into asserting
+                // against data that was never written.
+                var existing = await subscriptionsContainer.ReadItemAsync<Subscription>(
+                    subscription.Id, new PartitionKey(subscription.UserId), cancellationToken: ct);
+                seeded.Add(existing.Resource);
             }
         }
 
-        return Results.Ok(subscriptions);
+        return Results.Ok(seeded);
     });
 
     // Local-testing-only (issue #249): lets integration tests seed EpisodeStates (playback
@@ -369,6 +390,7 @@ if (app.Environment.IsDevelopment())
         HttpContext context,
         List<EpisodeState> episodeStates,
         [FromKeyedServices("episodestates")] Container episodeStatesContainer,
+        IConnectionMultiplexer redis,
         CancellationToken ct) =>
     {
         if (!IsLoopbackCaller(context))
@@ -380,6 +402,14 @@ if (app.Environment.IsDevelopment())
         {
             await episodeStatesContainer.UpsertItemAsync(
                 episodeState, new PartitionKey(episodeState.UserId), cancellationToken: ct);
+        }
+
+        // Same rationale as /dev/seed-playlists above: drop any stale cached sync summary so
+        // /api/sync/episodes can't miss these seeded states for up to its 30-day TTL.
+        var episodeStateSummaryCache = new SyncSummaryCache<EpisodeState>(redis, "episodes");
+        foreach (var userId in episodeStates.Select(s => s.UserId).Distinct())
+        {
+            await episodeStateSummaryCache.InvalidateAsync(userId, ct);
         }
 
         return Results.Ok(episodeStates);
