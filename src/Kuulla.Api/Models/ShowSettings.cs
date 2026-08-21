@@ -18,7 +18,7 @@ public record ShowSettings(
     // Null means "no override — inherit the user's global AutoArchiveRule", same convention as
     // UnlistenedEpisodeCount above.
     AutoArchiveRule? AutoArchiveRule = null,
-    // Null means "no override — inherit the user's global AutoSkipIntroSeconds/AutoSkipOutroSeconds.
+    // Null means "no override — inherit the user's global AutoSkipIntroSeconds/AutoSkipOutroSeconds".
     // Intro/outro lengths vary a lot per show, so per-show override matters more here than for
     // most settings.
     int? AutoSkipIntroSeconds = null,

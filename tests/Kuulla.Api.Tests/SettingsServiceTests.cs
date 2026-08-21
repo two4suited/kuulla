@@ -291,7 +291,7 @@ public class SettingsServiceTests
     }
 
     [Fact]
-    public async Task GetEffectiveAutoSkipAsync_ReturnsShowOverrideWhenSet()
+    public async Task GetEffectiveAutoSkipAsync_ReturnsShowOverrideWhenBothFieldsSetWithoutReadingUserSettings()
     {
         const string showId = "show-1";
         var showSettingsId = ShowSettings.BuildId(UserId, showId);
@@ -301,15 +301,13 @@ public class SettingsServiceTests
         _settingsContainer
             .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
-        var userSettings = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 1);
-        _settingsContainer
-            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
-            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
 
         var result = await _sut.GetEffectiveAutoSkipAsync(UserId, showId, CancellationToken.None);
 
         Assert.Equal(12, result.IntroSeconds);
         Assert.Equal(25, result.OutroSeconds);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
     }
 
     [Fact]

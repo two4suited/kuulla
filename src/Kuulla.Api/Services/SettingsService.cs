@@ -164,6 +164,15 @@ public class SettingsService(
         string userId, string showId, CancellationToken cancellationToken)
     {
         var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+
+        // Skip the UserSettings read entirely when both fields are already overridden at the
+        // show level — matching how GetEffectiveAutoArchiveRuleAsync short-circuits on a
+        // show-level override, avoiding an unnecessary extra point read in the common case.
+        if (showSettings.AutoSkipIntroSeconds is { } introOverride && showSettings.AutoSkipOutroSeconds is { } outroOverride)
+        {
+            return (introOverride, outroOverride);
+        }
+
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         var introSeconds = showSettings.AutoSkipIntroSeconds ?? userSettings.AutoSkipIntroSeconds;
         var outroSeconds = showSettings.AutoSkipOutroSeconds ?? userSettings.AutoSkipOutroSeconds;
