@@ -106,6 +106,35 @@ public class PlaylistServiceTests
     }
 
     [Fact]
+    public async Task CreateDynamicPlaylistAsync_WithNullMaxEpisodes_IncludesEveryEpisodeFromEveryShow()
+    {
+        const string showA = "show-a";
+        const string showB = "show-b";
+        var config = new DynamicPlaylistConfig(
+            ShowIds: [showA, showB], MaxEpisodes: null, PriorityList: [showB, showA]);
+
+        var epoch = DateTimeOffset.UnixEpoch;
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(showA, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("a-new", showA, epoch.AddDays(2)), MakeEpisode("a-old", showA, epoch.AddDays(1))]);
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(showB, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("b-new", showB, epoch.AddDays(4)), MakeEpisode("b-old", showB, epoch.AddDays(3))]);
+        SetUpEmptyQuery();
+
+        Playlist? created = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => created = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+
+        Assert.Equal(["b-new", "b-old", "a-new", "a-old"], result.Items.Select(i => i.EpisodeId));
+        Assert.NotNull(created);
+    }
+
+    [Fact]
     public async Task UpdateDynamicPlaylistConfigAsync_ReturnsNullWhenPlaylistIsNotDynamic()
     {
         var playlist = MakePlaylist();

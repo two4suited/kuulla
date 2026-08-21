@@ -54,7 +54,9 @@ public enum PlaylistType
 // array is sufficient and simpler. PriorityList drives which episodes get inserted and in what
 // order when new ones arrive (Dynamic Playlist Auto-Ordering milestone); it isn't itself the item
 // ordering — Items/Order above still owns that.
+// MaxEpisodes is nullable — null means unlimited (all episodes from all configured shows are
+// included), which is the default. When set, it caps the total item count.
 public record DynamicPlaylistConfig(
     IReadOnlyList<string> ShowIds,
-    int MaxEpisodes,
+    int? MaxEpisodes,
     IReadOnlyList<string> PriorityList);

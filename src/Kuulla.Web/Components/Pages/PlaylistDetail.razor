@@ -33,7 +33,8 @@ else
         }
     </div>
 
-    <div class="d-flex justify-content-end mb-3">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <span class="text-muted small">@playlist.Items.Count episode@(playlist.Items.Count == 1 ? "" : "s") total</span>
         <button type="button" class="btn btn-sm @(showOnlyUnplayed ? "btn-primary" : "btn-outline-primary")"
                 aria-pressed="@showOnlyUnplayed"
                 @onclick="ToggleOnlyUnplayedAsync">
@@ -45,7 +46,7 @@ else
     {
         <DynamicPlaylistConfigEditor
             InitialShowIds="@(playlist.DynamicConfig?.ShowIds ?? [])"
-            InitialMaxEpisodes="@(playlist.DynamicConfig?.MaxEpisodes ?? 20)"
+            InitialMaxEpisodes="@(playlist.DynamicConfig?.MaxEpisodes)"
             SaveLabel="Save Changes"
             OnSave="SaveDynamicConfigAsync" />
 
@@ -163,7 +164,7 @@ else
         mutationError = null;
         busyEpisodeIds.Clear();
         episodeStatesById.Clear();
-        showOnlyUnplayed = false;
+        showOnlyUnplayed = true;
 
         isLoading = true;
         try
@@ -177,6 +178,11 @@ else
         finally
         {
             isLoading = false;
+        }
+
+        if (showOnlyUnplayed)
+        {
+            await LoadEpisodeStatesAsync();
         }
     }
 

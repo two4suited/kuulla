@@ -92,10 +92,17 @@ public class PlaylistService(
             (showId, episodes: await episodeService.GetAllEpisodesOrderedAsync(showId, cancellationToken))));
 
         var addedAt = DateTimeOffset.UtcNow;
+
+        // MaxEpisodes is optional — no cap means every episode from every configured show is
+        // included (grouped by show in priority order). Take(null) would throw, so only apply the
+        // cap when one was actually configured.
         var ordered = episodesByShow
             .OrderBy(x => showRank.TryGetValue(x.showId, out var rank) ? rank : int.MaxValue)
-            .SelectMany(x => x.episodes.Select(episode => (x.showId, episode)))
-            .Take(config.MaxEpisodes);
+            .SelectMany(x => x.episodes.Select(episode => (x.showId, episode)));
+        if (config.MaxEpisodes is int maxEpisodes)
+        {
+            ordered = ordered.Take(maxEpisodes);
+        }
 
         var items = new List<PlaylistItem>();
         string? previousOrder = null;
