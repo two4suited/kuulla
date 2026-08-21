@@ -14,7 +14,10 @@ public record ShowSettings(
     string UserId,
     string ShowId,
     UnlistenedEpisodeCount? UnlistenedEpisodeCount,
-    int Version)
+    int Version,
+    // Null means "no override — inherit the user's global AutoArchiveRule", same convention as
+    // UnlistenedEpisodeCount above.
+    AutoArchiveRule? AutoArchiveRule = null)
 {
     // "show:" prefixed and with each part percent-escaped (which encodes ':' too), so a ShowSettings
     // id can never collide with a UserSettings id (a raw, unprefixed UserId) or with a different
@@ -23,7 +26,7 @@ public record ShowSettings(
         $"show:{Uri.EscapeDataString(userId)}:{Uri.EscapeDataString(showId)}";
 
     public static ShowSettings CreateDefault(string userId, string showId) =>
-        new(BuildId(userId, showId), userId, showId, UnlistenedEpisodeCount: null, Version: 1);
+        new(BuildId(userId, showId), userId, showId, UnlistenedEpisodeCount: null, Version: 1, AutoArchiveRule: null);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization.

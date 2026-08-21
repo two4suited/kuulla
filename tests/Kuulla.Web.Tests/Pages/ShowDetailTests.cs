@@ -101,6 +101,14 @@ public class ShowDetailTests : WebTestContext
                 };
             }
 
+            if (path == "/api/settings/shows/show-1/auto-archive" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(showSettings ?? DefaultShowSettings),
+                };
+            }
+
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
 
@@ -255,6 +263,43 @@ public class ShowDetailTests : WebTestContext
         cut.WaitForAssertion(() => Assert.Contains("Unlistened episodes to show", cut.Markup));
 
         cut.Find("#show-unlistened-episode-count").Change("Two");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void ArchiveSelector_DefaultsToUseGlobalDefault_WhenNoOverrideExists()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-archive-rule").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void ArchiveSelector_ShowsExistingOverride()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoArchiveRule.After30Days);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("After30Days", cut.Find("#show-auto-archive-rule").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void ArchiveSelector_SavesOverride_WhenChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler(showSettings: new("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoArchiveRule.AfterPlayed)));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Auto-archive played episodes", cut.Markup));
+
+        cut.Find("#show-auto-archive-rule").Change("AfterPlayed");
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }

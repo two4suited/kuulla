@@ -21,4 +21,13 @@ public record EpisodeState(
     [property: JsonProperty("deviceId")] string? DeviceId = null,
     // True only when the unlistened-episode-limit enforcement job marked this episode played
     // rather than the user (#97) — lets the UI show "auto-marked played" with an undo.
-    bool AutoPlayed = false) : ISyncableRecord;
+    bool AutoPlayed = false,
+    // Stamped the first time Completed transitions to true (and cleared back to null when the
+    // episode is marked unplayed again) so the auto-archive rule (#187) can measure elapsed
+    // time since the episode was played without confusing it with UpdatedAt, which also moves
+    // on unrelated position updates.
+    DateTimeOffset? PlayedAt = null,
+    // Set by the auto-archive enforcement job (#187) once the effective AutoArchiveRule's delay
+    // has elapsed since PlayedAt. Purely a visibility flag for episode lists — it does not
+    // affect downloads.
+    bool Archived = false) : ISyncableRecord;

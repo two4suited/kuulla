@@ -16,4 +16,13 @@ public interface ISettingsService
 
     Task<UnlistenedEpisodeCount> GetEffectiveUnlistenedEpisodeCountAsync(
         string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateAutoArchiveRuleAsync(
+        string userId, AutoArchiveRule autoArchiveRule, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowAutoArchiveRuleAsync(
+        string userId, string showId, AutoArchiveRule? autoArchiveRule, CancellationToken cancellationToken);
+
+    Task<AutoArchiveRule> GetEffectiveAutoArchiveRuleAsync(
+        string userId, string showId, CancellationToken cancellationToken);
 }

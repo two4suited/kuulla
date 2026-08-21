@@ -40,7 +40,7 @@ public class SyncReconcilerTests
             changes,
             getChangeId: c => c.Id,
             getChangeUpdatedAt: c => c.UpdatedAt,
-            buildAcceptedState: c => new TestRecord(c.Id, c.Value, DateTimeOffset.UtcNow),
+            buildAcceptedState: (c, _) => new TestRecord(c.Id, c.Value, DateTimeOffset.UtcNow),
             readStoredAsync: (id, _) => Task.FromResult(_store.GetValueOrDefault(id)),
             upsertAsync: (state, _) =>
             {

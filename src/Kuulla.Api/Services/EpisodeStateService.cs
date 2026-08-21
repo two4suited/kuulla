@@ -72,8 +72,17 @@ public class EpisodeStateService(
         string? deviceId,
         CancellationToken cancellationToken)
     {
+        // Read the existing state first so a manual "mark unplayed" clears PlayedAt/Archived
+        // (giving the auto-archive rule a fresh start) while a position update on an
+        // already-played episode doesn't reset the PlayedAt timestamp the auto-archive rule is
+        // measuring elapsed time from.
+        var existing = await ReadStateAsync(userId, episodeId, cancellationToken);
+        DateTimeOffset? playedAt = completed ? existing?.PlayedAt ?? DateTimeOffset.UtcNow : null;
+        var archived = completed && existing?.Archived == true;
+
         var state = new EpisodeState(
-            episodeId, userId, episodeId, showId, positionSeconds, completed, DateTimeOffset.UtcNow, deviceId);
+            episodeId, userId, episodeId, showId, positionSeconds, completed, DateTimeOffset.UtcNow, deviceId,
+            PlayedAt: playedAt, Archived: archived);
 
         await UpsertStateAsync(state, cancellationToken);
         var allStates = await QueryAllStatesAsync(userId, cancellationToken);
@@ -101,8 +110,64 @@ public class EpisodeStateService(
         {
             var state = new EpisodeState(
                 episodeId, userId, episodeId, showId, PositionSeconds: 0, Completed: true, DateTimeOffset.UtcNow,
-                DeviceId: null, AutoPlayed: true);
+                DeviceId: null, AutoPlayed: true, PlayedAt: DateTimeOffset.UtcNow);
             await UpsertStateAsync(state, cancellationToken);
+        }
+
+        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
+        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
+    }
+
+    // Used only by the auto-archive enforcement job (#187) — reads every state for a show
+    // rather than filtering client-side after QueryAllStatesAsync so enforcement on a show with
+    // many episodes doesn't have to pull every other show's states for this user too.
+    public async Task<IReadOnlyList<EpisodeState>> GetShowStatesAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var results = new List<EpisodeState>();
+        var queryDefinition = new QueryDefinition("SELECT * FROM c WHERE c.ShowId = @showId")
+            .WithParameter("@showId", showId);
+        using var iterator = episodeStatesContainer.GetItemQueryIterator<EpisodeState>(
+            queryDefinition,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
+
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            results.AddRange(page);
+        }
+
+        return results;
+    }
+
+    // Used only by the auto-archive enforcement job (#187). Batched (one call per enforcement
+    // run, not per episode) for the same reason as MarkAutoPlayedAsync above. Callers pass the
+    // already-fetched EpisodeState records (e.g. from GetShowStatesAsync) rather than IDs so this
+    // doesn't re-read each one via a point read on top of the caller's own query.
+    public async Task SetArchivedAsync(
+        string userId, IReadOnlyList<EpisodeState> states, bool archived, CancellationToken cancellationToken)
+    {
+        if (states.Count == 0)
+        {
+            return;
+        }
+
+        var changed = false;
+        foreach (var existing in states)
+        {
+            if (existing.Archived == archived)
+            {
+                continue;
+            }
+
+            var updated = existing with { Archived = archived, UpdatedAt = DateTimeOffset.UtcNow };
+            await UpsertStateAsync(updated, cancellationToken);
+            changed = true;
+        }
+
+        if (!changed)
+        {
+            return;
         }
 
         var allStates = await QueryAllStatesAsync(userId, cancellationToken);
@@ -124,15 +189,27 @@ public class EpisodeStateService(
             changes,
             getChangeId: change => change.EpisodeId,
             getChangeUpdatedAt: change => change.UpdatedAt,
-            buildAcceptedState: change => new EpisodeState(
-                change.EpisodeId,
-                userId,
-                change.EpisodeId,
-                change.ShowId,
-                change.PositionSeconds,
-                change.Completed,
-                DateTimeOffset.UtcNow,
-                deviceId),
+            buildAcceptedState: (change, stored) =>
+            {
+                // Mirrors UpdateStateAsync's PlayedAt/Archived handling — a sync push (e.g. from
+                // iOS, whose only write path to episode state is this endpoint) must preserve or
+                // clear those fields the same way a direct state PUT does, otherwise pushing an
+                // already-played/archived episode's state (e.g. a later position touch) would
+                // silently wipe PlayedAt and un-archive it.
+                DateTimeOffset? playedAt = change.Completed ? stored?.PlayedAt ?? DateTimeOffset.UtcNow : null;
+                var archived = change.Completed && stored?.Archived == true;
+                return new EpisodeState(
+                    change.EpisodeId,
+                    userId,
+                    change.EpisodeId,
+                    change.ShowId,
+                    change.PositionSeconds,
+                    change.Completed,
+                    DateTimeOffset.UtcNow,
+                    deviceId,
+                    PlayedAt: playedAt,
+                    Archived: archived);
+            },
             readStoredAsync: (episodeId, ct) => ReadStateAsync(userId, episodeId, ct),
             upsertAsync: UpsertStateAsync,
             queryAllAsync: ct => QueryAllStatesAsync(userId, ct),

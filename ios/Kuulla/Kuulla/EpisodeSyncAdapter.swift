@@ -38,7 +38,8 @@ struct EpisodeSyncAdapter: SyncAdapter {
                 positionSeconds: $0.positionSeconds,
                 completed: $0.completed,
                 updatedAt: $0.updatedAt,
-                autoPlayed: $0.autoPlayed)
+                autoPlayed: $0.autoPlayed,
+                archived: $0.archived)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
@@ -60,6 +61,7 @@ struct EpisodeSyncAdapter: SyncAdapter {
             existing.completed = record.completed
             existing.updatedAt = record.updatedAt
             existing.autoPlayed = record.autoPlayed
+            existing.archived = record.archived
             existing.isDirty = false
         } else {
             context.insert(record)
@@ -86,13 +88,14 @@ extension SyncEngine where Adapter == EpisodeSyncAdapter {
                 guard let existing = try context.fetch(descriptor).first else { return }
                 existing.completed = false
                 existing.autoPlayed = false
+                existing.archived = false
                 existing.positionSeconds = 0
                 existing.updatedAt = Date()
                 existing.isDirty = true
                 restored = EpisodeStateRecord(
                     id: existing.id, showId: existing.showId, positionSeconds: existing.positionSeconds,
                     completed: existing.completed, updatedAt: existing.updatedAt, isDirty: existing.isDirty,
-                    autoPlayed: existing.autoPlayed)
+                    autoPlayed: existing.autoPlayed, archived: existing.archived)
             }
         } catch {
             assertionFailure("Failed to restore auto-played episode \(episodeId): \(error)")
@@ -130,13 +133,14 @@ private struct EpisodeStateDTO: Decodable {
     let completed: Bool
     let updatedAt: Date
     let autoPlayed: Bool
+    let archived: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case episodeId, showId, positionSeconds, completed, updatedAt, autoPlayed
+        case episodeId, showId, positionSeconds, completed, updatedAt, autoPlayed, archived
     }
 
-    // Defaults to false when absent so a server response that predates #100's field addition
-    // still decodes cleanly rather than failing the whole sync.
+    // Defaults to false when absent so a server response that predates #100's/#187's field
+    // additions still decodes cleanly rather than failing the whole sync.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         episodeId = try container.decode(String.self, forKey: .episodeId)
@@ -145,5 +149,6 @@ private struct EpisodeStateDTO: Decodable {
         completed = try container.decode(Bool.self, forKey: .completed)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         autoPlayed = try container.decodeIfPresent(Bool.self, forKey: .autoPlayed) ?? false
+        archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
     }
 }

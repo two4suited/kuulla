@@ -14,6 +14,8 @@ public interface IEpisodeService
 
     Task EnforceUnlistenedLimitAsync(string userId, string showId, CancellationToken cancellationToken);
 
+    Task EnforceAutoArchiveRuleAsync(string userId, string showId, CancellationToken cancellationToken);
+
     // All of a show's cached episodes, newest first — no paging, unlike GetEpisodesAsync.
     // Used where a caller needs the full ordered set to derive something from it (e.g.
     // PlaylistService computing a dynamic playlist's contents), not to page through a UI list.

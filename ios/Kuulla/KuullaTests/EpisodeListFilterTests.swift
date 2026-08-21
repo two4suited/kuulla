@@ -67,4 +67,17 @@ final class EpisodeListFilterTests: XCTestCase {
 
         XCTAssertEqual(result.map(\.id), ["e2", "e1"])
     }
+
+    func testArchivedEpisodesAreExcludedFromEveryFilterTab() {
+        let episodes = ["e1", "e2", "e3"].map { makeEpisode(id: $0, publishedAt: "2024-01-01T00:00:00Z") }
+        let statuses: [String: EpisodeStatus] = ["e1": .played, "e2": .played, "e3": .new]
+
+        let allResult = EpisodeListFilter.apply(
+            episodes: episodes, statuses: statuses, filter: .all, sort: .newestFirst, archived: ["e1"])
+        let unplayedResult = EpisodeListFilter.apply(
+            episodes: episodes, statuses: statuses, filter: .unplayed, sort: .newestFirst, archived: ["e3"])
+
+        XCTAssertEqual(Set(allResult.map(\.id)), ["e2", "e3"])
+        XCTAssertTrue(unplayedResult.isEmpty)
+    }
 }

@@ -1,6 +1,6 @@
 namespace Kuulla.Web.Models;
 
-public record UserSettings(string UserId, UnlistenedEpisodeCount UnlistenedEpisodeCount, int Version);
+public record UserSettings(string UserId, UnlistenedEpisodeCount UnlistenedEpisodeCount, int Version, AutoArchiveRule AutoArchiveRule = AutoArchiveRule.Never);
 
 public enum UnlistenedEpisodeCount
 {

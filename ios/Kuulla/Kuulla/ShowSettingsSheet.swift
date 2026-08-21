@@ -9,10 +9,12 @@ struct ShowSettingsSheet: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var saveError: String?
+    @State private var archiveSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
     @State private var saveTask: Task<Void, Never>?
+    @State private var archiveSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -35,6 +37,21 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let saveError {
                         Text(saveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Auto-archive played episodes", selection: archiveOverrideBinding) {
+                        Text("Use global default").tag(AutoArchiveRule?.none)
+                        ForEach(AutoArchiveRule.allCases) { option in
+                            Text(option.label).tag(AutoArchiveRule?.some(option))
+                        }
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let archiveSaveError {
+                        Text(archiveSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -67,6 +84,16 @@ struct ShowSettingsSheet: View {
         )
     }
 
+    private var archiveOverrideBinding: Binding<AutoArchiveRule?> {
+        Binding(
+            get: { settings?.autoArchiveRule },
+            set: { newValue in
+                archiveSaveTask?.cancel()
+                archiveSaveTask = Task { await updateArchiveOverride(newValue) }
+            }
+        )
+    }
+
     private func loadSettings() async {
         isLoading = true
         loadError = nil
@@ -86,7 +113,7 @@ struct ShowSettingsSheet: View {
         saveError = nil
         settings = ShowSettings(
             id: previous.id, userId: previous.userId, showId: previous.showId,
-            unlistenedEpisodeCount: value, version: previous.version)
+            unlistenedEpisodeCount: value, version: previous.version, autoArchiveRule: previous.autoArchiveRule)
 
         do {
             let updated = try await settingsClient.updateShowUnlistenedEpisodeCount(showId: showId, value: value)
@@ -97,6 +124,27 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 saveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateArchiveOverride(_ value: AutoArchiveRule?) async {
+        guard let previous = settings else { return }
+
+        archiveSaveError = nil
+        settings = ShowSettings(
+            id: previous.id, userId: previous.userId, showId: previous.showId,
+            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version, autoArchiveRule: value)
+
+        do {
+            let updated = try await settingsClient.updateShowAutoArchiveRule(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                archiveSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

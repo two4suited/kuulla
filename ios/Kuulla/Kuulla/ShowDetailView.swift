@@ -13,6 +13,7 @@ struct ShowDetailView: View {
     @State private var episodes: [Episode] = []
     @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
     @State private var positionSecondsByEpisodeId: [String: Int] = [:]
+    @State private var archivedEpisodeIds: Set<String> = []
     @State private var selectedFilter: EpisodeFilter = .all
     @State private var selectedSort: EpisodeSortOrder = .newestFirst
     @State private var continuationToken: String?
@@ -242,13 +243,16 @@ struct ShowDetailView: View {
 
     private var displayedEpisodes: [Episode] {
         EpisodeListFilter.apply(
-            episodes: episodes, statuses: statusByEpisodeId, filter: selectedFilter, sort: selectedSort)
+            episodes: episodes, statuses: statusByEpisodeId, filter: selectedFilter, sort: selectedSort,
+            archived: archivedEpisodeIds)
     }
 
     private func refreshStatuses() {
-        let (statuses, positions) = EpisodeStatus.statusAndPositionMaps(for: Set(episodes.map(\.id)), in: modelContext)
+        let (statuses, positions, archived) = EpisodeStatus.statusAndPositionMaps(
+            for: Set(episodes.map(\.id)), in: modelContext)
         statusByEpisodeId = statuses
         positionSecondsByEpisodeId = positions
+        archivedEpisodeIds = archived
     }
 
     private func restoreAutoPlayed(episodeId: String) async {
@@ -258,6 +262,7 @@ struct ShowDetailView: View {
         guard let restored = await syncEngine?.restoreAutoPlayed(episodeId: episodeId) else { return }
         statusByEpisodeId[episodeId] = EpisodeStatus(record: restored)
         positionSecondsByEpisodeId[episodeId] = restored.positionSeconds
+        archivedEpisodeIds.remove(episodeId)
     }
 
     private func toggleCompleted(episode: Episode) async {

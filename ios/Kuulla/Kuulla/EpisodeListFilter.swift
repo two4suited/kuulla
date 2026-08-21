@@ -49,9 +49,13 @@ enum EpisodeListFilter {
         episodes: [Episode],
         statuses: [String: EpisodeStatus],
         filter: EpisodeFilter,
-        sort: EpisodeSortOrder
+        sort: EpisodeSortOrder,
+        archived: Set<String> = []
     ) -> [Episode] {
-        let filtered = episodes.filter { filter.matches(statuses[$0.id] ?? .new) }
+        // Archived episodes are hidden from every filter tab, not just Unplayed — auto-archiving
+        // (#187) is meant to declutter the active list entirely (mirrors ShowDetail.razor's
+        // IsArchived filtering on Web).
+        let filtered = episodes.filter { !archived.contains($0.id) && filter.matches(statuses[$0.id] ?? .new) }
         return sort == .oldestFirst ? filtered.reversed() : filtered
     }
 }
