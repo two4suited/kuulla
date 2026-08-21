@@ -14,6 +14,13 @@
 # running this more than once never creates duplicate subscriptions.
 set -euo pipefail
 
+for dependency in curl python3; do
+  if ! command -v "$dependency" >/dev/null 2>&1; then
+    echo "seed-dev-data.sh: '${dependency}' is required but not found on PATH" >&2
+    exit 1
+  fi
+done
+
 if [[ -z "${KUULLA_API_BASE_URL:-}" ]]; then
   echo "seed-dev-data.sh: KUULLA_API_BASE_URL is not set" >&2
   exit 1
@@ -55,12 +62,18 @@ fi
 seeded=0
 for query in "${PODCAST_QUERIES[@]}"; do
   echo "seed-dev-data.sh: searching for '${query}'..."
+  # Prefer an exact (case-insensitive) title match over the top search hit — iTunes' ranking can
+  # drift and put a similarly-named show, a rebroadcast, or an unrelated result first, which would
+  # silently seed the wrong podcast. Falls back to the first result only if nothing matches exactly.
   show_id=$(curl -fsS -G "${BASE_URL}/api/shows/search" --data-urlencode "q=${query}" \
     | python3 -c "
 import json, sys
+query = sys.argv[1].strip().casefold()
 results = json.load(sys.stdin)
-print(results[0]['id'] if results else '')
-" 2>/dev/null) || show_id=""
+exact = next((r for r in results if r.get('title', '').strip().casefold() == query), None)
+chosen = exact or (results[0] if results else None)
+print(chosen['id'] if chosen else '')
+" "$query" 2>/dev/null) || show_id=""
 
   if [[ -z "$show_id" ]]; then
     echo "seed-dev-data.sh: WARNING no search result for '${query}', skipping" >&2

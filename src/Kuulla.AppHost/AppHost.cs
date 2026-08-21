@@ -67,8 +67,10 @@ if (OperatingSystem.IsMacOS())
 
 // Subscribes the local dev user to 5 real podcasts so a fresh `aspire run`/`aspire start`
 // environment has real shows/episodes to look at instead of an empty library (issue #246).
-// Explicit-start (not run automatically) so it never runs as part of Kuulla.AppHost.Tests,
-// which boots this same AppHost — start it from the Aspire dashboard once "api" is healthy.
+// Non-Windows only (the script assumes bash/curl/python3, mirroring the ios-simulator resource's
+// own OS gate above) and explicit-start so it never runs as part of Kuulla.AppHost.Tests, which
+// boots this same AppHost — start it from the Aspire dashboard once "api" is healthy.
+if (!OperatingSystem.IsWindows())
 {
     var repoRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", ".."));
     builder.AddExecutable("seed-dev-data", Path.Combine(repoRoot, "scripts", "seed-dev-data.sh"), repoRoot)
