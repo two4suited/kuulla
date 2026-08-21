@@ -303,6 +303,87 @@ if (app.Environment.IsDevelopment())
 
         return Results.Ok(episodes);
     });
+
+    // Local-testing-only (issue #249): lets integration tests seed manual and dynamic Playlists
+    // directly into Cosmos, mirroring PlaylistService's own UpsertItemAsync (playlists are
+    // upserted, not create-only, so a re-seed with the same id just overwrites — no special
+    // conflict handling needed here). Same loopback + Development + DEBUG guard as the other
+    // /dev/* endpoints above.
+    app.MapPost("/dev/seed-playlists", async (
+        HttpContext context,
+        List<Playlist> playlists,
+        [FromKeyedServices("playlists")] Container playlistsContainer,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        foreach (var playlist in playlists)
+        {
+            await playlistsContainer.UpsertItemAsync(
+                playlist, new PartitionKey(playlist.UserId), cancellationToken: ct);
+        }
+
+        return Results.Ok(playlists);
+    });
+
+    // Local-testing-only (issue #249): lets integration tests seed Subscriptions directly into
+    // Cosmos, mirroring SubscriptionService's create-only insert (POST /api/subscriptions),
+    // without going through show-search + subscribe just to get a user subscribed to a
+    // fixture show. Same loopback + Development + DEBUG guard as the other /dev/* endpoints
+    // above.
+    app.MapPost("/dev/seed-subscriptions", async (
+        HttpContext context,
+        List<Subscription> subscriptions,
+        [FromKeyedServices("subscriptions")] Container subscriptionsContainer,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        foreach (var subscription in subscriptions)
+        {
+            try
+            {
+                await subscriptionsContainer.CreateItemAsync(
+                    subscription, new PartitionKey(subscription.UserId), cancellationToken: ct);
+            }
+            catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+            }
+        }
+
+        return Results.Ok(subscriptions);
+    });
+
+    // Local-testing-only (issue #249): lets integration tests seed EpisodeStates (playback
+    // position/listened status) directly into Cosmos, mirroring EpisodeStateService's own
+    // UpsertItemAsync, so tests covering playback-sync/unlistened-limit/auto-archive flows can
+    // set up prior listening history without replaying PUT /api/episodes/{id}/state one call at
+    // a time. Same loopback + Development + DEBUG guard as the other /dev/* endpoints above.
+    app.MapPost("/dev/seed-episode-states", async (
+        HttpContext context,
+        List<EpisodeState> episodeStates,
+        [FromKeyedServices("episodestates")] Container episodeStatesContainer,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        foreach (var episodeState in episodeStates)
+        {
+            await episodeStatesContainer.UpsertItemAsync(
+                episodeState, new PartitionKey(episodeState.UserId), cancellationToken: ct);
+        }
+
+        return Results.Ok(episodeStates);
+    });
 }
 #endif
 
