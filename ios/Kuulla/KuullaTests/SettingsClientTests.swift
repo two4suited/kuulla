@@ -202,4 +202,68 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertNil(bodyJSON["autoSkipIntroSeconds"])
         XCTAssertNil(bodyJSON["autoSkipOutroSeconds"])
     }
+
+    func testGetSettingsDefaultsPlaybackSpeedToNormalWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertEqual(settings.playbackSpeed, 1.0)
+    }
+
+    func testUpdatePlaybackSpeedSendsPutWithFloatBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"playbackSpeed":1.5}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updatePlaybackSpeed(1.5)
+
+        XCTAssertEqual(updated.playbackSpeed, 1.5)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/playback-speed"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["playbackSpeed"] as? Float, 1.5)
+    }
+
+    func testGetShowSettingsDecodesNullPlaybackSpeedOverrideAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1,"playbackSpeed":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.playbackSpeed)
+    }
+
+    func testUpdateShowPlaybackSpeedClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"playbackSpeed":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowPlaybackSpeed(showId: "s1", value: nil)
+
+        XCTAssertNil(updated.playbackSpeed)
+        XCTAssertEqual(updated.version, 3)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/playback-speed"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["playbackSpeed"])
+    }
 }

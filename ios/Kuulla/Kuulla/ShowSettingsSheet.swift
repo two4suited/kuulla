@@ -11,12 +11,14 @@ struct ShowSettingsSheet: View {
     @State private var saveError: String?
     @State private var archiveSaveError: String?
     @State private var autoSkipSaveError: String?
+    @State private var playbackSpeedSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
     @State private var saveTask: Task<Void, Never>?
     @State private var archiveSaveTask: Task<Void, Never>?
     @State private var autoSkipSaveTask: Task<Void, Never>?
+    @State private var playbackSpeedSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -73,6 +75,19 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let autoSkipSaveError {
                         Text(autoSkipSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Playback speed", selection: playbackSpeedOverrideBinding) {
+                        Text("Use global default").tag(Float?.none)
+                        playbackSpeedPickerOptions(for: settings?.playbackSpeed)
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let playbackSpeedSaveError {
+                        Text(playbackSpeedSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -172,7 +187,8 @@ struct ShowSettingsSheet: View {
         settings = ShowSettings(
             id: previous.id, userId: previous.userId, showId: previous.showId,
             unlistenedEpisodeCount: value, version: previous.version, autoArchiveRule: previous.autoArchiveRule,
-            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
+            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds,
+            playbackSpeed: previous.playbackSpeed)
 
         do {
             let updated = try await settingsClient.updateShowUnlistenedEpisodeCount(showId: showId, value: value)
@@ -194,7 +210,8 @@ struct ShowSettingsSheet: View {
         settings = ShowSettings(
             id: previous.id, userId: previous.userId, showId: previous.showId,
             unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version, autoArchiveRule: value,
-            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
+            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds,
+            playbackSpeed: previous.playbackSpeed)
 
         do {
             let updated = try await settingsClient.updateShowAutoArchiveRule(showId: showId, value: value)
@@ -216,7 +233,8 @@ struct ShowSettingsSheet: View {
         settings = ShowSettings(
             id: previous.id, userId: previous.userId, showId: previous.showId,
             unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds)
+            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds,
+            playbackSpeed: previous.playbackSpeed)
 
         do {
             let updated = try await settingsClient.updateShowAutoSkip(
@@ -228,6 +246,52 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 autoSkipSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var playbackSpeedOverrideBinding: Binding<Float?> {
+        Binding(
+            get: { settings?.playbackSpeed },
+            set: { newValue in
+                playbackSpeedSaveTask?.cancel()
+                playbackSpeedSaveTask = Task { await updatePlaybackSpeedOverride(newValue) }
+            }
+        )
+    }
+
+    // The presets don't cover every value the API accepts (0.5...3.0), so an override saved from
+    // elsewhere that doesn't match one of them gets a synthesized "Custom" row rather than
+    // silently snapping to the nearest preset, mirroring autoSkipPickerOptions above.
+    @ViewBuilder
+    private func playbackSpeedPickerOptions(for currentValue: Float?) -> some View {
+        ForEach(PlaybackSpeedOption.allCases) { option in
+            Text(option.label).tag(Float?.some(option.rawValue))
+        }
+        if let currentValue, PlaybackSpeedOption(rawValue: currentValue) == nil {
+            Text("Custom (\(currentValue.formatted(.number.precision(.fractionLength(0...2))))x)").tag(Float?.some(currentValue))
+        }
+    }
+
+    private func updatePlaybackSpeedOverride(_ value: Float?) async {
+        guard let previous = settings else { return }
+
+        playbackSpeedSaveError = nil
+        settings = ShowSettings(
+            id: previous.id, userId: previous.userId, showId: previous.showId,
+            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
+            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
+            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: value)
+
+        do {
+            let updated = try await settingsClient.updateShowPlaybackSpeed(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                playbackSpeedSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }
