@@ -206,12 +206,12 @@ public class SettingsTests : WebTestContext
     {
         ConfigureApi(CreateHandler(playbackSpeedPutResponse: new(
             "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
-            AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0, PlaybackSpeed: 1.25f)));
+            AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0, PlaybackSpeed: 1.2f)));
 
         var cut = RenderComponent<Settings>();
         cut.WaitForAssertion(() => Assert.Contains("Playback speed", cut.Markup));
 
-        cut.Find("#playback-speed").Change("1.25");
+        cut.Find("#playback-speed").Change("1.2");
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
@@ -227,7 +227,7 @@ public class SettingsTests : WebTestContext
         var cut = RenderComponent<Settings>();
         cut.WaitForAssertion(() => Assert.Equal("1", cut.Find("#playback-speed").GetAttribute("value")));
 
-        cut.Find("#playback-speed").Change("1.25");
+        cut.Find("#playback-speed").Change("1.2");
 
         cut.WaitForAssertion(() =>
         {

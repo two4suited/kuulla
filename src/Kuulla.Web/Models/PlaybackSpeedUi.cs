@@ -6,7 +6,7 @@ namespace Kuulla.Web.Models;
 // options so the two clients offer the same choices.
 public static class PlaybackSpeedUi
 {
-    public static readonly float[] Options = [0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f];
+    public static readonly float[] Options = [0.5f, 0.7f, 0.8f, 1.0f, 1.2f, 1.5f, 1.8f, 2.0f, 2.5f, 3.0f];
 
     // A value saved from elsewhere (or a future release with different presets) that doesn't
     // match one of the options above still needs a representable selection, so it's included
