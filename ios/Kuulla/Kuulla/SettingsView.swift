@@ -6,11 +6,13 @@ struct SettingsView: View {
     @State private var loadError: String?
     @State private var saveError: String?
     @State private var archiveSaveError: String?
+    @State private var autoSkipSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
     @State private var saveTask: Task<Void, Never>?
     @State private var archiveSaveTask: Task<Void, Never>?
+    @State private var autoSkipSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -48,6 +50,27 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
             }
+
+            Section {
+                Picker("Auto-skip intro", selection: autoSkipIntroBinding) {
+                    ForEach(AutoSkipDuration.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .disabled(settings == nil)
+
+                Picker("Auto-skip outro", selection: autoSkipOutroBinding) {
+                    ForEach(AutoSkipDuration.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .disabled(settings == nil)
+            } footer: {
+                if let autoSkipSaveError {
+                    Text(autoSkipSaveError)
+                        .foregroundStyle(.red)
+                }
+            }
         }
         .navigationTitle("Settings")
         .overlay {
@@ -80,6 +103,30 @@ struct SettingsView: View {
         )
     }
 
+    private var autoSkipIntroBinding: Binding<AutoSkipDuration> {
+        Binding(
+            get: { AutoSkipDuration(rawValue: settings?.autoSkipIntroSeconds ?? 0) ?? .off },
+            set: { newValue in
+                autoSkipSaveTask?.cancel()
+                autoSkipSaveTask = Task {
+                    await updateAutoSkip(introSeconds: newValue.rawValue, outroSeconds: settings?.autoSkipOutroSeconds ?? 0)
+                }
+            }
+        )
+    }
+
+    private var autoSkipOutroBinding: Binding<AutoSkipDuration> {
+        Binding(
+            get: { AutoSkipDuration(rawValue: settings?.autoSkipOutroSeconds ?? 0) ?? .off },
+            set: { newValue in
+                autoSkipSaveTask?.cancel()
+                autoSkipSaveTask = Task {
+                    await updateAutoSkip(introSeconds: settings?.autoSkipIntroSeconds ?? 0, outroSeconds: newValue.rawValue)
+                }
+            }
+        )
+    }
+
     private func loadSettings() async {
         isLoading = true
         loadError = nil
@@ -99,7 +146,8 @@ struct SettingsView: View {
         saveError = nil
         settings = UserSettings(
             userId: previous.userId, unlistenedEpisodeCount: value, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule)
+            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
+            autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
 
         do {
             let updated = try await settingsClient.updateUnlistenedEpisodeCount(value)
@@ -120,7 +168,8 @@ struct SettingsView: View {
         archiveSaveError = nil
         settings = UserSettings(
             userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: value)
+            autoArchiveRule: value, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
+            autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
 
         do {
             let updated = try await settingsClient.updateAutoArchiveRule(value)
@@ -131,6 +180,27 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 archiveSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateAutoSkip(introSeconds: Int, outroSeconds: Int) async {
+        guard let previous = settings else { return }
+
+        autoSkipSaveError = nil
+        settings = UserSettings(
+            userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
+            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds)
+
+        do {
+            let updated = try await settingsClient.updateAutoSkip(introSeconds: introSeconds, outroSeconds: outroSeconds)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoSkipSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }
