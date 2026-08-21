@@ -1,6 +1,7 @@
 @page "/playlists/{Id}"
 @implements IAsyncDisposable
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using System.Text.Json
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject PlaylistClient PlaylistClient
@@ -74,6 +75,29 @@ else
     {
         <p>@(showOnlyUnplayed ? "No unplayed episodes are in this playlist." : "This playlist is empty. Add episodes to it from a show or episode page.")</p>
     }
+    else if (showOnlyUnplayed)
+    {
+        <p class="text-muted small">Turn off “Only unplayed” to reorder episodes.</p>
+
+        <ul class="list-group mb-3">
+            @foreach (var item in VisibleItems)
+            {
+                <li class="list-group-item d-flex align-items-center gap-3">
+                    @if (!string.IsNullOrEmpty(item.ArtworkUrl))
+                    {
+                        <img src="@item.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
+                    }
+                    <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}")" class="text-decoration-none flex-grow-1">
+                        @(item.Title ?? "(episode unavailable)")
+                    </a>
+                    <button class="btn btn-sm btn-outline-danger flex-shrink-0" disabled="@busyEpisodeIds.Contains(item.EpisodeId)"
+                            @onclick="() => RemoveItemAsync(item.EpisodeId)">
+                        Remove
+                    </button>
+                </li>
+            }
+        </ul>
+    }
     else
     {
         <p class="text-muted small">Drag episodes to reorder.</p>
@@ -145,7 +169,6 @@ else
         try
         {
             playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
-            await LoadEpisodeStatesAsync();
         }
         catch (HttpRequestException)
         {
@@ -175,10 +198,20 @@ else
                 episodeStatesById[state.Key] = state.Value;
             }
         }
-        catch (Exception)
+        catch (HttpRequestException)
         {
             // Playlist rendering should still work even if state hydration fails, since this filter is
             // purely a display preference and shouldn't block the page from loading.
+            episodeStatesById.Clear();
+        }
+        catch (OperationCanceledException)
+        {
+            // HttpClient cancellation surfaces as OperationCanceledException (TaskCanceledException
+            // derives from it, so this also covers that case) rather than always TaskCanceledException.
+            episodeStatesById.Clear();
+        }
+        catch (JsonException)
+        {
             episodeStatesById.Clear();
         }
     }
@@ -194,7 +227,16 @@ else
         showOnlyUnplayed = !showOnlyUnplayed;
         if (showOnlyUnplayed)
         {
+            // The draggable list is swapped out for a non-draggable one while filtered (see the
+            // markup above), so the JS drag-reorder watcher bound to the old <ul> element must be
+            // torn down here — otherwise OnAfterRenderAsync won't reattach it (guarded by
+            // `_module is not null`) once the draggable list comes back after the filter is toggled off.
+            await DisposeInteropAsync();
             await LoadEpisodeStatesAsync();
+        }
+        else
+        {
+            episodeStatesById.Clear();
         }
     }
 
@@ -202,7 +244,7 @@ else
     {
         // The drag-reorder list only renders for Manual playlists — Dynamic playlists' Items are
         // config-driven (see DynamicPlaylistConfigEditor) and have no draggable list/listElement.
-        if (playlist is not { Type: PlaylistType.Manual, Items.Count: > 0 } || _module is not null)
+        if (playlist is not { Type: PlaylistType.Manual, Items.Count: > 0 } || _module is not null || showOnlyUnplayed)
         {
             return;
         }
@@ -264,7 +306,10 @@ else
         // The config endpoint returns the bare Playlist (no resolved title/artwork) — refresh from
         // the detail endpoint so the recomputed Items show up with their display fields.
         playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
-        await LoadEpisodeStatesAsync();
+        if (showOnlyUnplayed)
+        {
+            await LoadEpisodeStatesAsync();
+        }
     }
 
     [JSInvokable]

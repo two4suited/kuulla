@@ -116,6 +116,32 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void DefersEpisodeStateHydration_UntilOnlyUnplayedFilterEnabled()
+    {
+        var detail = MakeDetail(
+            new PlaylistItemDetail("episode-1", "show-1", "Unplayed Episode", null, DateTimeOffset.UtcNow, "m"),
+            new PlaylistItemDetail("episode-2", "show-1", "Played Episode", null, DateTimeOffset.UtcNow, "n"));
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/playlists/playlist-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) };
+            }
+
+            if (request.RequestUri.AbsolutePath == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                throw new InvalidOperationException("The playlist page should not hydrate episode states until the filter is toggled.");
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Unplayed Episode", cut.Markup));
+    }
+
+    [Fact]
     public void FiltersToUnplayedEpisodes_WhenOnlyUnplayedToggleEnabled()
     {
         var detail = MakeDetail(
@@ -152,6 +178,7 @@ public class PlaylistDetailTests : WebTestContext
         {
             Assert.Contains("Unplayed Episode", cut.Markup);
             Assert.DoesNotContain("Played Episode", cut.Markup);
+            Assert.DoesNotContain("Drag episodes to reorder", cut.Markup);
             Assert.Contains("shows/show-1/episodes/episode-1", cut.Find("a.btn-primary").GetAttribute("href"));
         });
     }
