@@ -204,8 +204,10 @@ else
             // purely a display preference and shouldn't block the page from loading.
             episodeStatesById.Clear();
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
+            // HttpClient cancellation surfaces as OperationCanceledException (TaskCanceledException
+            // derives from it, so this also covers that case) rather than always TaskCanceledException.
             episodeStatesById.Clear();
         }
         catch (JsonException)
@@ -225,6 +227,11 @@ else
         showOnlyUnplayed = !showOnlyUnplayed;
         if (showOnlyUnplayed)
         {
+            // The draggable list is swapped out for a non-draggable one while filtered (see the
+            // markup above), so the JS drag-reorder watcher bound to the old <ul> element must be
+            // torn down here — otherwise OnAfterRenderAsync won't reattach it (guarded by
+            // `_module is not null`) once the draggable list comes back after the filter is toggled off.
+            await DisposeInteropAsync();
             await LoadEpisodeStatesAsync();
         }
         else
