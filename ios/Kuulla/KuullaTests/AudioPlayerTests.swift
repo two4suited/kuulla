@@ -105,4 +105,52 @@ final class AudioPlayerTests: XCTestCase {
     func testShouldTriggerOutroSkipIsFalseBeforeDurationIsKnown() {
         XCTAssertFalse(AudioPlayer.shouldTriggerOutroSkip(currentTime: 0, duration: 0, autoSkipOutroSeconds: 30))
     }
+
+    func testPlayWithoutPlaybackSpeedDefaultsToNormalSpeed() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        XCTAssertEqual(player.playbackSpeed, 1.0)
+    }
+
+    func testPlayWithPlaybackSpeedSeedsPlaybackSpeed() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 1.5)
+
+        XCTAssertEqual(player.playbackSpeed, 1.5)
+    }
+
+    func testSetPlaybackSpeedUpdatesSpeedWhilePlaying() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        player.setPlaybackSpeed(2.0)
+
+        XCTAssertEqual(player.playbackSpeed, 2.0)
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    func testSetPlaybackSpeedDoesNotResumePlaybackWhilePaused() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+        player.pause()
+
+        player.setPlaybackSpeed(2.0)
+
+        XCTAssertEqual(player.playbackSpeed, 2.0)
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    func testResumePreservesPlaybackSpeed() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 1.75)
+        player.pause()
+
+        player.resume()
+
+        XCTAssertEqual(player.playbackSpeed, 1.75)
+        XCTAssertTrue(player.isPlaying)
+    }
 }

@@ -24,6 +24,7 @@ struct EpisodeDetailView: View {
     @State private var isShowingAddToPlaylist = false
     @State private var autoSkipIntroSeconds = 0
     @State private var autoSkipOutroSeconds = 0
+    @State private var playbackSpeed: Float = 1.0
 
     private let catalogClient = PodcastCatalogClient()
     private let settingsClient = SettingsClient()
@@ -146,11 +147,11 @@ struct EpisodeDetailView: View {
         }
 
         loadLocalState()
-        // Skip fetching auto-skip settings when the episode itself failed to load — playback
+        // Skip fetching playback settings when the episode itself failed to load — playback
         // isn't possible without an episode, so there's no reason to wait on (or surface errors
         // from) a settings fetch that won't be used.
         if episode != nil {
-            await loadAutoSkipSettings()
+            await loadPlaybackSettings()
         }
         isLoading = false
     }
@@ -159,9 +160,11 @@ struct EpisodeDetailView: View {
         stateRecord = (try? modelContext.fetch(Self.stateDescriptor(for: episodeId)))?.first
     }
 
-    // Best-effort: auto-skip is a playback nicety, not core functionality, so a failure here
-    // silently falls back to "no auto-skip" (0/0) rather than surfacing an error to the user.
-    private func loadAutoSkipSettings() async {
+    // Best-effort: these are playback niceties, not core functionality, so a failure here
+    // silently falls back to defaults (no auto-skip, normal speed) rather than surfacing an
+    // error to the user. Fetched together since both resolve show-override-else-global from the
+    // same pair of settings documents.
+    private func loadPlaybackSettings() async {
         async let userSettings = try? settingsClient.getSettings()
         async let showSettings = try? settingsClient.getShowSettings(showId: showId)
         let (user, show) = await (userSettings, showSettings)
@@ -169,6 +172,7 @@ struct EpisodeDetailView: View {
         guard !Task.isCancelled else { return }
         autoSkipIntroSeconds = show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0
         autoSkipOutroSeconds = show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0
+        playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
     }
 
     private static func stateDescriptor(for episodeId: String) -> FetchDescriptor<EpisodeStateRecord> {
@@ -197,7 +201,8 @@ struct EpisodeDetailView: View {
             }
             audioPlayer.play(
                 url: url, startPosition: startPosition,
-                autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds))
+                autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
+                playbackSpeed: playbackSpeed)
             startProgressTracking()
         }
     }

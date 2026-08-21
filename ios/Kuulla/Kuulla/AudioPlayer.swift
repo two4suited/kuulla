@@ -29,22 +29,31 @@ final class AudioPlayer {
     // deallocated or seeked to its true end).
     private var hasTriggeredOutroSkip = false
 
+    // The rate played back at. AVPlayer.rate defaults to 1.0 (i.e. play() is just rate = 1), so
+    // this always reflects what's actually driving playback rather than a separately-tracked value.
+    private(set) var playbackSpeed: Float = 1.0
+
     init() {
         configureAudioSession()
     }
 
     func play(
         url: URL, startPosition: TimeInterval = 0,
-        autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0
+        autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
+        playbackSpeed: Float = 1.0
     ) {
         removeObservers()
 
         let item = AVPlayerItem(url: url)
+        // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
+        // without the chipmunk effect a naive rate change would produce.
+        item.audioTimePitchAlgorithm = .timeDomain
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
         currentURL = url
         duration = 0
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
+        self.playbackSpeed = playbackSpeed
         hasTriggeredOutroSkip = false
 
         // Only skip the intro on a fresh start (startPosition 0) — a saved resume position
@@ -56,12 +65,14 @@ final class AudioPlayer {
         // AVPlayer.seek(to:) is asynchronous — calling play() immediately after would let playback
         // start audibly at 0s and then jump once the seek lands. Deferring play() to the seek's
         // completion handler makes resume-from-position actually start at that position.
+        // Setting .rate rather than calling .play() starts playback at the configured speed
+        // directly, instead of starting at 1.0 and then jumping.
         if effectiveStartPosition > 0 {
             newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600)) { [weak newPlayer] _ in
-                newPlayer?.play()
+                newPlayer?.rate = playbackSpeed
             }
         } else {
-            newPlayer.play()
+            newPlayer.rate = playbackSpeed
         }
         isPlaying = true
 
@@ -96,7 +107,8 @@ final class AudioPlayer {
     }
 
     func resume() {
-        player?.play()
+        // .rate rather than .play() so resuming doesn't silently reset speed back to 1.0.
+        player?.rate = playbackSpeed
         isPlaying = true
     }
 
@@ -104,6 +116,16 @@ final class AudioPlayer {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player?.seek(to: cmTime)
         currentTime = time
+    }
+
+    // Changes the rate of the current playback session. No-ops the underlying player when
+    // paused — setting AVPlayer.rate to a nonzero value always (re)starts playback, which would
+    // incorrectly resume a paused episode just because the user changed the speed setting.
+    func setPlaybackSpeed(_ speed: Float) {
+        playbackSpeed = speed
+        if isPlaying {
+            player?.rate = speed
+        }
     }
 
     // Fires the same finish semantics as a natural end-of-file (isPlaying = false,
