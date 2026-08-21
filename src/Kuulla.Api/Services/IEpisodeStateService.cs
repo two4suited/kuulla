@@ -21,6 +21,12 @@ public interface IEpisodeStateService
     Task MarkAutoPlayedAsync(
         string userId, IReadOnlyList<(string EpisodeId, string ShowId)> episodes, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<EpisodeState>> GetShowStatesAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
+    Task SetArchivedAsync(
+        string userId, IReadOnlyList<string> episodeIds, bool archived, CancellationToken cancellationToken);
+
     Task<SyncEpisodesResult> SyncAsync(
         string userId,
         string deviceId,

@@ -31,6 +31,25 @@
                 </select>
             </div>
 
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="auto-archive-rule">Auto-archive played episodes</label>
+                <select id="auto-archive-rule" class="form-select" disabled="@isArchiveSaving"
+                        value="@selectedAutoArchiveRule" @onchange="OnAutoArchiveRuleChangedAsync">
+                    @foreach (var option in AutoArchiveRuleUi.Options)
+                    {
+                        <option value="@option">@AutoArchiveRuleUi.Format(option)</option>
+                    }
+                </select>
+                @if (archiveSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@archiveSaveError</p>
+                }
+                else if (archiveSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
             @if (saveError is not null)
             {
                 <p class="text-danger">@saveError</p>
@@ -54,6 +73,10 @@
     private bool isSaving;
     private string? saveError;
     private bool showSavedConfirmation;
+    private AutoArchiveRule selectedAutoArchiveRule;
+    private bool isArchiveSaving;
+    private string? archiveSaveError;
+    private bool archiveSaveSavedConfirmation;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -73,6 +96,7 @@
         {
             var settings = await SettingsClient.GetSettingsAsync();
             selectedUnlistenedEpisodeCount = settings.UnlistenedEpisodeCount;
+            selectedAutoArchiveRule = settings.AutoArchiveRule;
         }
         catch (HttpRequestException)
         {
@@ -110,6 +134,35 @@
         finally
         {
             isSaving = false;
+        }
+    }
+
+    private async Task OnAutoArchiveRuleChangedAsync(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<AutoArchiveRule>(args.Value?.ToString(), out var value) || !Enum.IsDefined(value))
+        {
+            return;
+        }
+
+        var previous = selectedAutoArchiveRule;
+        selectedAutoArchiveRule = value;
+        isArchiveSaving = true;
+        archiveSaveError = null;
+        archiveSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateAutoArchiveRuleAsync(value);
+            archiveSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedAutoArchiveRule = previous;
+            archiveSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isArchiveSaving = false;
         }
     }
 }

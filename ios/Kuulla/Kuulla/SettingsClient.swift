@@ -24,6 +24,16 @@ struct SettingsClient {
             ["api", "settings", "shows", showId],
             body: UpdateShowSettingsRequest(unlistenedEpisodeCount: value))
     }
+
+    func updateAutoArchiveRule(_ value: AutoArchiveRule) async throws -> UserSettings {
+        try await apiClient.put(["api", "settings", "auto-archive"], body: UpdateAutoArchiveRuleRequest(autoArchiveRule: value))
+    }
+
+    func updateShowAutoArchiveRule(showId: String, value: AutoArchiveRule?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "auto-archive"],
+            body: UpdateShowAutoArchiveRuleRequest(autoArchiveRule: value))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -32,4 +42,12 @@ private struct UpdateSettingsRequest: Encodable {
 
 private struct UpdateShowSettingsRequest: Encodable {
     let unlistenedEpisodeCount: UnlistenedEpisodeCount?
+}
+
+private struct UpdateAutoArchiveRuleRequest: Encodable {
+    let autoArchiveRule: AutoArchiveRule
+}
+
+private struct UpdateShowAutoArchiveRuleRequest: Encodable {
+    let autoArchiveRule: AutoArchiveRule?
 }

@@ -56,17 +56,18 @@ extension EpisodeStatus {
         return Dictionary(uniqueKeysWithValues: records.map { ($0.id, EpisodeStatus(record: $0)) })
     }
 
-    // Status + positionSeconds from a single fetch, for ShowDetailView's filter chips and progress
-    // bar — avoids two separate SwiftData queries over the same record set that statusMap() alone
-    // and a hypothetical separate positionSeconds query would otherwise require.
+    // Status + positionSeconds + archived-flag from a single fetch, for ShowDetailView's filter
+    // chips, progress bar, and auto-archive (#187) visibility filtering — avoids extra SwiftData
+    // queries over the same record set.
     static func statusAndPositionMaps(
         for episodeIds: Set<String>, in context: ModelContext
-    ) -> (statuses: [String: EpisodeStatus], positions: [String: Int]) {
+    ) -> (statuses: [String: EpisodeStatus], positions: [String: Int], archived: Set<String>) {
         let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { episodeIds.contains($0.id) })
         let records = (try? context.fetch(descriptor)) ?? []
         let statuses = Dictionary(uniqueKeysWithValues: records.map { ($0.id, EpisodeStatus(record: $0)) })
         let positions = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0.positionSeconds) })
-        return (statuses, positions)
+        let archived = Set(records.filter(\.archived).map(\.id))
+        return (statuses, positions, archived)
     }
 }
 

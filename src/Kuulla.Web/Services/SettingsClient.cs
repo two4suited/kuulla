@@ -44,4 +44,25 @@ public class SettingsClient(KuullaApiClient apiClient)
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
     }
+
+    public async Task<UserSettings> UpdateAutoArchiveRuleAsync(
+        AutoArchiveRule autoArchiveRule, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/auto-archive", new { AutoArchiveRule = autoArchiveRule }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowAutoArchiveRuleAsync(
+        string showId, AutoArchiveRule? autoArchiveRule, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/auto-archive",
+            new { AutoArchiveRule = autoArchiveRule }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
 }

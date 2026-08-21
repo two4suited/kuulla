@@ -209,6 +209,31 @@ public class EpisodeService(
         await episodeStateService.MarkAutoPlayedAsync(userId, toMark, cancellationToken);
     }
 
+    // Archiving is purely a visibility flag on EpisodeState (#187) — it hides played episodes
+    // from active lists once the effective rule's delay has elapsed since they were played, and
+    // never un-archives (a later rule change to Never just stops archiving anything new; it
+    // doesn't retroactively unhide episodes already archived under a stricter rule).
+    public async Task EnforceAutoArchiveRuleAsync(string userId, string showId, CancellationToken cancellationToken)
+    {
+        var rule = await settingsService.GetEffectiveAutoArchiveRuleAsync(userId, showId, cancellationToken);
+        if (rule == AutoArchiveRule.Never)
+        {
+            return;
+        }
+
+        var delay = rule.ArchiveDelay();
+        var now = DateTimeOffset.UtcNow;
+        var states = await episodeStateService.GetShowStatesAsync(userId, showId, cancellationToken);
+
+        var toArchive = states
+            .Where(state => state.Completed && !state.Archived && state.PlayedAt is not null)
+            .Where(state => now - state.PlayedAt!.Value >= delay)
+            .Select(state => state.EpisodeId)
+            .ToList();
+
+        await episodeStateService.SetArchivedAsync(userId, toArchive, archived: true, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Episode>> GetAllEpisodesOrderedAsync(string showId, CancellationToken cancellationToken)
     {
         var queryDefinition = new QueryDefinition(

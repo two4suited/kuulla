@@ -10,4 +10,6 @@ public record EpisodeState(
     bool Completed,
     DateTimeOffset UpdatedAt,
     string? DeviceId,
-    bool AutoPlayed = false);
+    bool AutoPlayed = false,
+    DateTimeOffset? PlayedAt = null,
+    bool Archived = false);

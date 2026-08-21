@@ -461,6 +461,7 @@ episodeState.MapPut("/{id}/state", async (
     UpdateEpisodeStateRequest request,
     ClaimsPrincipal user,
     IEpisodeStateService episodeStateService,
+    IEpisodeService episodeService,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.ShowId))
@@ -476,6 +477,19 @@ episodeState.MapPut("/{id}/state", async (
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await episodeStateService.UpdateStateAsync(
         userId, id, request.ShowId, request.PositionSeconds, request.Completed, request.DeviceId, ct);
+
+    // Best-effort, same rationale as the settings-update enforcement calls below: a transient
+    // failure here shouldn't turn a successful state update into a 5xx, and it self-heals next
+    // time this episode's state changes or the show's auto-archive rule is re-evaluated.
+    try
+    {
+        await episodeService.EnforceAutoArchiveRuleAsync(userId, request.ShowId, ct);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after an episode state update", userId, request.ShowId);
+    }
+
     return Results.Ok(result);
 });
 
@@ -669,6 +683,7 @@ sync.MapPost("/episodes", async (
     SyncEpisodesRequest request,
     ClaimsPrincipal user,
     IEpisodeStateService episodeStateService,
+    IEpisodeService episodeService,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.DeviceId))
@@ -693,6 +708,23 @@ sync.MapPost("/episodes", async (
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await episodeStateService.SyncAsync(
         userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, changes, ct);
+
+    // Best-effort, mirrors the direct PUT /api/episodes/{id}/state hook: a client-driven "played"
+    // sync (e.g. iOS, which only ever writes via this push endpoint, never the PUT above) should
+    // still trigger auto-archive enforcement for any shows it touched. Self-heals next sync.
+    var affectedShowIds = changes.Where(c => c.Completed).Select(c => c.ShowId).Distinct();
+    foreach (var showId in affectedShowIds)
+    {
+        try
+        {
+            await episodeService.EnforceAutoArchiveRuleAsync(userId, showId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after an episode sync", userId, showId);
+        }
+    }
+
     return Results.Ok(result);
 });
 
@@ -801,6 +833,71 @@ settings.MapPut("/shows/{showId}", async (
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
         app.Logger.LogError(ex, "Failed to enforce unlistened-episode limit for user {UserId} on show {ShowId} after a per-show settings update", userId, showId);
+    }
+
+    return Results.Ok(result);
+});
+
+settings.MapPut("/auto-archive", async (
+    UpdateAutoArchiveRuleRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    ISubscriptionService subscriptionService,
+    IEpisodeService episodeService,
+    CancellationToken ct) =>
+{
+    if (!Enum.IsDefined(request.AutoArchiveRule))
+    {
+        return Results.BadRequest(new { error = "'autoArchiveRule' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateAutoArchiveRuleAsync(userId, request.AutoArchiveRule, ct);
+
+    // The new global rule only takes effect for shows without a per-show override, but
+    // re-running enforcement for every subscribed show is simpler than filtering to those
+    // without one — EnforceAutoArchiveRuleAsync is a no-op for shows whose effective rule is
+    // Never. Best-effort, same rationale as the unlistened-episode-limit endpoint above.
+    try
+    {
+        var subscriptions = await subscriptionService.GetSubscriptionsAsync(userId, ct);
+        await Parallel.ForEachAsync(
+            subscriptions,
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = ct },
+            (subscription, token) => new ValueTask(episodeService.EnforceAutoArchiveRuleAsync(userId, subscription.ShowId, token)));
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} after a global settings update", userId);
+    }
+
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/auto-archive", async (
+    string showId,
+    UpdateShowAutoArchiveRuleRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    IEpisodeService episodeService,
+    CancellationToken ct) =>
+{
+    if (request.AutoArchiveRule is { } value && !Enum.IsDefined(value))
+    {
+        return Results.BadRequest(new { error = "'autoArchiveRule' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowAutoArchiveRuleAsync(userId, showId, request.AutoArchiveRule, ct);
+
+    // Best-effort, same rationale as the global auto-archive endpoint above.
+    try
+    {
+        await episodeService.EnforceAutoArchiveRuleAsync(userId, showId, ct);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after a per-show settings update", userId, showId);
     }
 
     return Results.Ok(result);

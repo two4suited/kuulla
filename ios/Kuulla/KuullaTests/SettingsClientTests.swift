@@ -72,4 +72,60 @@ final class SettingsClientTests: MockedApiTestCase {
         let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
         XCTAssertTrue(requestedURL.absoluteString.contains("a%2Fb"))
     }
+
+    func testGetSettingsDefaultsAutoArchiveRuleToNeverWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertEqual(settings.autoArchiveRule, .never)
+    }
+
+    func testUpdateAutoArchiveRuleSendsPutWithIntegerBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"autoArchiveRule":3}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateAutoArchiveRule(.after7Days)
+
+        XCTAssertEqual(updated.autoArchiveRule, .after7Days)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/auto-archive"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["autoArchiveRule"] as? Int, 3)
+    }
+
+    func testGetShowSettingsDecodesNullAutoArchiveRuleOverrideAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1,"autoArchiveRule":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.autoArchiveRule)
+    }
+
+    func testUpdateShowAutoArchiveRuleClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"autoArchiveRule":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let updated = try await client.updateShowAutoArchiveRule(showId: "s1", value: nil)
+
+        XCTAssertNil(updated.autoArchiveRule)
+        XCTAssertEqual(updated.version, 3)
+    }
 }

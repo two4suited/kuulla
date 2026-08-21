@@ -30,6 +30,7 @@
 		A1000021 /* SettingsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022; };
 		A1000023 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024; };
 		A1000024 /* ShowSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
+		M1000001 /* AutoArchiveRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = M2000001; };
 		F1000001 /* Syncable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001; };
 		F1000002 /* SyncCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000002; };
 		F1000003 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000003; };
@@ -116,6 +117,7 @@
 		A2000022 /* SettingsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClient.swift; sourceTree = "<group>"; };
 		A2000024 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A2000025 /* ShowSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsSheet.swift; sourceTree = "<group>"; };
+		M2000001 /* AutoArchiveRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoArchiveRule.swift; sourceTree = "<group>"; };
 		F2000001 /* Syncable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syncable.swift; sourceTree = "<group>"; };
 		F2000002 /* SyncCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCursor.swift; sourceTree = "<group>"; };
 		F2000003 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
@@ -196,6 +198,7 @@
 				A2000022 /* SettingsClient.swift */,
 				A2000024 /* SettingsView.swift */,
 				A2000025 /* ShowSettingsSheet.swift */,
+				M2000001 /* AutoArchiveRule.swift */,
 				F2000001 /* Syncable.swift */,
 				F2000002 /* SyncCursor.swift */,
 				F2000003 /* SyncEngine.swift */,
@@ -383,6 +386,7 @@
 				A1000021,
 				A1000023,
 				A1000024,
+				M1000001,
 				F1000001,
 				F1000002,
 				F1000003,

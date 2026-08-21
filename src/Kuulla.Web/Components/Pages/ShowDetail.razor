@@ -83,6 +83,26 @@ else
                             <p class="text-success mt-1 mb-0">Saved.</p>
                         }
                     </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-auto-archive-rule">Auto-archive played episodes</label>
+                        <select id="show-auto-archive-rule" class="form-select" disabled="@isShowArchiveSettingsSaving"
+                                value="@ShowArchiveSettingsSelectValue" @onchange="OnShowAutoArchiveRuleChangedAsync">
+                            <option value="">Use global default</option>
+                            @foreach (var option in AutoArchiveRuleUi.Options)
+                            {
+                                <option value="@option">@AutoArchiveRuleUi.Format(option)</option>
+                            }
+                        </select>
+                        @if (showArchiveSettingsError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showArchiveSettingsError</p>
+                        }
+                        else if (showArchiveSettingsSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
                 </Authorized>
             </AuthorizeView>
         </div>
@@ -235,6 +255,10 @@ else
     private bool isShowSettingsSaving;
     private string? showSettingsError;
     private bool showSettingsSavedConfirmation;
+    private AutoArchiveRule? showAutoArchiveRuleOverride;
+    private bool isShowArchiveSettingsSaving;
+    private string? showArchiveSettingsError;
+    private bool showArchiveSettingsSavedConfirmation;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
     private readonly HashSet<string> restoringEpisodeIds = [];
     private readonly HashSet<string> togglingEpisodeIds = [];
@@ -249,18 +273,24 @@ else
 
     private string ShowSettingsSelectValue => showUnlistenedEpisodeCountOverride?.ToString() ?? "";
 
+    private string ShowArchiveSettingsSelectValue => showAutoArchiveRuleOverride?.ToString() ?? "";
+
     // Filter/sort apply to whatever pages have been fetched so far — the API only supports
     // date-ordered continuation paging, not server-side filtering, so "Load more" always fetches
     // the next raw page regardless of the active filter (see LoadMoreEpisodesAsync).
+    // Archived episodes are excluded from every filter, including "All" — auto-archiving is
+    // meant to hide played episodes from the active list entirely (#187); there's no separate
+    // "Archived" view yet to surface them.
     private List<Episode> DisplayedEpisodes
     {
         get
         {
+            IEnumerable<Episode> active = episodes.Where(e => !IsArchived(e));
             IEnumerable<Episode> filtered = selectedFilter switch
             {
-                EpisodeFilter.Unplayed => episodes.Where(IsUnplayed),
-                EpisodeFilter.InProgress => episodes.Where(IsInProgress),
-                _ => episodes,
+                EpisodeFilter.Unplayed => active.Where(IsUnplayed),
+                EpisodeFilter.InProgress => active.Where(IsInProgress),
+                _ => active,
             };
 
             return (selectedSort == EpisodeSortOrder.OldestFirst ? filtered.Reverse() : filtered).ToList();
@@ -268,6 +298,8 @@ else
     }
 
     private EpisodeState? GetState(string episodeId) => episodeStatesById.GetValueOrDefault(episodeId);
+
+    private bool IsArchived(Episode episode) => GetState(episode.Id)?.Archived == true;
 
     private bool IsUnplayed(Episode episode)
     {
@@ -329,6 +361,10 @@ else
         isShowSettingsSaving = false;
         showSettingsError = null;
         showSettingsSavedConfirmation = false;
+        showAutoArchiveRuleOverride = null;
+        isShowArchiveSettingsSaving = false;
+        showArchiveSettingsError = null;
+        showArchiveSettingsSavedConfirmation = false;
         episodeStatesById.Clear();
         restoringEpisodeIds.Clear();
         togglingEpisodeIds.Clear();
@@ -369,6 +405,7 @@ else
         {
             var settings = await SettingsClient.GetShowSettingsAsync(Id);
             showUnlistenedEpisodeCountOverride = settings.UnlistenedEpisodeCount;
+            showAutoArchiveRuleOverride = settings.AutoArchiveRule;
         }
         catch (HttpRequestException)
         {
@@ -412,6 +449,45 @@ else
         finally
         {
             isShowSettingsSaving = false;
+        }
+    }
+
+    private async Task OnShowAutoArchiveRuleChangedAsync(ChangeEventArgs args)
+    {
+        var raw = args.Value?.ToString();
+        AutoArchiveRule? value;
+        if (string.IsNullOrEmpty(raw))
+        {
+            value = null;
+        }
+        else if (Enum.TryParse(raw, out AutoArchiveRule parsed) && Enum.IsDefined(parsed))
+        {
+            value = parsed;
+        }
+        else
+        {
+            return;
+        }
+
+        var previous = showAutoArchiveRuleOverride;
+        showAutoArchiveRuleOverride = value;
+        isShowArchiveSettingsSaving = true;
+        showArchiveSettingsError = null;
+        showArchiveSettingsSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowAutoArchiveRuleAsync(Id, value);
+            showArchiveSettingsSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showAutoArchiveRuleOverride = previous;
+            showArchiveSettingsError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowArchiveSettingsSaving = false;
         }
     }
 

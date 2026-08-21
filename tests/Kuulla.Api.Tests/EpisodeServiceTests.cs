@@ -320,4 +320,79 @@ public class EpisodeServiceTests
         _subscriptionsContainer.Verify(
             c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null), Times.Never);
     }
+
+    [Fact]
+    public async Task EnforceAutoArchiveRuleAsync_DoesNothingWhenRuleIsNever()
+    {
+        _settingsService
+            .Setup(s => s.GetEffectiveAutoArchiveRuleAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AutoArchiveRule.Never);
+
+        await _sut.EnforceAutoArchiveRuleAsync(UserId, ShowId, CancellationToken.None);
+
+        _episodeStateService.Verify(
+            s => s.GetShowStatesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task EnforceAutoArchiveRuleAsync_ArchivesPlayedEpisodesImmediatelyUnderAfterPlayedRule()
+    {
+        _settingsService
+            .Setup(s => s.GetEffectiveAutoArchiveRuleAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AutoArchiveRule.AfterPlayed);
+        var played = new EpisodeState("ep-1", UserId, "ep-1", ShowId, 0, true, DateTimeOffset.UtcNow, PlayedAt: DateTimeOffset.UtcNow);
+        var unplayed = new EpisodeState("ep-2", UserId, "ep-2", ShowId, 0, false, DateTimeOffset.UtcNow);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { played, unplayed });
+
+        await _sut.EnforceAutoArchiveRuleAsync(UserId, ShowId, CancellationToken.None);
+
+        _episodeStateService.Verify(
+            s => s.SetArchivedAsync(
+                UserId, It.Is<IReadOnlyList<string>>(list => list.SequenceEqual(new[] { "ep-1" })), true, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task EnforceAutoArchiveRuleAsync_SkipsEpisodesNotYetPastTheDelay()
+    {
+        _settingsService
+            .Setup(s => s.GetEffectiveAutoArchiveRuleAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AutoArchiveRule.After7Days);
+        var recentlyPlayed = new EpisodeState(
+            "ep-1", UserId, "ep-1", ShowId, 0, true, DateTimeOffset.UtcNow, PlayedAt: DateTimeOffset.UtcNow.AddDays(-1));
+        var longPlayed = new EpisodeState(
+            "ep-2", UserId, "ep-2", ShowId, 0, true, DateTimeOffset.UtcNow, PlayedAt: DateTimeOffset.UtcNow.AddDays(-8));
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { recentlyPlayed, longPlayed });
+
+        await _sut.EnforceAutoArchiveRuleAsync(UserId, ShowId, CancellationToken.None);
+
+        _episodeStateService.Verify(
+            s => s.SetArchivedAsync(
+                UserId, It.Is<IReadOnlyList<string>>(list => list.SequenceEqual(new[] { "ep-2" })), true, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task EnforceAutoArchiveRuleAsync_SkipsAlreadyArchivedEpisodes()
+    {
+        _settingsService
+            .Setup(s => s.GetEffectiveAutoArchiveRuleAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AutoArchiveRule.AfterPlayed);
+        var alreadyArchived = new EpisodeState(
+            "ep-1", UserId, "ep-1", ShowId, 0, true, DateTimeOffset.UtcNow, PlayedAt: DateTimeOffset.UtcNow, Archived: true);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { alreadyArchived });
+
+        await _sut.EnforceAutoArchiveRuleAsync(UserId, ShowId, CancellationToken.None);
+
+        _episodeStateService.Verify(
+            s => s.SetArchivedAsync(
+                It.IsAny<string>(), It.Is<IReadOnlyList<string>>(list => list.Count == 0), true, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
 }

@@ -13,10 +13,13 @@ namespace Kuulla.Api.Models;
 public record UserSettings(
     [property: JsonProperty("id")] string UserId,
     UnlistenedEpisodeCount UnlistenedEpisodeCount,
-    int Version)
+    int Version,
+    // Never is the safe, non-destructive default — auto-archiving is opt-in rather than
+    // surprising a user by hiding played episodes they never asked to have hidden.
+    AutoArchiveRule AutoArchiveRule = AutoArchiveRule.Never)
 {
     public static UserSettings CreateDefault(string userId) =>
-        new(userId, UnlistenedEpisodeCount.Five, Version: 1);
+        new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization
