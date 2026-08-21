@@ -84,7 +84,8 @@ struct ShowDetailView: View {
                                         positionSeconds: positionSecondsByEpisodeId[episode.id] ?? 0,
                                         duration: episode.duration)
                                     : nil,
-                                onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } })
+                                onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
+                                onToggleCompleted: { Task { await toggleCompleted(episode: episode) } })
                         }
                         .accessibilityIdentifier("episode-row")
                         .swipeActions(edge: .trailing) {
@@ -259,6 +260,39 @@ struct ShowDetailView: View {
         positionSecondsByEpisodeId[episodeId] = restored.positionSeconds
     }
 
+    private func toggleCompleted(episode: Episode) async {
+        guard let syncEngine else { return }
+        let episodeId = episode.id
+        let currentStatus = statusByEpisodeId[episodeId] ?? .new
+        let shouldComplete = currentStatus != .played
+        let positionSeconds = shouldComplete ? Int(episode.duration ?? 0) : (positionSecondsByEpisodeId[episodeId] ?? 0)
+
+        do {
+            try await syncEngine.write { context in
+                let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
+                if let existing = try context.fetch(descriptor).first {
+                    existing.showId = showId
+                    existing.positionSeconds = positionSeconds
+                    existing.completed = shouldComplete
+                    existing.updatedAt = Date()
+                    existing.autoPlayed = false
+                    existing.isDirty = true
+                } else {
+                    context.insert(EpisodeStateRecord(
+                        id: episodeId, showId: showId, positionSeconds: positionSeconds,
+                        completed: shouldComplete, updatedAt: Date(), isDirty: true))
+                }
+            }
+            let updated = EpisodeStateRecord(
+                id: episodeId, showId: showId, positionSeconds: positionSeconds,
+                completed: shouldComplete, updatedAt: Date())
+            statusByEpisodeId[episodeId] = EpisodeStatus(record: updated)
+            positionSecondsByEpisodeId[episodeId] = updated.positionSeconds
+        } catch {
+            assertionFailure("Failed to toggle episode completion: \(episodeId): \(error)")
+        }
+    }
+
     private var filterAndSortControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -359,6 +393,7 @@ private struct EpisodeRow: View {
     let status: EpisodeStatus
     let progressFraction: Double?
     let onRestore: () -> Void
+    let onToggleCompleted: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -398,7 +433,16 @@ private struct EpisodeRow: View {
 
             Spacer()
 
-            StatusBadgeWithRestore(status: status, onRestore: onRestore)
+            VStack(alignment: .trailing, spacing: 6) {
+                if status == .autoPlayed {
+                    StatusBadgeWithRestore(status: status, onRestore: onRestore)
+                } else {
+                    StatusBadge(status: status)
+                    Button(status == .played ? "Mark as Unplayed" : "Mark as Played", action: onToggleCompleted)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
         }
     }
 }

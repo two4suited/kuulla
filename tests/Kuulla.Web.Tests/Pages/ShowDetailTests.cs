@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Kuulla.Web.Components.Pages;
 using Kuulla.Web.Models;
 
@@ -46,9 +47,22 @@ public class ShowDetailTests : WebTestContext
 
             if (path == "/api/episodes/ep-1/state" && request.Method == HttpMethod.Put)
             {
+                bool completed;
+                if (request.Content is null)
+                {
+                    completed = false;
+                }
+                else
+                {
+                    using var payload = JsonDocument.Parse(request.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+                    completed = payload.RootElement.TryGetProperty("completed", out var completedProperty)
+                        && completedProperty.GetBoolean();
+                }
+
+                var positionSeconds = completed ? 1200 : 0;
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = JsonContent.Create(new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, false, DateTimeOffset.UtcNow, "web", AutoPlayed: false)),
+                    Content = JsonContent.Create(new EpisodeState("ep-1", "user-1", "ep-1", "show-1", positionSeconds, completed, DateTimeOffset.UtcNow, "web", AutoPlayed: false)),
                 };
             }
 
@@ -173,6 +187,27 @@ public class ShowDetailTests : WebTestContext
         {
             Assert.Contains("Unsubscribe", cut.Markup);
             Assert.DoesNotContain("Something went wrong", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void ShowsManualMarkAsPlayedButton_FromEpisodeList()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Mark as played", cut.Markup));
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Mark as played", cut.Markup));
+
+        cut.FindAll("button.btn-outline-secondary").Single(b => b.TextContent.Trim() == "Mark as played").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Mark as unplayed", cut.Markup);
+            Assert.Contains("Played", cut.Markup);
         });
     }
 
