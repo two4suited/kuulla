@@ -1085,7 +1085,10 @@ const float PlaybackSpeedStep = 0.1f;
 
 bool TryValidatePlaybackSpeed(float speed, string fieldName, out string? error)
 {
-    if (speed < MinPlaybackSpeed || speed > MaxPlaybackSpeed)
+    // NaN/Infinity compare false against both bounds below (NaN against anything, Infinity
+    // against MaxPlaybackSpeed only in the ">" direction it needs), so they'd otherwise slip
+    // through the range check entirely — reject them explicitly up front.
+    if (float.IsNaN(speed) || float.IsInfinity(speed) || speed < MinPlaybackSpeed || speed > MaxPlaybackSpeed)
     {
         error = $"'{fieldName}' must be between {MinPlaybackSpeed} and {MaxPlaybackSpeed}.";
         return false;
@@ -1093,9 +1096,12 @@ bool TryValidatePlaybackSpeed(float speed, string fieldName, out string? error)
 
     // Round-trip through the 0.1 grid rather than a raw modulo check, which is unreliable for
     // floats (e.g. 2.3 % 0.1 doesn't cleanly land on 0 due to binary floating-point rounding).
+    // The tolerance only needs to absorb float round-off (~1e-6 over this range), not real
+    // off-grid input like 0.5009 — kept well below half a step (0.05) so it can't accept a
+    // neighboring grid value by mistake.
     var steps = MathF.Round((speed - MinPlaybackSpeed) / PlaybackSpeedStep);
     var nearestOnGrid = MinPlaybackSpeed + (steps * PlaybackSpeedStep);
-    if (MathF.Abs(speed - nearestOnGrid) > 0.001f)
+    if (MathF.Abs(speed - nearestOnGrid) > 0.0001f)
     {
         error = $"'{fieldName}' must be in increments of {PlaybackSpeedStep}.";
         return false;
