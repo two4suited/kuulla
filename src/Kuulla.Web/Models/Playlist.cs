@@ -25,10 +25,11 @@ public enum PlaylistType
     Dynamic,
 }
 
-// Web-side mirror of Kuulla.Api.Models.DynamicPlaylistConfig's wire shape.
+// Web-side mirror of Kuulla.Api.Models.DynamicPlaylistConfig's wire shape. MaxEpisodes is nullable
+// — null means unlimited.
 public record DynamicPlaylistConfig(
     IReadOnlyList<string> ShowIds,
-    int MaxEpisodes,
+    int? MaxEpisodes,
     IReadOnlyList<string> PriorityList);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistDetail's wire shape — GET /api/playlists/{id}'s

@@ -621,7 +621,7 @@ static string? ValidateDynamicPlaylistConfig(DynamicPlaylistConfig config)
         return "'priorityList' must not be empty.";
     }
 
-    if (config.MaxEpisodes <= 0)
+    if (config.MaxEpisodes is <= 0)
     {
         return "'maxEpisodes' must be positive.";
     }

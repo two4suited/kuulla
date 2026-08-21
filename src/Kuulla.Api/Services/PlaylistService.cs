@@ -81,6 +81,14 @@ public class PlaylistService(
     // Shared by CreateDynamicPlaylistAsync/UpdateDynamicPlaylistConfigAsync/
     // RecomputeDynamicPlaylistAsync — see IPlaylistService.RecomputeDynamicPlaylistAsync for why
     // this full-rebuild logic is factored out as its own method rather than inlined.
+    // Playlists are stored as a single Cosmos document with Items embedded inline (see Playlist's
+    // doc comment), which caps out at Cosmos's 2MB item size limit. MaxEpisodes is user-facing and
+    // optional (null = "no limit the user asked for"), but an unbounded playlist over several
+    // high-volume shows could still blow past that document limit and fail to save. This safety
+    // cap is the ceiling applied when the user didn't set one — high enough that no real playlist
+    // hits it, low enough to stay comfortably under the document size limit.
+    private const int UnboundedSafetyCap = 2000;
+
     private async Task<IReadOnlyList<PlaylistItem>> ComputeDynamicItemsAsync(
         DynamicPlaylistConfig config, CancellationToken cancellationToken)
     {
@@ -92,10 +100,13 @@ public class PlaylistService(
             (showId, episodes: await episodeService.GetAllEpisodesOrderedAsync(showId, cancellationToken))));
 
         var addedAt = DateTimeOffset.UtcNow;
+
+        // MaxEpisodes is optional — no explicit cap still applies UnboundedSafetyCap (see its doc
+        // comment) rather than truly no limit.
         var ordered = episodesByShow
             .OrderBy(x => showRank.TryGetValue(x.showId, out var rank) ? rank : int.MaxValue)
             .SelectMany(x => x.episodes.Select(episode => (x.showId, episode)))
-            .Take(config.MaxEpisodes);
+            .Take(config.MaxEpisodes ?? UnboundedSafetyCap);
 
         var items = new List<PlaylistItem>();
         string? previousOrder = null;

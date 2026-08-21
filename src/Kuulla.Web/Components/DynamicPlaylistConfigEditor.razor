@@ -16,7 +16,8 @@ else
 {
     <div class="mb-3">
         <label class="form-label">Max episodes</label>
-        <input type="number" min="1" class="form-control" style="max-width: 8rem;" @bind="maxEpisodes" />
+        <input type="number" min="1" class="form-control" style="max-width: 8rem;" placeholder="Unlimited" @bind="maxEpisodes" />
+        <div class="form-text">Leave blank to include every episode from every podcast added below.</div>
     </div>
 
     <div class="mb-3">
@@ -70,7 +71,7 @@ else
     public IReadOnlyList<string> InitialShowIds { get; set; } = [];
 
     [Parameter]
-    public int InitialMaxEpisodes { get; set; } = 20;
+    public int? InitialMaxEpisodes { get; set; }
 
     [Parameter, EditorRequired]
     public string SaveLabel { get; set; } = "Save";
@@ -82,7 +83,7 @@ else
 
     private List<Subscription> subscriptions = [];
     private List<string> priorityList = [];
-    private int maxEpisodes;
+    private int? maxEpisodes;
     private string pendingShowId = "";
     private bool isLoadingSubscriptions;
     private string? subscriptionsError;
