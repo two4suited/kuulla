@@ -16,10 +16,14 @@ public record UserSettings(
     int Version,
     // Never is the safe, non-destructive default — auto-archiving is opt-in rather than
     // surprising a user by hiding played episodes they never asked to have hidden.
-    AutoArchiveRule AutoArchiveRule = AutoArchiveRule.Never)
+    AutoArchiveRule AutoArchiveRule = AutoArchiveRule.Never,
+    // 0 = off for both, so auto-skip is opt-in and playback is unmodified until a user sets a
+    // non-zero value, matching AutoArchiveRule's opt-in-by-default convention above.
+    int AutoSkipIntroSeconds = 0,
+    int AutoSkipOutroSeconds = 0)
 {
     public static UserSettings CreateDefault(string userId) =>
-        new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never);
+        new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization

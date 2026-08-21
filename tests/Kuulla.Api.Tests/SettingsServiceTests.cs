@@ -249,4 +249,91 @@ public class SettingsServiceTests
 
         Assert.Equal(AutoArchiveRule.AfterPlayed, result);
     }
+
+    [Fact]
+    public async Task UpdateAutoSkipAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateAutoSkipAsync(UserId, 15, 30, CancellationToken.None);
+
+        Assert.Equal(15, result.AutoSkipIntroSeconds);
+        Assert.Equal(30, result.AutoSkipOutroSeconds);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowAutoSkipAsync_ClearsOverrideWhenValuesAreNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(
+            id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2,
+            AutoArchiveRule: null, AutoSkipIntroSeconds: 10, AutoSkipOutroSeconds: 20);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowAutoSkipAsync(UserId, showId, null, null, CancellationToken.None);
+
+        Assert.Null(result.AutoSkipIntroSeconds);
+        Assert.Null(result.AutoSkipOutroSeconds);
+        Assert.Equal(3, result.Version);
+    }
+
+    [Fact]
+    public async Task GetEffectiveAutoSkipAsync_ReturnsShowOverrideWhenSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2,
+            AutoArchiveRule: null, AutoSkipIntroSeconds: 12, AutoSkipOutroSeconds: 25);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+        var userSettings = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 1);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveAutoSkipAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(12, result.IntroSeconds);
+        Assert.Equal(25, result.OutroSeconds);
+    }
+
+    [Fact]
+    public async Task GetEffectiveAutoSkipAsync_FallsBackToUserSettingsPerFieldWhenNoOverride()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        // Only intro is overridden; outro should still fall back to the global default.
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2,
+            AutoArchiveRule: null, AutoSkipIntroSeconds: 12, AutoSkipOutroSeconds: null);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+        var userSettings = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1,
+            AutoArchiveRule.Never, AutoSkipIntroSeconds: 5, AutoSkipOutroSeconds: 40);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveAutoSkipAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(12, result.IntroSeconds);
+        Assert.Equal(40, result.OutroSeconds);
+    }
 }
