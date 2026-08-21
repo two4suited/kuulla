@@ -4,6 +4,7 @@
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject PlaylistClient PlaylistClient
+@inject EpisodeStateClient EpisodeStateClient
 @inject IJSRuntime JS
 
 <PageTitle>@(playlist?.Name ?? "Playlist")</PageTitle>
@@ -24,11 +25,19 @@ else
 {
     <div class="d-flex align-items-center justify-content-between mb-4">
         <h1 class="mb-0">@playlist.Name</h1>
-        @if (playlist.Items.Count > 0)
+        @if (VisibleItems.Count > 0)
         {
-            var first = playlist.Items[0];
+            var first = VisibleItems[0];
             <a class="btn btn-primary" href="@($"shows/{first.ShowId}/episodes/{first.EpisodeId}")">Play</a>
         }
+    </div>
+
+    <div class="d-flex justify-content-end mb-3">
+        <button type="button" class="btn btn-sm @(showOnlyUnplayed ? "btn-primary" : "btn-outline-primary")"
+                aria-pressed="@showOnlyUnplayed"
+                @onclick="ToggleOnlyUnplayedAsync">
+            @(showOnlyUnplayed ? "Showing unplayed only" : "Only unplayed")
+        </button>
     </div>
 
     @if (playlist.Type == PlaylistType.Dynamic)
@@ -39,14 +48,14 @@ else
             SaveLabel="Save Changes"
             OnSave="SaveDynamicConfigAsync" />
 
-        @if (playlist.Items.Count == 0)
+        @if (VisibleItems.Count == 0)
         {
-            <p class="mt-3">No episodes match this playlist's rules yet.</p>
+            <p class="mt-3">@(showOnlyUnplayed ? "No unplayed episodes match this playlist's rules yet." : "No episodes match this playlist's rules yet.")</p>
         }
         else
         {
             <ul class="list-group mt-3">
-                @foreach (var item in playlist.Items)
+                @foreach (var item in VisibleItems)
                 {
                     <li class="list-group-item d-flex align-items-center gap-3">
                         @if (!string.IsNullOrEmpty(item.ArtworkUrl))
@@ -61,16 +70,16 @@ else
             </ul>
         }
     }
-    else if (playlist.Items.Count == 0)
+    else if (VisibleItems.Count == 0)
     {
-        <p>This playlist is empty. Add episodes to it from a show or episode page.</p>
+        <p>@(showOnlyUnplayed ? "No unplayed episodes are in this playlist." : "This playlist is empty. Add episodes to it from a show or episode page.")</p>
     }
     else
     {
         <p class="text-muted small">Drag episodes to reorder.</p>
 
         <ul class="list-group mb-3" @ref="listElement">
-            @foreach (var item in playlist.Items)
+            @foreach (var item in VisibleItems)
             {
                 <li class="list-group-item d-flex align-items-center gap-3" draggable="true" data-episode-id="@item.EpisodeId" style="cursor: grab;">
                     @if (!string.IsNullOrEmpty(item.ArtworkUrl))
@@ -106,6 +115,15 @@ else
     private string? loadError;
     private readonly HashSet<string> busyEpisodeIds = [];
     private string? mutationError;
+    private bool showOnlyUnplayed;
+    private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
+
+    private List<Kuulla.Web.Models.PlaylistItemDetail> VisibleItems =>
+        playlist is null
+            ? []
+            : playlist.Items
+                .Where(item => !showOnlyUnplayed || IsUnplayed(item))
+                .ToList();
 
     private ElementReference listElement;
     private IJSObjectReference? _module;
@@ -120,11 +138,14 @@ else
         loadError = null;
         mutationError = null;
         busyEpisodeIds.Clear();
+        episodeStatesById.Clear();
+        showOnlyUnplayed = false;
 
         isLoading = true;
         try
         {
             playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
+            await LoadEpisodeStatesAsync();
         }
         catch (HttpRequestException)
         {
@@ -133,6 +154,47 @@ else
         finally
         {
             isLoading = false;
+        }
+    }
+
+    private async Task LoadEpisodeStatesAsync()
+    {
+        if (playlist is null || playlist.Items.Count == 0)
+        {
+            episodeStatesById.Clear();
+            return;
+        }
+
+        var episodeIds = playlist.Items.Select(item => item.EpisodeId).Distinct().ToList();
+        try
+        {
+            var states = await EpisodeStateClient.GetStatesAsync(episodeIds);
+            episodeStatesById.Clear();
+            foreach (var state in states)
+            {
+                episodeStatesById[state.Key] = state.Value;
+            }
+        }
+        catch (Exception)
+        {
+            // Playlist rendering should still work even if state hydration fails, since this filter is
+            // purely a display preference and shouldn't block the page from loading.
+            episodeStatesById.Clear();
+        }
+    }
+
+    private bool IsUnplayed(Kuulla.Web.Models.PlaylistItemDetail item)
+    {
+        var state = episodeStatesById.GetValueOrDefault(item.EpisodeId);
+        return state is null || (!state.AutoPlayed && !state.Completed && state.PositionSeconds == 0);
+    }
+
+    private async Task ToggleOnlyUnplayedAsync()
+    {
+        showOnlyUnplayed = !showOnlyUnplayed;
+        if (showOnlyUnplayed)
+        {
+            await LoadEpisodeStatesAsync();
         }
     }
 
@@ -202,6 +264,7 @@ else
         // The config endpoint returns the bare Playlist (no resolved title/artwork) — refresh from
         // the detail endpoint so the recomputed Items show up with their display fields.
         playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
+        await LoadEpisodeStatesAsync();
     }
 
     [JSInvokable]

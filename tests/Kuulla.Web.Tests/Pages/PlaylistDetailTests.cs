@@ -116,6 +116,47 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void FiltersToUnplayedEpisodes_WhenOnlyUnplayedToggleEnabled()
+    {
+        var detail = MakeDetail(
+            new PlaylistItemDetail("episode-1", "show-1", "Unplayed Episode", null, DateTimeOffset.UtcNow, "m"),
+            new PlaylistItemDetail("episode-2", "show-1", "Played Episode", null, DateTimeOffset.UtcNow, "n"));
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/playlists/playlist-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) };
+            }
+
+            if (request.RequestUri.AbsolutePath == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new Dictionary<string, EpisodeState>
+                    {
+                        ["episode-1"] = new("episode-1", "user-1", "episode-1", "show-1", 0, false, DateTimeOffset.UtcNow, "web", AutoPlayed: false),
+                        ["episode-2"] = new("episode-2", "user-1", "episode-2", "show-1", 30, true, DateTimeOffset.UtcNow, "web", AutoPlayed: false),
+                    }),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Unplayed Episode", cut.Markup));
+
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Only unplayed")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Unplayed Episode", cut.Markup);
+            Assert.DoesNotContain("Played Episode", cut.Markup);
+            Assert.Contains("shows/show-1/episodes/episode-1", cut.Find("a.btn-primary").GetAttribute("href"));
+        });
+    }
+
+    [Fact]
     public void RemovesItem_WhenRemoveClicked()
     {
         var item = new PlaylistItemDetail("episode-1", "show-1", "Episode One", null, DateTimeOffset.UtcNow, "m");
