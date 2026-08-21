@@ -132,6 +132,9 @@ graph LR
 dotnet run --project src/Kuulla.AppHost
 ```
 
+To seed the local dev user's library with 5 real podcasts (instead of starting from an empty
+library), start the `seed-dev-data` resource from the Aspire dashboard once `api` is healthy.
+
 ## Deployment
 
 Hosted on Azure. Infrastructure and deployment details TBD.
