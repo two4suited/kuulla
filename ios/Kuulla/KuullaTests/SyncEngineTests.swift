@@ -110,7 +110,7 @@ final class SyncEngineTests: MockedApiTestCase {
         let container = try makeContainer()
         let context = ModelContext(container)
         context.insert(EpisodeStateRecord(
-            id: "ep1", showId: "show1", positionSeconds: 0, completed: true,
+            id: "ep1", showId: "show1", positionSeconds: 42, completed: true,
             updatedAt: Date(timeIntervalSince1970: 1_000), isDirty: false, autoPlayed: true))
         try context.save()
 
