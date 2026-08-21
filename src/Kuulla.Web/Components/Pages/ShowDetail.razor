@@ -202,9 +202,9 @@ else
         }
     </ul>
 
-    @if (restoreError is not null)
+    @if (episodeStateError is not null)
     {
-        <p class="text-danger">@restoreError</p>
+        <p class="text-danger">@episodeStateError</p>
     }
 
     @if (isLoadingEpisodes)
@@ -238,7 +238,7 @@ else
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
     private readonly HashSet<string> restoringEpisodeIds = [];
     private readonly HashSet<string> togglingEpisodeIds = [];
-    private string? restoreError;
+    private string? episodeStateError;
     private bool isAuthenticated;
     private EpisodeFilter selectedFilter = EpisodeFilter.Unplayed;
     private EpisodeSortOrder selectedSort = EpisodeSortOrder.NewestFirst;
@@ -332,7 +332,7 @@ else
         episodeStatesById.Clear();
         restoringEpisodeIds.Clear();
         togglingEpisodeIds.Clear();
-        restoreError = null;
+        episodeStateError = null;
         isAuthenticated = false;
         selectedFilter = EpisodeFilter.Unplayed;
         selectedSort = EpisodeSortOrder.NewestFirst;
@@ -520,7 +520,7 @@ else
 
     private async Task RestoreAsync(Episode episode)
     {
-        restoreError = null;
+        episodeStateError = null;
         restoringEpisodeIds.Add(episode.Id);
 
         try
@@ -530,7 +530,7 @@ else
         }
         catch (HttpRequestException)
         {
-            restoreError = "Something went wrong while restoring this episode. Please try again.";
+            episodeStateError = "Something went wrong while restoring this episode. Please try again.";
         }
         finally
         {
@@ -546,7 +546,7 @@ else
         }
 
         togglingEpisodeIds.Add(episode.Id);
-        restoreError = null;
+        episodeStateError = null;
 
         try
         {
@@ -558,7 +558,7 @@ else
         }
         catch (HttpRequestException)
         {
-            restoreError = "Something went wrong while updating this episode. Please try again.";
+            episodeStateError = "Something went wrong while updating this episode. Please try again.";
         }
         finally
         {

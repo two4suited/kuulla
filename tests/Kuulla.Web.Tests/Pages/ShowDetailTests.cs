@@ -47,9 +47,18 @@ public class ShowDetailTests : WebTestContext
 
             if (path == "/api/episodes/ep-1/state" && request.Method == HttpMethod.Put)
             {
-                var payload = request.Content is null ? null : JsonDocument.Parse(request.Content.ReadAsStringAsync().GetAwaiter().GetResult());
-                var completed = payload is not null && payload.RootElement.TryGetProperty("completed", out var completedProperty)
-                    && completedProperty.GetBoolean();
+                bool completed;
+                if (request.Content is null)
+                {
+                    completed = false;
+                }
+                else
+                {
+                    using var payload = JsonDocument.Parse(request.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+                    completed = payload.RootElement.TryGetProperty("completed", out var completedProperty)
+                        && completedProperty.GetBoolean();
+                }
+
                 var positionSeconds = completed ? 1200 : 0;
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
