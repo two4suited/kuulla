@@ -127,4 +127,55 @@ public class SettingsService(
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.AutoArchiveRule;
     }
+
+    public async Task<UserSettings> UpdateAutoSkipAsync(
+        string userId, int autoSkipIntroSeconds, int autoSkipOutroSeconds, CancellationToken cancellationToken)
+    {
+        var current = await GetSettingsAsync(userId, cancellationToken);
+        var updated = current with
+        {
+            AutoSkipIntroSeconds = autoSkipIntroSeconds,
+            AutoSkipOutroSeconds = autoSkipOutroSeconds,
+            Version = current.Version + 1,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<ShowSettings> UpdateShowAutoSkipAsync(
+        string userId, string showId, int? autoSkipIntroSeconds, int? autoSkipOutroSeconds, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            AutoSkipIntroSeconds = autoSkipIntroSeconds,
+            AutoSkipOutroSeconds = autoSkipOutroSeconds,
+            Version = current.Version + 1,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<(int IntroSeconds, int OutroSeconds)> GetEffectiveAutoSkipAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+
+        // Skip the UserSettings read entirely when both fields are already overridden at the
+        // show level — matching how GetEffectiveAutoArchiveRuleAsync short-circuits on a
+        // show-level override, avoiding an unnecessary extra point read in the common case.
+        if (showSettings.AutoSkipIntroSeconds is { } introOverride && showSettings.AutoSkipOutroSeconds is { } outroOverride)
+        {
+            return (introOverride, outroOverride);
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        var introSeconds = showSettings.AutoSkipIntroSeconds ?? userSettings.AutoSkipIntroSeconds;
+        var outroSeconds = showSettings.AutoSkipOutroSeconds ?? userSettings.AutoSkipOutroSeconds;
+        return (introSeconds, outroSeconds);
+    }
 }

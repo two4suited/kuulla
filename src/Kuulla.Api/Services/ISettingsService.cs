@@ -25,4 +25,13 @@ public interface ISettingsService
 
     Task<AutoArchiveRule> GetEffectiveAutoArchiveRuleAsync(
         string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateAutoSkipAsync(
+        string userId, int autoSkipIntroSeconds, int autoSkipOutroSeconds, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowAutoSkipAsync(
+        string userId, string showId, int? autoSkipIntroSeconds, int? autoSkipOutroSeconds, CancellationToken cancellationToken);
+
+    Task<(int IntroSeconds, int OutroSeconds)> GetEffectiveAutoSkipAsync(
+        string userId, string showId, CancellationToken cancellationToken);
 }

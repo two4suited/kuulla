@@ -751,6 +751,34 @@ sync.MapPost("/playlists", async (
     return Results.Ok(result);
 });
 
+// Upper bound is generous relative to a typical episode's runtime — it exists only to reject
+// obviously-wrong input (e.g. a value in milliseconds instead of seconds), not to model any
+// real intro/outro length.
+const int MaxAutoSkipSeconds = 3600;
+
+bool TryValidateAutoSkipSeconds(int seconds, string fieldName, out string? error)
+{
+    if (seconds < 0 || seconds > MaxAutoSkipSeconds)
+    {
+        error = $"'{fieldName}' must be between 0 and {MaxAutoSkipSeconds}.";
+        return false;
+    }
+
+    error = null;
+    return true;
+}
+
+bool TryValidateNullableAutoSkipSeconds(int? seconds, string fieldName, out string? error)
+{
+    if (seconds is { } value)
+    {
+        return TryValidateAutoSkipSeconds(value, fieldName, out error);
+    }
+
+    error = null;
+    return true;
+}
+
 var settings = app.MapGroup("/api/settings").RequireAuthorization();
 
 settings.MapGet("", async (ClaimsPrincipal user, ISettingsService settingsService, CancellationToken ct) =>
@@ -900,6 +928,43 @@ settings.MapPut("/shows/{showId}/auto-archive", async (
         app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after a per-show settings update", userId, showId);
     }
 
+    return Results.Ok(result);
+});
+
+settings.MapPut("/auto-skip", async (
+    UpdateAutoSkipRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateAutoSkipSeconds(request.AutoSkipIntroSeconds, "autoSkipIntroSeconds", out var error) ||
+        !TryValidateAutoSkipSeconds(request.AutoSkipOutroSeconds, "autoSkipOutroSeconds", out error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateAutoSkipAsync(
+        userId, request.AutoSkipIntroSeconds, request.AutoSkipOutroSeconds, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/auto-skip", async (
+    string showId,
+    UpdateShowAutoSkipRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateNullableAutoSkipSeconds(request.AutoSkipIntroSeconds, "autoSkipIntroSeconds", out var error) ||
+        !TryValidateNullableAutoSkipSeconds(request.AutoSkipOutroSeconds, "autoSkipOutroSeconds", out error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowAutoSkipAsync(
+        userId, showId, request.AutoSkipIntroSeconds, request.AutoSkipOutroSeconds, ct);
     return Results.Ok(result);
 });
 
