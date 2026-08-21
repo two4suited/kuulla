@@ -6,7 +6,8 @@ public record UserSettings(
     int Version,
     AutoArchiveRule AutoArchiveRule = AutoArchiveRule.Never,
     int AutoSkipIntroSeconds = 0,
-    int AutoSkipOutroSeconds = 0);
+    int AutoSkipOutroSeconds = 0,
+    float PlaybackSpeed = 1.0f);
 
 public enum UnlistenedEpisodeCount
 {

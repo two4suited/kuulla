@@ -20,10 +20,12 @@ public record UserSettings(
     // 0 = off for both, so auto-skip is opt-in and playback is unmodified until a user sets a
     // non-zero value, matching AutoArchiveRule's opt-in-by-default convention above.
     int AutoSkipIntroSeconds = 0,
-    int AutoSkipOutroSeconds = 0)
+    int AutoSkipOutroSeconds = 0,
+    // 1.0 = normal speed, so playback is unmodified until a user picks a non-default speed.
+    float PlaybackSpeed = 1.0f)
 {
     public static UserSettings CreateDefault(string userId) =>
-        new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0);
+        new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0, PlaybackSpeed: 1.0f);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization
