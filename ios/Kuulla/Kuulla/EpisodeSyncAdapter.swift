@@ -68,10 +68,11 @@ struct EpisodeSyncAdapter: SyncAdapter {
 }
 
 extension SyncEngine where Adapter == EpisodeSyncAdapter {
-    // Clears completed/autoPlayed on the local record and marks it dirty for the next sync push —
-    // the undo for an unlistened-episode-limit auto-mark (#97/#100). The server never trusts a
-    // client-supplied autoPlayed value (EpisodeStateChange carries no such field), so any push
-    // resulting from this — like any other user-initiated write — always lands as autoPlayed=false.
+    // Clears completed/autoPlayed and resets position to zero on the local record and marks it
+    // dirty for the next sync push — the undo for an unlistened-episode-limit auto-mark (#97/#100).
+    // The server never trusts a client-supplied autoPlayed value (EpisodeStateChange carries no such
+    // field), so any push resulting from this — like any other user-initiated write — always lands
+    // as autoPlayed=false.
     // Returns the post-write record (nil if there was no local record for this episode) so callers
     // can update their own UI state directly from it rather than re-fetching through their own
     // ModelContext, which — same hazard EpisodeDetailView.persist() works around — isn't
@@ -85,6 +86,7 @@ extension SyncEngine where Adapter == EpisodeSyncAdapter {
                 guard let existing = try context.fetch(descriptor).first else { return }
                 existing.completed = false
                 existing.autoPlayed = false
+                existing.positionSeconds = 0
                 existing.updatedAt = Date()
                 existing.isDirty = true
                 restored = EpisodeStateRecord(

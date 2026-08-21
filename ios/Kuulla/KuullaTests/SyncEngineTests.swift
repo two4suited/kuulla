@@ -125,11 +125,13 @@ final class SyncEngineTests: MockedApiTestCase {
         // through their own ModelContext, so it must reflect the write that was just made.
         XCTAssertEqual(returned?.completed, false)
         XCTAssertEqual(returned?.autoPlayed, false)
+        XCTAssertEqual(returned?.positionSeconds, 0)
 
         let verifyContext = ModelContext(container)
         let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
         XCTAssertFalse(stored.completed)
         XCTAssertFalse(stored.autoPlayed)
+        XCTAssertEqual(stored.positionSeconds, 0)
         XCTAssertTrue(stored.isDirty)
     }
 
