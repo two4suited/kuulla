@@ -153,12 +153,6 @@ public class EpisodeStateServiceTests
     {
         var alreadyArchived = MakeState("ep-1", DateTimeOffset.UtcNow, completed: true) with { Archived = true };
         var notArchived = MakeState("ep-2", DateTimeOffset.UtcNow, completed: true);
-        _episodeStatesContainer
-            .Setup(c => c.ReadItemAsync<EpisodeState>("ep-1", It.IsAny<PartitionKey>(), null, default))
-            .ReturnsAsync(CosmosTestHelpers.ItemResponse(alreadyArchived));
-        _episodeStatesContainer
-            .Setup(c => c.ReadItemAsync<EpisodeState>("ep-2", It.IsAny<PartitionKey>(), null, default))
-            .ReturnsAsync(CosmosTestHelpers.ItemResponse(notArchived));
         var upserted = new List<EpisodeState>();
         _episodeStatesContainer
             .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
@@ -166,11 +160,13 @@ public class EpisodeStateServiceTests
             .ReturnsAsync((EpisodeState s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
         SetupEmptyStatesQuery();
 
-        await _sut.SetArchivedAsync(UserId, ["ep-1", "ep-2"], archived: true, CancellationToken.None);
+        await _sut.SetArchivedAsync(UserId, [alreadyArchived, notArchived], archived: true, CancellationToken.None);
 
         Assert.Single(upserted);
         Assert.Equal("ep-2", upserted[0].Id);
         Assert.True(upserted[0].Archived);
+        _episodeStatesContainer.Verify(
+            c => c.ReadItemAsync<EpisodeState>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
     }
 
     [Fact]

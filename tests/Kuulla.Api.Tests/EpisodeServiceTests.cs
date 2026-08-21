@@ -350,7 +350,7 @@ public class EpisodeServiceTests
 
         _episodeStateService.Verify(
             s => s.SetArchivedAsync(
-                UserId, It.Is<IReadOnlyList<string>>(list => list.SequenceEqual(new[] { "ep-1" })), true, It.IsAny<CancellationToken>()),
+                UserId, It.Is<IReadOnlyList<EpisodeState>>(list => list.Select(s => s.Id).SequenceEqual(new[] { "ep-1" })), true, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -372,7 +372,7 @@ public class EpisodeServiceTests
 
         _episodeStateService.Verify(
             s => s.SetArchivedAsync(
-                UserId, It.Is<IReadOnlyList<string>>(list => list.SequenceEqual(new[] { "ep-2" })), true, It.IsAny<CancellationToken>()),
+                UserId, It.Is<IReadOnlyList<EpisodeState>>(list => list.Select(s => s.Id).SequenceEqual(new[] { "ep-2" })), true, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -392,7 +392,7 @@ public class EpisodeServiceTests
 
         _episodeStateService.Verify(
             s => s.SetArchivedAsync(
-                It.IsAny<string>(), It.Is<IReadOnlyList<string>>(list => list.Count == 0), true, It.IsAny<CancellationToken>()),
+                It.IsAny<string>(), It.Is<IReadOnlyList<EpisodeState>>(list => list.Count == 0), true, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 }

@@ -228,7 +228,6 @@ public class EpisodeService(
         var toArchive = states
             .Where(state => state.Completed && !state.Archived && state.PlayedAt is not null)
             .Where(state => now - state.PlayedAt!.Value >= delay)
-            .Select(state => state.EpisodeId)
             .ToList();
 
         await episodeStateService.SetArchivedAsync(userId, toArchive, archived: true, cancellationToken);

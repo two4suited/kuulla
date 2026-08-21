@@ -141,20 +141,21 @@ public class EpisodeStateService(
     }
 
     // Used only by the auto-archive enforcement job (#187). Batched (one call per enforcement
-    // run, not per episode) for the same reason as MarkAutoPlayedAsync above.
+    // run, not per episode) for the same reason as MarkAutoPlayedAsync above. Callers pass the
+    // already-fetched EpisodeState records (e.g. from GetShowStatesAsync) rather than IDs so this
+    // doesn't re-read each one via a point read on top of the caller's own query.
     public async Task SetArchivedAsync(
-        string userId, IReadOnlyList<string> episodeIds, bool archived, CancellationToken cancellationToken)
+        string userId, IReadOnlyList<EpisodeState> states, bool archived, CancellationToken cancellationToken)
     {
-        if (episodeIds.Count == 0)
+        if (states.Count == 0)
         {
             return;
         }
 
         var changed = false;
-        foreach (var episodeId in episodeIds)
+        foreach (var existing in states)
         {
-            var existing = await ReadStateAsync(userId, episodeId, cancellationToken);
-            if (existing is null || existing.Archived == archived)
+            if (existing.Archived == archived)
             {
                 continue;
             }

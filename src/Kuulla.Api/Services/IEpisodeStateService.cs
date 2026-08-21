@@ -25,7 +25,7 @@ public interface IEpisodeStateService
         string userId, string showId, CancellationToken cancellationToken);
 
     Task SetArchivedAsync(
-        string userId, IReadOnlyList<string> episodeIds, bool archived, CancellationToken cancellationToken);
+        string userId, IReadOnlyList<EpisodeState> states, bool archived, CancellationToken cancellationToken);
 
     Task<SyncEpisodesResult> SyncAsync(
         string userId,
