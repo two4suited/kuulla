@@ -188,15 +188,27 @@ public class EpisodeStateService(
             changes,
             getChangeId: change => change.EpisodeId,
             getChangeUpdatedAt: change => change.UpdatedAt,
-            buildAcceptedState: change => new EpisodeState(
-                change.EpisodeId,
-                userId,
-                change.EpisodeId,
-                change.ShowId,
-                change.PositionSeconds,
-                change.Completed,
-                DateTimeOffset.UtcNow,
-                deviceId),
+            buildAcceptedState: (change, stored) =>
+            {
+                // Mirrors UpdateStateAsync's PlayedAt/Archived handling — a sync push (e.g. from
+                // iOS, whose only write path to episode state is this endpoint) must preserve or
+                // clear those fields the same way a direct state PUT does, otherwise pushing an
+                // already-played/archived episode's state (e.g. a later position touch) would
+                // silently wipe PlayedAt and un-archive it.
+                DateTimeOffset? playedAt = change.Completed ? stored?.PlayedAt ?? DateTimeOffset.UtcNow : null;
+                var archived = change.Completed && stored?.Archived == true;
+                return new EpisodeState(
+                    change.EpisodeId,
+                    userId,
+                    change.EpisodeId,
+                    change.ShowId,
+                    change.PositionSeconds,
+                    change.Completed,
+                    DateTimeOffset.UtcNow,
+                    deviceId,
+                    PlayedAt: playedAt,
+                    Archived: archived);
+            },
             readStoredAsync: (episodeId, ct) => ReadStateAsync(userId, episodeId, ct),
             upsertAsync: UpsertStateAsync,
             queryAllAsync: ct => QueryAllStatesAsync(userId, ct),

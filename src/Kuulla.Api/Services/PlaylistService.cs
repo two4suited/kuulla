@@ -285,7 +285,7 @@ public class PlaylistService(
             changes,
             getChangeId: change => change.Id,
             getChangeUpdatedAt: change => change.UpdatedAt,
-            buildAcceptedState: change => new Playlist(
+            buildAcceptedState: (change, _) => new Playlist(
                 change.Id,
                 userId,
                 change.Name,

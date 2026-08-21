@@ -284,6 +284,85 @@ public class EpisodeStateServiceTests
         Assert.Empty(result.ServerChanges);
     }
 
+    [Fact]
+    public async Task SyncAsync_StampsPlayedAtWhenAcceptedChangeTransitionsToCompleted()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        _episodeStatesContainer
+            .Setup(c => c.ReadItemAsync<EpisodeState>("ep-1", It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        EpisodeState? upserted = null;
+        _episodeStatesContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<EpisodeState, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted = s)
+            .ReturnsAsync((EpisodeState s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+        SetupStatesQuery([]);
+
+        var before = DateTimeOffset.UtcNow;
+        var change = new EpisodeStateChange("ep-1", ShowId, 500, true, DateTimeOffset.UtcNow);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.True(upserted!.Completed);
+        Assert.NotNull(upserted.PlayedAt);
+        Assert.InRange(upserted.PlayedAt!.Value, before, DateTimeOffset.UtcNow);
+        Assert.False(upserted.Archived);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesPlayedAtAndArchivedWhenAcceptedChangeDoesNotAffectCompletion()
+    {
+        // A later position-only push (e.g. a scrub while re-listening) of an already-played,
+        // already-archived episode must not clobber PlayedAt or silently un-archive it — the
+        // #187 bug this regression test guards against.
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var playedAt = DateTimeOffset.UtcNow.AddDays(-10);
+        var stored = new EpisodeState(
+            "ep-1", UserId, "ep-1", ShowId, 100, Completed: true, DateTimeOffset.UtcNow.AddHours(-1), DeviceId: null,
+            PlayedAt: playedAt, Archived: true);
+        _episodeStatesContainer
+            .Setup(c => c.ReadItemAsync<EpisodeState>("ep-1", It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        EpisodeState? upserted = null;
+        _episodeStatesContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<EpisodeState, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted = s)
+            .ReturnsAsync((EpisodeState s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+        SetupStatesQuery([]);
+
+        var change = new EpisodeStateChange("ep-1", ShowId, 105, true, DateTimeOffset.UtcNow);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.Equal(playedAt, upserted!.PlayedAt);
+        Assert.True(upserted.Archived);
+    }
+
+    [Fact]
+    public async Task SyncAsync_ClearsPlayedAtAndArchivedWhenAcceptedChangeMarksUnplayed()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new EpisodeState(
+            "ep-1", UserId, "ep-1", ShowId, 500, Completed: true, DateTimeOffset.UtcNow.AddHours(-1), DeviceId: null,
+            PlayedAt: DateTimeOffset.UtcNow.AddDays(-10), Archived: true);
+        _episodeStatesContainer
+            .Setup(c => c.ReadItemAsync<EpisodeState>("ep-1", It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        EpisodeState? upserted = null;
+        _episodeStatesContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<EpisodeState, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted = s)
+            .ReturnsAsync((EpisodeState s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+        SetupStatesQuery([]);
+
+        var change = new EpisodeStateChange("ep-1", ShowId, 0, false, DateTimeOffset.UtcNow);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.Null(upserted!.PlayedAt);
+        Assert.False(upserted.Archived);
+    }
+
     private void SetupEmptyStatesQuery() => SetupStatesQuery([]);
 
     private void SetupStatesQuery(IReadOnlyList<EpisodeState> states) =>

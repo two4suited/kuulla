@@ -18,7 +18,7 @@ public class SyncReconciler<TState, TChange>(SyncSummaryCache<TState> summaryCac
         IReadOnlyList<TChange> changes,
         Func<TChange, string> getChangeId,
         Func<TChange, DateTimeOffset> getChangeUpdatedAt,
-        Func<TChange, TState> buildAcceptedState,
+        Func<TChange, TState?, TState> buildAcceptedState,
         Func<string, CancellationToken, Task<TState?>> readStoredAsync,
         Func<TState, CancellationToken, Task> upsertAsync,
         Func<CancellationToken, Task<IReadOnlyList<TState>>> queryAllAsync,
@@ -49,7 +49,7 @@ public class SyncReconciler<TState, TChange>(SyncSummaryCache<TState> summaryCac
                 continue;
             }
 
-            accepted.Add(buildAcceptedState(change));
+            accepted.Add(buildAcceptedState(change, stored));
         }
 
         await Task.WhenAll(accepted.Select(state => upsertAsync(state, cancellationToken)));
