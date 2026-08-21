@@ -19,40 +19,60 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 IOS_DIR="$REPO_ROOT/ios/Kuulla"
 BUNDLE_ID="com.kuulla.app"
-SIMULATOR_NAME="${KUULLA_SIMULATOR_NAME:-iPhone 16}"
+
+# Discovers an installed iPhone Simulator via python3 (already a build-ios CI dependency,
+# .github/workflows/pr.yml) rather than assuming a specific model: pinning e.g. "iPhone 16"
+# breaks the moment Xcode's bundled simulator lineup moves on and that model disappears.
+# KUULLA_SIMULATOR_NAME can still force an exact device name when one is needed.
+# When more than one installed runtime has a matching device, the newest iOS runtime wins.
+IFS=$'\t' read -r UDID SIMULATOR_NAME < <(
+  xcrun simctl list devices available -j | python3 -c "
+import json, os, re, sys
+
+data = json.load(sys.stdin)['devices']
+wanted = os.environ.get('KUULLA_SIMULATOR_NAME')
+
+
+def runtime_version(runtime_id):
+    match = re.search(r'iOS-(\d+)-(\d+)', runtime_id)
+    return tuple(int(part) for part in match.groups()) if match else (0, 0)
+
+
+candidates = []
+for runtime_id, devices in data.items():
+    if 'iOS' not in runtime_id:
+        continue
+    for device in devices:
+        if wanted:
+            if device['name'] == wanted:
+                candidates.append((runtime_id, device))
+        elif device['name'].startswith('iPhone'):
+            candidates.append((runtime_id, device))
+
+if not candidates:
+    sys.exit(1)
+
+_, chosen = max(candidates, key=lambda c: runtime_version(c[0]))
+print(chosen['udid'], chosen['name'], sep='\t')
+"
+) || {
+  echo "run-ios-simulator.sh: no Simulator found${KUULLA_SIMULATOR_NAME:+ named '$KUULLA_SIMULATOR_NAME'}" >&2
+  exit 1
+}
 
 echo "run-ios-simulator.sh: building for '$SIMULATOR_NAME' with KUULLA_API_BASE_URL=$KUULLA_API_BASE_URL"
 
 xcodebuild build \
   -project "$IOS_DIR/Kuulla.xcodeproj" \
   -scheme Kuulla \
-  -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
+  -destination "platform=iOS Simulator,id=$UDID" \
   CODE_SIGNING_ALLOWED=NO
 
 APP_PATH=$(xcodebuild -project "$IOS_DIR/Kuulla.xcodeproj" -scheme Kuulla \
-  -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
+  -destination "platform=iOS Simulator,id=$UDID" \
   -showBuildSettings 2>/dev/null \
   | awk -F ' = ' '/ BUILT_PRODUCTS_DIR / { print $2; exit }')
 APP_PATH="$APP_PATH/Kuulla.app"
-
-# Uses --json + jq for an exact device-name match (avoiding e.g. "iPhone 16" matching
-# "iPhone 16 Pro" on a substring), preferring the newest iOS runtime when the same
-# simulator name exists under multiple installed runtimes.
-UDID=$(xcrun simctl list devices available --json \
-  | jq -r --arg name "$SIMULATOR_NAME" '
-      .devices
-      | to_entries
-      | map(select(.key | test("com\\.apple\\.CoreSimulator\\.SimRuntime\\.iOS")))
-      | sort_by(.key)
-      | map(.value[] | select(.name == $name))
-      | last
-      | .udid // empty
-    ')
-
-if [[ -z "$UDID" ]]; then
-  echo "run-ios-simulator.sh: no Simulator found named '$SIMULATOR_NAME'" >&2
-  exit 1
-fi
 
 xcrun simctl boot "$UDID" 2>/dev/null || true
 open -a Simulator --args -CurrentDeviceUDID "$UDID"
@@ -64,5 +84,7 @@ xcrun simctl install "$UDID" "$APP_PATH"
 # that are present in *its own* calling environment; that's how the Simulator
 # (an OS process, not a container Aspire can inject env into directly)
 # receives the API's URL.
+# --terminate-running-process: restarting this explicit-start resource re-runs this script
+# while the app may still be running from a previous launch; simctl launch fails without it.
 export SIMCTL_CHILD_KUULLA_API_BASE_URL="$KUULLA_API_BASE_URL"
-exec xcrun simctl launch --console-pty "$UDID" "$BUNDLE_ID"
+exec xcrun simctl launch --console-pty --terminate-running-process "$UDID" "$BUNDLE_ID"
