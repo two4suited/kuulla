@@ -23,11 +23,20 @@ final class AudioPlayer {
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
 
+    private var autoSkipOutroSeconds: TimeInterval = 0
+    // Guards against firing the outro skip more than once per playback (the periodic time
+    // observer keeps ticking after the skip fires, since the item is merely paused, not
+    // deallocated or seeked to its true end).
+    private var hasTriggeredOutroSkip = false
+
     init() {
         configureAudioSession()
     }
 
-    func play(url: URL, startPosition: TimeInterval = 0) {
+    func play(
+        url: URL, startPosition: TimeInterval = 0,
+        autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0
+    ) {
         removeObservers()
 
         let item = AVPlayerItem(url: url)
@@ -35,13 +44,20 @@ final class AudioPlayer {
         player = newPlayer
         currentURL = url
         duration = 0
-        currentTime = startPosition
+        self.autoSkipOutroSeconds = autoSkipOutroSeconds
+        hasTriggeredOutroSkip = false
+
+        // Only skip the intro on a fresh start (startPosition 0) — a saved resume position
+        // means playback already passed the intro once, so it shouldn't be skipped again on
+        // every resume.
+        let effectiveStartPosition = startPosition > 0 ? startPosition : autoSkipIntroSeconds
+        currentTime = effectiveStartPosition
 
         // AVPlayer.seek(to:) is asynchronous — calling play() immediately after would let playback
         // start audibly at 0s and then jump once the seek lands. Deferring play() to the seek's
         // completion handler makes resume-from-position actually start at that position.
-        if startPosition > 0 {
-            newPlayer.seek(to: CMTime(seconds: startPosition, preferredTimescale: 600)) { [weak newPlayer] _ in
+        if effectiveStartPosition > 0 {
+            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600)) { [weak newPlayer] _ in
                 newPlayer?.play()
             }
         } else {
@@ -57,12 +73,18 @@ final class AudioPlayer {
             if let itemDuration = newPlayer.currentItem?.duration.seconds, itemDuration.isFinite {
                 self.duration = itemDuration
             }
+            self.checkAutoSkipOutro(url: url)
         }
 
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
             guard let self else { return }
+            // Guard against double-firing onDidFinishPlaying: if the outro skip already fired
+            // for this session, the item is merely paused a few seconds before its real end —
+            // if the user resumes and lets it play out, this notification would otherwise fire
+            // a second finish for the same playback.
+            guard !self.hasTriggeredOutroSkip else { return }
             self.isPlaying = false
             self.onDidFinishPlaying?(url)
         }
@@ -82,6 +104,33 @@ final class AudioPlayer {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player?.seek(to: cmTime)
         currentTime = time
+    }
+
+    // Fires the same finish semantics as a natural end-of-file (isPlaying = false,
+    // onDidFinishPlaying) once currentTime reaches duration - autoSkipOutroSeconds — distinct
+    // from AVPlayerItemDidPlayToEndTime, but intentionally treated the same way so an
+    // auto-skipped outro still counts as a completed play (consistent with existing
+    // auto-played-episode conventions) rather than looking like an interrupted/abandoned one.
+    private func checkAutoSkipOutro(url: URL) {
+        guard !hasTriggeredOutroSkip,
+              Self.shouldTriggerOutroSkip(currentTime: currentTime, duration: duration, autoSkipOutroSeconds: autoSkipOutroSeconds)
+        else { return }
+
+        hasTriggeredOutroSkip = true
+        player?.pause()
+        isPlaying = false
+        onDidFinishPlaying?(url)
+    }
+
+    // Pulled out as a pure function so the boundary condition is unit-testable without needing
+    // a real, ticking AVPlayer. A non-positive threshold (autoSkipOutroSeconds >= duration) means
+    // the configured outro is longer than the episode itself, so it's never eligible to fire —
+    // that's treated as misconfiguration rather than "skip the whole episode instantly".
+    static func shouldTriggerOutroSkip(currentTime: TimeInterval, duration: TimeInterval, autoSkipOutroSeconds: TimeInterval) -> Bool {
+        guard autoSkipOutroSeconds > 0, duration > 0 else { return false }
+        let threshold = duration - autoSkipOutroSeconds
+        guard threshold > 0 else { return false }
+        return currentTime >= threshold
     }
 
     private func removeObservers() {
