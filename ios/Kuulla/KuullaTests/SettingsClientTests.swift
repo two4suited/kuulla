@@ -128,4 +128,78 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertNil(updated.autoArchiveRule)
         XCTAssertEqual(updated.version, 3)
     }
+
+    func testGetSettingsDefaultsAutoSkipSecondsToZeroWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertEqual(settings.autoSkipIntroSeconds, 0)
+        XCTAssertEqual(settings.autoSkipOutroSeconds, 0)
+    }
+
+    func testUpdateAutoSkipSendsPutWithIntegerBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"autoSkipIntroSeconds":15,"autoSkipOutroSeconds":30}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateAutoSkip(introSeconds: 15, outroSeconds: 30)
+
+        XCTAssertEqual(updated.autoSkipIntroSeconds, 15)
+        XCTAssertEqual(updated.autoSkipOutroSeconds, 30)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/auto-skip"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["autoSkipIntroSeconds"] as? Int, 15)
+        XCTAssertEqual(bodyJSON["autoSkipOutroSeconds"] as? Int, 30)
+    }
+
+    func testGetShowSettingsDecodesNullAutoSkipOverridesAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1,\
+        "autoSkipIntroSeconds":null,"autoSkipOutroSeconds":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.autoSkipIntroSeconds)
+        XCTAssertNil(settings.autoSkipOutroSeconds)
+    }
+
+    func testUpdateShowAutoSkipClearsOverridesWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,\
+        "autoSkipIntroSeconds":null,"autoSkipOutroSeconds":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowAutoSkip(showId: "s1", introSeconds: nil, outroSeconds: nil)
+
+        XCTAssertNil(updated.autoSkipIntroSeconds)
+        XCTAssertNil(updated.autoSkipOutroSeconds)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/auto-skip"))
+        // A nil Optional<Int> is omitted from the encoded JSON entirely (not sent as an explicit
+        // null) — the API's nullable-int deserialization treats a missing key the same as null,
+        // so either representation clears the override.
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["autoSkipIntroSeconds"])
+        XCTAssertNil(bodyJSON["autoSkipOutroSeconds"])
+    }
 }

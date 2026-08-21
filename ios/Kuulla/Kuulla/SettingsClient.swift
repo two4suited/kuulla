@@ -34,6 +34,18 @@ struct SettingsClient {
             ["api", "settings", "shows", showId, "auto-archive"],
             body: UpdateShowAutoArchiveRuleRequest(autoArchiveRule: value))
     }
+
+    func updateAutoSkip(introSeconds: Int, outroSeconds: Int) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "auto-skip"],
+            body: UpdateAutoSkipRequest(autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds))
+    }
+
+    func updateShowAutoSkip(showId: String, introSeconds: Int?, outroSeconds: Int?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "auto-skip"],
+            body: UpdateShowAutoSkipRequest(autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -50,4 +62,14 @@ private struct UpdateAutoArchiveRuleRequest: Encodable {
 
 private struct UpdateShowAutoArchiveRuleRequest: Encodable {
     let autoArchiveRule: AutoArchiveRule?
+}
+
+private struct UpdateAutoSkipRequest: Encodable {
+    let autoSkipIntroSeconds: Int
+    let autoSkipOutroSeconds: Int
+}
+
+private struct UpdateShowAutoSkipRequest: Encodable {
+    let autoSkipIntroSeconds: Int?
+    let autoSkipOutroSeconds: Int?
 }

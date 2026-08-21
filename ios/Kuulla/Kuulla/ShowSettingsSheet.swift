@@ -10,11 +10,13 @@ struct ShowSettingsSheet: View {
     @State private var loadError: String?
     @State private var saveError: String?
     @State private var archiveSaveError: String?
+    @State private var autoSkipSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
     @State private var saveTask: Task<Void, Never>?
     @State private var archiveSaveTask: Task<Void, Never>?
+    @State private var autoSkipSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -52,6 +54,25 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let archiveSaveError {
                         Text(archiveSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Auto-skip intro", selection: autoSkipIntroOverrideBinding) {
+                        Text("Use global default").tag(Int?.none)
+                        autoSkipPickerOptions(for: settings?.autoSkipIntroSeconds)
+                    }
+                    .disabled(settings == nil)
+
+                    Picker("Auto-skip outro", selection: autoSkipOutroOverrideBinding) {
+                        Text("Use global default").tag(Int?.none)
+                        autoSkipPickerOptions(for: settings?.autoSkipOutroSeconds)
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let autoSkipSaveError {
+                        Text(autoSkipSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -94,6 +115,43 @@ struct ShowSettingsSheet: View {
         )
     }
 
+    private var autoSkipIntroOverrideBinding: Binding<Int?> {
+        Binding(
+            get: { settings?.autoSkipIntroSeconds },
+            set: { newValue in
+                autoSkipSaveTask?.cancel()
+                autoSkipSaveTask = Task {
+                    await updateAutoSkipOverride(introSeconds: newValue, outroSeconds: settings?.autoSkipOutroSeconds)
+                }
+            }
+        )
+    }
+
+    private var autoSkipOutroOverrideBinding: Binding<Int?> {
+        Binding(
+            get: { settings?.autoSkipOutroSeconds },
+            set: { newValue in
+                autoSkipSaveTask?.cancel()
+                autoSkipSaveTask = Task {
+                    await updateAutoSkipOverride(introSeconds: settings?.autoSkipIntroSeconds, outroSeconds: newValue)
+                }
+            }
+        )
+    }
+
+    // The presets don't cover every value the API accepts (0...3600), so an override saved from
+    // elsewhere that doesn't match one of them gets a synthesized "Custom" row rather than
+    // silently snapping to the nearest preset.
+    @ViewBuilder
+    private func autoSkipPickerOptions(for currentValue: Int?) -> some View {
+        ForEach(AutoSkipDuration.allCases) { option in
+            Text(option.label).tag(Int?.some(option.rawValue))
+        }
+        if let currentValue, AutoSkipDuration(rawValue: currentValue) == nil {
+            Text("Custom (\(currentValue)s)").tag(Int?.some(currentValue))
+        }
+    }
+
     private func loadSettings() async {
         isLoading = true
         loadError = nil
@@ -113,7 +171,8 @@ struct ShowSettingsSheet: View {
         saveError = nil
         settings = ShowSettings(
             id: previous.id, userId: previous.userId, showId: previous.showId,
-            unlistenedEpisodeCount: value, version: previous.version, autoArchiveRule: previous.autoArchiveRule)
+            unlistenedEpisodeCount: value, version: previous.version, autoArchiveRule: previous.autoArchiveRule,
+            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
 
         do {
             let updated = try await settingsClient.updateShowUnlistenedEpisodeCount(showId: showId, value: value)
@@ -134,7 +193,8 @@ struct ShowSettingsSheet: View {
         archiveSaveError = nil
         settings = ShowSettings(
             id: previous.id, userId: previous.userId, showId: previous.showId,
-            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version, autoArchiveRule: value)
+            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version, autoArchiveRule: value,
+            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
 
         do {
             let updated = try await settingsClient.updateShowAutoArchiveRule(showId: showId, value: value)
@@ -145,6 +205,29 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 archiveSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateAutoSkipOverride(introSeconds: Int?, outroSeconds: Int?) async {
+        guard let previous = settings else { return }
+
+        autoSkipSaveError = nil
+        settings = ShowSettings(
+            id: previous.id, userId: previous.userId, showId: previous.showId,
+            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
+            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds)
+
+        do {
+            let updated = try await settingsClient.updateShowAutoSkip(
+                showId: showId, introSeconds: introSeconds, outroSeconds: outroSeconds)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoSkipSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }
