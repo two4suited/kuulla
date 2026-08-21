@@ -32,6 +32,43 @@ final class PlaylistClientTests: MockedApiTestCase {
         XCTAssertEqual(bodyJSON["name"] as? String, "New Playlist")
     }
 
+    func testCreateDynamicPlaylistSendsConfigAndDecodesResponse() async throws {
+        let json = """
+        {"id":"p1","userId":"u1","name":"New Dynamic Playlist","type":1,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00","dynamicConfig":{"showIds":["show1","show2"],"maxEpisodes":10,"priorityList":["show1","show2"]}}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let config = DynamicPlaylistConfig(showIds: ["show1", "show2"], maxEpisodes: 10, priorityList: ["show1", "show2"])
+        let playlist = try await client.createDynamicPlaylist(name: "New Dynamic Playlist", config: config)
+
+        XCTAssertEqual(playlist.type, .dynamic)
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual((bodyJSON["type"] as? Int), 1)
+        XCTAssertEqual((bodyJSON["dynamicConfig"] as? [String: Any])?["maxEpisodes"] as? Int, 10)
+    }
+
+    func testUpdateDynamicPlaylistConfigSendsConfig() async throws {
+        let json = """
+        {"id":"p1","userId":"u1","name":"Update","type":1,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00","dynamicConfig":{"showIds":["show1","show2"],"maxEpisodes":6,"priorityList":["show2","show1"]}}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let config = DynamicPlaylistConfig(showIds: ["show1", "show2"], maxEpisodes: 6, priorityList: ["show2", "show1"])
+        let updated = try await client.updateDynamicPlaylistConfig(id: "p1", config: config)
+
+        XCTAssertEqual(updated?.dynamicConfig?.maxEpisodes, 6)
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual((bodyJSON["priorityList"] as? [String]), ["show2", "show1"])
+    }
+
     func testGetPlaylistDetailReturnsNilOn404() async throws {
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 404, data: Data(), headers: [:])) }
 

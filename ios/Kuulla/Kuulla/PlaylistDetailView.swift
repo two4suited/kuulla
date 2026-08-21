@@ -13,7 +13,15 @@ struct PlaylistDetailView: View {
     var body: some View {
         List {
             if let playlist {
-                if playlist.items.isEmpty {
+                if playlist.type == .dynamic {
+                    DynamicPlaylistConfigEditorView(playlist: Binding(
+                        get: { playlist },
+                        set: { updated in self.playlist = updated }
+                    )) { config in
+                        _ = try await playlistClient.updateDynamicPlaylistConfig(id: playlistId, config: config)
+                        await load()
+                    }
+                } else if playlist.items.isEmpty {
                     Text("This playlist is empty. Add episodes to it from a show or episode page.")
                         .foregroundStyle(.secondary)
                 } else {
@@ -46,7 +54,7 @@ struct PlaylistDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if let playlist, playlist.items.count > 1 {
+                if let playlist, playlist.type == .manual, playlist.items.count > 1 {
                     EditButton()
                 }
             }
@@ -128,6 +136,161 @@ struct PlaylistDetailView: View {
             // our local guess about the "before" state may itself be wrong.
             await load()
             mutationError = "Something went wrong while reordering. Please try again."
+        }
+    }
+}
+
+private struct DynamicPlaylistConfigEditorView: View {
+    @Binding var playlist: PlaylistDetail
+    let onSave: (DynamicPlaylistConfig) async throws -> Void
+
+    @State private var maxEpisodes: Int
+    @State private var priorityList: [String]
+    @State private var pendingShowId = ""
+    @State private var isLoadingSubscriptions = true
+    @State private var subscriptionsError: String?
+    @State private var isSaving = false
+    @State private var saveError: String?
+    @State private var subscriptions: [Subscription] = []
+
+    private let subscriptionClient = SubscriptionClient()
+
+    init(playlist: Binding<PlaylistDetail>, onSave: @escaping (DynamicPlaylistConfig) async throws -> Void) {
+        self._playlist = playlist
+        self.onSave = onSave
+        self._maxEpisodes = State(initialValue: playlist.wrappedValue.dynamicConfig?.maxEpisodes ?? 20)
+        self._priorityList = State(initialValue: playlist.wrappedValue.dynamicConfig?.priorityList ?? playlist.wrappedValue.dynamicConfig?.showIds ?? [])
+    }
+
+    private var availableSubscriptions: [Subscription] {
+        subscriptions
+            .filter { !priorityList.contains($0.showId) }
+            .sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Max episodes")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Stepper(value: $maxEpisodes, in: 1...100) {
+                    Text("\(maxEpisodes)")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Add a podcast")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Picker("Podcast", selection: $pendingShowId) {
+                        Text("Choose a podcast")
+                            .tag("")
+                        ForEach(availableSubscriptions, id: \.showId) { subscription in
+                            Text(subscription.showTitle)
+                                .tag(subscription.showId)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    Button("Add") {
+                        guard !pendingShowId.isEmpty else { return }
+                        if !priorityList.contains(pendingShowId) {
+                            priorityList.append(pendingShowId)
+                            pendingShowId = ""
+                        }
+                    }
+                    .disabled(pendingShowId.isEmpty)
+                }
+            }
+
+            if priorityList.isEmpty {
+                Text("No podcasts selected yet. Episodes are pulled from the highest-priority podcast first.")
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Priority order")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    List {
+                        ForEach(priorityList, id: \.self) { showId in
+                            HStack {
+                                Text(showTitle(for: showId))
+                                Spacer()
+                                Button(role: .destructive) {
+                                    priorityList.removeAll { $0 == showId }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .onMove { source, destination in
+                            priorityList.move(fromOffsets: source, toOffset: destination)
+                        }
+                    }
+                    .frame(maxHeight: 260)
+                    .listStyle(.plain)
+                }
+            }
+
+            if let subscriptionsError {
+                Text(subscriptionsError)
+                    .foregroundStyle(.red)
+            }
+
+            if let saveError {
+                Text(saveError)
+                    .foregroundStyle(.red)
+            }
+
+            Button(action: save) {
+                if isSaving {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    Text("Save")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .disabled(isSaving || priorityList.isEmpty)
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.vertical, 8)
+        .task {
+            await loadSubscriptions()
+        }
+    }
+
+    private func loadSubscriptions() async {
+        isLoadingSubscriptions = true
+        subscriptionsError = nil
+        do {
+            subscriptions = try await subscriptionClient.getSubscriptions()
+        } catch {
+            subscriptionsError = "Something went wrong while loading your subscriptions. Please try again."
+        }
+        isLoadingSubscriptions = false
+    }
+
+    private func showTitle(for showId: String) -> String {
+        subscriptions.first { $0.showId == showId }?.showTitle ?? showId
+    }
+
+    private func save() {
+        Task {
+            do {
+                isSaving = true
+                saveError = nil
+                let config = DynamicPlaylistConfig(showIds: priorityList, maxEpisodes: maxEpisodes, priorityList: priorityList)
+                try await onSave(config)
+                playlist.dynamicConfig = config
+            } catch {
+                saveError = "Something went wrong while saving. Please try again."
+            }
+            isSaving = false
         }
     }
 }
