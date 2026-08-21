@@ -13,6 +13,12 @@ final class AudioPlayer {
     private(set) var duration: TimeInterval = 0
     private(set) var currentURL: URL?
 
+    // Exposes the underlying AVPlayer's actual rate/pitch-algorithm for tests to assert against
+    // directly — the bookkeeping playbackSpeed property below would still read correctly even if
+    // the .rate assignment or .timeDomain wiring in play()/setPlaybackSpeed() were broken.
+    var currentPlayerRate: Float? { player?.rate }
+    var currentPitchAlgorithm: AVAudioTimePitchAlgorithm? { player?.currentItem?.audioTimePitchAlgorithm }
+
     // Fires once, on the main queue, when the current item finishes playing naturally (not on a
     // manual pause). A single slot rather than a broadcast mechanism — callers should assign this
     // only at the point they start playback for a specific URL (not merely on screen appearance),
@@ -29,8 +35,10 @@ final class AudioPlayer {
     // deallocated or seeked to its true end).
     private var hasTriggeredOutroSkip = false
 
-    // The rate played back at. AVPlayer.rate defaults to 1.0 (i.e. play() is just rate = 1), so
-    // this always reflects what's actually driving playback rather than a separately-tracked value.
+    // The desired session rate. Not always what AVPlayer.rate itself reads (that's 0 while
+    // paused, or before a seek/buffer completes), but the value play()/resume()/setPlaybackSpeed()
+    // apply and reapply — tracked separately so pause/resume can restore it without needing to
+    // remember what was last actually playing.
     private(set) var playbackSpeed: Float = 1.0
 
     init() {
@@ -68,8 +76,14 @@ final class AudioPlayer {
         // Setting .rate rather than calling .play() starts playback at the configured speed
         // directly, instead of starting at 1.0 and then jumping.
         if effectiveStartPosition > 0 {
-            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600)) { [weak newPlayer] _ in
-                newPlayer?.rate = playbackSpeed
+            // Captures self/newPlayer weakly rather than the playbackSpeed parameter: reading
+            // self.playbackSpeed at completion time (not the value passed into this call) means a
+            // setPlaybackSpeed() during the pending seek isn't silently overwritten once it lands.
+            // The identity check guards against this same completion firing after a later play()
+            // call has replaced player with a different instance for a different URL.
+            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600)) { [weak self, weak newPlayer] _ in
+                guard let self, let newPlayer, self.player === newPlayer else { return }
+                newPlayer.rate = self.playbackSpeed
             }
         } else {
             newPlayer.rate = playbackSpeed

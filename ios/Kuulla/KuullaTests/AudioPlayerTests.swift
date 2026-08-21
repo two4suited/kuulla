@@ -112,6 +112,7 @@ final class AudioPlayerTests: XCTestCase {
         player.play(url: URL(string: "https://example.com/audio.mp3")!)
 
         XCTAssertEqual(player.playbackSpeed, 1.0)
+        XCTAssertEqual(player.currentPlayerRate, 1.0)
     }
 
     func testPlayWithPlaybackSpeedSeedsPlaybackSpeed() {
@@ -120,6 +121,18 @@ final class AudioPlayerTests: XCTestCase {
         player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 1.5)
 
         XCTAssertEqual(player.playbackSpeed, 1.5)
+        XCTAssertEqual(player.currentPlayerRate, 1.5)
+    }
+
+    // Guards against the pitch-correction wiring silently regressing — a plain rate change
+    // without .timeDomain would distort pitch (the "chipmunk effect") instead of staying
+    // spoken-word-optimized.
+    func testPlaySetsTimeDomainPitchAlgorithm() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 1.5)
+
+        XCTAssertEqual(player.currentPitchAlgorithm, .timeDomain)
     }
 
     func testSetPlaybackSpeedUpdatesSpeedWhilePlaying() {
@@ -129,6 +142,7 @@ final class AudioPlayerTests: XCTestCase {
         player.setPlaybackSpeed(2.0)
 
         XCTAssertEqual(player.playbackSpeed, 2.0)
+        XCTAssertEqual(player.currentPlayerRate, 2.0)
         XCTAssertTrue(player.isPlaying)
     }
 
@@ -140,6 +154,10 @@ final class AudioPlayerTests: XCTestCase {
         player.setPlaybackSpeed(2.0)
 
         XCTAssertEqual(player.playbackSpeed, 2.0)
+        // The underlying player must stay at rate 0 (paused) even though the desired speed
+        // changed — asserting only isPlaying wouldn't catch a regression where the rate itself
+        // gets nudged off zero without flipping isPlaying back to true.
+        XCTAssertEqual(player.currentPlayerRate, 0)
         XCTAssertFalse(player.isPlaying)
     }
 
@@ -151,6 +169,7 @@ final class AudioPlayerTests: XCTestCase {
         player.resume()
 
         XCTAssertEqual(player.playbackSpeed, 1.75)
+        XCTAssertEqual(player.currentPlayerRate, 1.75)
         XCTAssertTrue(player.isPlaying)
     }
 }
