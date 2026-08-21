@@ -1085,9 +1085,10 @@ const float PlaybackSpeedStep = 0.1f;
 
 bool TryValidatePlaybackSpeed(float speed, string fieldName, out string? error)
 {
-    // NaN/Infinity compare false against both bounds below (NaN against anything, Infinity
-    // against MaxPlaybackSpeed only in the ">" direction it needs), so they'd otherwise slip
-    // through the range check entirely — reject them explicitly up front.
+    // NaN compares false against both bounds below, so it would otherwise slip through the
+    // range check entirely — reject it explicitly. Infinity is already caught by the bounds
+    // themselves (always < Min or > Max); the explicit check here is just for clarity, not
+    // because it's load-bearing.
     if (float.IsNaN(speed) || float.IsInfinity(speed) || speed < MinPlaybackSpeed || speed > MaxPlaybackSpeed)
     {
         error = $"'{fieldName}' must be between {MinPlaybackSpeed} and {MaxPlaybackSpeed}.";
@@ -1096,9 +1097,10 @@ bool TryValidatePlaybackSpeed(float speed, string fieldName, out string? error)
 
     // Round-trip through the 0.1 grid rather than a raw modulo check, which is unreliable for
     // floats (e.g. 2.3 % 0.1 doesn't cleanly land on 0 due to binary floating-point rounding).
-    // The tolerance only needs to absorb float round-off (~1e-6 over this range), not real
-    // off-grid input like 0.5009 — kept well below half a step (0.05) so it can't accept a
-    // neighboring grid value by mistake.
+    // 0.0001 only needs to absorb float round-off (theoretically ~1e-6 over this range) — kept
+    // two orders of magnitude above that floor for headroom, while still well below half a step
+    // (0.05) so it can't accept a neighboring grid value or a genuinely off-grid input like
+    // 0.5009 by mistake.
     var steps = MathF.Round((speed - MinPlaybackSpeed) / PlaybackSpeedStep);
     var nearestOnGrid = MinPlaybackSpeed + (steps * PlaybackSpeedStep);
     if (MathF.Abs(speed - nearestOnGrid) > 0.0001f)
