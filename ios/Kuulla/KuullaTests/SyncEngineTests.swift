@@ -110,7 +110,7 @@ final class SyncEngineTests: MockedApiTestCase {
         let container = try makeContainer()
         let context = ModelContext(container)
         context.insert(EpisodeStateRecord(
-            id: "ep1", showId: "show1", positionSeconds: 0, completed: true,
+            id: "ep1", showId: "show1", positionSeconds: 42, completed: true,
             updatedAt: Date(timeIntervalSince1970: 1_000), isDirty: false, autoPlayed: true))
         try context.save()
 
@@ -125,11 +125,13 @@ final class SyncEngineTests: MockedApiTestCase {
         // through their own ModelContext, so it must reflect the write that was just made.
         XCTAssertEqual(returned?.completed, false)
         XCTAssertEqual(returned?.autoPlayed, false)
+        XCTAssertEqual(returned?.positionSeconds, 0)
 
         let verifyContext = ModelContext(container)
         let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
         XCTAssertFalse(stored.completed)
         XCTAssertFalse(stored.autoPlayed)
+        XCTAssertEqual(stored.positionSeconds, 0)
         XCTAssertTrue(stored.isDirty)
     }
 
