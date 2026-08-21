@@ -1079,4 +1079,74 @@ settings.MapPut("/shows/{showId}/auto-skip", async (
     return Results.Ok(result);
 });
 
+const float MinPlaybackSpeed = 0.5f;
+const float MaxPlaybackSpeed = 3.0f;
+const float PlaybackSpeedStep = 0.1f;
+
+bool TryValidatePlaybackSpeed(float speed, string fieldName, out string? error)
+{
+    if (speed < MinPlaybackSpeed || speed > MaxPlaybackSpeed)
+    {
+        error = $"'{fieldName}' must be between {MinPlaybackSpeed} and {MaxPlaybackSpeed}.";
+        return false;
+    }
+
+    // Round-trip through the 0.1 grid rather than a raw modulo check, which is unreliable for
+    // floats (e.g. 2.3 % 0.1 doesn't cleanly land on 0 due to binary floating-point rounding).
+    var steps = MathF.Round((speed - MinPlaybackSpeed) / PlaybackSpeedStep);
+    var nearestOnGrid = MinPlaybackSpeed + (steps * PlaybackSpeedStep);
+    if (MathF.Abs(speed - nearestOnGrid) > 0.001f)
+    {
+        error = $"'{fieldName}' must be in increments of {PlaybackSpeedStep}.";
+        return false;
+    }
+
+    error = null;
+    return true;
+}
+
+bool TryValidateNullablePlaybackSpeed(float? speed, string fieldName, out string? error)
+{
+    if (speed is { } value)
+    {
+        return TryValidatePlaybackSpeed(value, fieldName, out error);
+    }
+
+    error = null;
+    return true;
+}
+
+settings.MapPut("/playback-speed", async (
+    UpdatePlaybackSpeedRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidatePlaybackSpeed(request.PlaybackSpeed, "playbackSpeed", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdatePlaybackSpeedAsync(userId, request.PlaybackSpeed, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/playback-speed", async (
+    string showId,
+    UpdateShowPlaybackSpeedRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateNullablePlaybackSpeed(request.PlaybackSpeed, "playbackSpeed", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowPlaybackSpeedAsync(userId, showId, request.PlaybackSpeed, ct);
+    return Results.Ok(result);
+});
+
 app.Run();

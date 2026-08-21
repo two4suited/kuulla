@@ -34,4 +34,13 @@ public interface ISettingsService
 
     Task<(int IntroSeconds, int OutroSeconds)> GetEffectiveAutoSkipAsync(
         string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdatePlaybackSpeedAsync(
+        string userId, float playbackSpeed, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowPlaybackSpeedAsync(
+        string userId, string showId, float? playbackSpeed, CancellationToken cancellationToken);
+
+    Task<float> GetEffectivePlaybackSpeedAsync(
+        string userId, string showId, CancellationToken cancellationToken);
 }
