@@ -129,7 +129,8 @@ UserSettings              (id = userId)
 ├─ accessibility                                      // #192
 ├─ version : int                                     // existing, bumped per write
 
-ShowSettings               (id = "show:{userId}:{showId}")
+ShowSettings               (id = ShowSettings.BuildId(userId, showId),
+                             i.e. "show:{Uri.EscapeDataString(userId)}:{Uri.EscapeDataString(showId)}")
 ├─ userId, showId
 ├─ unlistenedEpisodeCount : UnlistenedEpisodeCount?  // existing, null = inherit
 ├─ playbackSpeed / silenceTrim / volumeBoost : ...?  // #182, null = inherit
