@@ -46,6 +46,16 @@ struct SettingsClient {
             ["api", "settings", "shows", showId, "auto-skip"],
             body: UpdateShowAutoSkipRequest(autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds))
     }
+
+    func updatePlaybackSpeed(_ value: Float) async throws -> UserSettings {
+        try await apiClient.put(["api", "settings", "playback-speed"], body: UpdatePlaybackSpeedRequest(playbackSpeed: value))
+    }
+
+    func updateShowPlaybackSpeed(showId: String, value: Float?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "playback-speed"],
+            body: UpdateShowPlaybackSpeedRequest(playbackSpeed: value))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -72,4 +82,12 @@ private struct UpdateAutoSkipRequest: Encodable {
 private struct UpdateShowAutoSkipRequest: Encodable {
     let autoSkipIntroSeconds: Int?
     let autoSkipOutroSeconds: Int?
+}
+
+private struct UpdatePlaybackSpeedRequest: Encodable {
+    let playbackSpeed: Float
+}
+
+private struct UpdateShowPlaybackSpeedRequest: Encodable {
+    let playbackSpeed: Float?
 }

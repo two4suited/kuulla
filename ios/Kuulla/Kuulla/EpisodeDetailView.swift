@@ -25,6 +25,8 @@ struct EpisodeDetailView: View {
     @State private var autoSkipIntroSeconds = 0
     @State private var autoSkipOutroSeconds = 0
     @State private var playbackSpeed: Float = 1.0
+    @State private var playbackSpeedSaveTask: Task<Void, Never>?
+    @State private var playbackSpeedSaveError: String?
 
     private let catalogClient = PodcastCatalogClient()
     private let settingsClient = SettingsClient()
@@ -80,6 +82,19 @@ struct EpisodeDetailView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
+                    }
+
+                    Button {
+                        cyclePlaybackSpeed()
+                    } label: {
+                        Label("\(PlaybackSpeedOption(rawValue: playbackSpeed)?.label ?? "\(playbackSpeed)x") speed", systemImage: "speedometer")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    if let playbackSpeedSaveError {
+                        Text(playbackSpeedSaveError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
 
                     Button(completedButtonTitle) {
@@ -213,6 +228,31 @@ struct EpisodeDetailView: View {
                 autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
                 playbackSpeed: playbackSpeed)
             startProgressTracking()
+        }
+    }
+
+    // Cycles through the common speed presets (wrapping back to the first after the last),
+    // applying the change live to whatever's currently playing and saving it as the new global
+    // default. A value outside the presets (e.g. a synced override from elsewhere) starts the
+    // cycle from the slowest preset rather than crashing on a missing match.
+    private func cyclePlaybackSpeed() {
+        let options = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
+        let currentIndex = options.firstIndex { $0.rawValue == playbackSpeed } ?? -1
+        let next = options[(currentIndex + 1) % options.count]
+
+        playbackSpeed = next.rawValue
+        audioPlayer.setPlaybackSpeed(next.rawValue)
+
+        playbackSpeedSaveTask?.cancel()
+        playbackSpeedSaveTask = Task {
+            playbackSpeedSaveError = nil
+            do {
+                _ = try await settingsClient.updatePlaybackSpeed(next.rawValue)
+            } catch {
+                if !Task.isCancelled {
+                    playbackSpeedSaveError = "Something went wrong while saving your default speed."
+                }
+            }
         }
     }
 
