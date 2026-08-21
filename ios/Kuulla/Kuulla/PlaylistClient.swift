@@ -17,6 +17,20 @@ struct PlaylistClient {
         try await apiClient.post(["api", "playlists"], body: CreatePlaylistRequest(name: name))
     }
 
+    func createDynamicPlaylist(name: String, config: DynamicPlaylistConfig) async throws -> Playlist {
+        try await apiClient.post(
+            ["api", "playlists"],
+            body: CreateDynamicPlaylistRequest(name: name, type: .dynamic, dynamicConfig: config))
+    }
+
+    func updateDynamicPlaylistConfig(id: String, config: DynamicPlaylistConfig) async throws -> Playlist? {
+        do {
+            return try await apiClient.put(["api", "playlists", id, "config"], body: config)
+        } catch ApiError.requestFailed(let statusCode) where statusCode == 404 {
+            return nil
+        }
+    }
+
     func getPlaylistDetail(id: String) async throws -> PlaylistDetail? {
         do {
             return try await apiClient.get(["api", "playlists", id])
@@ -66,6 +80,7 @@ struct Playlist: Codable, Identifiable {
     let items: [PlaylistItemRecord]
     let createdAt: Date
     let updatedAt: Date
+    var dynamicConfig: DynamicPlaylistConfig?
 }
 
 // GET /api/playlists/{id}'s response — items resolved against the episodes/shows containers for
@@ -78,6 +93,13 @@ struct PlaylistDetail: Decodable, Identifiable {
     var items: [PlaylistItemDetail]
     let createdAt: Date
     let updatedAt: Date
+    var dynamicConfig: DynamicPlaylistConfig?
+}
+
+struct DynamicPlaylistConfig: Codable, Equatable {
+    var showIds: [String]
+    var maxEpisodes: Int
+    var priorityList: [String]
 }
 
 struct PlaylistItemDetail: Decodable, Identifiable {
@@ -93,6 +115,12 @@ struct PlaylistItemDetail: Decodable, Identifiable {
 
 private struct CreatePlaylistRequest: Encodable {
     let name: String
+}
+
+private struct CreateDynamicPlaylistRequest: Encodable {
+    let name: String
+    let type: PlaylistType
+    let dynamicConfig: DynamicPlaylistConfig
 }
 
 private struct RenamePlaylistRequest: Encodable {
