@@ -52,4 +52,17 @@ builder.AddProject<Projects.Kuulla_Web>("web")
     .WithEnvironment("Authentication__Google__ClientSecret", googleClientSecret)
     .WaitFor(api);
 
+// Builds and launches the app in the iOS Simulator with the API's Aspire-resolved
+// endpoint injected, so it doesn't need a manually-set KUULLA_API_BASE_URL (see #50, #51).
+// macOS-only (xcodebuild/simctl aren't available elsewhere) and explicit-start
+// since a full Xcode build is too slow to run on every `aspire run`/`aspire start`.
+if (OperatingSystem.IsMacOS())
+{
+    var repoRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", ".."));
+    builder.AddExecutable("ios-simulator", Path.Combine(repoRoot, "scripts", "run-ios-simulator.sh"), repoRoot)
+        .WithEnvironment("KUULLA_API_BASE_URL", api.GetEndpoint("http"))
+        .WaitFor(api)
+        .WithExplicitStart();
+}
+
 builder.Build().Run();
