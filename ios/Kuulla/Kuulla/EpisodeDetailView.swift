@@ -41,6 +41,16 @@ struct EpisodeDetailView: View {
         }
     }
 
+    // A non-preset value (e.g. synced from elsewhere, or a value outside the current preset set)
+    // still needs a readable label — fixed-precision formatting matches PlaybackSpeedOption.label
+    // rather than showing a raw float that can render as something like "1.20000005x".
+    private var playbackSpeedLabel: String {
+        if let option = PlaybackSpeedOption(rawValue: playbackSpeed) {
+            return option.label
+        }
+        return "\(playbackSpeed.formatted(.number.precision(.fractionLength(0...2))))x"
+    }
+
     // AudioPlayer is a single shared instance, so isPlaying/currentURL are global, not scoped to
     // this screen's episode — a plain `audioPlayer.isPlaying` check would show "Pause" (and treat
     // a tap as pause-this-episode) while a *different* episode is actually playing.
@@ -87,7 +97,7 @@ struct EpisodeDetailView: View {
                     Button {
                         cyclePlaybackSpeed()
                     } label: {
-                        Label("\(PlaybackSpeedOption(rawValue: playbackSpeed)?.label ?? "\(playbackSpeed)x") speed", systemImage: "speedometer")
+                        Label("\(playbackSpeedLabel) speed", systemImage: "speedometer")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)

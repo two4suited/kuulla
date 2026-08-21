@@ -233,7 +233,9 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/playback-speed"))
         XCTAssertEqual(capturedMethod, "PUT")
         let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
-        XCTAssertEqual(bodyJSON["playbackSpeed"] as? Float, 1.5)
+        // JSONSerialization decodes numeric values as NSNumber/Double, not Float — `as? Float`
+        // would fail to cast (nil), failing this assertion even though the body is correct.
+        XCTAssertEqual(bodyJSON["playbackSpeed"] as? Double, 1.5)
     }
 
     func testGetShowSettingsDecodesNullPlaybackSpeedOverrideAsNil() async throws {

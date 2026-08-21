@@ -6,11 +6,12 @@ import Foundation
 // rather than free-form numeric entry.
 enum PlaybackSpeedOption: Float, CaseIterable, Identifiable {
     case half = 0.5
-    case threeQuarters = 0.75
+    case sevenTenths = 0.7
+    case eightTenths = 0.8
     case normal = 1.0
-    case oneQuarter = 1.25
+    case onePointTwo = 1.2
     case oneAndAHalf = 1.5
-    case oneThreeQuarters = 1.75
+    case oneEight = 1.8
     case double = 2.0
     case twoAndAHalf = 2.5
     case triple = 3.0
