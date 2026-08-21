@@ -60,18 +60,14 @@ struct ShowSettingsSheet: View {
 
                 Section {
                     Picker("Auto-skip intro", selection: autoSkipIntroOverrideBinding) {
-                        Text("Use global default").tag(AutoSkipDuration?.none)
-                        ForEach(AutoSkipDuration.allCases) { option in
-                            Text(option.label).tag(AutoSkipDuration?.some(option))
-                        }
+                        Text("Use global default").tag(Int?.none)
+                        autoSkipPickerOptions(for: settings?.autoSkipIntroSeconds)
                     }
                     .disabled(settings == nil)
 
                     Picker("Auto-skip outro", selection: autoSkipOutroOverrideBinding) {
-                        Text("Use global default").tag(AutoSkipDuration?.none)
-                        ForEach(AutoSkipDuration.allCases) { option in
-                            Text(option.label).tag(AutoSkipDuration?.some(option))
-                        }
+                        Text("Use global default").tag(Int?.none)
+                        autoSkipPickerOptions(for: settings?.autoSkipOutroSeconds)
                     }
                     .disabled(settings == nil)
                 } footer: {
@@ -119,28 +115,41 @@ struct ShowSettingsSheet: View {
         )
     }
 
-    private var autoSkipIntroOverrideBinding: Binding<AutoSkipDuration?> {
+    private var autoSkipIntroOverrideBinding: Binding<Int?> {
         Binding(
-            get: { settings?.autoSkipIntroSeconds.map { AutoSkipDuration(rawValue: $0) ?? .off } },
+            get: { settings?.autoSkipIntroSeconds },
             set: { newValue in
                 autoSkipSaveTask?.cancel()
                 autoSkipSaveTask = Task {
-                    await updateAutoSkipOverride(introSeconds: newValue?.rawValue, outroSeconds: settings?.autoSkipOutroSeconds)
+                    await updateAutoSkipOverride(introSeconds: newValue, outroSeconds: settings?.autoSkipOutroSeconds)
                 }
             }
         )
     }
 
-    private var autoSkipOutroOverrideBinding: Binding<AutoSkipDuration?> {
+    private var autoSkipOutroOverrideBinding: Binding<Int?> {
         Binding(
-            get: { settings?.autoSkipOutroSeconds.map { AutoSkipDuration(rawValue: $0) ?? .off } },
+            get: { settings?.autoSkipOutroSeconds },
             set: { newValue in
                 autoSkipSaveTask?.cancel()
                 autoSkipSaveTask = Task {
-                    await updateAutoSkipOverride(introSeconds: settings?.autoSkipIntroSeconds, outroSeconds: newValue?.rawValue)
+                    await updateAutoSkipOverride(introSeconds: settings?.autoSkipIntroSeconds, outroSeconds: newValue)
                 }
             }
         )
+    }
+
+    // The presets don't cover every value the API accepts (0...3600), so an override saved from
+    // elsewhere that doesn't match one of them gets a synthesized "Custom" row rather than
+    // silently snapping to the nearest preset.
+    @ViewBuilder
+    private func autoSkipPickerOptions(for currentValue: Int?) -> some View {
+        ForEach(AutoSkipDuration.allCases) { option in
+            Text(option.label).tag(Int?.some(option.rawValue))
+        }
+        if let currentValue, AutoSkipDuration(rawValue: currentValue) == nil {
+            Text("Custom (\(currentValue)s)").tag(Int?.some(currentValue))
+        }
     }
 
     private func loadSettings() async {

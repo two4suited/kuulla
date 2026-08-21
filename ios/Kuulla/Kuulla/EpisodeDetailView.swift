@@ -146,7 +146,12 @@ struct EpisodeDetailView: View {
         }
 
         loadLocalState()
-        await loadAutoSkipSettings()
+        // Skip fetching auto-skip settings when the episode itself failed to load — playback
+        // isn't possible without an episode, so there's no reason to wait on (or surface errors
+        // from) a settings fetch that won't be used.
+        if episode != nil {
+            await loadAutoSkipSettings()
+        }
         isLoading = false
     }
 
