@@ -11,11 +11,12 @@ struct ShowSettings: Codable, Hashable {
     let autoArchiveRule: AutoArchiveRule?
     let autoSkipIntroSeconds: Int?
     let autoSkipOutroSeconds: Int?
+    let playbackSpeed: Float?
 
     init(
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
         version: Int, autoArchiveRule: AutoArchiveRule?,
-        autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil
+        autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -25,10 +26,11 @@ struct ShowSettings: Codable, Hashable {
         self.autoArchiveRule = autoArchiveRule
         self.autoSkipIntroSeconds = autoSkipIntroSeconds
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
+        self.playbackSpeed = playbackSpeed
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds
+        case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -43,5 +45,6 @@ struct ShowSettings: Codable, Hashable {
         autoArchiveRule = try container.decodeIfPresent(AutoArchiveRule.self, forKey: .autoArchiveRule)
         autoSkipIntroSeconds = try container.decodeIfPresent(Int.self, forKey: .autoSkipIntroSeconds)
         autoSkipOutroSeconds = try container.decodeIfPresent(Int.self, forKey: .autoSkipOutroSeconds)
+        playbackSpeed = try container.decodeIfPresent(Float.self, forKey: .playbackSpeed)
     }
 }
