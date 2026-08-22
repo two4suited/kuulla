@@ -11,7 +11,9 @@ struct KuullaApp: App {
     let playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>
 
     init() {
-        let container = try! ModelContainer(for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self)
+        let container = try! ModelContainer(
+            for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self, DownloadedEpisodeRecord.self
+        )
         modelContainer = container
         let episodeEngine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter())
         episodeSyncEngine = episodeEngine
