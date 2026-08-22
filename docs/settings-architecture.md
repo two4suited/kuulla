@@ -32,9 +32,10 @@ setting is touched after initial setup (most-used first):
    archive rules can trigger download deletion (#187's own "Decide" notes this
    overlap).
 6. **Data Usage & Network** ([#186](https://github.com/sheridan-apps/kuulla/issues/186))
-   — Wi-Fi-only streaming/downloading, quality tradeoffs. Kept distinct from
-   Downloads & Storage: that section decides *what* to download/keep, this one
-   decides *over what connection*.
+   — Wi-Fi-only streaming/downloading toggles (no bandwidth/quality tradeoff setting
+   — see the spec's rationale). Kept distinct from Downloads & Storage: that section
+   decides *what* to download/keep, this one decides *over what connection*. Spec:
+   [data-usage-network-settings.md](./data-usage-network-settings.md).
 7. **Import & Export** ([#189](https://github.com/sheridan-apps/kuulla/issues/189))
    — OPML.
 8. **Widgets** ([#190](https://github.com/sheridan-apps/kuulla/issues/190)) —
