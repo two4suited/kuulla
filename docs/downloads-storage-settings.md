@@ -23,12 +23,12 @@ what connection*.
 
 ### Auto-download rules
 
-- **Global default**: `AutoDownloadNewEpisodes: bool`, default `false`. Off by
-  default because auto-downloading is a bandwidth/storage commitment a user should
-  opt into, not one made on their behalf the first time they add a show — consistent
-  with `AutoArchiveRule.Never` and `PlaybackSpeed: 1.0f`'s "unmodified until the user
-  opts in" convention in `UserSettings`.
-- **Per-show override**: `AutoDownloadNewEpisodes: bool?` on `ShowSettings`, `null`
+- **Global default**: `downloadsAndStorage.autoDownloadNewEpisodes: bool`, default
+  `false`. Off by default because auto-downloading is a bandwidth/storage commitment
+  a user should opt into, not one made on their behalf the first time they add a show
+  — consistent with `AutoArchiveRule.Never` and `PlaybackSpeed: 1.0f`'s "unmodified
+  until the user opts in" convention in `UserSettings`.
+- **Per-show override**: `autoDownloadNewEpisodes: bool?` on `ShowSettings`, `null`
   meaning "inherit the global default" — the same nullable-override pattern
   `UnlistenedEpisodeCount` already uses. A user who wants every episode of one show
   kept offline (e.g. a slow-to-publish show they don't want to miss) without turning
@@ -42,7 +42,7 @@ what connection*.
 
 ### Auto-delete rules
 
-- `AutoDeleteRule` enum: `Never | AfterPlayed | AfterDays`.
+- `downloadsAndStorage.autoDeleteRule` enum: `Never | AfterPlayed | AfterDays`.
   - `Never` (default) — a user must delete manually from the downloads list (#178) or
     an episode row (#176). Kept as the default for the same reason
     `AutoArchiveRule.Never` is: silently deleting a file a user downloaded on purpose
@@ -51,7 +51,7 @@ what connection*.
     (`AudioPlayer.onDidFinishPlaying` / manual mark-played), excluding auto-played
     episodes per #179's own carve-out so a #100 "Restore" doesn't point at a deleted
     file.
-  - `AfterDays: int` — delete `AutoDeleteAfterDays` days after `downloadedAt`
+  - `AfterDays` — delete `downloadsAndStorage.autoDeleteAfterDays` days after `downloadedAt`
     (`DownloadedEpisodeRecord`, #174), independent of played state. This needs its
     own configurable-integer field rather than reusing `AutoArchiveRule`
     (`Kuulla.Api.Models.AutoArchiveRule`) — that enum only has fixed day-count cases
@@ -64,7 +64,7 @@ what connection*.
     downloads, and can be layered on later as its own field without reshaping this
     enum. `#186`'s connection-based rules are a separate concern and don't block on
     this decision either.
-- Global-only (`UserSettings.DownloadsAndStorage.AutoDeleteRule`) — no per-show
+- Global-only (`downloadsAndStorage.autoDeleteRule` on `UserSettings`) — no per-show
   override. Unlike auto-download, which show gets kept offline, a per-show delete
   policy fragmentation ("some shows auto-delete after play, others never do") adds a
   second axis of state a user has to track in the downloads list (#178) for little
@@ -121,8 +121,9 @@ preference, not a per-device one, unlike #186's connection-based settings.
   resolution) and *when a completed download gets removed* (auto-delete rule) — it
   doesn't duplicate any of #175's transfer/progress logic.
 - Auto-delete's `AfterPlayed` case shares its trigger point with #179 exactly; #179
-  should read `AutoDeleteRule` (defaulting its "Delete downloads after playing"
-  toggle to `AutoDeleteRule == AfterPlayed` conceptually, or fold into this same enum
+  should read `downloadsAndStorage.autoDeleteRule` (defaulting its "Delete downloads
+  after playing" toggle to `autoDeleteRule == AfterPlayed` conceptually, or fold into
+  this same enum
   during #179's implementation rather than keeping two separate toggles for the same
   outcome — left as an implementation note for #179, not a decision this issue needs
   to force ahead of time).
