@@ -11,7 +11,7 @@ public class SettingsTests : WebTestContext
 
     private static TestHttpMessageHandler CreateHandler(
         UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,
-        UserSettings? autoSkipPutResponse = null) =>
+        UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null) =>
         new(request =>
         {
             if (request.RequestUri!.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
@@ -43,6 +43,14 @@ public class SettingsTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(autoSkipPutResponse ?? DefaultSettings),
+                };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/settings/playback-speed" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(playbackSpeedPutResponse ?? DefaultSettings),
                 };
             }
 
@@ -178,6 +186,53 @@ public class SettingsTests : WebTestContext
         {
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.Equal("0", cut.Find("#auto-skip-intro-seconds").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void RendersCurrentPlaybackSpeed_WhenLoadSucceeds()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0, PlaybackSpeed: 1.5f)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.Equal("1.5", cut.Find("#playback-speed").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsPlaybackSpeed_WhenSelectionChanges()
+    {
+        ConfigureApi(CreateHandler(playbackSpeedPutResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
+            AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0, PlaybackSpeed: 1.2f)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Playback speed", cut.Markup));
+
+        cut.Find("#playback-speed").Change("1.2");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsErrorAndRevertsPlaybackSpeed_WhenSaveFails()
+    {
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/settings/playback-speed" && request.Method == HttpMethod.Put
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("1", cut.Find("#playback-speed").GetAttribute("value")));
+
+        cut.Find("#playback-speed").Change("1.2");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.Equal("1", cut.Find("#playback-speed").GetAttribute("value"));
         });
     }
 }

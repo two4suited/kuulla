@@ -80,6 +80,25 @@
                 }
             </div>
 
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="playback-speed">Playback speed</label>
+                <select id="playback-speed" class="form-select" disabled="@isPlaybackSpeedSaving"
+                        value="@selectedPlaybackSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="OnPlaybackSpeedChangedAsync">
+                    @foreach (var option in PlaybackSpeedUi.OptionsIncluding(selectedPlaybackSpeed))
+                    {
+                        <option value="@option.ToString(System.Globalization.CultureInfo.InvariantCulture)">@PlaybackSpeedUi.Format(option)</option>
+                    }
+                </select>
+                @if (playbackSpeedSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@playbackSpeedSaveError</p>
+                }
+                else if (playbackSpeedSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
             @if (saveError is not null)
             {
                 <p class="text-danger">@saveError</p>
@@ -114,6 +133,10 @@
     private bool autoSkipSaveSavedConfirmation;
     private int autoSkipSaveVersion;
     private readonly SemaphoreSlim autoSkipSaveLock = new(1, 1);
+    private float selectedPlaybackSpeed;
+    private bool isPlaybackSpeedSaving;
+    private string? playbackSpeedSaveError;
+    private bool playbackSpeedSaveSavedConfirmation;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -136,6 +159,7 @@
             selectedAutoArchiveRule = settings.AutoArchiveRule;
             selectedAutoSkipIntroSeconds = settings.AutoSkipIntroSeconds;
             selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
+            selectedPlaybackSpeed = settings.PlaybackSpeed;
         }
         catch (HttpRequestException)
         {
@@ -266,6 +290,42 @@
             {
                 isAutoSkipSaving = false;
             }
+        }
+    }
+
+    private async Task OnPlaybackSpeedChangedAsync(ChangeEventArgs args)
+    {
+        if (!float.TryParse(
+                args.Value?.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var value) ||
+            !float.IsFinite(value))
+        {
+            // NumberStyles.Float accepts "NaN"/"Infinity" as valid input, which the <select>'s
+            // own values never are — but a tampered DOM value could still submit one, and
+            // System.Text.Json throws (not HttpRequestException) trying to serialize either into
+            // the PUT body, which would bypass the catch below and leave no revert/error shown.
+            return;
+        }
+
+        var previous = selectedPlaybackSpeed;
+        selectedPlaybackSpeed = value;
+        isPlaybackSpeedSaving = true;
+        playbackSpeedSaveError = null;
+        playbackSpeedSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdatePlaybackSpeedAsync(value);
+            playbackSpeedSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedPlaybackSpeed = previous;
+            playbackSpeedSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isPlaybackSpeedSaving = false;
         }
     }
 }
