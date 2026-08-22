@@ -172,4 +172,29 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.currentPlayerRate, 1.75)
         XCTAssertTrue(player.isPlaying)
     }
+
+    // A saved-position seek never completes against a fake URL (no real asset loads), so the
+    // window right after this play() call is deterministically "seek still pending" — exactly
+    // the window setPlaybackSpeed() must not apply a rate in, since play() hasn't actually
+    // started audio yet (rate 0) despite isPlaying already reading true optimistically.
+    func testSetPlaybackSpeedDoesNotApplyRateWhileSeekIsPending() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 120)
+
+        player.setPlaybackSpeed(2.0)
+
+        XCTAssertEqual(player.playbackSpeed, 2.0)
+        XCTAssertEqual(player.currentPlayerRate, 0)
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    func testPauseDuringPendingSeekLeavesPlayerPaused() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 120)
+
+        player.pause()
+
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.currentPlayerRate, 0)
+    }
 }

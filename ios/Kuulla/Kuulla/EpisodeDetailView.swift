@@ -173,6 +173,15 @@ struct EpisodeDetailView: View {
         autoSkipIntroSeconds = show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0
         autoSkipOutroSeconds = show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0
         playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
+
+        // This fetch races the play button: a tap before it resolves starts playback at the
+        // 1.0 fallback (audioPlayer.play's own default), since togglePlayback reads whatever
+        // playbackSpeed currently holds. If that happened, apply the now-resolved speed to the
+        // session that's already running rather than leaving it stuck at the fallback for the
+        // rest of this episode.
+        if let episode, let audioURL = URL(string: episode.audioUrl), audioPlayer.currentURL == audioURL {
+            audioPlayer.setPlaybackSpeed(playbackSpeed)
+        }
     }
 
     private static func stateDescriptor(for episodeId: String) -> FetchDescriptor<EpisodeStateRecord> {
