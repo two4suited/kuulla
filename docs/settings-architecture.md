@@ -25,7 +25,8 @@ setting is touched after initial setup (most-used first):
    this needs are tracked separately in
    [#214](https://github.com/sheridan-apps/kuulla/issues/214).
 4. **Downloads & Storage** ([#185](https://github.com/sheridan-apps/kuulla/issues/185))
-   — auto-download rules, auto-delete rules, storage usage/clear-downloads.
+   — auto-download rules, auto-delete rules, storage usage/clear-downloads. Spec:
+   [downloads-storage-settings.md](./downloads-storage-settings.md).
 5. **Auto-Archive & Played Rules** ([#187](https://github.com/sheridan-apps/kuulla/issues/187))
    — global/per-podcast archive rule; placed right after Downloads & Storage since
    archive rules can trigger download deletion (#187's own "Decide" notes this
@@ -119,10 +120,10 @@ UserSettings              (id = userId)
 ├─ notifications                                     // #184, synced subset only
 │  ├─ newEpisodesEnabled : bool
 │  ├─ downloadCompleteEnabled : bool
-├─ downloadsAndStorage                                // #185
+├─ downloadsAndStorage                                // #185, see downloads-storage-settings.md
 │  ├─ autoDownloadNewEpisodes : bool
 │  ├─ autoDeleteRule : enum
-│  ├─ storageCapMb
+│  ├─ autoDeleteAfterDays : int
 ├─ autoArchive                                        // #187
 │  ├─ enabled : bool
 │  ├─ afterPlayed / afterDays / afterEpisodeCount

@@ -51,12 +51,13 @@ what connection*.
     (`AudioPlayer.onDidFinishPlaying` / manual mark-played), excluding auto-played
     episodes per #179's own carve-out so a #100 "Restore" doesn't point at a deleted
     file.
-  - `AfterDays: int` — delete `AfterDaysValue` days after `downloadedAt`
-    (`DownloadedEpisodeRecord`, #174), independent of played state. This is a
-    calendar-time rule, not a played-state rule, so it needs its own field
-    (`AfterDaysValue: int`, default `7` when the rule is selected) rather than reusing
-    `AutoArchiveRule`'s `afterDays`, which fires on archiving (hiding from lists), a
-    different action from deleting a local file.
+  - `AfterDays: int` — delete `AutoDeleteAfterDays` days after `downloadedAt`
+    (`DownloadedEpisodeRecord`, #174), independent of played state. This needs its
+    own configurable-integer field rather than reusing `AutoArchiveRule`
+    (`Kuulla.Api.Models.AutoArchiveRule`) — that enum only has fixed day-count cases
+    (`After1Day`/`After7Days`/`After30Days`, no arbitrary N) and fires archiving
+    (hiding from lists), a different action from deleting a local file, so neither
+    its shape nor its meaning transfers here.
   - No storage-cap-eviction rule for this milestone (Pocket Casts' "auto-evict
     oldest") — it adds a background eviction policy (what counts as "oldest": least
     recently downloaded vs. least recently played) that isn't needed to ship offline
@@ -89,6 +90,7 @@ UserSettings                       (id = userId)
 │  ├─ autoDownloadNewEpisodes : bool = false
 │  ├─ autoDeleteRule : Never|AfterPlayed|AfterDays = Never
 │  ├─ autoDeleteAfterDays : int = 7          // only meaningful when autoDeleteRule == AfterDays
+│                                            // (no storageCapMb — see "Storage usage & manual clear" above)
 
 ShowSettings   (id = ShowSettings.BuildId(userId, showId))
 ├─ autoDownloadNewEpisodes : bool?           // null = inherit UserSettings default
