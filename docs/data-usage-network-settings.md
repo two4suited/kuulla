@@ -7,8 +7,9 @@ Network" settings section, decided against
 download manager ([#174](https://github.com/sheridan-apps/kuulla/issues/174)–
 [#180](https://github.com/sheridan-apps/kuulla/issues/180)). This doc decides *over
 what connection* streaming and downloading happen; see
-[downloads-storage-settings.md](./downloads-storage-settings.md) (#185) for *what*
-gets downloaded and kept.
+[#185](https://github.com/sheridan-apps/kuulla/issues/185) (spec:
+`downloads-storage-settings.md`, landing in a sibling PR) for *what* gets downloaded
+and kept.
 
 ## Research
 
@@ -65,11 +66,13 @@ No `UserSettings`/`ShowSettings` change — per the device-local decision above,
 two booleans live entirely in platform-native local storage:
 
 ```
-iOS:  @AppStorage("wifiOnlyStreaming") : Bool = false
-      @AppStorage("wifiOnlyDownloads") : Bool = true
+iOS (pseudo, illustrating default + storage key only):
+  @AppStorage("wifiOnlyStreaming") var wifiOnlyStreaming = false
+  @AppStorage("wifiOnlyDownloads") var wifiOnlyDownloads = true
 
-Web:  localStorage["wifiOnlyStreaming"] = "false"
-      localStorage["wifiOnlyDownloads"]  = "true"
+Web (pseudo, illustrating default + storage key only):
+  localStorage.getItem("wifiOnlyStreaming") // defaults to "false" when unset
+  localStorage.getItem("wifiOnlyDownloads") // defaults to "true" when unset
 ```
 
 ## UI
