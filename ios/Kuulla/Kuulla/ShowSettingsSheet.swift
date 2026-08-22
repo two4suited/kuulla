@@ -19,6 +19,14 @@ struct ShowSettingsSheet: View {
     @State private var archiveSaveTask: Task<Void, Never>?
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
+    // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
+    // so unlike the other settings here (where cancelling the previous Task is enough — an
+    // in-flight PUT racing a newer one just means the last-arriving response wins, and the last
+    // *selection* still overwrites the UI on each change), two in-flight speed PUTs could land
+    // out of order and leave a stale value persisted. This version, combined with chaining saves
+    // behind their predecessor in savePlaybackSpeedOverride, keeps requests in-order and
+    // coalesces away any that are superseded before they'd even be sent.
+    @State private var playbackSpeedSaveVersion = 0
 
     private let settingsClient = SettingsClient()
 
@@ -254,8 +262,7 @@ struct ShowSettingsSheet: View {
         Binding(
             get: { settings?.playbackSpeed },
             set: { newValue in
-                playbackSpeedSaveTask?.cancel()
-                playbackSpeedSaveTask = Task { await updatePlaybackSpeedOverride(newValue) }
+                updatePlaybackSpeedOverride(newValue)
             }
         )
     }
@@ -273,7 +280,7 @@ struct ShowSettingsSheet: View {
         }
     }
 
-    private func updatePlaybackSpeedOverride(_ value: Float?) async {
+    private func updatePlaybackSpeedOverride(_ value: Float?) {
         guard let previous = settings else { return }
 
         playbackSpeedSaveError = nil
@@ -283,15 +290,23 @@ struct ShowSettingsSheet: View {
             autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
             autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: value)
 
-        do {
-            let updated = try await settingsClient.updateShowPlaybackSpeed(showId: showId, value: value)
-            if !Task.isCancelled {
-                settings = updated
-            }
-        } catch {
-            if !Task.isCancelled {
-                settings = previous
-                playbackSpeedSaveError = "Something went wrong while saving. Please try again."
+        playbackSpeedSaveVersion += 1
+        let requestVersion = playbackSpeedSaveVersion
+        let previousTask = playbackSpeedSaveTask
+        playbackSpeedSaveTask = Task {
+            await previousTask?.value
+            guard requestVersion == playbackSpeedSaveVersion else { return }
+
+            do {
+                let updated = try await settingsClient.updateShowPlaybackSpeed(showId: showId, value: value)
+                if requestVersion == playbackSpeedSaveVersion {
+                    settings = updated
+                }
+            } catch {
+                if requestVersion == playbackSpeedSaveVersion {
+                    settings = previous
+                    playbackSpeedSaveError = "Something went wrong while saving. Please try again."
+                }
             }
         }
     }

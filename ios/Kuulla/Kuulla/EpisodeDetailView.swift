@@ -27,6 +27,10 @@ struct EpisodeDetailView: View {
     @State private var playbackSpeed: Float = 1.0
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveError: String?
+    // Bumped on every cyclePlaybackSpeed() call; lets a save task tell whether it's still the
+    // latest one after waiting on its predecessor, so superseded intermediate values are
+    // coalesced away instead of being sent at all.
+    @State private var playbackSpeedSaveVersion = 0
 
     private let catalogClient = PodcastCatalogClient()
     private let settingsClient = SettingsClient()
@@ -101,6 +105,10 @@ struct EpisodeDetailView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                    // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
+                    // resolved from settings yet — cycling from an unresolved value here would
+                    // itself get overwritten the moment that fetch lands.
+                    .disabled(isLoading)
                     if let playbackSpeedSaveError {
                         Text(playbackSpeedSaveError)
                             .font(.caption)
@@ -251,15 +259,36 @@ struct EpisodeDetailView: View {
         let next = options[(currentIndex + 1) % options.count]
 
         playbackSpeed = next.rawValue
-        audioPlayer.setPlaybackSpeed(next.rawValue)
+        // AudioPlayer is shared across detail screens — only push the live rate change when
+        // this screen's episode is the one actually playing, otherwise a tap here would change
+        // the speed of whatever different episode happens to be playing in the background.
+        if let episode, let audioURL = URL(string: episode.audioUrl), audioPlayer.currentURL == audioURL {
+            audioPlayer.setPlaybackSpeed(next.rawValue)
+        }
 
-        playbackSpeedSaveTask?.cancel()
+        savePlaybackSpeed(next.rawValue)
+    }
+
+    // Cancelling the previous Task only stops waiting on its result locally — it doesn't retract
+    // a PUT already on the wire, and the endpoint is a plain read-then-upsert, so two in-flight
+    // requests could still land out of order and leave a stale speed persisted. Chaining each
+    // save behind the previous one (awaiting it before sending) keeps requests in flight one at a
+    // time and in order; the version check after that wait then coalesces away anything that's
+    // been superseded by a newer cycle before it would even be sent, so only the latest value
+    // a user settles on ever reaches the network.
+    private func savePlaybackSpeed(_ value: Float) {
+        playbackSpeedSaveVersion += 1
+        let requestVersion = playbackSpeedSaveVersion
+        let previousTask = playbackSpeedSaveTask
         playbackSpeedSaveTask = Task {
+            await previousTask?.value
+            guard requestVersion == playbackSpeedSaveVersion else { return }
+
             playbackSpeedSaveError = nil
             do {
-                _ = try await settingsClient.updatePlaybackSpeed(next.rawValue)
+                _ = try await settingsClient.updatePlaybackSpeed(value)
             } catch {
-                if !Task.isCancelled {
+                if requestVersion == playbackSpeedSaveVersion {
                     playbackSpeedSaveError = "Something went wrong while saving your default speed."
                 }
             }
