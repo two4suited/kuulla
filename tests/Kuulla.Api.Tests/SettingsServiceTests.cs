@@ -334,4 +334,81 @@ public class SettingsServiceTests
         Assert.Equal(12, result.IntroSeconds);
         Assert.Equal(40, result.OutroSeconds);
     }
+
+    [Fact]
+    public async Task UpdatePlaybackSpeedAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdatePlaybackSpeedAsync(UserId, 1.5f, CancellationToken.None);
+
+        Assert.Equal(1.5f, result.PlaybackSpeed);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowPlaybackSpeedAsync_ClearsOverrideWhenValueIsNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(
+            id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2,
+            AutoArchiveRule: null, AutoSkipIntroSeconds: null, AutoSkipOutroSeconds: null, PlaybackSpeed: 2.0f);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowPlaybackSpeedAsync(UserId, showId, null, CancellationToken.None);
+
+        Assert.Null(result.PlaybackSpeed);
+        Assert.Equal(3, result.Version);
+    }
+
+    [Fact]
+    public async Task GetEffectivePlaybackSpeedAsync_ReturnsShowOverrideWhenSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2,
+            AutoArchiveRule: null, AutoSkipIntroSeconds: null, AutoSkipOutroSeconds: null, PlaybackSpeed: 1.75f);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectivePlaybackSpeedAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(1.75f, result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectivePlaybackSpeedAsync_FallsBackToUserSettingsWhenNoOverride()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        var userSettings = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1,
+            AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0, PlaybackSpeed: 1.25f);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectivePlaybackSpeedAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(1.25f, result);
+    }
 }

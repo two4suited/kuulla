@@ -1079,4 +1079,82 @@ settings.MapPut("/shows/{showId}/auto-skip", async (
     return Results.Ok(result);
 });
 
+const float MinPlaybackSpeed = 0.5f;
+const float MaxPlaybackSpeed = 3.0f;
+const float PlaybackSpeedStep = 0.1f;
+
+bool TryValidatePlaybackSpeed(float speed, string fieldName, out string? error)
+{
+    // NaN compares false against both bounds below, so it would otherwise slip through the
+    // range check entirely — reject it explicitly. Infinity is already caught by the bounds
+    // themselves (always < Min or > Max); the explicit check here is just for clarity, not
+    // because it's load-bearing.
+    if (float.IsNaN(speed) || float.IsInfinity(speed) || speed < MinPlaybackSpeed || speed > MaxPlaybackSpeed)
+    {
+        error = $"'{fieldName}' must be between {MinPlaybackSpeed} and {MaxPlaybackSpeed}.";
+        return false;
+    }
+
+    // Round-trip through the 0.1 grid rather than a raw modulo check, which is unreliable for
+    // floats (e.g. 2.3 % 0.1 doesn't cleanly land on 0 due to binary floating-point rounding).
+    // 0.0001 only needs to absorb float round-off (theoretically ~1e-6 over this range) — kept
+    // two orders of magnitude above that floor for headroom, while still well below half a step
+    // (0.05) so it can't accept a neighboring grid value or a genuinely off-grid input like
+    // 0.5009 by mistake.
+    var steps = MathF.Round((speed - MinPlaybackSpeed) / PlaybackSpeedStep);
+    var nearestOnGrid = MinPlaybackSpeed + (steps * PlaybackSpeedStep);
+    if (MathF.Abs(speed - nearestOnGrid) > 0.0001f)
+    {
+        error = $"'{fieldName}' must be in increments of {PlaybackSpeedStep}.";
+        return false;
+    }
+
+    error = null;
+    return true;
+}
+
+bool TryValidateNullablePlaybackSpeed(float? speed, string fieldName, out string? error)
+{
+    if (speed is { } value)
+    {
+        return TryValidatePlaybackSpeed(value, fieldName, out error);
+    }
+
+    error = null;
+    return true;
+}
+
+settings.MapPut("/playback-speed", async (
+    UpdatePlaybackSpeedRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidatePlaybackSpeed(request.PlaybackSpeed, "playbackSpeed", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdatePlaybackSpeedAsync(userId, request.PlaybackSpeed, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/playback-speed", async (
+    string showId,
+    UpdateShowPlaybackSpeedRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateNullablePlaybackSpeed(request.PlaybackSpeed, "playbackSpeed", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowPlaybackSpeedAsync(userId, showId, request.PlaybackSpeed, ct);
+    return Results.Ok(result);
+});
+
 app.Run();
