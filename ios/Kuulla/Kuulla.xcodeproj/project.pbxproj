@@ -75,6 +75,7 @@
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002; };
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003; };
+		P1000002 /* DownloadedEpisodeRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -166,6 +167,7 @@
 		E2000002 /* SearchAndSubscribeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAndSubscribeUITests.swift; sourceTree = "<group>"; };
 		E2000003 /* PlaybackUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackUITests.swift; sourceTree = "<group>"; };
 		E3000000 /* KuullaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		P2000002 /* DownloadedEpisodeRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecordTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -264,6 +266,7 @@
 				K2000003 /* UnplayedCountsTests.swift */,
 				L2000003 /* EpisodeProgressTests.swift */,
 				L2000004 /* EpisodeListFilterTests.swift */,
+				P2000002 /* DownloadedEpisodeRecordTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -443,6 +446,7 @@
 				K1000003,
 				L1000003,
 				L1000004,
+				P1000002,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
