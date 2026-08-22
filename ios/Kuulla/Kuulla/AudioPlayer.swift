@@ -13,6 +13,12 @@ final class AudioPlayer {
     private(set) var duration: TimeInterval = 0
     private(set) var currentURL: URL?
 
+    // Exposes the underlying AVPlayer's actual rate/pitch-algorithm for tests to assert against
+    // directly — the bookkeeping playbackSpeed property below would still read correctly even if
+    // the .rate assignment or .timeDomain wiring in play()/setPlaybackSpeed() were broken.
+    var currentPlayerRate: Float? { player?.rate }
+    var currentPitchAlgorithm: AVAudioTimePitchAlgorithm? { player?.currentItem?.audioTimePitchAlgorithm }
+
     // Fires once, on the main queue, when the current item finishes playing naturally (not on a
     // manual pause). A single slot rather than a broadcast mechanism — callers should assign this
     // only at the point they start playback for a specific URL (not merely on screen appearance),
@@ -29,22 +35,42 @@ final class AudioPlayer {
     // deallocated or seeked to its true end).
     private var hasTriggeredOutroSkip = false
 
+    // The desired session rate. Not always what AVPlayer.rate itself reads (that's 0 while
+    // paused, or before a seek/buffer completes), but the value play()/resume()/setPlaybackSpeed()
+    // apply and reapply — tracked separately so pause/resume can restore it without needing to
+    // remember what was last actually playing.
+    private(set) var playbackSpeed: Float = 1.0
+
+    // Non-nil exactly while a saved-position seek from play() is outstanding for this player.
+    // isPlaying is set true optimistically before the seek lands (so the UI shows "Playing"
+    // immediately), so this is the only reliable way to tell "audio hasn't actually started yet"
+    // apart from "audio is paused" — both otherwise look like isPlaying == false/true respectively
+    // from the outside. Cleared on the seek's completion, on pause() (so a completion that fires
+    // after a pause can't resume playback out from under the user), and implicitly superseded by
+    // play() starting a new session.
+    private var pendingSeekPlayer: AVPlayer?
+
     init() {
         configureAudioSession()
     }
 
     func play(
         url: URL, startPosition: TimeInterval = 0,
-        autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0
+        autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
+        playbackSpeed: Float = 1.0
     ) {
         removeObservers()
 
         let item = AVPlayerItem(url: url)
+        // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
+        // without the chipmunk effect a naive rate change would produce.
+        item.audioTimePitchAlgorithm = .timeDomain
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
         currentURL = url
         duration = 0
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
+        self.playbackSpeed = playbackSpeed
         hasTriggeredOutroSkip = false
 
         // Only skip the intro on a fresh start (startPosition 0) — a saved resume position
@@ -56,12 +82,31 @@ final class AudioPlayer {
         // AVPlayer.seek(to:) is asynchronous — calling play() immediately after would let playback
         // start audibly at 0s and then jump once the seek lands. Deferring play() to the seek's
         // completion handler makes resume-from-position actually start at that position.
+        // Setting .rate rather than calling .play() starts playback at the configured speed
+        // directly, instead of starting at 1.0 and then jumping.
         if effectiveStartPosition > 0 {
-            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600)) { [weak newPlayer] _ in
-                newPlayer?.play()
+            pendingSeekPlayer = newPlayer
+            // AVPlayer's seek completion handler isn't guaranteed to run on the main queue, but
+            // every property touched here is otherwise only ever read/written on main — dispatch
+            // explicitly rather than relying on incidental timing.
+            //
+            // Reads self.playbackSpeed at completion time (not the value captured from this
+            // call's parameter) so a setPlaybackSpeed() during the pending seek isn't silently
+            // overwritten once it lands. Both identity checks guard against this completion
+            // firing after the state has moved on: player !== newPlayer means a later play() call
+            // replaced it; pendingSeekPlayer !== newPlayer means pause() (or a later play())
+            // already cancelled this specific pending seek — in particular, a pause() that lands
+            // while the seek is still in flight must not have this completion resume playback out
+            // from under it.
+            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600)) { [weak self, weak newPlayer] _ in
+                DispatchQueue.main.async {
+                    guard let self, let newPlayer, self.player === newPlayer, self.pendingSeekPlayer === newPlayer else { return }
+                    self.pendingSeekPlayer = nil
+                    newPlayer.rate = self.playbackSpeed
+                }
             }
         } else {
-            newPlayer.play()
+            newPlayer.rate = playbackSpeed
         }
         isPlaying = true
 
@@ -93,10 +138,14 @@ final class AudioPlayer {
     func pause() {
         player?.pause()
         isPlaying = false
+        // Cancels a saved-position seek's pending rate-apply, if one is outstanding — otherwise
+        // that completion could still land after this pause and resume playback unexpectedly.
+        pendingSeekPlayer = nil
     }
 
     func resume() {
-        player?.play()
+        // .rate rather than .play() so resuming doesn't silently reset speed back to 1.0.
+        player?.rate = playbackSpeed
         isPlaying = true
     }
 
@@ -104,6 +153,21 @@ final class AudioPlayer {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player?.seek(to: cmTime)
         currentTime = time
+    }
+
+    // Changes the rate of the current playback session. No-ops the underlying player when
+    // paused — setting AVPlayer.rate to a nonzero value always (re)starts playback, which would
+    // incorrectly resume a paused episode just because the user changed the speed setting.
+    // Also no-ops while a saved-position seek is still pending: isPlaying is already true
+    // optimistically at that point (set by play() before the seek lands), so applying the rate
+    // here would start audio playing from whatever position it happens to be at right now,
+    // before the seek completes — defeating play()'s deferred-start-until-seeked behavior. The
+    // seek's own completion handler applies this playbackSpeed once it fires.
+    func setPlaybackSpeed(_ speed: Float) {
+        playbackSpeed = speed
+        if isPlaying && pendingSeekPlayer == nil {
+            player?.rate = speed
+        }
     }
 
     // Fires the same finish semantics as a natural end-of-file (isPlaying = false,
