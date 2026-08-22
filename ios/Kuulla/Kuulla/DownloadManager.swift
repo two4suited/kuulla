@@ -176,6 +176,12 @@ extension DownloadManager: URLSessionDownloadDelegate {
         guard let episodeId = taskMapLock.withLock({ episodeIdsByTaskIdentifier.removeValue(forKey: task.taskIdentifier) }) else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // Only act if this episode's tracking is still pointing at *this* task — a cancel
+            // immediately followed by a retry replaces tasksByEpisodeId[episodeId] with a new
+            // task before the old, now-cancelled task's completion callback reaches here; acting
+            // on it regardless would wipe out the new download's task/progress entry (or mark
+            // its freshly-started record .failed) out from under it.
+            guard self.tasksByEpisodeId[episodeId] === task else { return }
             self.tasksByEpisodeId[episodeId] = nil
             self.progress[episodeId] = nil
 

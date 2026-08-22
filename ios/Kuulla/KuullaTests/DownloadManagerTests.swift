@@ -104,4 +104,20 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(try context.fetch(descriptor).isEmpty)
         XCTAssertNil(manager.progress["ep1"])
     }
+
+    // Regression: didCompleteWithError for a cancelled task must not wipe out a same-episode
+    // retry's tracking/record if the retry started before that stale callback arrives.
+    func testCancelThenImmediateRetrySucceeds() async throws {
+        let container = try makeContainer()
+        let manager = makeManager(container: container)
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+
+        manager.startDownload(episode: makeEpisode())
+        manager.cancelDownload(episodeId: "ep1")
+        manager.startDownload(episode: makeEpisode())
+
+        let context = ModelContext(container)
+        let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+        XCTAssertEqual(status, .complete)
+    }
 }
