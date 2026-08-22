@@ -38,6 +38,7 @@
 		F1000003 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000003; };
 		F1000004 /* EpisodeStateRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000004; };
 		F1000005 /* EpisodeSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000005; };
+		P1000001 /* DownloadedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000001; };
 		G1000001 /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000001; };
 		G1000002 /* EpisodeStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000002; };
 		G1000003 /* EpisodeSyncEngineEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000003; };
@@ -74,6 +75,7 @@
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002; };
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003; };
+		P1000002 /* DownloadedEpisodeRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -127,6 +129,7 @@
 		F2000003 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
 		F2000004 /* EpisodeStateRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStateRecord.swift; sourceTree = "<group>"; };
 		F2000005 /* EpisodeSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSyncAdapter.swift; sourceTree = "<group>"; };
+		P2000001 /* DownloadedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecord.swift; sourceTree = "<group>"; };
 		G2000001 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
 		G2000002 /* EpisodeStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStatus.swift; sourceTree = "<group>"; };
 		G2000003 /* EpisodeSyncEngineEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSyncEngineEnvironment.swift; sourceTree = "<group>"; };
@@ -164,6 +167,7 @@
 		E2000002 /* SearchAndSubscribeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAndSubscribeUITests.swift; sourceTree = "<group>"; };
 		E2000003 /* PlaybackUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackUITests.swift; sourceTree = "<group>"; };
 		E3000000 /* KuullaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		P2000002 /* DownloadedEpisodeRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecordTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -210,6 +214,7 @@
 				F2000003 /* SyncEngine.swift */,
 				F2000004 /* EpisodeStateRecord.swift */,
 				F2000005 /* EpisodeSyncAdapter.swift */,
+				P2000001 /* DownloadedEpisodeRecord.swift */,
 				G2000001 /* FeedView.swift */,
 				G2000002 /* EpisodeStatus.swift */,
 				G2000003 /* EpisodeSyncEngineEnvironment.swift */,
@@ -261,6 +266,7 @@
 				K2000003 /* UnplayedCountsTests.swift */,
 				L2000003 /* EpisodeProgressTests.swift */,
 				L2000004 /* EpisodeListFilterTests.swift */,
+				P2000002 /* DownloadedEpisodeRecordTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -400,6 +406,7 @@
 				F1000003,
 				F1000004,
 				F1000005,
+				P1000001,
 				G1000001,
 				G1000002,
 				G1000003,
@@ -439,6 +446,7 @@
 				K1000003,
 				L1000003,
 				L1000004,
+				P1000002,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
