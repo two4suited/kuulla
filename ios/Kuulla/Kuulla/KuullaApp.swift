@@ -5,6 +5,7 @@ import SwiftUI
 @main
 struct KuullaApp: App {
     @Environment(\.scenePhase) private var scenePhase
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     let modelContainer: ModelContainer
     let episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>
@@ -23,6 +24,7 @@ struct KuullaApp: App {
         // init runs before the first scene appears, so this is the earliest SwiftUI hook for it.
         episodeEngine.registerBackgroundTask()
         playlistEngine.registerBackgroundTask()
+        DownloadManager.shared.configure(modelContainer: container)
     }
 
     var body: some Scene {
@@ -60,5 +62,23 @@ struct KuullaApp: App {
                 break
             }
         }
+    }
+}
+
+// Reconnects DownloadManager's background URLSession when the system relaunches the app to
+// deliver its events (a download finishing while the app was suspended/terminated) — SwiftUI's
+// App protocol has no hook for this delegate callback, so a UIApplicationDelegate adaptor is the
+// only way to receive it.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        guard identifier == DownloadManager.sessionIdentifier else {
+            completionHandler()
+            return
+        }
+        DownloadManager.shared.setBackgroundCompletionHandler(completionHandler)
     }
 }
