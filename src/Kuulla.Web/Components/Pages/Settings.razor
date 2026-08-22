@@ -297,8 +297,13 @@
     {
         if (!float.TryParse(
                 args.Value?.ToString(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var value))
+                System.Globalization.CultureInfo.InvariantCulture, out var value) ||
+            !float.IsFinite(value))
         {
+            // NumberStyles.Float accepts "NaN"/"Infinity" as valid input, which the <select>'s
+            // own values never are — but a tampered DOM value could still submit one, and
+            // System.Text.Json throws (not HttpRequestException) trying to serialize either into
+            // the PUT body, which would bypass the catch below and leave no revert/error shown.
             return;
         }
 
