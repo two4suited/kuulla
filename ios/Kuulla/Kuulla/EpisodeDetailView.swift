@@ -25,6 +25,12 @@ struct EpisodeDetailView: View {
     @State private var autoSkipIntroSeconds = 0
     @State private var autoSkipOutroSeconds = 0
     @State private var playbackSpeed: Float = 1.0
+    @State private var playbackSpeedSaveTask: Task<Void, Never>?
+    @State private var playbackSpeedSaveError: String?
+    // Bumped on every cyclePlaybackSpeed() call; lets a save task tell whether it's still the
+    // latest one after waiting on its predecessor, so superseded intermediate values are
+    // coalesced away instead of being sent at all.
+    @State private var playbackSpeedSaveVersion = 0
 
     private let catalogClient = PodcastCatalogClient()
     private let settingsClient = SettingsClient()
@@ -37,6 +43,16 @@ struct EpisodeDetailView: View {
         case .autoPlayed: "Restore"
         case .new, .inProgress: "Mark as Played"
         }
+    }
+
+    // A non-preset value (e.g. synced from elsewhere, or a value outside the current preset set)
+    // still needs a readable label — fixed-precision formatting matches PlaybackSpeedOption.label
+    // rather than showing a raw float that can render as something like "1.20000005x".
+    private var playbackSpeedLabel: String {
+        if let option = PlaybackSpeedOption(rawValue: playbackSpeed) {
+            return option.label
+        }
+        return "\(playbackSpeed.formatted(.number.precision(.fractionLength(0...2))))x"
     }
 
     // AudioPlayer is a single shared instance, so isPlaying/currentURL are global, not scoped to
@@ -80,6 +96,23 @@ struct EpisodeDetailView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
+                    }
+
+                    Button {
+                        cyclePlaybackSpeed()
+                    } label: {
+                        Label("\(playbackSpeedLabel) speed", systemImage: "speedometer")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
+                    // resolved from settings yet — cycling from an unresolved value here would
+                    // itself get overwritten the moment that fetch lands.
+                    .disabled(isLoading)
+                    if let playbackSpeedSaveError {
+                        Text(playbackSpeedSaveError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
                     }
 
                     Button(completedButtonTitle) {
@@ -213,6 +246,52 @@ struct EpisodeDetailView: View {
                 autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
                 playbackSpeed: playbackSpeed)
             startProgressTracking()
+        }
+    }
+
+    // Cycles through the common speed presets (wrapping back to the first after the last),
+    // applying the change live to whatever's currently playing and saving it as the new global
+    // default. A value outside the presets (e.g. a synced override from elsewhere) starts the
+    // cycle from the slowest preset rather than crashing on a missing match.
+    private func cyclePlaybackSpeed() {
+        let options = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
+        let currentIndex = options.firstIndex { $0.rawValue == playbackSpeed } ?? -1
+        let next = options[(currentIndex + 1) % options.count]
+
+        playbackSpeed = next.rawValue
+        // AudioPlayer is shared across detail screens — only push the live rate change when
+        // this screen's episode is the one actually playing, otherwise a tap here would change
+        // the speed of whatever different episode happens to be playing in the background.
+        if let episode, let audioURL = URL(string: episode.audioUrl), audioPlayer.currentURL == audioURL {
+            audioPlayer.setPlaybackSpeed(next.rawValue)
+        }
+
+        savePlaybackSpeed(next.rawValue)
+    }
+
+    // Cancelling the previous Task only stops waiting on its result locally — it doesn't retract
+    // a PUT already on the wire, and the endpoint is a plain read-then-upsert, so two in-flight
+    // requests could still land out of order and leave a stale speed persisted. Chaining each
+    // save behind the previous one (awaiting it before sending) keeps requests in flight one at a
+    // time and in order; the version check after that wait then coalesces away anything that's
+    // been superseded by a newer cycle before it would even be sent, so only the latest value
+    // a user settles on ever reaches the network.
+    private func savePlaybackSpeed(_ value: Float) {
+        playbackSpeedSaveVersion += 1
+        let requestVersion = playbackSpeedSaveVersion
+        let previousTask = playbackSpeedSaveTask
+        playbackSpeedSaveTask = Task {
+            await previousTask?.value
+            guard requestVersion == playbackSpeedSaveVersion else { return }
+
+            playbackSpeedSaveError = nil
+            do {
+                _ = try await settingsClient.updatePlaybackSpeed(value)
+            } catch {
+                if requestVersion == playbackSpeedSaveVersion {
+                    playbackSpeedSaveError = "Something went wrong while saving your default speed."
+                }
+            }
         }
     }
 
