@@ -120,4 +120,63 @@ final class DownloadManagerTests: XCTestCase {
         let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
         XCTAssertEqual(status, .complete)
     }
+
+    // Regression: a URL with no extractable file extension (e.g. "https://example.com/episode",
+    // no dot in the path) used to produce a filename with a trailing dot and nothing after it.
+    func testDownloadFromURLWithoutExtensionFallsBackToDefaultExtension() async throws {
+        let container = try makeContainer()
+        let manager = makeManager(container: container)
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+
+        manager.startDownload(episode: makeEpisode(audioUrl: "https://example.com/episode"))
+
+        let context = ModelContext(container)
+        _ = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        let record = try XCTUnwrap(try context.fetch(descriptor).first)
+        XCTAssertFalse(record.localFilePath.hasSuffix("."))
+        // Not asserting a specific fallback extension — URLResponse.suggestedFilename can itself
+        // synthesize one from the response's MIME type when the URL's path has none, so the
+        // "mp3" fallback in DownloadManager may or may not be what's exercised here. What
+        // matters for this regression is only that the result isn't a bare trailing dot.
+        XCTAssertFalse((record.localFilePath as NSString).pathExtension.isEmpty)
+
+        if let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(record.localFilePath) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    // Regression: re-downloading a previously-completed episode used to leave the old
+    // localFilePath/fileSizeBytes in place on the reused record while status flipped back to
+    // .downloading, so a cancel of the new attempt would delete the *old* file.
+    func testReDownloadAfterCompleteClearsPreviousFileState() async throws {
+        let container = try makeContainer()
+        let manager = makeManager(container: container)
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+
+        manager.startDownload(episode: makeEpisode())
+        let context = ModelContext(container)
+        _ = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        let firstRecord = try XCTUnwrap(try context.fetch(descriptor).first)
+        let firstFileURL = try XCTUnwrap(DownloadManager.downloadsDirectory()?.appendingPathComponent(firstRecord.localFilePath))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstFileURL.path))
+
+        manager.startDownload(episode: makeEpisode())
+
+        // The old file must be gone (or replaced) immediately — upsertRecord clears it
+        // synchronously on transitioning back to .downloading, before the new transfer completes.
+        let midRecord = try XCTUnwrap(try context.fetch(descriptor).first)
+        XCTAssertEqual(midRecord.status, .downloading)
+        XCTAssertEqual(midRecord.fileSizeBytes, 0)
+
+        _ = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+        let finalRecord = try XCTUnwrap(try context.fetch(descriptor).first)
+        XCTAssertEqual(finalRecord.status, .complete)
+
+        if let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(finalRecord.localFilePath) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
 }

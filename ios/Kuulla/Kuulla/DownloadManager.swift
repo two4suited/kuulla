@@ -84,6 +84,17 @@ final class DownloadManager: NSObject {
     private func upsertRecord(episodeId: String, showId: String, status: DownloadStatus, in context: ModelContext) {
         let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
         if let existing = try? context.fetch(descriptor).first {
+            // A re-download (e.g. after the file was evicted, or the user just wants a fresh
+            // copy) reuses this record rather than inserting a second one — but its
+            // localFilePath/fileSizeBytes still point at the *previous* download's file. Left in
+            // place, a later cancelDownload of this new attempt would delete that old, unrelated
+            // file (deleteRecord trusts localFilePath), and a reader could briefly see a stale
+            // size/path paired with a .downloading status.
+            if !existing.localFilePath.isEmpty, let fileURL = Self.downloadsDirectory()?.appendingPathComponent(existing.localFilePath) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+            existing.localFilePath = ""
+            existing.fileSizeBytes = 0
             existing.status = status
         } else {
             context.insert(DownloadedEpisodeRecord(
@@ -105,7 +116,9 @@ final class DownloadManager: NSObject {
 
     // The app-container-relative directory downloaded episode files live in — Application
     // Support rather than Documents, since downloads aren't user-visible/iTunes-file-sharing
-    // content and shouldn't be included in an iCloud backup of user documents.
+    // content. Storing here doesn't by itself exclude files from an iCloud backup (unlike
+    // Caches) — didFinishDownloadingTo sets isExcludedFromBackupKey on each file explicitly,
+    // since large, easily-re-downloaded audio shouldn't bloat a user's backup.
     static func downloadsDirectory() -> URL? {
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
@@ -141,13 +154,20 @@ extension DownloadManager: URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let directory = Self.downloadsDirectory() else { return }
         let episodeId = taskMapLock.withLock { episodeIdsByTaskIdentifier[downloadTask.taskIdentifier] }
-        let filename = "\(episodeId ?? UUID().uuidString).\(downloadTask.response?.suggestedFilename.map { ($0 as NSString).pathExtension } ?? "mp3")"
-        let destination = directory.appendingPathComponent(filename)
+        // suggestedFilename's extension is empty (not just absent) whenever the response has no
+        // extractable extension, which would otherwise leave a trailing "." with nothing after it.
+        let rawExtension = downloadTask.response?.suggestedFilename.map { ($0 as NSString).pathExtension } ?? ""
+        let fileExtension = rawExtension.isEmpty ? "mp3" : rawExtension
+        let filename = "\(episodeId ?? UUID().uuidString).\(fileExtension)"
+        var destination = directory.appendingPathComponent(filename)
 
         let fileSizeBytes: Int
         do {
             try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: location, to: destination)
+            var excludedFromBackup = URLResourceValues()
+            excludedFromBackup.isExcludedFromBackup = true
+            try? destination.setResourceValues(excludedFromBackup)
             let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path)
             fileSizeBytes = (attributes?[.size] as? Int) ?? 0
         } catch {
@@ -162,13 +182,17 @@ extension DownloadManager: URLSessionDownloadDelegate {
             guard let self, let episodeId, let modelContainer = self.modelContainer else { return }
             let context = ModelContext(modelContainer)
             let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
-            if let record = try? context.fetch(descriptor).first {
-                record.localFilePath = filename
-                record.fileSizeBytes = fileSizeBytes
-                record.downloadedAt = Date()
-                record.status = .complete
-                try? context.save()
+            guard let record = try? context.fetch(descriptor).first else {
+                // The record was removed (e.g. a very-late cancel) before this callback landed —
+                // nothing left to attach the file to, so don't leave it orphaned on disk.
+                try? FileManager.default.removeItem(at: destination)
+                return
             }
+            record.localFilePath = filename
+            record.fileSizeBytes = fileSizeBytes
+            record.downloadedAt = Date()
+            record.status = .complete
+            try? context.save()
         }
     }
 
