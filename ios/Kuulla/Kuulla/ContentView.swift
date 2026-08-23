@@ -40,6 +40,8 @@ struct ContentView: View {
                         PlaylistDetailView(playlistId: id)
                     case .upNext:
                         UpNextView()
+                    case .downloads:
+                        DownloadsView()
                     }
                 }
                 .toolbar {
