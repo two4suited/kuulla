@@ -74,6 +74,13 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Download over Wi-Fi only", isOn: $wifiOnlyDownloads)
+                    .onChange(of: wifiOnlyDownloads) { _, _ in
+                        // Re-evaluate queued/in-flight downloads against the new setting
+                        // immediately, rather than waiting for the next Wi-Fi/cellular
+                        // transition — which might not happen for a long time if the network
+                        // itself hasn't actually changed.
+                        DownloadManager.shared.wifiOnlyDownloadsSettingChanged()
+                    }
             } footer: {
                 Text("Downloads requested off Wi-Fi wait until Wi-Fi is available, and pause if Wi-Fi is lost mid-download.")
             }

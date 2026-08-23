@@ -55,9 +55,12 @@ final class DownloadManager: NSObject {
     // In-flight tasks suspended (not cancelled) because Wi-Fi was lost mid-transfer — resumed
     // from where they left off once Wi-Fi returns, rather than restarting from scratch.
     private var pausedEpisodeIds: Set<String> = []
-    // Optimistic default so a download requested before the path observer's first callback lands
-    // isn't blocked on a network check that hasn't reported anything yet.
-    private var isOnWifi = true
+    // Pessimistic default: only LocalSettings.wifiOnlyDownloads == true even looks at this value
+    // (the guard is `wifiOnlyDownloads && !isOnWifi`), so defaulting to "not on Wi-Fi" costs
+    // nothing when the setting is off, and avoids a download starting over cellular — or a
+    // reattached task resuming over cellular — in the brief window before the path observer's
+    // first real callback lands when the setting is on.
+    private var isOnWifi = false
 
     private convenience override init() {
         let configuration = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
@@ -90,21 +93,50 @@ final class DownloadManager: NSObject {
         session.getAllTasks { [weak self] tasks in
             DispatchQueue.main.async {
                 guard let self else { return }
+                var reattachedEpisodeIds: Set<String> = []
                 for case let task as URLSessionDownloadTask in tasks {
                     guard let episodeId = task.taskDescription else { continue }
+                    reattachedEpisodeIds.insert(episodeId)
                     self.taskMapLock.withLock { self.episodeIdsByTaskIdentifier[task.taskIdentifier] = episodeId }
                     self.tasksByEpisodeId[episodeId] = task
                     self.progress[episodeId] = 0
-                    // Resume unconditionally (including a task that was suspended for Wi-Fi
-                    // before termination) rather than waiting for a fresh path-observer callback
-                    // to decide — isOnWifi's own optimistic-true default means a callback that
-                    // happens to report "on Wi-Fi" right after launch looks like no change from
-                    // that default and would never call resumePausedTransfers() at all. A
-                    // still-genuinely-off-Wi-Fi callback re-suspends this via
-                    // pauseInFlightTransfers() moments later, same as any other in-flight task.
-                    task.resume()
+                    if LocalSettings.wifiOnlyDownloads && !self.isOnWifi {
+                        // Don't resume over cellular just because the task happened to be
+                        // running (not suspended-for-Wi-Fi specifically) when the app died —
+                        // isOnWifi is unknown until the path observer's first real callback
+                        // lands, and pessimistically-false means we wait for it rather than
+                        // guess. suspend() on an already-suspended task is a harmless no-op.
+                        task.suspend()
+                        self.pausedEpisodeIds.insert(episodeId)
+                    } else {
+                        task.resume()
+                    }
                 }
+                self.failOrphanedDownloadingRecords(reattachedEpisodeIds: reattachedEpisodeIds)
             }
+        }
+    }
+
+    // A .downloading record with no reattached task and no in-memory pendingEpisodes entry
+    // (pendingEpisodes always starts empty on relaunch — it's never persisted) was queued,
+    // waiting for Wi-Fi, when the app was terminated. There's no way to resume it automatically:
+    // DownloadedEpisodeRecord doesn't carry the episode's audioUrl, only the original caller did,
+    // so nothing here can rebuild an Episode to retry with. Marking it .failed — instead of
+    // leaving it stuck showing a permanent indeterminate ring (#176) — gives the user a visible,
+    // actionable "tap to retry" state instead of silence.
+    private func failOrphanedDownloadingRecords(reattachedEpisodeIds: Set<String>) {
+        guard let modelContainer else { return }
+        let context = ModelContext(modelContainer)
+        let downloadingStatus = DownloadStatus.downloading
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.status == downloadingStatus })
+        guard let records = try? context.fetch(descriptor) else { return }
+        var didChange = false
+        for record in records where !reattachedEpisodeIds.contains(record.id) {
+            record.status = .failed
+            didChange = true
+        }
+        if didChange {
+            try? context.save()
         }
     }
 
@@ -170,11 +202,23 @@ final class DownloadManager: NSObject {
         let wasOnWifi = self.isOnWifi
         self.isOnWifi = isOnWifi
         guard isOnWifi != wasOnWifi else { return }
+        applyWifiGating()
+    }
 
-        if isOnWifi {
+    // Call after the user toggles LocalSettings.wifiOnlyDownloads — without this, flipping the
+    // setting off while off Wi-Fi would leave already-queued downloads waiting for a network
+    // transition that might not come for a long time (same connection type, just a preference
+    // change), and flipping it on while off Wi-Fi wouldn't pause an in-flight cellular transfer
+    // until the next transition either.
+    func wifiOnlyDownloadsSettingChanged() {
+        applyWifiGating()
+    }
+
+    private func applyWifiGating() {
+        if isOnWifi || !LocalSettings.wifiOnlyDownloads {
             resumePausedTransfers()
             startPendingDownloads()
-        } else if LocalSettings.wifiOnlyDownloads {
+        } else {
             pauseInFlightTransfers()
         }
     }
