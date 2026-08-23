@@ -12,6 +12,7 @@ struct ShowDetailView: View {
     @State private var showError: String?
     @State private var episodes: [Episode] = []
     @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
+    @State private var downloadStatusByEpisodeId: [String: DownloadStatus] = [:]
     @State private var positionSecondsByEpisodeId: [String: Int] = [:]
     @State private var archivedEpisodeIds: Set<String> = []
     @State private var selectedFilter: EpisodeFilter = .all
@@ -76,6 +77,7 @@ struct ShowDetailView: View {
                                 episode: episode,
                                 artworkUrl: show?.artworkUrl,
                                 status: status,
+                                downloadStatus: downloadStatusByEpisodeId[episode.id],
                                 // Only in-progress episodes get a bar — a played episode persists
                                 // positionSeconds at the full duration, which would otherwise also
                                 // satisfy EpisodeProgress.fraction's guards and render a (stale,
@@ -86,7 +88,8 @@ struct ShowDetailView: View {
                                         duration: episode.duration)
                                     : nil,
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
-                                onToggleCompleted: { Task { await toggleCompleted(episode: episode) } })
+                                onToggleCompleted: { Task { await toggleCompleted(episode: episode) } },
+                                onDownloadDidFinish: refreshStatuses)
                         }
                         .accessibilityIdentifier("episode-row")
                         .swipeActions(edge: .trailing) {
@@ -248,11 +251,12 @@ struct ShowDetailView: View {
     }
 
     private func refreshStatuses() {
-        let (statuses, positions, archived) = EpisodeStatus.statusAndPositionMaps(
-            for: Set(episodes.map(\.id)), in: modelContext)
+        let episodeIds = Set(episodes.map(\.id))
+        let (statuses, positions, archived) = EpisodeStatus.statusAndPositionMaps(for: episodeIds, in: modelContext)
         statusByEpisodeId = statuses
         positionSecondsByEpisodeId = positions
         archivedEpisodeIds = archived
+        downloadStatusByEpisodeId = DownloadStatus.statusMap(for: episodeIds, in: modelContext)
     }
 
     private func restoreAutoPlayed(episodeId: String) async {
@@ -396,9 +400,11 @@ private struct EpisodeRow: View {
     let episode: Episode
     let artworkUrl: String?
     let status: EpisodeStatus
+    let downloadStatus: DownloadStatus?
     let progressFraction: Double?
     let onRestore: () -> Void
     let onToggleCompleted: () -> Void
+    let onDownloadDidFinish: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -447,6 +453,7 @@ private struct EpisodeRow: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
+                DownloadButton(episode: episode, status: downloadStatus, onDidFinish: onDownloadDidFinish)
             }
         }
     }
