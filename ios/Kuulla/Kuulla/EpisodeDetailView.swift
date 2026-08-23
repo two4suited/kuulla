@@ -232,11 +232,22 @@ struct EpisodeDetailView: View {
 
     // Pulled out as a pure function so the "local download wins" resolution logic is
     // unit-testable without needing a real SwiftData ModelContext or the download manager's
-    // on-disk directory.
-    nonisolated static func resolvedPlaybackURL(audioUrlString: String, downloadRecord: DownloadedEpisodeRecord?, downloadsDirectory: URL?) -> URL? {
+    // on-disk directory. `localFileExists` is injectable (rather than calling FileManager
+    // directly) so tests can exercise the "record says complete but the file is gone" fallback
+    // without touching the real filesystem.
+    nonisolated static func resolvedPlaybackURL(
+        audioUrlString: String, downloadRecord: DownloadedEpisodeRecord?, downloadsDirectory: URL?,
+        localFileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+    ) -> URL? {
         if let downloadRecord, downloadRecord.status == .complete, !downloadRecord.localFilePath.isEmpty,
            let downloadsDirectory {
-            return downloadsDirectory.appendingPathComponent(downloadRecord.localFilePath)
+            let localURL = downloadsDirectory.appendingPathComponent(downloadRecord.localFilePath)
+            // A record can outlive its file (OS eviction, manual cleanup elsewhere, a bug) —
+            // trusting it unconditionally would hand AVPlayer a URL that fails to load with no
+            // fallback, instead of just streaming like an episode that was never downloaded.
+            if localFileExists(localURL) {
+                return localURL
+            }
         }
         return URL(string: audioUrlString)
     }

@@ -19,8 +19,19 @@ final class EpisodeDetailViewTests: XCTestCase {
     func testCompletedDownloadUsesLocalFileURL() {
         let record = makeRecord(status: .complete)
         let url = EpisodeDetailView.resolvedPlaybackURL(
-            audioUrlString: "https://example.com/ep1.mp3", downloadRecord: record, downloadsDirectory: downloadsDirectory)
+            audioUrlString: "https://example.com/ep1.mp3", downloadRecord: record, downloadsDirectory: downloadsDirectory,
+            localFileExists: { _ in true })
         XCTAssertEqual(url, downloadsDirectory.appendingPathComponent("ep1.mp3"))
+    }
+
+    // Regression: a record can outlive its file (eviction, manual cleanup, a bug elsewhere) —
+    // trusting it unconditionally would hand AVPlayer a dead URL with no fallback.
+    func testCompletedRecordWithMissingFileFallsBackToRemoteURL() {
+        let record = makeRecord(status: .complete)
+        let url = EpisodeDetailView.resolvedPlaybackURL(
+            audioUrlString: "https://example.com/ep1.mp3", downloadRecord: record, downloadsDirectory: downloadsDirectory,
+            localFileExists: { _ in false })
+        XCTAssertEqual(url, URL(string: "https://example.com/ep1.mp3"))
     }
 
     func testInProgressDownloadUsesRemoteURL() {
