@@ -1,6 +1,23 @@
 import Foundation
+import Network
 import Observation
 import SwiftData
+
+// Abstracts NWPathMonitor so DownloadManager's Wi-Fi-only gating (#180) is testable without
+// depending on the device's real, non-deterministic network state.
+protocol NetworkPathObserving {
+    func startObserving(onUpdate: @escaping (_ isOnWifi: Bool) -> Void)
+}
+
+final class NWPathMonitorAdapter: NetworkPathObserving {
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "com.kuulla.app.download.pathMonitor")
+
+    func startObserving(onUpdate: @escaping (Bool) -> Void) {
+        monitor.pathUpdateHandler = { path in onUpdate(path.usesInterfaceType(.wifi)) }
+        monitor.start(queue: queue)
+    }
+}
 
 // Downloads an episode's audio to disk using a background URLSession, so the transfer survives
 // app suspension/termination (mirrors AudioPlayer's @Observable singleton pattern — one shared
@@ -11,7 +28,9 @@ final class DownloadManager: NSObject {
 
     // 0...1 per episode id while a download is in flight; absent once it completes, fails, or is
     // cancelled — UI reads this to drive a progress ring (#176) and `nil`/missing means "not
-    // currently downloading" rather than "0% done".
+    // currently downloading" rather than "0% done". A queued (Wi-Fi-only, waiting for Wi-Fi)
+    // episode has no entry here either — the same "no live progress" DownloadButton fallback
+    // (#176) that covers a just-relaunched in-flight download covers "waiting for Wi-Fi" too.
     private(set) var progress: [String: Double] = [:]
 
     private var modelContainer: ModelContainer?
@@ -29,6 +48,17 @@ final class DownloadManager: NSObject {
     // session's delegate has finished processing all of them, per Apple's documented contract.
     private var backgroundCompletionHandler: (() -> Void)?
 
+    // Requested while off Wi-Fi with LocalSettings.wifiOnlyDownloads on: no URLSessionDownloadTask
+    // exists yet for these, so cancelDownload/didCompleteWithError's task-based bookkeeping can't
+    // reach them — they're started (moved into tasksByEpisodeId) the moment Wi-Fi returns.
+    private var pendingEpisodes: [String: Episode] = [:]
+    // In-flight tasks suspended (not cancelled) because Wi-Fi was lost mid-transfer — resumed
+    // from where they left off once Wi-Fi returns, rather than restarting from scratch.
+    private var pausedEpisodeIds: Set<String> = []
+    // Optimistic default so a download requested before the path observer's first callback lands
+    // isn't blocked on a network check that hasn't reported anything yet.
+    private var isOnWifi = true
+
     private convenience override init() {
         let configuration = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
         configuration.sessionSendsLaunchEvents = true
@@ -38,10 +68,44 @@ final class DownloadManager: NSObject {
     // Test-only seam: production always goes through the background-session convenience init
     // above, but a plain (non-background) configuration with a mocked protocol class lets tests
     // exercise startDownload/cancelDownload and the URLSessionDownloadDelegate callbacks without
-    // touching the real network or the OS's background-transfer daemon.
-    init(configuration: URLSessionConfiguration) {
+    // touching the real network or the OS's background-transfer daemon. `pathObserver` is
+    // similarly swappable so tests can simulate Wi-Fi/cellular transitions deterministically.
+    init(configuration: URLSessionConfiguration, pathObserver: NetworkPathObserving = NWPathMonitorAdapter()) {
         super.init()
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        pathObserver.startObserving { [weak self] isOnWifi in
+            DispatchQueue.main.async { self?.handlePathUpdate(isOnWifi: isOnWifi) }
+        }
+        reattachExistingTasks()
+    }
+
+    // pausedEpisodeIds/tasksByEpisodeId are purely in-memory — a task suspended for lack of
+    // Wi-Fi (or just genuinely still in flight) survives a process relaunch in the OS's
+    // background-transfer daemon, but this object doesn't, so without this the download would be
+    // stuck forever: `resumePausedTransfers()` can only resume a task it still knows about, and a
+    // fresh instance's tasksByEpisodeId/pausedEpisodeIds start empty. Reconnecting to the same
+    // background session identifier hands back the surviving task objects; taskDescription
+    // (set in beginTransfer) is how each is matched back to its episode id.
+    private func reattachExistingTasks() {
+        session.getAllTasks { [weak self] tasks in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                for case let task as URLSessionDownloadTask in tasks {
+                    guard let episodeId = task.taskDescription else { continue }
+                    self.taskMapLock.withLock { self.episodeIdsByTaskIdentifier[task.taskIdentifier] = episodeId }
+                    self.tasksByEpisodeId[episodeId] = task
+                    self.progress[episodeId] = 0
+                    // Resume unconditionally (including a task that was suspended for Wi-Fi
+                    // before termination) rather than waiting for a fresh path-observer callback
+                    // to decide — isOnWifi's own optimistic-true default means a callback that
+                    // happens to report "on Wi-Fi" right after launch looks like no change from
+                    // that default and would never call resumePausedTransfers() at all. A
+                    // still-genuinely-off-Wi-Fi callback re-suspends this via
+                    // pauseInFlightTransfers() moments later, same as any other in-flight task.
+                    task.resume()
+                }
+            }
+        }
     }
 
     static let sessionIdentifier = "com.kuulla.app.download"
@@ -58,13 +122,29 @@ final class DownloadManager: NSObject {
     }
 
     func startDownload(episode: Episode) {
-        guard let modelContainer, let url = URL(string: episode.audioUrl) else { return }
-        guard tasksByEpisodeId[episode.id] == nil else { return }
+        guard let modelContainer, URL(string: episode.audioUrl) != nil else { return }
+        guard tasksByEpisodeId[episode.id] == nil, pendingEpisodes[episode.id] == nil else { return }
 
         let context = ModelContext(modelContainer)
         upsertRecord(episodeId: episode.id, showId: episode.showId, status: .downloading, in: context)
 
+        // Queue rather than start (or silently drop) the transfer when Wi-Fi-only downloads are
+        // on and we're not currently on Wi-Fi — beginTransfer runs once handlePathUpdate sees
+        // Wi-Fi return. The DownloadedEpisodeRecord above already shows .downloading either way,
+        // matching #180's "queued (rather than silently drops)" requirement.
+        if LocalSettings.wifiOnlyDownloads && !isOnWifi {
+            pendingEpisodes[episode.id] = episode
+            return
+        }
+
+        beginTransfer(for: episode)
+    }
+
+    private func beginTransfer(for episode: Episode) {
+        guard let url = URL(string: episode.audioUrl) else { return }
         let task = session.downloadTask(with: url)
+        // Lets reattachExistingTasks() match a task recovered after relaunch back to its episode.
+        task.taskDescription = episode.id
         taskMapLock.withLock { episodeIdsByTaskIdentifier[task.taskIdentifier] = episode.id }
         tasksByEpisodeId[episode.id] = task
         progress[episode.id] = 0
@@ -72,6 +152,8 @@ final class DownloadManager: NSObject {
     }
 
     func cancelDownload(episodeId: String) {
+        pendingEpisodes[episodeId] = nil
+        pausedEpisodeIds.remove(episodeId)
         tasksByEpisodeId[episodeId]?.cancel()
         tasksByEpisodeId[episodeId] = nil
         progress[episodeId] = nil
@@ -79,6 +161,47 @@ final class DownloadManager: NSObject {
         guard let modelContainer else { return }
         let context = ModelContext(modelContainer)
         deleteRecord(episodeId: episodeId, in: context)
+    }
+
+    // Reacts to a Wi-Fi/cellular transition (only on an actual change — NWPathMonitor-style
+    // observers report the current path immediately on start, which would otherwise look like a
+    // spurious "transition" the very first time this fires).
+    private func handlePathUpdate(isOnWifi: Bool) {
+        let wasOnWifi = self.isOnWifi
+        self.isOnWifi = isOnWifi
+        guard isOnWifi != wasOnWifi else { return }
+
+        if isOnWifi {
+            resumePausedTransfers()
+            startPendingDownloads()
+        } else if LocalSettings.wifiOnlyDownloads {
+            pauseInFlightTransfers()
+        }
+    }
+
+    private func startPendingDownloads() {
+        let episodes = pendingEpisodes
+        pendingEpisodes.removeAll()
+        for episode in episodes.values {
+            beginTransfer(for: episode)
+        }
+    }
+
+    // Suspends rather than cancels: the transfer resumes from where it left off once Wi-Fi
+    // returns, instead of restarting the download (and re-spending the cellular-avoided bytes)
+    // from scratch.
+    private func pauseInFlightTransfers() {
+        for (episodeId, task) in tasksByEpisodeId {
+            task.suspend()
+            pausedEpisodeIds.insert(episodeId)
+        }
+    }
+
+    private func resumePausedTransfers() {
+        for episodeId in pausedEpisodeIds {
+            tasksByEpisodeId[episodeId]?.resume()
+        }
+        pausedEpisodeIds.removeAll()
     }
 
     private func upsertRecord(episodeId: String, showId: String, status: DownloadStatus, in context: ModelContext) {

@@ -2,6 +2,20 @@ import SwiftData
 import XCTest
 @testable import Kuulla
 
+// Captures the callback DownloadManager registers so tests can simulate Wi-Fi/cellular
+// transitions synchronously instead of depending on the device's real network state.
+final class MockPathObserver: NetworkPathObserving {
+    private(set) var onUpdate: ((Bool) -> Void)?
+
+    func startObserving(onUpdate: @escaping (Bool) -> Void) {
+        self.onUpdate = onUpdate
+    }
+
+    func simulate(isOnWifi: Bool) {
+        onUpdate?(isOnWifi)
+    }
+}
+
 @MainActor
 final class DownloadManagerTests: XCTestCase {
     private func makeContainer() throws -> ModelContainer {
@@ -9,10 +23,10 @@ final class DownloadManagerTests: XCTestCase {
         return try ModelContainer(for: DownloadedEpisodeRecord.self, configurations: configuration)
     }
 
-    private func makeManager(container: ModelContainer) -> DownloadManager {
+    private func makeManager(container: ModelContainer, pathObserver: NetworkPathObserving = MockPathObserver()) -> DownloadManager {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let manager = DownloadManager(configuration: config)
+        let manager = DownloadManager(configuration: config, pathObserver: pathObserver)
         manager.configure(modelContainer: container)
         return manager
     }
@@ -177,6 +191,99 @@ final class DownloadManagerTests: XCTestCase {
 
         if let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(finalRecord.localFilePath) {
             try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    // MARK: - Wi-Fi-only downloads (#180)
+
+    private func withWifiOnlyDownloads(_ enabled: Bool, _ body: () async throws -> Void) async rethrows {
+        let previous = UserDefaults.standard.object(forKey: LocalSettings.wifiOnlyDownloadsKey)
+        UserDefaults.standard.set(enabled, forKey: LocalSettings.wifiOnlyDownloadsKey)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: LocalSettings.wifiOnlyDownloadsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: LocalSettings.wifiOnlyDownloadsKey)
+            }
+        }
+        try await body()
+    }
+
+    func testStartDownloadQueuesWhenWifiOnlyEnabledAndOffWifi() async throws {
+        try await withWifiOnlyDownloads(true) {
+            let container = try makeContainer()
+            let pathObserver = MockPathObserver()
+            let manager = makeManager(container: container, pathObserver: pathObserver)
+            pathObserver.simulate(isOnWifi: false)
+            try await Task.sleep(nanoseconds: 20_000_000)
+
+            MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+            manager.startDownload(episode: makeEpisode())
+            try await Task.sleep(nanoseconds: 20_000_000)
+
+            // Queued, not started: no live progress entry, and the record shows .downloading
+            // without ever having reached .complete.
+            XCTAssertNil(manager.progress["ep1"])
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+            let record = try XCTUnwrap(try context.fetch(descriptor).first)
+            XCTAssertEqual(record.status, .downloading)
+
+            // Wi-Fi returns — the queued download starts automatically.
+            pathObserver.simulate(isOnWifi: true)
+            let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+            XCTAssertEqual(status, .complete)
+
+            if let record = try context.fetch(descriptor).first, !record.localFilePath.isEmpty,
+               let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(record.localFilePath) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+    }
+
+    func testStartDownloadProceedsImmediatelyWhenWifiOnlyDisabledEvenOffWifi() async throws {
+        try await withWifiOnlyDownloads(false) {
+            let container = try makeContainer()
+            let pathObserver = MockPathObserver()
+            let manager = makeManager(container: container, pathObserver: pathObserver)
+            pathObserver.simulate(isOnWifi: false)
+            try await Task.sleep(nanoseconds: 20_000_000)
+
+            MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+            manager.startDownload(episode: makeEpisode())
+
+            let context = ModelContext(container)
+            let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+            XCTAssertEqual(status, .complete)
+
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+            if let record = try context.fetch(descriptor).first, !record.localFilePath.isEmpty,
+               let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(record.localFilePath) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+    }
+
+    func testCancelDownloadRemovesQueuedEpisode() async throws {
+        try await withWifiOnlyDownloads(true) {
+            let container = try makeContainer()
+            let pathObserver = MockPathObserver()
+            let manager = makeManager(container: container, pathObserver: pathObserver)
+            pathObserver.simulate(isOnWifi: false)
+            try await Task.sleep(nanoseconds: 20_000_000)
+
+            MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+            manager.startDownload(episode: makeEpisode())
+            manager.cancelDownload(episodeId: "ep1")
+
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+            XCTAssertTrue(try context.fetch(descriptor).isEmpty)
+
+            // Wi-Fi returning afterward must not resurrect the cancelled, no-longer-queued download.
+            pathObserver.simulate(isOnWifi: true)
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertTrue(try context.fetch(descriptor).isEmpty)
         }
     }
 }
