@@ -8,8 +8,8 @@ final class DownloadButtonTests: XCTestCase {
     }
 
     func testLiveProgressAtZeroStillCountsAsDownloading() {
-        // A just-started download reports 0 progress — must not be mistaken for "no progress
-        // tracked" (nil), which would fall through to the stale persisted status instead.
+        // A just-started download reports 0 progress — must not be mistaken for "no progress tracked"
+        // (nil), which would fall through to the stale persisted status instead.
         let status = DownloadButton.effectiveStatus(liveProgress: 0, persistedStatus: nil)
         XCTAssertEqual(status, .downloading)
     }

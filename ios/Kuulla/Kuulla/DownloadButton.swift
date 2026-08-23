@@ -44,6 +44,7 @@ struct DownloadButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue ?? "")
         .onChange(of: liveProgress) { oldValue, newValue in
             if oldValue != nil && newValue == nil {
                 onDidFinish?()
@@ -58,13 +59,23 @@ struct DownloadButton: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
         case .downloading:
-            ZStack {
-                Circle()
-                    .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
-                Circle()
-                    .trim(from: 0, to: liveProgress ?? 0)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+            if let liveProgress {
+                ZStack {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 2)
+                    Circle()
+                        .trim(from: 0, to: liveProgress)
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+            } else {
+                // A persisted .downloading record with no matching entry in
+                // DownloadManager.progress means there's no in-flight transfer this launch
+                // actually knows about yet (e.g. right after relaunch, before the reconnected
+                // background session's first progress callback arrives) — an empty ring at 0%
+                // would misleadingly read as "just started" rather than "state unknown".
+                ProgressView()
+                    .controlSize(.small)
             }
         case .failed, nil:
             Image(systemName: "arrow.down.circle")
@@ -78,6 +89,13 @@ struct DownloadButton: View {
         case .downloading: "Cancel download"
         case .failed, nil: "Download episode"
         }
+    }
+
+    // VoiceOver has no way to see the progress ring's fill, so downloading state needs its
+    // completion percentage spelled out explicitly; every other state has nothing to report.
+    private var accessibilityValue: String? {
+        guard effectiveStatus == .downloading, let liveProgress else { return nil }
+        return "\(Int((liveProgress * 100).rounded()))% complete"
     }
 
     private func performAction() {
