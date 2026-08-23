@@ -78,6 +78,7 @@
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003; };
 		P1000002 /* DownloadedEpisodeRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000002; };
 		P1000004 /* DownloadManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000004; };
+		P1000005 /* EpisodeDetailViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000005; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -172,6 +173,7 @@
 		E3000000 /* KuullaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		P2000002 /* DownloadedEpisodeRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecordTests.swift; sourceTree = "<group>"; };
 		P2000004 /* DownloadManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManagerTests.swift; sourceTree = "<group>"; };
+		P2000005 /* EpisodeDetailViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailViewTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -273,6 +275,7 @@
 				L2000004 /* EpisodeListFilterTests.swift */,
 				P2000002 /* DownloadedEpisodeRecordTests.swift */,
 				P2000004 /* DownloadManagerTests.swift */,
+				P2000005 /* EpisodeDetailViewTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -455,6 +458,7 @@
 				L1000004,
 				P1000002,
 				P1000004,
+				P1000005,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

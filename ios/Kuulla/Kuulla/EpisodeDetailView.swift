@@ -88,7 +88,7 @@ struct EpisodeDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                    if let audioURL = URL(string: episode.audioUrl) {
+                    if let audioURL = resolvedPlaybackURL(for: episode) {
                         Button {
                             togglePlayback(url: audioURL)
                         } label: {
@@ -212,9 +212,44 @@ struct EpisodeDetailView: View {
         // playbackSpeed currently holds. If that happened, apply the now-resolved speed to the
         // session that's already running rather than leaving it stuck at the fallback for the
         // rest of this episode.
-        if let episode, let audioURL = URL(string: episode.audioUrl), audioPlayer.currentURL == audioURL {
+        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
             audioPlayer.setPlaybackSpeed(playbackSpeed)
         }
+    }
+
+    // Prefers a completed local download over the remote URL, so offline playback (and playback
+    // on a poor connection) doesn't re-stream a file already on disk. Used everywhere this view
+    // needs "the URL identifying this episode's audio" — both to actually start playback and to
+    // compare against audioPlayer.currentURL — so the two notions never diverge: passing the
+    // local URL into play() while some other call site still compared against the remote one
+    // would make isPlaying/currentURL checks silently stop matching.
+    private func resolvedPlaybackURL(for episode: Episode) -> URL? {
+        let episodeId = episode.id
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
+        let record = try? modelContext.fetch(descriptor).first
+        return Self.resolvedPlaybackURL(audioUrlString: episode.audioUrl, downloadRecord: record, downloadsDirectory: DownloadManager.downloadsDirectory())
+    }
+
+    // Pulled out as a pure function so the "local download wins" resolution logic is
+    // unit-testable without needing a real SwiftData ModelContext or the download manager's
+    // on-disk directory. `localFileExists` is injectable (rather than calling FileManager
+    // directly) so tests can exercise the "record says complete but the file is gone" fallback
+    // without touching the real filesystem.
+    nonisolated static func resolvedPlaybackURL(
+        audioUrlString: String, downloadRecord: DownloadedEpisodeRecord?, downloadsDirectory: URL?,
+        localFileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+    ) -> URL? {
+        if let downloadRecord, downloadRecord.status == .complete, !downloadRecord.localFilePath.isEmpty,
+           let downloadsDirectory {
+            let localURL = downloadsDirectory.appendingPathComponent(downloadRecord.localFilePath)
+            // A record can outlive its file (OS eviction, manual cleanup elsewhere, a bug) —
+            // trusting it unconditionally would hand AVPlayer a URL that fails to load with no
+            // fallback, instead of just streaming like an episode that was never downloaded.
+            if localFileExists(localURL) {
+                return localURL
+            }
+        }
+        return URL(string: audioUrlString)
     }
 
     private static func stateDescriptor(for episodeId: String) -> FetchDescriptor<EpisodeStateRecord> {
@@ -262,7 +297,7 @@ struct EpisodeDetailView: View {
         // AudioPlayer is shared across detail screens — only push the live rate change when
         // this screen's episode is the one actually playing, otherwise a tap here would change
         // the speed of whatever different episode happens to be playing in the background.
-        if let episode, let audioURL = URL(string: episode.audioUrl), audioPlayer.currentURL == audioURL {
+        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
             audioPlayer.setPlaybackSpeed(next.rawValue)
         }
 
