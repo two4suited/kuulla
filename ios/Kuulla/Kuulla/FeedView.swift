@@ -7,6 +7,7 @@ struct FeedView: View {
 
     @State private var episodes: [Episode] = []
     @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
+    @State private var downloadStatusByEpisodeId: [String: DownloadStatus] = [:]
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -36,7 +37,9 @@ struct FeedView: View {
                         FeedEpisodeRow(
                             episode: episode,
                             status: statusByEpisodeId[episode.id] ?? .new,
-                            onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } })
+                            downloadStatus: downloadStatusByEpisodeId[episode.id],
+                            onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
+                            onDownloadDidFinish: refreshStatuses)
                     }
                 }
             }
@@ -91,14 +94,18 @@ struct FeedView: View {
     }
 
     private func refreshStatuses() {
-        statusByEpisodeId = EpisodeStatus.statusMap(for: Set(episodes.map(\.id)), in: modelContext)
+        let episodeIds = Set(episodes.map(\.id))
+        statusByEpisodeId = EpisodeStatus.statusMap(for: episodeIds, in: modelContext)
+        downloadStatusByEpisodeId = DownloadStatus.statusMap(for: episodeIds, in: modelContext)
     }
 }
 
 private struct FeedEpisodeRow: View {
     let episode: Episode
     let status: EpisodeStatus
+    let downloadStatus: DownloadStatus?
     let onRestore: () -> Void
+    let onDownloadDidFinish: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -125,7 +132,10 @@ private struct FeedEpisodeRow: View {
 
             Spacer()
 
-            StatusBadgeWithRestore(status: status, onRestore: onRestore)
+            VStack(alignment: .trailing, spacing: 8) {
+                StatusBadgeWithRestore(status: status, onRestore: onRestore)
+                DownloadButton(episode: episode, status: downloadStatus, onDidFinish: onDownloadDidFinish)
+            }
         }
         .padding()
     }

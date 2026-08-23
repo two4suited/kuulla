@@ -20,6 +20,7 @@ struct EpisodeDetailView: View {
     @State private var audioPlayer = AudioPlayer.shared
 
     @State private var stateRecord: EpisodeStateRecord?
+    @State private var downloadStatus: DownloadStatus?
     @State private var progressTrackingTask: Task<Void, Never>?
     @State private var isShowingAddToPlaylist = false
     @State private var autoSkipIntroSeconds = 0
@@ -89,13 +90,17 @@ struct EpisodeDetailView: View {
                     .foregroundStyle(.secondary)
 
                     if let audioURL = resolvedPlaybackURL(for: episode) {
-                        Button {
-                            togglePlayback(url: audioURL)
-                        } label: {
-                            Label(isPlaying(audioURL) ? "Pause" : "Play", systemImage: isPlaying(audioURL) ? "pause.fill" : "play.fill")
-                                .frame(maxWidth: .infinity)
+                        HStack {
+                            Button {
+                                togglePlayback(url: audioURL)
+                            } label: {
+                                Label(isPlaying(audioURL) ? "Pause" : "Play", systemImage: isPlaying(audioURL) ? "pause.fill" : "play.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            DownloadButton(episode: episode, status: downloadStatus, onDidFinish: loadLocalState)
                         }
-                        .buttonStyle(.borderedProminent)
                     }
 
                     Button {
@@ -191,6 +196,7 @@ struct EpisodeDetailView: View {
 
     private func loadLocalState() {
         stateRecord = (try? modelContext.fetch(Self.stateDescriptor(for: episodeId)))?.first
+        downloadStatus = DownloadStatus.statusMap(for: [episodeId], in: modelContext)[episodeId]
     }
 
     // Best-effort: these are playback niceties, not core functionality, so a failure here
