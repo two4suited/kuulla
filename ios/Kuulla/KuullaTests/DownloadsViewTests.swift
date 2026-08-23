@@ -30,11 +30,12 @@ final class DownloadCleanupTests: XCTestCase {
         let container = try makeContainer()
         let context = ModelContext(container)
         let directory = try XCTUnwrap(DownloadManager.downloadsDirectory())
-        let fileURL = directory.appendingPathComponent("cleanup-test-ep1.mp3")
+        let filename = "cleanup-test-\(UUID().uuidString).mp3"
+        let fileURL = directory.appendingPathComponent(filename)
         try Data("audio".utf8).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "cleanup-test-ep1.mp3")
+        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: filename)
         context.insert(record)
         try context.save()
 
@@ -56,6 +57,28 @@ final class DownloadCleanupTests: XCTestCase {
         let succeeded = DownloadCleanup.delete([record], from: context)
 
         XCTAssertTrue(succeeded)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertTrue(try context.fetch(descriptor).isEmpty)
+    }
+
+    // Regression: a localFilePath containing ".." must not let deletion escape the sandboxed
+    // downloads directory onto some other file on disk.
+    func testDeleteWithPathTraversalLocalFilePathDoesNotEscapeDownloadsDirectory() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let directory = try XCTUnwrap(DownloadManager.downloadsDirectory())
+        let outsideFile = directory.deletingLastPathComponent().appendingPathComponent("outside-\(UUID().uuidString).txt")
+        try Data("do not delete me".utf8).write(to: outsideFile)
+        defer { try? FileManager.default.removeItem(at: outsideFile) }
+
+        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "../\(outsideFile.lastPathComponent)")
+        context.insert(record)
+        try context.save()
+
+        let succeeded = DownloadCleanup.delete([record], from: context)
+
+        XCTAssertTrue(succeeded)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outsideFile.path))
         let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
         XCTAssertTrue(try context.fetch(descriptor).isEmpty)
     }

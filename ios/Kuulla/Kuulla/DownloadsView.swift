@@ -7,6 +7,7 @@ import SwiftUI
 // row-level start/cancel affordances belong to the episode list screens (#176), not this one.
 struct DownloadsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.editMode) private var editMode
     @State private var records: [DownloadedEpisodeRecord] = []
     @State private var episodesById: [String: Episode] = [:]
     @State private var deleteError: String?
@@ -49,7 +50,7 @@ struct DownloadsView: View {
                 }
             }
             ToolbarItem(placement: .bottomBar) {
-                if !records.isEmpty {
+                if !records.isEmpty, editMode?.wrappedValue.isEditing == true {
                     Button("Delete All", role: .destructive) {
                         deleteAll()
                     }
@@ -80,18 +81,34 @@ struct DownloadsView: View {
     // Best-effort: episode titles/artwork are a display nicety fetched from the catalog, not
     // something stored on DownloadedEpisodeRecord itself (#174's schema is deliberately minimal —
     // just enough to locate/manage the file). A fetch failure leaves that row showing its
-    // fallback rather than blocking the rest of the list.
+    // fallback rather than blocking the rest of the list. Bounded to a small concurrency window
+    // rather than firing one request per download at once — a large downloads list shouldn't
+    // burst-request the API for every row simultaneously. Looks up by plain (id, showId) pairs,
+    // not the DownloadedEpisodeRecord itself, so no @Model instance crosses into a child task.
     private func loadEpisodeMetadata() async {
+        let lookups = records.map { (id: $0.id, showId: $0.showId) }
+        let maxConcurrentRequests = 4
+        var nextIndex = 0
+
         await withTaskGroup(of: (String, Episode?).self) { group in
-            for record in records {
+            func addTaskIfAvailable() {
+                guard nextIndex < lookups.count else { return }
+                let lookup = lookups[nextIndex]
+                nextIndex += 1
                 group.addTask {
-                    let episode = try? await catalogClient.getEpisode(showId: record.showId, episodeId: record.id)
-                    return (record.id, episode ?? nil)
+                    let episode = try? await self.catalogClient.getEpisode(showId: lookup.showId, episodeId: lookup.id)
+                    return (lookup.id, episode ?? nil)
                 }
             }
+
+            for _ in 0..<min(maxConcurrentRequests, lookups.count) {
+                addTaskIfAvailable()
+            }
             for await (id, episode) in group {
-                guard let episode else { continue }
-                episodesById[id] = episode
+                if let episode {
+                    episodesById[id] = episode
+                }
+                addTaskIfAvailable()
             }
         }
     }
@@ -126,22 +143,35 @@ enum DownloadCleanup {
 
     // Returns false if the ModelContext failed to save the deletion — the caller must not treat
     // the records as gone in that case (e.g. by removing them from its own @State list), or the
-    // UI and the store would silently disagree until the next reload.
+    // UI and the store would silently disagree until the next reload. The SwiftData delete is
+    // saved *before* any file is removed from disk: if the save fails, every file stays in
+    // place, so a retry has something to act on instead of a record whose file already vanished.
     @discardableResult
     static func delete(_ records: [DownloadedEpisodeRecord], from context: ModelContext) -> Bool {
         for record in records {
-            if !record.localFilePath.isEmpty,
-               let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(record.localFilePath) {
-                try? FileManager.default.removeItem(at: fileURL)
-            }
             context.delete(record)
         }
         do {
             try context.save()
-            return true
         } catch {
             return false
         }
+        for record in records {
+            removeFile(for: record)
+        }
+        return true
+    }
+
+    private static func removeFile(for record: DownloadedEpisodeRecord) {
+        guard !record.localFilePath.isEmpty, let directory = DownloadManager.downloadsDirectory() else { return }
+        let fileURL = directory.appendingPathComponent(record.localFilePath)
+        // A corrupted or (however implausibly) malicious localFilePath containing path
+        // components like "../../" could otherwise resolve outside the sandboxed downloads
+        // directory — never remove anything that doesn't standardize to a path still inside it.
+        let standardizedFile = fileURL.standardizedFileURL.path
+        let standardizedDirectory = directory.standardizedFileURL.path
+        guard standardizedFile.hasPrefix(standardizedDirectory + "/") else { return }
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }
 
