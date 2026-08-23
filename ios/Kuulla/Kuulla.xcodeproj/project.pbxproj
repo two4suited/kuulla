@@ -81,6 +81,7 @@
 		P1000005 /* EpisodeDetailViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000005; };
 		P1000006 /* DownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000006; };
 		P1000008 /* DownloadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000008; };
+		P1000010 /* LocalSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000010; };
 		P1000009 /* DownloadButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000009; };
 		P1000007 /* DownloadsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000007; };
 /* End PBXBuildFile section */
@@ -180,6 +181,7 @@
 		P2000005 /* EpisodeDetailViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailViewTests.swift; sourceTree = "<group>"; };
 		P2000006 /* DownloadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsView.swift; sourceTree = "<group>"; };
 		P2000008 /* DownloadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButton.swift; sourceTree = "<group>"; };
+		P2000010 /* LocalSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSettings.swift; sourceTree = "<group>"; };
 		P2000009 /* DownloadButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButtonTests.swift; sourceTree = "<group>"; };
 		P2000007 /* DownloadsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsViewTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -232,6 +234,7 @@
 				P2000003 /* DownloadManager.swift */,
 				P2000006 /* DownloadsView.swift */,
 				P2000008 /* DownloadButton.swift */,
+				P2000010 /* LocalSettings.swift */,
 				G2000001 /* FeedView.swift */,
 				G2000002 /* EpisodeStatus.swift */,
 				G2000003 /* EpisodeSyncEngineEnvironment.swift */,
@@ -431,6 +434,7 @@
 				P1000003,
 				P1000006,
 				P1000008,
+				P1000010,
 				G1000001,
 				G1000002,
 				G1000003,

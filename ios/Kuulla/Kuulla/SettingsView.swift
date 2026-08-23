@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct SettingsView: View {
+    // Device-local (per docs/data-usage-network-settings.md) — @AppStorage reads/writes the same
+    // UserDefaults key LocalSettings.wifiOnlyDownloads exposes for non-View code (DownloadManager).
+    @AppStorage(LocalSettings.wifiOnlyDownloadsKey) private var wifiOnlyDownloads = true
+
     @State private var settings: UserSettings?
     @State private var isLoading = false
     @State private var loadError: String?
@@ -66,6 +70,19 @@ struct SettingsView: View {
                     Text(autoSkipSaveError)
                         .foregroundStyle(.red)
                 }
+            }
+
+            Section {
+                Toggle("Download over Wi-Fi only", isOn: $wifiOnlyDownloads)
+                    .onChange(of: wifiOnlyDownloads) { _, _ in
+                        // Re-evaluate queued/in-flight downloads against the new setting
+                        // immediately, rather than waiting for the next Wi-Fi/cellular
+                        // transition — which might not happen for a long time if the network
+                        // itself hasn't actually changed.
+                        DownloadManager.shared.wifiOnlyDownloadsSettingChanged()
+                    }
+            } footer: {
+                Text("Downloads requested off Wi-Fi wait until Wi-Fi is available, and pause if Wi-Fi is lost mid-download.")
             }
         }
         .navigationTitle("Settings")

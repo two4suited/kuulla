@@ -2,6 +2,27 @@ import SwiftData
 import XCTest
 @testable import Kuulla
 
+// Captures the callback DownloadManager registers so tests can simulate Wi-Fi/cellular
+// transitions synchronously instead of depending on the device's real network state.
+final class MockPathObserver: NetworkPathObserving {
+    private(set) var onUpdate: ((Bool) -> Void)?
+
+    func startObserving(onUpdate: @escaping (Bool) -> Void) {
+        self.onUpdate = onUpdate
+    }
+
+    // Deterministically waits for DownloadManager to have applied this update — its registered
+    // closure dispatches handlePathUpdate onto the main queue via DispatchQueue.main.async, so
+    // enqueueing this continuation's resume the same way *after* calling onUpdate guarantees it
+    // runs after handlePathUpdate has (GCD's main queue is FIFO), without a fixed sleep-and-hope.
+    func simulate(isOnWifi: Bool) async {
+        await withCheckedContinuation { continuation in
+            onUpdate?(isOnWifi)
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+}
+
 @MainActor
 final class DownloadManagerTests: XCTestCase {
     private func makeContainer() throws -> ModelContainer {
@@ -9,11 +30,20 @@ final class DownloadManagerTests: XCTestCase {
         return try ModelContainer(for: DownloadedEpisodeRecord.self, configurations: configuration)
     }
 
-    private func makeManager(container: ModelContainer) -> DownloadManager {
+    // DownloadManager now defaults to isOnWifi == false until told otherwise (#180's
+    // pessimistic-until-known default — see DownloadManager.swift), which combined with
+    // LocalSettings.wifiOnlyDownloads' own true-when-unset default would queue every download in
+    // tests that don't care about network state at all. Establishing "on Wi-Fi" here by default
+    // keeps every pre-existing test's behavior unchanged; tests that specifically exercise Wi-Fi
+    // gating pass their own MockPathObserver and simulate off-Wi-Fi explicitly afterward.
+    private func makeManager(container: ModelContainer, pathObserver: NetworkPathObserving = MockPathObserver()) async -> DownloadManager {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
-        let manager = DownloadManager(configuration: config)
+        let manager = DownloadManager(configuration: config, pathObserver: pathObserver)
         manager.configure(modelContainer: container)
+        if let mockPathObserver = pathObserver as? MockPathObserver {
+            await mockPathObserver.simulate(isOnWifi: true)
+        }
         return manager
     }
 
@@ -43,9 +73,9 @@ final class DownloadManagerTests: XCTestCase {
         super.tearDown()
     }
 
-    func testStartDownloadCreatesDownloadingRecordImmediately() throws {
+    func testStartDownloadCreatesDownloadingRecordImmediately() async throws {
         let container = try makeContainer()
-        let manager = makeManager(container: container)
+        let manager = await makeManager(container: container)
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
 
         manager.startDownload(episode: makeEpisode())
@@ -58,7 +88,7 @@ final class DownloadManagerTests: XCTestCase {
 
     func testSuccessfulDownloadMarksRecordCompleteWithFileOnDisk() async throws {
         let container = try makeContainer()
-        let manager = makeManager(container: container)
+        let manager = await makeManager(container: container)
         let audioData = Data("fake audio bytes".utf8)
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: audioData, headers: [:])) }
 
@@ -81,7 +111,7 @@ final class DownloadManagerTests: XCTestCase {
 
     func testFailedDownloadMarksRecordFailed() async throws {
         let container = try makeContainer()
-        let manager = makeManager(container: container)
+        let manager = await makeManager(container: container)
         MockURLProtocol.stubHandler = { _ in .failure(URLError(.notConnectedToInternet)) }
 
         manager.startDownload(episode: makeEpisode())
@@ -91,9 +121,9 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(status, .failed)
     }
 
-    func testCancelDownloadRemovesRecord() throws {
+    func testCancelDownloadRemovesRecord() async throws {
         let container = try makeContainer()
-        let manager = makeManager(container: container)
+        let manager = await makeManager(container: container)
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
 
         manager.startDownload(episode: makeEpisode())
@@ -109,7 +139,7 @@ final class DownloadManagerTests: XCTestCase {
     // retry's tracking/record if the retry started before that stale callback arrives.
     func testCancelThenImmediateRetrySucceeds() async throws {
         let container = try makeContainer()
-        let manager = makeManager(container: container)
+        let manager = await makeManager(container: container)
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
 
         manager.startDownload(episode: makeEpisode())
@@ -125,7 +155,7 @@ final class DownloadManagerTests: XCTestCase {
     // no dot in the path) used to produce a filename with a trailing dot and nothing after it.
     func testDownloadFromURLWithoutExtensionFallsBackToDefaultExtension() async throws {
         let container = try makeContainer()
-        let manager = makeManager(container: container)
+        let manager = await makeManager(container: container)
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
 
         manager.startDownload(episode: makeEpisode(audioUrl: "https://example.com/episode"))
@@ -151,7 +181,7 @@ final class DownloadManagerTests: XCTestCase {
     // .downloading, so a cancel of the new attempt would delete the *old* file.
     func testReDownloadAfterCompleteClearsPreviousFileState() async throws {
         let container = try makeContainer()
-        let manager = makeManager(container: container)
+        let manager = await makeManager(container: container)
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
 
         manager.startDownload(episode: makeEpisode())
@@ -177,6 +207,94 @@ final class DownloadManagerTests: XCTestCase {
 
         if let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(finalRecord.localFilePath) {
             try? FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    // MARK: - Wi-Fi-only downloads (#180)
+
+    private func withWifiOnlyDownloads(_ enabled: Bool, _ body: () async throws -> Void) async rethrows {
+        let previous = UserDefaults.standard.object(forKey: LocalSettings.wifiOnlyDownloadsKey)
+        UserDefaults.standard.set(enabled, forKey: LocalSettings.wifiOnlyDownloadsKey)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: LocalSettings.wifiOnlyDownloadsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: LocalSettings.wifiOnlyDownloadsKey)
+            }
+        }
+        try await body()
+    }
+
+    func testStartDownloadQueuesWhenWifiOnlyEnabledAndOffWifi() async throws {
+        try await withWifiOnlyDownloads(true) {
+            let container = try makeContainer()
+            let pathObserver = MockPathObserver()
+            let manager = await makeManager(container: container, pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+
+            MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+            manager.startDownload(episode: makeEpisode())
+
+            // Queued, not started: no live progress entry, and the record shows .downloading
+            // without ever having reached .complete.
+            XCTAssertNil(manager.progress["ep1"])
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+            let record = try XCTUnwrap(try context.fetch(descriptor).first)
+            XCTAssertEqual(record.status, .downloading)
+
+            // Wi-Fi returns — the queued download starts automatically.
+            await pathObserver.simulate(isOnWifi: true)
+            let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+            XCTAssertEqual(status, .complete)
+
+            if let record = try context.fetch(descriptor).first, !record.localFilePath.isEmpty,
+               let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(record.localFilePath) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+    }
+
+    func testStartDownloadProceedsImmediatelyWhenWifiOnlyDisabledEvenOffWifi() async throws {
+        try await withWifiOnlyDownloads(false) {
+            let container = try makeContainer()
+            let pathObserver = MockPathObserver()
+            let manager = await makeManager(container: container, pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+
+            MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+            manager.startDownload(episode: makeEpisode())
+
+            let context = ModelContext(container)
+            let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+            XCTAssertEqual(status, .complete)
+
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+            if let record = try context.fetch(descriptor).first, !record.localFilePath.isEmpty,
+               let fileURL = DownloadManager.downloadsDirectory()?.appendingPathComponent(record.localFilePath) {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+    }
+
+    func testCancelDownloadRemovesQueuedEpisode() async throws {
+        try await withWifiOnlyDownloads(true) {
+            let container = try makeContainer()
+            let pathObserver = MockPathObserver()
+            let manager = await makeManager(container: container, pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+
+            MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
+            manager.startDownload(episode: makeEpisode())
+            manager.cancelDownload(episodeId: "ep1")
+
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+            XCTAssertTrue(try context.fetch(descriptor).isEmpty)
+
+            // Wi-Fi returning afterward must not resurrect the cancelled, no-longer-queued download.
+            await pathObserver.simulate(isOnWifi: true)
+            XCTAssertTrue(try context.fetch(descriptor).isEmpty)
         }
     }
 }
