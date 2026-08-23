@@ -76,7 +76,10 @@ struct LibraryView: View {
                             .buttonStyle(.plain)
                         }
 
-                        ShelfTile(systemImage: "arrow.down.circle", title: "Downloaded", subtitle: "Coming soon", isEnabled: false)
+                        NavigationLink(value: CatalogRoute.downloads) {
+                            ShelfTile(systemImage: "arrow.down.circle", title: "Downloads", subtitle: "Manage", isEnabled: true)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal)
                 }
