@@ -243,7 +243,12 @@ else
             return;
         }
 
-        _ = RefetchAfterRemoteChangeAsync();
+        // ApplyServerChanges is invoked from SyncStatusService<T>'s poll (ultimately triggered by
+        // SyncStatusIndicator's [JSInvokable] OnFocusRegained), so dispatch the fetch-and-render
+        // through InvokeAsync rather than firing it directly — keeps StateHasChanged on the
+        // renderer's own dispatcher queue instead of assuming this call stack is already on it,
+        // and surfaces any exception through the renderer instead of leaving an unobserved task.
+        _ = InvokeAsync(RefetchAfterRemoteChangeAsync);
     }
 
     private async Task RefetchAfterRemoteChangeAsync()
@@ -260,6 +265,15 @@ else
         {
             // Leave the currently-displayed playlist as-is — the next focus-regained poll (or a
             // manual navigation) will retry.
+        }
+        catch (OperationCanceledException)
+        {
+            // Same rationale as LoadEpisodeStatesAsync's identical catch — HttpClient cancellation
+            // surfaces as this (or TaskCanceledException, which derives from it) rather than
+            // always TaskCanceledException specifically.
+        }
+        catch (JsonException)
+        {
         }
         finally
         {
