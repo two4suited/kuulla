@@ -12,11 +12,13 @@ struct ShowSettings: Codable, Hashable {
     let autoSkipIntroSeconds: Int?
     let autoSkipOutroSeconds: Int?
     let playbackSpeed: Float?
+    let autoDownloadNewEpisodes: Bool?
 
     init(
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
         version: Int, autoArchiveRule: AutoArchiveRule?,
-        autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil
+        autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil,
+        autoDownloadNewEpisodes: Bool? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -27,10 +29,12 @@ struct ShowSettings: Codable, Hashable {
         self.autoSkipIntroSeconds = autoSkipIntroSeconds
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
         self.playbackSpeed = playbackSpeed
+        self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
+        case autoDownloadNewEpisodes
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -46,5 +50,33 @@ struct ShowSettings: Codable, Hashable {
         autoSkipIntroSeconds = try container.decodeIfPresent(Int.self, forKey: .autoSkipIntroSeconds)
         autoSkipOutroSeconds = try container.decodeIfPresent(Int.self, forKey: .autoSkipOutroSeconds)
         playbackSpeed = try container.decodeIfPresent(Float.self, forKey: .playbackSpeed)
+        autoDownloadNewEpisodes = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadNewEpisodes)
+    }
+
+    // Copies every field except the ones explicitly overridden. Every field here is itself
+    // optional (nil means "no override"), so a plain `T? = nil` default couldn't distinguish
+    // "don't touch this field" from "clear this override" — the double-optional parameter can:
+    // omitting an argument leaves the outer Optional nil ("don't touch"), while passing a T?
+    // (including .none) is implicitly promoted to T??'s .some(...) ("set to exactly this,
+    // clearing the override if it's .none"). Without this, ShowSettingsSheet's update*()
+    // methods would each need every field spelled out by hand, the same bug class that already
+    // hit UserSettings.swift once (see its own `with` for the non-nested version).
+    func with(
+        unlistenedEpisodeCount: UnlistenedEpisodeCount?? = nil,
+        autoArchiveRule: AutoArchiveRule?? = nil,
+        autoSkipIntroSeconds: Int?? = nil,
+        autoSkipOutroSeconds: Int?? = nil,
+        playbackSpeed: Float?? = nil,
+        autoDownloadNewEpisodes: Bool?? = nil
+    ) -> ShowSettings {
+        ShowSettings(
+            id: id, userId: userId, showId: showId,
+            unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
+            version: version,
+            autoArchiveRule: autoArchiveRule ?? self.autoArchiveRule,
+            autoSkipIntroSeconds: autoSkipIntroSeconds ?? self.autoSkipIntroSeconds,
+            autoSkipOutroSeconds: autoSkipOutroSeconds ?? self.autoSkipOutroSeconds,
+            playbackSpeed: playbackSpeed ?? self.playbackSpeed,
+            autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes)
     }
 }

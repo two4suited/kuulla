@@ -62,6 +62,18 @@ struct SettingsClient {
             ["api", "settings", "auto-delete"],
             body: UpdateAutoDeleteRuleRequest(autoDeleteRule: rule, autoDeleteAfterDays: afterDays))
     }
+
+    func updateAutoDownloadNewEpisodes(_ value: Bool) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "auto-download"],
+            body: UpdateAutoDownloadNewEpisodesRequest(autoDownloadNewEpisodes: value))
+    }
+
+    func updateShowAutoDownloadNewEpisodes(showId: String, value: Bool?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "auto-download"],
+            body: UpdateShowAutoDownloadNewEpisodesRequest(autoDownloadNewEpisodes: value))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -101,4 +113,12 @@ private struct UpdateShowPlaybackSpeedRequest: Encodable {
 private struct UpdateAutoDeleteRuleRequest: Encodable {
     let autoDeleteRule: AutoDeleteRule
     let autoDeleteAfterDays: Int
+}
+
+private struct UpdateAutoDownloadNewEpisodesRequest: Encodable {
+    let autoDownloadNewEpisodes: Bool
+}
+
+private struct UpdateShowAutoDownloadNewEpisodesRequest: Encodable {
+    let autoDownloadNewEpisodes: Bool?
 }

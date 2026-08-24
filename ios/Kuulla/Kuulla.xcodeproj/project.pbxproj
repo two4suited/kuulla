@@ -83,6 +83,8 @@
 		P1000008 /* DownloadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000008; };
 		P1000010 /* LocalSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000010; };
 		P1000011 /* AutoDeleteRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000011; };
+		P1000012 /* UserSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000012; };
+		P1000013 /* ShowSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000013; };
 		P1000009 /* DownloadButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000009; };
 		P1000007 /* DownloadsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000007; };
 /* End PBXBuildFile section */
@@ -184,6 +186,8 @@
 		P2000008 /* DownloadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButton.swift; sourceTree = "<group>"; };
 		P2000010 /* LocalSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSettings.swift; sourceTree = "<group>"; };
 		P2000011 /* AutoDeleteRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoDeleteRule.swift; sourceTree = "<group>"; };
+		P2000012 /* UserSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsTests.swift; sourceTree = "<group>"; };
+		P2000013 /* ShowSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsTests.swift; sourceTree = "<group>"; };
 		P2000009 /* DownloadButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButtonTests.swift; sourceTree = "<group>"; };
 		P2000007 /* DownloadsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsViewTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -294,6 +298,8 @@
 				P2000005 /* EpisodeDetailViewTests.swift */,
 				P2000007 /* DownloadsViewTests.swift */,
 				P2000009 /* DownloadButtonTests.swift */,
+				P2000012 /* UserSettingsTests.swift */,
+				P2000013 /* ShowSettingsTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -483,6 +489,8 @@
 				P1000005,
 				P1000007,
 				P1000009,
+				P1000012,
+				P1000013,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
