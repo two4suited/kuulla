@@ -8,10 +8,13 @@ struct UserSettings: Codable, Hashable {
     let autoSkipIntroSeconds: Int
     let autoSkipOutroSeconds: Int
     let playbackSpeed: Float
+    let autoDeleteRule: AutoDeleteRule
+    let autoDeleteAfterDays: Int
 
     init(
         userId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount, version: Int, autoArchiveRule: AutoArchiveRule,
-        autoSkipIntroSeconds: Int = 0, autoSkipOutroSeconds: Int = 0, playbackSpeed: Float = 1.0
+        autoSkipIntroSeconds: Int = 0, autoSkipOutroSeconds: Int = 0, playbackSpeed: Float = 1.0,
+        autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7
     ) {
         self.userId = userId
         self.unlistenedEpisodeCount = unlistenedEpisodeCount
@@ -20,10 +23,13 @@ struct UserSettings: Codable, Hashable {
         self.autoSkipIntroSeconds = autoSkipIntroSeconds
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
         self.playbackSpeed = playbackSpeed
+        self.autoDeleteRule = autoDeleteRule
+        self.autoDeleteAfterDays = autoDeleteAfterDays
     }
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
+        case autoDeleteRule, autoDeleteAfterDays
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -39,6 +45,9 @@ struct UserSettings: Codable, Hashable {
         autoSkipOutroSeconds = try container.decodeIfPresent(Int.self, forKey: .autoSkipOutroSeconds) ?? 0
         // Default to 1.0 (normal speed) when absent, same rationale as autoArchiveRule above.
         playbackSpeed = try container.decodeIfPresent(Float.self, forKey: .playbackSpeed) ?? 1.0
+        // Default to .never/7 when absent (#179), same rationale as autoArchiveRule above.
+        autoDeleteRule = try container.decodeIfPresent(AutoDeleteRule.self, forKey: .autoDeleteRule) ?? .never
+        autoDeleteAfterDays = try container.decodeIfPresent(Int.self, forKey: .autoDeleteAfterDays) ?? 7
     }
 }
 

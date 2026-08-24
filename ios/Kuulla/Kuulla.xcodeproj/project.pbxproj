@@ -82,6 +82,7 @@
 		P1000006 /* DownloadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000006; };
 		P1000008 /* DownloadButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000008; };
 		P1000010 /* LocalSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000010; };
+		P1000011 /* AutoDeleteRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000011; };
 		P1000009 /* DownloadButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000009; };
 		P1000007 /* DownloadsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000007; };
 /* End PBXBuildFile section */
@@ -182,6 +183,7 @@
 		P2000006 /* DownloadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsView.swift; sourceTree = "<group>"; };
 		P2000008 /* DownloadButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButton.swift; sourceTree = "<group>"; };
 		P2000010 /* LocalSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSettings.swift; sourceTree = "<group>"; };
+		P2000011 /* AutoDeleteRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoDeleteRule.swift; sourceTree = "<group>"; };
 		P2000009 /* DownloadButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButtonTests.swift; sourceTree = "<group>"; };
 		P2000007 /* DownloadsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsViewTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -223,6 +225,7 @@
 				A2000024 /* SettingsView.swift */,
 				A2000025 /* ShowSettingsSheet.swift */,
 				M2000001 /* AutoArchiveRule.swift */,
+				P2000011 /* AutoDeleteRule.swift */,
 				N2000001 /* AutoSkipDuration.swift */,
 				N2000002 /* PlaybackSpeedOption.swift */,
 				F2000001 /* Syncable.swift */,
@@ -423,6 +426,7 @@
 				A1000023,
 				A1000024,
 				M1000001,
+				P1000011,
 				N1000001,
 				N1000002,
 				F1000001,

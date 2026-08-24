@@ -1157,4 +1157,45 @@ settings.MapPut("/shows/{showId}/playback-speed", async (
     return Results.Ok(result);
 });
 
+// Upper bound is generous (a year) — it exists only to reject obviously-wrong input, not to
+// model any real retention policy.
+const int MaxAutoDeleteAfterDays = 365;
+
+bool TryValidateAutoDeleteAfterDays(int days, string fieldName, out string? error)
+{
+    if (days < 1 || days > MaxAutoDeleteAfterDays)
+    {
+        error = $"'{fieldName}' must be between 1 and {MaxAutoDeleteAfterDays}.";
+        return false;
+    }
+
+    error = null;
+    return true;
+}
+
+settings.MapPut("/auto-delete", async (
+    UpdateAutoDeleteRuleRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!Enum.IsDefined(request.AutoDeleteRule))
+    {
+        return Results.BadRequest(new { error = "'autoDeleteRule' is not a valid value." });
+    }
+
+    // AutoDeleteAfterDays is only meaningful when AutoDeleteRule == AfterDays (UserSettings.cs's
+    // own doc comment) — validating it unconditionally would force a client that only wants to
+    // set rule=Never/AfterPlayed to also send some arbitrary-but-valid day count.
+    if (request.AutoDeleteRule == AutoDeleteRule.AfterDays &&
+        !TryValidateAutoDeleteAfterDays(request.AutoDeleteAfterDays, "autoDeleteAfterDays", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateAutoDeleteRuleAsync(userId, request.AutoDeleteRule, request.AutoDeleteAfterDays, ct);
+    return Results.Ok(result);
+});
+
 app.Run();

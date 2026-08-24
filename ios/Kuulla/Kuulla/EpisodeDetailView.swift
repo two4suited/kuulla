@@ -26,6 +26,8 @@ struct EpisodeDetailView: View {
     @State private var autoSkipIntroSeconds = 0
     @State private var autoSkipOutroSeconds = 0
     @State private var playbackSpeed: Float = 1.0
+    // Global-only (no per-show override), per docs/downloads-storage-settings.md.
+    @State private var autoDeleteRule: AutoDeleteRule = .never
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveError: String?
     // Bumped on every cyclePlaybackSpeed() call; lets a save task tell whether it's still the
@@ -212,6 +214,7 @@ struct EpisodeDetailView: View {
         autoSkipIntroSeconds = show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0
         autoSkipOutroSeconds = show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0
         playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
+        autoDeleteRule = user?.autoDeleteRule ?? .never
 
         // This fetch races the play button: a tap before it resolves starts playback at the
         // 1.0 fallback (audioPlayer.play's own default), since togglePlayback reads whatever
@@ -431,6 +434,37 @@ struct EpisodeDetailView: View {
         // through, and isn't guaranteed to observe the write synchronously.
         stateRecord = EpisodeStateRecord(
             id: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed, updatedAt: updatedAt)
+
+        // persist() is only ever reached via a manual write path in *this view* (the completed
+        // toggle, or the onDidFinishPlaying callback for a natural finish) — it's never called
+        // from the sync-pull path that applies server changes (EpisodeSyncAdapter.apply, which
+        // does set autoPlayed = true when the enforcement job marks an episode played elsewhere).
+        // So every completion reaching here already satisfies #179's "exclude auto-played
+        // episodes" requirement by construction, without needing to check the flag directly —
+        // just not for the reason "autoPlayed is only ever set by restoreAutoPlayed()", which
+        // isn't true.
+        if Self.shouldAutoDeleteDownload(completed: completed, autoDeleteRule: autoDeleteRule) {
+            deleteDownloadIfPresent()
+        }
+    }
+
+    // Pulled out as a pure function for testability, mirroring resolvedPlaybackURL's pattern.
+    nonisolated static func shouldAutoDeleteDownload(completed: Bool, autoDeleteRule: AutoDeleteRule) -> Bool {
+        completed && autoDeleteRule == .afterPlayed
+    }
+
+    // #179: frees offline storage once an episode is finished, mirroring the auto-played
+    // enforcement job's completion hook. Only acts on a .complete download — an in-progress or
+    // failed one isn't something to "clean up" here, that's DownloadManager's own lifecycle.
+    private func deleteDownloadIfPresent() {
+        let episodeId = episodeId
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
+        guard let record = try? modelContext.fetch(descriptor).first, record.status == .complete else { return }
+        // Only reflect the deletion in the UI if it actually succeeded — DownloadCleanup.delete
+        // returns false on a ModelContext save failure, in which case the record (and file) are
+        // still present and downloadStatus must keep showing .complete, not go stale as nil.
+        guard DownloadCleanup.delete([record], from: modelContext) else { return }
+        downloadStatus = nil
     }
 }
 

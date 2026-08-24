@@ -221,4 +221,20 @@ public class SettingsService(
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.PlaybackSpeed;
     }
+
+    public async Task<UserSettings> UpdateAutoDeleteRuleAsync(
+        string userId, AutoDeleteRule autoDeleteRule, int autoDeleteAfterDays, CancellationToken cancellationToken)
+    {
+        var current = await GetSettingsAsync(userId, cancellationToken);
+        var updated = current with
+        {
+            AutoDeleteRule = autoDeleteRule,
+            AutoDeleteAfterDays = autoDeleteAfterDays,
+            Version = current.Version + 1,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
 }

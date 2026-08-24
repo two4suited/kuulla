@@ -61,4 +61,24 @@ final class EpisodeDetailViewTests: XCTestCase {
             audioUrlString: "https://example.com/ep1.mp3", downloadRecord: record, downloadsDirectory: nil)
         XCTAssertEqual(url, URL(string: "https://example.com/ep1.mp3"))
     }
+
+    // MARK: - Auto-delete after playback (#179)
+
+    func testAutoDeleteFiresWhenCompletedAndRuleIsAfterPlayed() {
+        XCTAssertTrue(EpisodeDetailView.shouldAutoDeleteDownload(completed: true, autoDeleteRule: .afterPlayed))
+    }
+
+    func testAutoDeleteDoesNotFireWhenNotCompleted() {
+        XCTAssertFalse(EpisodeDetailView.shouldAutoDeleteDownload(completed: false, autoDeleteRule: .afterPlayed))
+    }
+
+    func testAutoDeleteDoesNotFireWhenRuleIsNever() {
+        XCTAssertFalse(EpisodeDetailView.shouldAutoDeleteDownload(completed: true, autoDeleteRule: .never))
+    }
+
+    func testAutoDeleteDoesNotFireWhenRuleIsAfterDays() {
+        // AfterDays is time-based, independent of played state — this hook only implements the
+        // AfterPlayed case; a scheduled AfterDays sweep is separate, unimplemented follow-up work.
+        XCTAssertFalse(EpisodeDetailView.shouldAutoDeleteDownload(completed: true, autoDeleteRule: .afterDays))
+    }
 }
