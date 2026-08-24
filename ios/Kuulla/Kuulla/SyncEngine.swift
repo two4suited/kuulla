@@ -194,6 +194,16 @@ extension SyncEngine {
         }
         recordChanged()
     }
+
+    // Reads via this engine's own ModelContext — the only one `write`/`syncNow` ever save
+    // through. A caller that just called `write` or `syncNow` and immediately reads back through
+    // its own `@Environment(\.modelContext)` instance instead risks observing stale state (two
+    // ModelContext instances over the same store aren't guaranteed to see each other's saves
+    // immediately) — the exact hazard EpisodeDetailView.restoreAutoPlayed's doc comment works
+    // around ad hoc. This is the general form: any single-context read after an engine write.
+    func read<T>(_ fetch: (ModelContext) throws -> T) async rethrows -> T {
+        try fetch(context)
+    }
 }
 
 // Background-refresh trigger wiring, so a position update made on Web shows up here without the

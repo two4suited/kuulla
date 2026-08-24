@@ -10,20 +10,25 @@ struct KuullaApp: App {
     let modelContainer: ModelContainer
     let episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>
     let playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>
+    let settingsSyncEngine: SyncEngine<SettingsSyncAdapter>
 
     init() {
         let container = try! ModelContainer(
-            for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self, DownloadedEpisodeRecord.self
+            for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self, DownloadedEpisodeRecord.self,
+            UserSettingsRecord.self
         )
         modelContainer = container
         let episodeEngine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter())
         episodeSyncEngine = episodeEngine
         let playlistEngine = SyncEngine(modelContainer: container, adapter: PlaylistSyncAdapter())
         playlistSyncEngine = playlistEngine
+        let settingsEngine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter())
+        settingsSyncEngine = settingsEngine
         // Must happen before the app finishes launching (BGTaskScheduler's requirement) — App
         // init runs before the first scene appears, so this is the earliest SwiftUI hook for it.
         episodeEngine.registerBackgroundTask()
         playlistEngine.registerBackgroundTask()
+        settingsEngine.registerBackgroundTask()
         DownloadManager.shared.configure(modelContainer: container)
     }
 
@@ -32,11 +37,17 @@ struct KuullaApp: App {
             ContentView()
                 .environment(\.episodeSyncEngine, episodeSyncEngine)
                 .environment(\.playlistSyncEngine, playlistSyncEngine)
+                .environment(\.settingsSyncEngine, settingsSyncEngine)
                 .task {
                     await AuthManager.shared.restorePreviousSignIn()
                     if AuthManager.shared.isSignedIn {
-                        await episodeSyncEngine.syncNow()
-                        await playlistSyncEngine.syncNow()
+                        // Independent domains with no data dependency between them — run
+                        // concurrently so cold-start latency is the slowest one, not their sum,
+                        // matching the scenePhase .active handler below.
+                        async let episodes: Void = episodeSyncEngine.syncNow()
+                        async let playlists: Void = playlistSyncEngine.syncNow()
+                        async let settings: Void = settingsSyncEngine.syncNow()
+                        _ = await (episodes, playlists, settings)
                     }
                 }
                 .onOpenURL { url in
@@ -50,11 +61,13 @@ struct KuullaApp: App {
                 if AuthManager.shared.isSignedIn {
                     Task { await episodeSyncEngine.syncNow() }
                     Task { await playlistSyncEngine.syncNow() }
+                    Task { await settingsSyncEngine.syncNow() }
                 }
             case .background:
                 if AuthManager.shared.isSignedIn {
                     episodeSyncEngine.scheduleBackgroundRefresh()
                     playlistSyncEngine.scheduleBackgroundRefresh()
+                    settingsSyncEngine.scheduleBackgroundRefresh()
                 }
             case .inactive:
                 break

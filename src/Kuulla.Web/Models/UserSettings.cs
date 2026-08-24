@@ -10,7 +10,9 @@ public record UserSettings(
     float PlaybackSpeed = 1.0f,
     AutoDeleteRule AutoDeleteRule = AutoDeleteRule.Never,
     int AutoDeleteAfterDays = 7,
-    bool AutoDownloadNewEpisodes = false);
+    bool AutoDownloadNewEpisodes = false,
+    DateTimeOffset UpdatedAt = default,
+    string? DeviceId = null);
 
 public enum UnlistenedEpisodeCount
 {

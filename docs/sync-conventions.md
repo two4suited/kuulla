@@ -56,6 +56,15 @@ and extracted into reusable infrastructure in #84 — see below.
 - `User` (`src/Kuulla.Api/Models/User.cs`) — retrofitted with `updatedAt`/`deviceId`
   ahead of any user-profile sync work, so it won't need a migration later. No sync
   behavior exists for `User` yet.
+- `UserSettings` (`src/Kuulla.Api/Models/UserSettings.cs`) — #40/#41's settings sync,
+  the first single-record-per-user domain (as opposed to a per-user collection like
+  episodes/playlists): `queryAllAsync` returns a 0-or-1-item list and `changes` is
+  capped at one entry per sync call. Summary cached at `sync:settings:{userId}`.
+  `ShowSettings` (per-show overrides, same container) implements `ISyncableRecord` and
+  has `updatedAt` stamped on every write, but isn't wired into the reconciler yet —
+  only the global `UserSettings` document syncs across devices so far. `deviceId` is
+  always `null` on `ShowSettings` today: its write paths don't take a deviceId from
+  the caller, unlike `UserSettings`'s sync push path.
 
 ## Reconciliation framework (`Kuulla.Api.Services.Sync`, #84)
 

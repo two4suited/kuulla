@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct SettingsView: View {
@@ -5,6 +6,12 @@ struct SettingsView: View {
     // UserDefaults keys LocalSettings exposes for non-View code (DownloadManager, AudioPlayer).
     @AppStorage(LocalSettings.wifiOnlyDownloadsKey) private var wifiOnlyDownloads = true
     @AppStorage(LocalSettings.wifiOnlyStreamingKey) private var wifiOnlyStreaming = false
+
+    // #43: settingsSyncEngine pulls another device's changes into UserSettingsRecord on launch/
+    // foreground/background refresh; this view mirrors its own successful writes into the same
+    // record (see mirrorAcceptedWrite) so the local store stays authoritative between syncs.
+    @Environment(\.settingsSyncEngine) private var syncEngine
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var settings: UserSettings?
     @State private var isLoading = false
@@ -141,6 +148,13 @@ struct SettingsView: View {
         .task {
             await loadSettings()
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-syncs when this view resumes in the foreground with another device's change
+            // waiting — same trigger KuullaApp uses for episodes/playlists, scoped here so it
+            // only re-fetches while Settings is actually the visible screen.
+            guard newPhase == .active, settings != nil else { return }
+            Task { await refreshFromRemote() }
+        }
     }
 
     private var unlistenedEpisodeCountBinding: Binding<UnlistenedEpisodeCount> {
@@ -237,14 +251,74 @@ struct SettingsView: View {
     private func loadSettings() async {
         isLoading = true
         loadError = nil
-        do {
-            settings = try await settingsClient.getSettings()
-        } catch {
-            if !Task.isCancelled {
-                loadError = "Something went wrong while loading your settings. Please try again."
+
+        // Pulls any change made on another device first (#43), so the very first render already
+        // reflects the latest last-write-wins state rather than momentarily showing a stale local
+        // value that then flips once sync catches up.
+        await syncEngine?.syncNow()
+
+        if let local = await fetchLocalRecord() {
+            settings = local
+        } else {
+            // No local mirror yet (first launch, or nothing has ever been synced/saved) — fall
+            // back to a plain GET, same as before #43, and seed the mirror from it.
+            do {
+                let fetched = try await settingsClient.getSettings()
+                settings = fetched
+                await mirrorAcceptedWrite(fetched)
+            } catch {
+                if !Task.isCancelled {
+                    loadError = "Something went wrong while loading your settings. Please try again."
+                }
             }
         }
+
         isLoading = false
+    }
+
+    // Re-pulls remote changes and, if the local mirror moved (another device's write landed),
+    // applies it to this view's in-memory state. Cheap no-op when nothing changed.
+    private func refreshFromRemote() async {
+        await syncEngine?.syncNow()
+        if let local = await fetchLocalRecord() {
+            settings = local
+        }
+    }
+
+    // Reads through syncEngine's own ModelContext (SyncEngine.read), not the view's
+    // @Environment(\.modelContext) — the two are different ModelContext instances over the same
+    // store, and a fetch made right after syncEngine.syncNow()/write() isn't guaranteed to
+    // observe that write if it goes through a different context (see SyncEngine.read's doc
+    // comment, and EpisodeDetailView.restoreAutoPlayed for the same hazard elsewhere).
+    private func fetchLocalRecord() async -> UserSettings? {
+        guard let syncEngine else { return nil }
+        let id = UserSettingsRecord.localId
+        let record = try? await syncEngine.read { context in
+            try context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
+        }
+        return record?.asUserSettings
+    }
+
+    // Mirrors a just-accepted write (either this device's own PUT response, or the initial GET
+    // fallback above) into UserSettingsRecord with isDirty: false — the server has already seen
+    // this exact value, so there's nothing new for the next sync push to send.
+    private func mirrorAcceptedWrite(_ settings: UserSettings) async {
+        guard let syncEngine else { return }
+        do {
+            try await syncEngine.write { context in
+                let id = UserSettingsRecord.localId
+                let descriptor = FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })
+                if let existing = try context.fetch(descriptor).first {
+                    existing.apply(settings, isDirty: false)
+                } else {
+                    context.insert(UserSettingsRecord(from: settings, isDirty: false))
+                }
+            }
+        } catch {
+            // Best-effort mirror only — the write already succeeded server-side (this is called
+            // with an already-accepted response), so a failure here just means the local cache
+            // stays one write behind until the next successful sync pulls it back in line.
+        }
     }
 
     private func updateUnlistenedEpisodeCount(_ value: UnlistenedEpisodeCount) async {
@@ -257,6 +331,7 @@ struct SettingsView: View {
             let updated = try await settingsClient.updateUnlistenedEpisodeCount(value)
             if !Task.isCancelled {
                 settings = updated
+                await mirrorAcceptedWrite(updated)
             }
         } catch {
             if !Task.isCancelled {
@@ -276,6 +351,7 @@ struct SettingsView: View {
             let updated = try await settingsClient.updateAutoArchiveRule(value)
             if !Task.isCancelled {
                 settings = updated
+                await mirrorAcceptedWrite(updated)
             }
         } catch {
             if !Task.isCancelled {
@@ -295,6 +371,7 @@ struct SettingsView: View {
             let updated = try await settingsClient.updateAutoSkip(introSeconds: introSeconds, outroSeconds: outroSeconds)
             if !Task.isCancelled {
                 settings = updated
+                await mirrorAcceptedWrite(updated)
             }
         } catch {
             if !Task.isCancelled {
@@ -314,6 +391,7 @@ struct SettingsView: View {
             let updated = try await settingsClient.updateAutoDeleteRule(rule, afterDays: afterDays)
             if !Task.isCancelled {
                 settings = updated
+                await mirrorAcceptedWrite(updated)
             }
         } catch {
             if !Task.isCancelled {
@@ -333,6 +411,7 @@ struct SettingsView: View {
             let updated = try await settingsClient.updateAutoDownloadNewEpisodes(value)
             if !Task.isCancelled {
                 settings = updated
+                await mirrorAcceptedWrite(updated)
             }
         } catch {
             if !Task.isCancelled {
@@ -347,4 +426,5 @@ struct SettingsView: View {
     NavigationStack {
         SettingsView()
     }
+    .modelContainer(for: UserSettingsRecord.self, inMemory: true)
 }

@@ -1,11 +1,14 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kuulla.Web.Models;
+using Kuulla.Web.Services.Sync;
 
 namespace Kuulla.Web.Services;
 
 public class SettingsClient(KuullaApiClient apiClient)
 {
+    private const string DeviceId = "web";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<UserSettings> GetSettingsAsync(CancellationToken cancellationToken = default)
@@ -119,5 +122,26 @@ public class SettingsClient(KuullaApiClient apiClient)
             new { AutoDownloadNewEpisodes = autoDownloadNewEpisodes }, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    // Polls (empty changes) or pushes (one change) via POST /api/sync/settings, mirroring
+    // EpisodeStateClient.SyncAsync — see docs/sync-conventions.md.
+    public async Task<SyncCheckResult<UserSettings>> SyncAsync(
+        string localHash, DateTimeOffset lastSyncedAt, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var body = new
+        {
+            DeviceId,
+            LastSyncedAt = lastSyncedAt,
+            LocalHash = localHash,
+            Changes = Array.Empty<object>(),
+        };
+        var response = await client.PostAsJsonAsync("api/sync/settings", body, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        // The API's SyncSettingsResult and SyncCheckResult<T> already share the same
+        // (ServerChanges, SyncedAt, Hash) shape, so this deserializes straight into it rather
+        // than through a redundant private mirror record.
+        return (await response.Content.ReadFromJsonAsync<SyncCheckResult<UserSettings>>(JsonOptions, cancellationToken))!;
     }
 }

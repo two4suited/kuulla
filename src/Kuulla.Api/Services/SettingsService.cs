@@ -2,13 +2,29 @@ using System.Net;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Kuulla.Api.Models;
+using Kuulla.Api.Services.Sync;
+using StackExchange.Redis;
 
 namespace Kuulla.Api.Services;
 
 public class SettingsService(
-    [FromKeyedServices("settings")] Container settingsContainer) : ISettingsService
+    [FromKeyedServices("settings")] Container settingsContainer,
+    IConnectionMultiplexer redis) : ISettingsService
 {
+    private readonly SyncSummaryCache<UserSettings> _syncSummaryCache = new(redis, "settings");
+
+    // Field initializer can't reference _syncSummaryCache (CS0236), so the reconciler is built
+    // lazily on first use instead, matching EpisodeStateService's workaround.
+    private SyncReconciler<UserSettings, UserSettingsChange>? _reconciler;
+    private SyncReconciler<UserSettings, UserSettingsChange> Reconciler => _reconciler ??= new(_syncSummaryCache);
+
     public async Task<UserSettings> GetSettingsAsync(string userId, CancellationToken cancellationToken)
+    {
+        var stored = await ReadStoredSettingsAsync(userId, cancellationToken);
+        return stored ?? UserSettings.CreateDefault(userId);
+    }
+
+    private async Task<UserSettings?> ReadStoredSettingsAsync(string userId, CancellationToken cancellationToken)
     {
         try
         {
@@ -18,25 +34,80 @@ public class SettingsService(
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            // No document yet — hand back the default rather than writing it, so reading
-            // settings never has a side effect. The first UpdateUnlistenedEpisodeCountAsync
-            // call is what actually creates the document.
-            return UserSettings.CreateDefault(userId);
+            // No document yet — hand back null rather than writing it, so reading settings
+            // never has a side effect. The first Update*Async call is what actually creates it.
+            return null;
         }
+    }
+
+    private async Task<IReadOnlyList<UserSettings>> QueryAllSettingsAsync(string userId, CancellationToken cancellationToken)
+    {
+        var stored = await ReadStoredSettingsAsync(userId, cancellationToken);
+        return stored is { } settings ? [settings] : [];
+    }
+
+    // Takes the just-written document directly rather than re-reading it from Cosmos — every
+    // caller already has it from the UpsertItemAsync response, and a settings collection is
+    // always exactly this one document, so there's nothing a re-read would learn that the
+    // caller doesn't already know.
+    private Task RecomputeSyncSummaryAsync(string userId, UserSettings current, CancellationToken cancellationToken) =>
+        _syncSummaryCache.SetAsync(userId, SyncSummaryCache<UserSettings>.Compute([current]), cancellationToken);
+
+    public async Task<SyncSettingsResult> SyncAsync(
+        string userId,
+        string deviceId,
+        DateTimeOffset lastSyncedAt,
+        string localHash,
+        IReadOnlyList<UserSettingsChange> changes,
+        CancellationToken cancellationToken)
+    {
+        var result = await Reconciler.ReconcileAsync(
+            userId,
+            lastSyncedAt,
+            localHash,
+            changes,
+            getChangeId: _ => userId,
+            getChangeUpdatedAt: change => change.UpdatedAt,
+            buildAcceptedState: (change, stored) => new UserSettings(
+                userId,
+                change.UnlistenedEpisodeCount,
+                Version: (stored?.Version ?? 0) + 1,
+                change.AutoArchiveRule,
+                change.AutoSkipIntroSeconds,
+                change.AutoSkipOutroSeconds,
+                change.PlaybackSpeed,
+                change.AutoDeleteRule,
+                change.AutoDeleteAfterDays,
+                change.AutoDownloadNewEpisodes,
+                UpdatedAt: DateTimeOffset.UtcNow,
+                DeviceId: deviceId),
+            readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
+            upsertAsync: (state, ct) => settingsContainer.UpsertItemAsync(state, new PartitionKey(userId), cancellationToken: ct),
+            queryAllAsync: ct => QueryAllSettingsAsync(userId, ct),
+            cancellationToken);
+
+        return new SyncSettingsResult(result.ServerChanges, result.SyncedAt, result.Hash);
     }
 
     public async Task<UserSettings> UpdateUnlistenedEpisodeCountAsync(
         string userId, UnlistenedEpisodeCount unlistenedEpisodeCount, CancellationToken cancellationToken)
     {
         var current = await GetSettingsAsync(userId, cancellationToken);
+        // DeviceId is cleared explicitly rather than left as `current`'s (a `with` expression
+        // otherwise preserves every untouched property) — these field-specific endpoints don't
+        // take a deviceId from the caller, so leaving a stale value here would misattribute this
+        // write to whichever device happened to make the last sync push.
         var updated = current with
         {
             UnlistenedEpisodeCount = unlistenedEpisodeCount,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -65,6 +136,8 @@ public class SettingsService(
         {
             UnlistenedEpisodeCount = unlistenedEpisodeCount,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -93,10 +166,13 @@ public class SettingsService(
         {
             AutoArchiveRule = autoArchiveRule,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -108,6 +184,8 @@ public class SettingsService(
         {
             AutoArchiveRule = autoArchiveRule,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -137,10 +215,13 @@ public class SettingsService(
             AutoSkipIntroSeconds = autoSkipIntroSeconds,
             AutoSkipOutroSeconds = autoSkipOutroSeconds,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -153,6 +234,8 @@ public class SettingsService(
             AutoSkipIntroSeconds = autoSkipIntroSeconds,
             AutoSkipOutroSeconds = autoSkipOutroSeconds,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -187,10 +270,13 @@ public class SettingsService(
         {
             PlaybackSpeed = playbackSpeed,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -202,6 +288,8 @@ public class SettingsService(
         {
             PlaybackSpeed = playbackSpeed,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -231,10 +319,13 @@ public class SettingsService(
             AutoDeleteRule = autoDeleteRule,
             AutoDeleteAfterDays = autoDeleteAfterDays,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -246,10 +337,13 @@ public class SettingsService(
         {
             AutoDownloadNewEpisodes = autoDownloadNewEpisodes,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -261,6 +355,8 @@ public class SettingsService(
         {
             AutoDownloadNewEpisodes = autoDownloadNewEpisodes,
             Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(

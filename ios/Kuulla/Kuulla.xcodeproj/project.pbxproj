@@ -30,6 +30,9 @@
 		A1000021 /* SettingsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022; };
 		A1000023 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024; };
 		A1000024 /* ShowSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025; };
+		Q1000001 /* UserSettingsRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000001; };
+		Q1000002 /* SettingsSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000002; };
+		Q1000003 /* SettingsSyncEngineEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000003; };
 		M1000001 /* AutoArchiveRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = M2000001; };
 		N1000001 /* AutoSkipDuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000001; };
 		N1000002 /* PlaybackSpeedOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000002; };
@@ -51,6 +54,7 @@
 		J1000006 /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000006; };
 		J1000007 /* AddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000007; };
 		J1000008 /* PlaylistSyncAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000008; };
+		Q1000004 /* SettingsSyncAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000004; };
 		J1000009 /* PlaylistClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000009; };
 		J1000010 /* UpNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000010; };
 		K1000001 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000001; };
@@ -132,6 +136,10 @@
 		A2000021 /* ShowSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettings.swift; sourceTree = "<group>"; };
 		A2000022 /* SettingsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClient.swift; sourceTree = "<group>"; };
 		A2000024 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		Q2000001 /* UserSettingsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsRecord.swift; sourceTree = "<group>"; };
+		Q2000002 /* SettingsSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncAdapter.swift; sourceTree = "<group>"; };
+		Q2000003 /* SettingsSyncEngineEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncEngineEnvironment.swift; sourceTree = "<group>"; };
+		Q2000004 /* SettingsSyncAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncAdapterTests.swift; sourceTree = "<group>"; };
 		A2000025 /* ShowSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsSheet.swift; sourceTree = "<group>"; };
 		M2000001 /* AutoArchiveRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoArchiveRule.swift; sourceTree = "<group>"; };
 		N2000001 /* AutoSkipDuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSkipDuration.swift; sourceTree = "<group>"; };
@@ -230,6 +238,9 @@
 				A2000022 /* SettingsClient.swift */,
 				A2000024 /* SettingsView.swift */,
 				A2000025 /* ShowSettingsSheet.swift */,
+				Q2000001 /* UserSettingsRecord.swift */,
+				Q2000002 /* SettingsSyncAdapter.swift */,
+				Q2000003 /* SettingsSyncEngineEnvironment.swift */,
 				M2000001 /* AutoArchiveRule.swift */,
 				P2000011 /* AutoDeleteRule.swift */,
 				N2000001 /* AutoSkipDuration.swift */,
@@ -291,6 +302,7 @@
 				D2000011 /* SyncEngineTests.swift */,
 				H2000001 /* EpisodeStatusTests.swift */,
 				J2000008 /* PlaylistSyncAdapterTests.swift */,
+				Q2000004 /* SettingsSyncAdapterTests.swift */,
 				J2000009 /* PlaylistClientTests.swift */,
 				K2000003 /* UnplayedCountsTests.swift */,
 				L2000003 /* EpisodeProgressTests.swift */,
@@ -434,6 +446,9 @@
 				A1000021,
 				A1000023,
 				A1000024,
+				Q1000001,
+				Q1000002,
+				Q1000003,
 				M1000001,
 				P1000011,
 				N1000001,
@@ -484,6 +499,7 @@
 				H1000001,
 				J1000008,
 				J1000009,
+				Q1000004,
 				K1000003,
 				L1000003,
 				L1000004,
