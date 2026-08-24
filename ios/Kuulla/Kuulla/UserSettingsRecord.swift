@@ -22,19 +22,33 @@ final class UserSettingsRecord: Syncable {
     var updatedAt: Date
     var isDirty: Bool
 
-    init(from settings: UserSettings, isDirty: Bool = false) {
+    init(
+        unlistenedEpisodeCount: UnlistenedEpisodeCount, autoArchiveRule: AutoArchiveRule,
+        autoSkipIntroSeconds: Int, autoSkipOutroSeconds: Int, playbackSpeed: Float,
+        autoDeleteRule: AutoDeleteRule, autoDeleteAfterDays: Int, autoDownloadNewEpisodes: Bool,
+        version: Int, updatedAt: Date, isDirty: Bool = false
+    ) {
         id = Self.localId
-        unlistenedEpisodeCount = settings.unlistenedEpisodeCount
-        autoArchiveRule = settings.autoArchiveRule
-        autoSkipIntroSeconds = settings.autoSkipIntroSeconds
-        autoSkipOutroSeconds = settings.autoSkipOutroSeconds
-        playbackSpeed = settings.playbackSpeed
-        autoDeleteRule = settings.autoDeleteRule
-        autoDeleteAfterDays = settings.autoDeleteAfterDays
-        autoDownloadNewEpisodes = settings.autoDownloadNewEpisodes
-        version = settings.version
-        updatedAt = settings.updatedAt
+        self.unlistenedEpisodeCount = unlistenedEpisodeCount
+        self.autoArchiveRule = autoArchiveRule
+        self.autoSkipIntroSeconds = autoSkipIntroSeconds
+        self.autoSkipOutroSeconds = autoSkipOutroSeconds
+        self.playbackSpeed = playbackSpeed
+        self.autoDeleteRule = autoDeleteRule
+        self.autoDeleteAfterDays = autoDeleteAfterDays
+        self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
+        self.version = version
+        self.updatedAt = updatedAt
         self.isDirty = isDirty
+    }
+
+    convenience init(from settings: UserSettings, isDirty: Bool = false) {
+        self.init(
+            unlistenedEpisodeCount: settings.unlistenedEpisodeCount, autoArchiveRule: settings.autoArchiveRule,
+            autoSkipIntroSeconds: settings.autoSkipIntroSeconds, autoSkipOutroSeconds: settings.autoSkipOutroSeconds,
+            playbackSpeed: settings.playbackSpeed, autoDeleteRule: settings.autoDeleteRule,
+            autoDeleteAfterDays: settings.autoDeleteAfterDays, autoDownloadNewEpisodes: settings.autoDownloadNewEpisodes,
+            version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
     // Overwrites every field from `settings` — used both to mirror a just-accepted local write
@@ -50,6 +64,23 @@ final class UserSettingsRecord: Syncable {
         autoDownloadNewEpisodes = settings.autoDownloadNewEpisodes
         version = settings.version
         updatedAt = settings.updatedAt
+        self.isDirty = isDirty
+    }
+
+    // Same as apply(_:isDirty:) but copies from another UserSettingsRecord directly — lets
+    // SettingsSyncAdapter.apply go record-to-record without a round trip through UserSettings
+    // (and its userId: "" placeholder) just to get from one record's fields to another's.
+    func apply(_ other: UserSettingsRecord, isDirty: Bool = false) {
+        unlistenedEpisodeCount = other.unlistenedEpisodeCount
+        autoArchiveRule = other.autoArchiveRule
+        autoSkipIntroSeconds = other.autoSkipIntroSeconds
+        autoSkipOutroSeconds = other.autoSkipOutroSeconds
+        playbackSpeed = other.playbackSpeed
+        autoDeleteRule = other.autoDeleteRule
+        autoDeleteAfterDays = other.autoDeleteAfterDays
+        autoDownloadNewEpisodes = other.autoDownloadNewEpisodes
+        version = other.version
+        updatedAt = other.updatedAt
         self.isDirty = isDirty
     }
 

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Bunit;
 using Kuulla.Web.Components.Pages;
 using Kuulla.Web.Models;
+using Kuulla.Web.Services.Sync;
 using Microsoft.JSInterop;
 
 namespace Kuulla.Web.Tests.Pages;
@@ -11,7 +12,10 @@ public class SettingsTests : WebTestContext
 {
     private static readonly UserSettings DefaultSettings = new("user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never);
 
-    private static readonly SyncSettingsResponseStub EmptySync = new([], DateTimeOffset.UtcNow, "hash-1");
+    // SyncCheckResult<UserSettings> is the same (ServerChanges, SyncedAt, Hash) shape the real
+    // API response deserializes into (SettingsClient.SyncAsync) — reused here rather than a
+    // separate stub record, so this stays in lockstep with the actual wire contract.
+    private static readonly SyncCheckResult<UserSettings> EmptySync = new([], DateTimeOffset.UtcNow, "hash-1");
 
     private static TestHttpMessageHandler CreateHandler(
         UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,

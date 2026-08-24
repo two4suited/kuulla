@@ -863,7 +863,12 @@ sync.MapPost("/playlists", async (
 });
 
 sync.MapPost("/settings", async (
-    SyncSettingsRequest request, ClaimsPrincipal user, ISettingsService settingsService, CancellationToken ct) =>
+    SyncSettingsRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    ISubscriptionService subscriptionService,
+    IEpisodeService episodeService,
+    CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.DeviceId))
     {
@@ -907,6 +912,36 @@ sync.MapPost("/settings", async (
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.SyncAsync(
         userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, changes, ct);
+
+    // Mirrors the enforcement side effects the field-specific PUT endpoints above trigger
+    // (settings.MapPut "" and settings.MapPut "/auto-archive") — a change pushed through this
+    // endpoint must still re-run them, or a lowered unlistened-episode limit or a tightened
+    // auto-archive rule pushed here would silently never prune existing episodes. Runs against
+    // the *current* effective settings rather than gating on whether this device's own change won
+    // the LWW arbitration, so it's correct either way (both enforcement calls are no-ops when
+    // already compliant, matching the PUT endpoints' own rationale). Best-effort, same rationale
+    // as the PUT endpoints: the sync write above already succeeded, so a transient enforcement
+    // failure shouldn't turn it into a 5xx.
+    if (changes.Count > 0)
+    {
+        try
+        {
+            var subscriptions = await subscriptionService.GetSubscriptionsAsync(userId, ct);
+            await Parallel.ForEachAsync(
+                subscriptions,
+                new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = ct },
+                async (subscription, token) =>
+                {
+                    await episodeService.EnforceUnlistenedLimitAsync(userId, subscription.ShowId, token);
+                    await episodeService.EnforceAutoArchiveRuleAsync(userId, subscription.ShowId, token);
+                });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            app.Logger.LogError(ex, "Failed to enforce settings-derived rules for user {UserId} after a settings sync push", userId);
+        }
+    }
+
     return Results.Ok(result);
 });
 

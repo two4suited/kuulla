@@ -40,17 +40,18 @@ public class SettingsService(
         }
     }
 
-    private Task<IReadOnlyList<UserSettings>> QueryAllSettingsAsync(string userId, CancellationToken cancellationToken) =>
-        ReadStoredSettingsAsync(userId, cancellationToken)
-            .ContinueWith(
-                t => (IReadOnlyList<UserSettings>)(t.Result is { } settings ? [settings] : []),
-                cancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
-
-    private async Task RecomputeSyncSummaryAsync(string userId, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<UserSettings>> QueryAllSettingsAsync(string userId, CancellationToken cancellationToken)
     {
-        var allSettings = await QueryAllSettingsAsync(userId, cancellationToken);
-        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<UserSettings>.Compute(allSettings), cancellationToken);
+        var stored = await ReadStoredSettingsAsync(userId, cancellationToken);
+        return stored is { } settings ? [settings] : [];
     }
+
+    // Takes the just-written document directly rather than re-reading it from Cosmos — every
+    // caller already has it from the UpsertItemAsync response, and a settings collection is
+    // always exactly this one document, so there's nothing a re-read would learn that the
+    // caller doesn't already know.
+    private Task RecomputeSyncSummaryAsync(string userId, UserSettings current, CancellationToken cancellationToken) =>
+        _syncSummaryCache.SetAsync(userId, SyncSummaryCache<UserSettings>.Compute([current]), cancellationToken);
 
     public async Task<SyncSettingsResult> SyncAsync(
         string userId,
@@ -101,7 +102,7 @@ public class SettingsService(
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -164,7 +165,7 @@ public class SettingsService(
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -211,7 +212,7 @@ public class SettingsService(
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -264,7 +265,7 @@ public class SettingsService(
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -311,7 +312,7 @@ public class SettingsService(
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 
@@ -328,7 +329,7 @@ public class SettingsService(
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 

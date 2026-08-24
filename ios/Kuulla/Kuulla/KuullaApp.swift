@@ -41,9 +41,13 @@ struct KuullaApp: App {
                 .task {
                     await AuthManager.shared.restorePreviousSignIn()
                     if AuthManager.shared.isSignedIn {
-                        await episodeSyncEngine.syncNow()
-                        await playlistSyncEngine.syncNow()
-                        await settingsSyncEngine.syncNow()
+                        // Independent domains with no data dependency between them — run
+                        // concurrently so cold-start latency is the slowest one, not their sum,
+                        // matching the scenePhase .active handler below.
+                        async let episodes: Void = episodeSyncEngine.syncNow()
+                        async let playlists: Void = playlistSyncEngine.syncNow()
+                        async let settings: Void = settingsSyncEngine.syncNow()
+                        _ = await (episodes, playlists, settings)
                     }
                 }
                 .onOpenURL { url in

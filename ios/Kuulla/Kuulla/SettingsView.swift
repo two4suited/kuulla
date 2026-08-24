@@ -11,7 +11,6 @@ struct SettingsView: View {
     // foreground/background refresh; this view mirrors its own successful writes into the same
     // record (see mirrorAcceptedWrite) so the local store stays authoritative between syncs.
     @Environment(\.settingsSyncEngine) private var syncEngine
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var settings: UserSettings?
@@ -258,7 +257,7 @@ struct SettingsView: View {
         // value that then flips once sync catches up.
         await syncEngine?.syncNow()
 
-        if let local = fetchLocalRecord() {
+        if let local = await fetchLocalRecord() {
             settings = local
         } else {
             // No local mirror yet (first launch, or nothing has ever been synced/saved) — fall
@@ -281,15 +280,23 @@ struct SettingsView: View {
     // applies it to this view's in-memory state. Cheap no-op when nothing changed.
     private func refreshFromRemote() async {
         await syncEngine?.syncNow()
-        if let local = fetchLocalRecord() {
+        if let local = await fetchLocalRecord() {
             settings = local
         }
     }
 
-    private func fetchLocalRecord() -> UserSettings? {
+    // Reads through syncEngine's own ModelContext (SyncEngine.read), not the view's
+    // @Environment(\.modelContext) — the two are different ModelContext instances over the same
+    // store, and a fetch made right after syncEngine.syncNow()/write() isn't guaranteed to
+    // observe that write if it goes through a different context (see SyncEngine.read's doc
+    // comment, and EpisodeDetailView.restoreAutoPlayed for the same hazard elsewhere).
+    private func fetchLocalRecord() async -> UserSettings? {
+        guard let syncEngine else { return nil }
         let id = UserSettingsRecord.localId
-        let descriptor = FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })
-        return (try? modelContext.fetch(descriptor))?.first?.asUserSettings
+        let record = try? await syncEngine.read { context in
+            try context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
+        }
+        return record?.asUserSettings
     }
 
     // Mirrors a just-accepted write (either this device's own PUT response, or the initial GET

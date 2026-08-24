@@ -139,9 +139,9 @@ public class SettingsClient(KuullaApiClient apiClient)
         };
         var response = await client.PostAsJsonAsync("api/sync/settings", body, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
-        var result = await response.Content.ReadFromJsonAsync<SyncSettingsResponse>(JsonOptions, cancellationToken);
-        return new SyncCheckResult<UserSettings>(result!.ServerChanges, result.SyncedAt, result.Hash);
+        // The API's SyncSettingsResult and SyncCheckResult<T> already share the same
+        // (ServerChanges, SyncedAt, Hash) shape, so this deserializes straight into it rather
+        // than through a redundant private mirror record.
+        return (await response.Content.ReadFromJsonAsync<SyncCheckResult<UserSettings>>(JsonOptions, cancellationToken))!;
     }
-
-    private sealed record SyncSettingsResponse(IReadOnlyList<UserSettings> ServerChanges, DateTimeOffset SyncedAt, string Hash);
 }

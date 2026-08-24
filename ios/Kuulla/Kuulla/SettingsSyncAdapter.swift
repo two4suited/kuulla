@@ -4,6 +4,15 @@ import SwiftData
 // SyncAdapter for UserSettingsRecord, calling POST /api/sync/settings
 // (src/Kuulla.Api/Program.cs, reconciliation protocol documented in docs/sync-conventions.md).
 // Mirrors EpisodeSyncAdapter.swift's structure — see its comments for the shared rationale.
+//
+// Unlike episodes, SettingsView.swift never marks a UserSettingsRecord dirty: it writes through
+// the API's field-specific PUT endpoints directly (so the server-side enforcement side effects
+// those endpoints trigger — unlistened-episode-limit and auto-archive enforcement — still run,
+// which the generic sync endpoint does not do) and only mirrors the accepted response into this
+// record with isDirty: false. So push()'s dirty-record branch below is exercised by
+// SettingsSyncAdapterTests but not by the running app — SyncEngine.syncNow() here only ever
+// pulls (an empty-changes poll). Kept for framework consistency and in case a future write path
+// needs a genuine local-first push.
 struct SettingsSyncAdapter: SyncAdapter {
     let domain = "settings"
 
@@ -37,7 +46,7 @@ struct SettingsSyncAdapter: SyncAdapter {
 
         let result: SyncSettingsResultDTO = try await apiClient.post(["api", "sync", "settings"], body: request)
 
-        let serverChanges = result.serverChanges.map { UserSettingsRecord(from: $0.asUserSettings) }
+        let serverChanges = result.serverChanges.map(\.asRecord)
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
 
@@ -50,7 +59,7 @@ struct SettingsSyncAdapter: SyncAdapter {
         if let existing {
             // Last-write-wins, same rationale as EpisodeSyncAdapter.apply.
             guard record.updatedAt > existing.updatedAt else { return }
-            existing.apply(record.asUserSettings)
+            existing.apply(record)
         } else {
             context.insert(record)
         }
@@ -97,11 +106,11 @@ private struct UserSettingsDTO: Decodable {
     let autoDownloadNewEpisodes: Bool
     let updatedAt: Date
 
-    var asUserSettings: UserSettings {
-        UserSettings(
-            userId: "", unlistenedEpisodeCount: unlistenedEpisodeCount, version: version, autoArchiveRule: autoArchiveRule,
+    var asRecord: UserSettingsRecord {
+        UserSettingsRecord(
+            unlistenedEpisodeCount: unlistenedEpisodeCount, autoArchiveRule: autoArchiveRule,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed,
             autoDeleteRule: autoDeleteRule, autoDeleteAfterDays: autoDeleteAfterDays, autoDownloadNewEpisodes: autoDownloadNewEpisodes,
-            updatedAt: updatedAt)
+            version: version, updatedAt: updatedAt)
     }
 }
