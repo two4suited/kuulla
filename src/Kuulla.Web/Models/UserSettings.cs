@@ -11,6 +11,7 @@ public record UserSettings(
     AutoDeleteRule AutoDeleteRule = AutoDeleteRule.Never,
     int AutoDeleteAfterDays = 7,
     bool AutoDownloadNewEpisodes = false,
+    bool SmartSpeed = false,
     DateTimeOffset UpdatedAt = default,
     string? DeviceId = null);
 

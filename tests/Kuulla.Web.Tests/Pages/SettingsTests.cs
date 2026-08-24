@@ -21,6 +21,7 @@ public class SettingsTests : WebTestContext
         UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,
         UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null,
         UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null,
+        UserSettings? smartSpeedPutResponse = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onSync = null) =>
         new(request =>
         {
@@ -77,6 +78,14 @@ public class SettingsTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(autoDownloadPutResponse ?? DefaultSettings),
+                };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/settings/smart-speed" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(smartSpeedPutResponse ?? DefaultSettings),
                 };
             }
 
@@ -316,6 +325,53 @@ public class SettingsTests : WebTestContext
         {
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.False(cut.Find("#auto-download-new-episodes").HasAttribute("checked"));
+        });
+    }
+
+    [Fact]
+    public void RendersCurrentSmartSpeed_WhenLoadSucceeds()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            SmartSpeed: true)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.True(cut.Find("#smart-speed").HasAttribute("checked")));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsSmartSpeed_WhenToggled()
+    {
+        ConfigureApi(CreateHandler(smartSpeedPutResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
+            SmartSpeed: true)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("SmartSpeed", cut.Markup));
+
+        cut.Find("#smart-speed").Change(true);
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsErrorAndRevertsSmartSpeed_WhenSaveFails()
+    {
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/settings/smart-speed" && request.Method == HttpMethod.Put
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.False(cut.Find("#smart-speed").HasAttribute("checked")));
+
+        cut.Find("#smart-speed").Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.False(cut.Find("#smart-speed").HasAttribute("checked"));
         });
     }
 
