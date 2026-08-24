@@ -228,6 +228,38 @@ public class EpisodeDetailTests : WebTestContext
     }
 
     [Fact]
+    public void OnStreamBlocked_ShowsMessage()
+    {
+        ConfigureApi(RouteHandler());
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+
+        cut.InvokeAsync(() => cut.Instance.OnStreamBlocked());
+
+        cut.WaitForAssertion(() => Assert.Contains("Streaming is limited to Wi-Fi", cut.Markup));
+    }
+
+    [Fact]
+    public void OnStreamAllowed_ClearsMessage()
+    {
+        ConfigureApi(RouteHandler());
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+        cut.InvokeAsync(() => cut.Instance.OnStreamBlocked());
+        cut.WaitForAssertion(() => Assert.Contains("Streaming is limited to Wi-Fi", cut.Markup));
+
+        cut.InvokeAsync(() => cut.Instance.OnStreamAllowed());
+
+        cut.WaitForAssertion(() => Assert.DoesNotContain("Streaming is limited to Wi-Fi", cut.Markup));
+    }
+
+    [Fact]
     public void StateFetchFailure_DoesNotHideAlreadyLoadedEpisode()
     {
         ConfigureApi(RouteHandler(onGetState: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));

@@ -3,6 +3,7 @@
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
 @inject SettingsClient SettingsClient
+@inject IJSRuntime JS
 
 <PageTitle>Settings</PageTitle>
 
@@ -147,6 +148,17 @@
                 }
             </div>
 
+            <h2 class="h5 mt-4">Data Usage &amp; Network</h2>
+
+            <div class="mb-3" style="max-width: 24rem;">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="wifi-only-streaming"
+                           disabled="@(!hasLoadedWifiOnlyStreaming)" checked="@wifiOnlyStreaming"
+                           @onchange="OnWifiOnlyStreamingChangedAsync" />
+                    <label class="form-check-label" for="wifi-only-streaming">Stream over Wi-Fi only</label>
+                </div>
+            </div>
+
             @if (saveError is not null)
             {
                 <p class="text-danger">@saveError</p>
@@ -196,9 +208,42 @@
     private bool autoDeleteSaveSavedConfirmation;
     private int autoDeleteSaveVersion;
     private readonly SemaphoreSlim autoDeleteSaveLock = new(1, 1);
+    // Device-local (localStorage, per docs/data-usage-network-settings.md) — no UserSettings field
+    // and no API round-trip, so this isn't loaded in OnInitializedAsync alongside the rest of this
+    // page's settings; it's read via JS interop in OnAfterRenderAsync instead (JS interop isn't
+    // available before the first render even with prerender: false during static-first HTTP
+    // requests). Starts disabled until that first read completes, so a stale default-false render
+    // can't be toggled before the real stored value is known.
+    private bool wifiOnlyStreaming;
+    private bool hasLoadedWifiOnlyStreaming;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // localStorage access can throw (e.g. private browsing with storage blocked) — falls back
+        // to the documented default (false) rather than leaving the toggle stuck disabled forever.
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", "wifiOnlyStreaming");
+            wifiOnlyStreaming = stored == "true";
+        }
+        catch (JSException)
+        {
+            wifiOnlyStreaming = false;
+        }
+        finally
+        {
+            hasLoadedWifiOnlyStreaming = true;
+            StateHasChanged();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -484,6 +529,21 @@
             {
                 isAutoDeleteSaving = false;
             }
+        }
+    }
+
+    private async Task OnWifiOnlyStreamingChangedAsync(ChangeEventArgs args)
+    {
+        wifiOnlyStreaming = args.Value is bool value && value;
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "wifiOnlyStreaming", wifiOnlyStreaming ? "true" : "false");
+        }
+        catch (JSException)
+        {
+            // Best-effort persistence, matching the read side above — the in-memory toggle still
+            // reflects the user's choice for the rest of this session even if it can't be saved.
         }
     }
 }

@@ -47,6 +47,11 @@ else
         Your browser does not support the audio element.
     </audio>
 
+    @if (streamBlockedMessage is not null)
+    {
+        <p class="text-danger small mb-2">@streamBlockedMessage</p>
+    }
+
     <div class="d-flex align-items-center gap-2 mb-4">
         <button class="btn btn-sm btn-outline-secondary" disabled="@isTogglingCompleted" @onclick="ToggleCompletedAsync">
             @(isAutoPlayed ? "Restore" : isCompleted ? "Mark as unplayed" : "Mark as played")
@@ -95,6 +100,7 @@ else
     private bool isAutoPlayed;
     private bool isTogglingCompleted;
     private string? stateError;
+    private string? streamBlockedMessage;
 
     // Serializes PersistStateAsync calls so overlapping triggers (pause firing just before ended,
     // or a timeupdate racing the manual toggle) apply in invocation order rather than completion
@@ -119,6 +125,7 @@ else
         savedPositionSeconds = 0;
         isCompleted = false;
         isAutoPlayed = false;
+        streamBlockedMessage = null;
         isLoading = true;
         try
         {
@@ -180,6 +187,26 @@ else
     public async Task OnPlaybackEnded(int durationSeconds)
     {
         await PersistStateAsync(durationSeconds, completed: true);
+    }
+
+    // Fired by EpisodeDetail.razor.js's isStreamBlocked() gate (#273) when "Stream over Wi-Fi
+    // only" is on and the Network Information API reports a non-Wi-Fi connection — mirrors iOS's
+    // AudioPlayer.streamBlockedMessage (#271).
+    [JSInvokable]
+    public Task OnStreamBlocked()
+    {
+        streamBlockedMessage = "Streaming is limited to Wi-Fi. Connect to Wi-Fi, or turn off "
+            + "\"Stream over Wi-Fi only\" in Settings, to continue.";
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnStreamAllowed()
+    {
+        streamBlockedMessage = null;
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
     private async Task ToggleCompletedAsync()
