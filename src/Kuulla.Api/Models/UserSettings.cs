@@ -1,3 +1,4 @@
+using Kuulla.Api.Services.Sync;
 using Newtonsoft.Json;
 
 namespace Kuulla.Api.Models;
@@ -10,6 +11,11 @@ namespace Kuulla.Api.Models;
 // read-modify-write upsert), so it doesn't prevent a lost update under concurrent writes —
 // wiring it (or Cosmos's own ETag) into an optimistic-concurrency check on
 // SettingsService.UpdateUnlistenedEpisodeCountAsync is follow-up work.
+// UpdatedAt/DeviceId follow the sync-metadata convention in docs/sync-conventions.md — server
+// stamps UpdatedAt on every write, client-supplied values are never trusted for storage.
+// Implements ISyncableRecord (via explicit Id => UserId, since the id column is already named
+// UserId here) so the generic sync-summary cache/reconciler (#84) can hash and reconcile
+// settings without settings-specific code.
 public record UserSettings(
     [property: JsonProperty("id")] string UserId,
     UnlistenedEpisodeCount UnlistenedEpisodeCount,
@@ -31,11 +37,16 @@ public record UserSettings(
     // False is the safe default — auto-downloading is a bandwidth/storage commitment a user
     // should opt into, not one made on their behalf the first time they add a show, matching
     // AutoArchiveRule.Never/PlaybackSpeed: 1.0f's "unmodified until the user opts in" convention.
-    bool AutoDownloadNewEpisodes = false)
+    bool AutoDownloadNewEpisodes = false,
+    [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
+    [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
+    string ISyncableRecord.Id => UserId;
+
     public static UserSettings CreateDefault(string userId) =>
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
-            PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false);
+            PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false,
+            UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization

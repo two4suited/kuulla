@@ -1,7 +1,10 @@
 using Kuulla.Api.Models;
 using Kuulla.Api.Services;
+using Kuulla.Api.Services.Sync;
 using Microsoft.Azure.Cosmos;
 using Moq;
+using Newtonsoft.Json;
+using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -10,11 +13,18 @@ public class SettingsServiceTests
     private const string UserId = "user-1";
 
     private readonly Mock<Container> _settingsContainer = new();
+    private readonly Mock<IConnectionMultiplexer> _redis = new();
+    private readonly Mock<IDatabase> _database = new();
     private readonly SettingsService _sut;
 
     public SettingsServiceTests()
     {
-        _sut = new SettingsService(_settingsContainer.Object);
+        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
+        _sut = new SettingsService(_settingsContainer.Object, _redis.Object);
+
+        // No cached sync summaries pre-populated by default — every test that cares opts in
+        // explicitly, so a miss (empty RedisValue) is the baseline.
+        _database.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
     }
 
     [Fact]
@@ -26,7 +36,11 @@ public class SettingsServiceTests
 
         var result = await _sut.GetSettingsAsync(UserId, CancellationToken.None);
 
-        Assert.Equal(UserSettings.CreateDefault(UserId), result);
+        // Compared field-by-field rather than via record equality against a second
+        // UserSettings.CreateDefault(UserId) call — CreateDefault stamps UpdatedAt with
+        // DateTimeOffset.UtcNow, so two independent calls are never equal.
+        var expected = UserSettings.CreateDefault(UserId);
+        Assert.Equal(expected with { UpdatedAt = result.UpdatedAt }, result);
     }
 
     [Fact]
@@ -87,7 +101,9 @@ public class SettingsServiceTests
 
         var result = await _sut.GetShowSettingsAsync(UserId, showId, CancellationToken.None);
 
-        Assert.Equal(ShowSettings.CreateDefault(UserId, showId), result);
+        // Same rationale as GetSettingsAsync_ReturnsDefaultWhenNoDocumentExists above.
+        var expected = ShowSettings.CreateDefault(UserId, showId);
+        Assert.Equal(expected with { UpdatedAt = result.UpdatedAt }, result);
     }
 
     [Fact]
@@ -503,5 +519,64 @@ public class SettingsServiceTests
         var result = await _sut.GetEffectiveAutoDownloadNewEpisodesAsync(UserId, showId, CancellationToken.None);
 
         Assert.True(result);
+    }
+
+    private static UserSettingsChange MakeChange(DateTimeOffset updatedAt, float playbackSpeed = 1.0f) =>
+        new(UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, updatedAt);
+
+    [Fact]
+    public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
+    {
+        var summary = new SyncSummary("abc123", DateTimeOffset.UtcNow);
+        _database
+            .Setup(d => d.StringGetAsync($"sync:settings:{UserId}", It.IsAny<CommandFlags>()))
+            .ReturnsAsync(JsonConvert.SerializeObject(summary));
+
+        var result = await _sut.SyncAsync(UserId, "device-a", DateTimeOffset.UtcNow.AddDays(-1), "abc123", [], CancellationToken.None);
+
+        Assert.Empty(result.ServerChanges);
+        Assert.Equal("abc123", result.Hash);
+        _settingsContainer.Verify(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task SyncAsync_AcceptsChangeNewerThanStoredAndExcludesItFromDelta()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1));
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var change = MakeChange(DateTimeOffset.UtcNow, playbackSpeed: 1.5f);
+        var result = await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        Assert.Empty(result.ServerChanges);
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.PlaybackSpeed == 1.5f && s.Version == 4 && s.DeviceId == "device-a"),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncAsync_DiscardsChangeOlderThanStoredAndReturnsStoredAsDelta()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow, PlaybackSpeed: 2.0f);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+
+        var staleChange = MakeChange(DateTimeOffset.UtcNow.AddHours(-1), playbackSpeed: 1.2f);
+        var result = await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [staleChange], CancellationToken.None);
+
+        Assert.Single(result.ServerChanges);
+        Assert.Equal(2.0f, result.ServerChanges[0].PlaybackSpeed);
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
 }

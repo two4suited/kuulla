@@ -2,6 +2,7 @@
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
+@using Kuulla.Web.Services.Sync
 @inject SettingsClient SettingsClient
 @inject IJSRuntime JS
 
@@ -9,7 +10,13 @@
 
 <AuthorizeView>
     <Authorized>
-        <h1>Settings</h1>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <h1 class="mb-0">Settings</h1>
+            @if (syncStatusService is not null)
+            {
+                <SyncStatusIndicator Service="syncStatusService" />
+            }
+        </div>
 
         @if (isLoading)
         {
@@ -216,6 +223,7 @@
     // can't be toggled before the real stored value is known.
     private bool wifiOnlyStreaming;
     private bool hasLoadedWifiOnlyStreaming;
+    private SyncStatusService<UserSettings>? syncStatusService;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -276,6 +284,65 @@
         {
             isLoading = false;
         }
+
+        if (loadError is not null)
+        {
+            return;
+        }
+
+        // Kept out of the try/catch above on purpose: the sync-status indicator is supplementary,
+        // so a hiccup seeding it shouldn't hide already-loaded settings.
+        try
+        {
+            var initialSync = await SettingsClient.SyncAsync(string.Empty, DateTimeOffset.MinValue);
+            syncStatusService = new SyncStatusService<UserSettings>(
+                SettingsClient.SyncAsync,
+                ApplyServerChanges,
+                initialSync.Hash,
+                initialSync.SyncedAt);
+        }
+        catch (HttpRequestException)
+        {
+        }
+    }
+
+    // At most one server change ever comes back (a user has exactly one UserSettings record) —
+    // apply it to every field this page renders, same as a fresh GetSettingsAsync load.
+    private void ApplyServerChanges(IReadOnlyList<UserSettings> serverChanges)
+    {
+        if (serverChanges.Count == 0)
+        {
+            return;
+        }
+
+        var settings = serverChanges[^1];
+        selectedUnlistenedEpisodeCount = settings.UnlistenedEpisodeCount;
+        selectedAutoArchiveRule = settings.AutoArchiveRule;
+        selectedAutoSkipIntroSeconds = settings.AutoSkipIntroSeconds;
+        selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
+        selectedPlaybackSpeed = settings.PlaybackSpeed;
+        selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
+        selectedAutoDeleteRule = settings.AutoDeleteRule;
+        selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
+
+        StateHasChanged();
+    }
+
+    // Bookkeeping-only: the write already succeeded server-side, so a failure syncing our own
+    // hash/lastSyncedAt shouldn't roll back the UI or report an error — the next poll would just
+    // (harmlessly) treat this device's own write as a remote update instead.
+    private async Task SyncOwnWriteBestEffortAsync()
+    {
+        if (syncStatusService is not null)
+        {
+            try
+            {
+                await syncStatusService.SyncOwnWriteAsync();
+            }
+            catch (HttpRequestException)
+            {
+            }
+        }
     }
 
     private async Task OnUnlistenedEpisodeCountChangedAsync(ChangeEventArgs args)
@@ -305,6 +372,8 @@
         {
             isSaving = false;
         }
+
+        await SyncOwnWriteBestEffortAsync();
     }
 
     private async Task OnAutoArchiveRuleChangedAsync(ChangeEventArgs args)
@@ -334,6 +403,8 @@
         {
             isArchiveSaving = false;
         }
+
+        await SyncOwnWriteBestEffortAsync();
     }
 
     private async Task OnAutoSkipIntroSecondsChangedAsync(ChangeEventArgs args)
@@ -398,6 +469,8 @@
                 isAutoSkipSaving = false;
             }
         }
+
+        await SyncOwnWriteBestEffortAsync();
     }
 
     private async Task OnPlaybackSpeedChangedAsync(ChangeEventArgs args)
@@ -434,6 +507,8 @@
         {
             isPlaybackSpeedSaving = false;
         }
+
+        await SyncOwnWriteBestEffortAsync();
     }
 
     private async Task OnAutoDownloadNewEpisodesChangedAsync(ChangeEventArgs args)
@@ -459,6 +534,8 @@
         {
             isAutoDownloadSaving = false;
         }
+
+        await SyncOwnWriteBestEffortAsync();
     }
 
     private async Task OnAutoDeleteRuleChangedAsync(ChangeEventArgs args)
@@ -530,6 +607,8 @@
                 isAutoDeleteSaving = false;
             }
         }
+
+        await SyncOwnWriteBestEffortAsync();
     }
 
     private async Task OnWifiOnlyStreamingChangedAsync(ChangeEventArgs args)

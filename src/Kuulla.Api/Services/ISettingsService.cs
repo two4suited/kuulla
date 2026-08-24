@@ -6,6 +6,14 @@ public interface ISettingsService
 {
     Task<UserSettings> GetSettingsAsync(string userId, CancellationToken cancellationToken);
 
+    Task<SyncSettingsResult> SyncAsync(
+        string userId,
+        string deviceId,
+        DateTimeOffset lastSyncedAt,
+        string localHash,
+        IReadOnlyList<UserSettingsChange> changes,
+        CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateUnlistenedEpisodeCountAsync(
         string userId, UnlistenedEpisodeCount unlistenedEpisodeCount, CancellationToken cancellationToken);
 

@@ -862,6 +862,54 @@ sync.MapPost("/playlists", async (
     return Results.Ok(result);
 });
 
+sync.MapPost("/settings", async (
+    SyncSettingsRequest request, ClaimsPrincipal user, ISettingsService settingsService, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.DeviceId))
+    {
+        return Results.BadRequest(new { error = "'deviceId' is required." });
+    }
+
+    // At most one change per call — a device only ever has one UserSettings record to push.
+    var changes = request.Changes ?? [];
+    if (changes.Count > 1)
+    {
+        return Results.BadRequest(new { error = "'changes' may contain at most one entry." });
+    }
+
+    foreach (var change in changes)
+    {
+        if (!Enum.IsDefined(change.UnlistenedEpisodeCount))
+        {
+            return Results.BadRequest(new { error = "'unlistenedEpisodeCount' is not a valid value." });
+        }
+        if (!Enum.IsDefined(change.AutoArchiveRule))
+        {
+            return Results.BadRequest(new { error = "'autoArchiveRule' is not a valid value." });
+        }
+        if (!Enum.IsDefined(change.AutoDeleteRule))
+        {
+            return Results.BadRequest(new { error = "'autoDeleteRule' is not a valid value." });
+        }
+        if (!TryValidateAutoSkipSeconds(change.AutoSkipIntroSeconds, "autoSkipIntroSeconds", out var error) ||
+            !TryValidateAutoSkipSeconds(change.AutoSkipOutroSeconds, "autoSkipOutroSeconds", out error) ||
+            !TryValidatePlaybackSpeed(change.PlaybackSpeed, "playbackSpeed", out error))
+        {
+            return Results.BadRequest(new { error });
+        }
+        if (change.AutoDeleteRule == AutoDeleteRule.AfterDays &&
+            !TryValidateAutoDeleteAfterDays(change.AutoDeleteAfterDays, "autoDeleteAfterDays", out error))
+        {
+            return Results.BadRequest(new { error });
+        }
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.SyncAsync(
+        userId, request.DeviceId, request.LastSyncedAt, request.LocalHash, changes, ct);
+    return Results.Ok(result);
+});
+
 // Upper bound is generous relative to a typical episode's runtime — it exists only to reject
 // obviously-wrong input (e.g. a value in milliseconds instead of seconds), not to model any
 // real intro/outro length.

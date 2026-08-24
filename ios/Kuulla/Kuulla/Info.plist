@@ -8,6 +8,7 @@
 	<array>
 		<string>com.kuulla.app.sync.episodes</string>
 		<string>com.kuulla.app.sync.playlists</string>
+		<string>com.kuulla.app.sync.settings</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>

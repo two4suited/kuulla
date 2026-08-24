@@ -11,10 +11,13 @@ public class SettingsTests : WebTestContext
 {
     private static readonly UserSettings DefaultSettings = new("user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never);
 
+    private static readonly SyncSettingsResponseStub EmptySync = new([], DateTimeOffset.UtcNow, "hash-1");
+
     private static TestHttpMessageHandler CreateHandler(
         UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,
         UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null,
-        UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null) =>
+        UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onSync = null) =>
         new(request =>
         {
             if (request.RequestUri!.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
@@ -71,6 +74,12 @@ public class SettingsTests : WebTestContext
                 {
                     Content = JsonContent.Create(autoDownloadPutResponse ?? DefaultSettings),
                 };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/sync/settings" && request.Method == HttpMethod.Post)
+            {
+                return onSync?.Invoke(request) ??
+                    new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(EmptySync) };
             }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -468,4 +477,45 @@ public class SettingsTests : WebTestContext
             Assert.Equal("true", invocation.Arguments[1]);
         });
     }
+
+    [Fact]
+    public void BootstrapSyncFailure_DoesNotHideAlreadyLoadedSettings()
+    {
+        ConfigureApi(CreateHandler(onSync: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Five", cut.Find("#unlistened-episode-count").GetAttribute("value"));
+            Assert.DoesNotContain("Something went wrong", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void RemoteUpdate_AppliesServerChangesToRenderedFields()
+    {
+        ConfigureApi(CreateHandler());
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("Five", cut.Find("#unlistened-episode-count").GetAttribute("value")));
+
+        // Exercises Settings.razor's private ApplyServerChanges(IReadOnlyList<UserSettings>)
+        // directly — the same callback SyncStatusService<UserSettings> invokes when a poll
+        // returns another device's write — rather than re-deriving SyncStatusService's own
+        // polling behavior (already covered by SyncStatusServiceTests).
+        var remoteSettings = new UserSettings(
+            "user-1", UnlistenedEpisodeCount.Unlimited, Version: 2, AutoArchiveRule.After7Days, PlaybackSpeed: 1.5f);
+        var applyServerChanges = cut.Instance.GetType().GetMethod(
+            "ApplyServerChanges", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        cut.InvokeAsync(() => applyServerChanges.Invoke(cut.Instance, [new[] { remoteSettings }]));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("Unlimited", cut.Find("#unlistened-episode-count").GetAttribute("value"));
+            Assert.Equal("After7Days", cut.Find("#auto-archive-rule").GetAttribute("value"));
+        });
+    }
+
+    private sealed record SyncSettingsResponseStub(IReadOnlyList<UserSettings> ServerChanges, DateTimeOffset SyncedAt, string Hash);
 }
