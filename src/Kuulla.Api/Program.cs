@@ -1179,6 +1179,11 @@ settings.MapPut("/auto-delete", async (
     ISettingsService settingsService,
     CancellationToken ct) =>
 {
+    if (!Enum.IsDefined(request.AutoDeleteRule))
+    {
+        return Results.BadRequest(new { error = "'autoDeleteRule' is not a valid value." });
+    }
+
     // AutoDeleteAfterDays is only meaningful when AutoDeleteRule == AfterDays (UserSettings.cs's
     // own doc comment) — validating it unconditionally would force a client that only wants to
     // set rule=Never/AfterPlayed to also send some arbitrary-but-valid day count.

@@ -460,7 +460,10 @@ struct EpisodeDetailView: View {
         let episodeId = episodeId
         let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
         guard let record = try? modelContext.fetch(descriptor).first, record.status == .complete else { return }
-        DownloadCleanup.delete([record], from: modelContext)
+        // Only reflect the deletion in the UI if it actually succeeded — DownloadCleanup.delete
+        // returns false on a ModelContext save failure, in which case the record (and file) are
+        // still present and downloadStatus must keep showing .complete, not go stale as nil.
+        guard DownloadCleanup.delete([record], from: modelContext) else { return }
         downloadStatus = nil
     }
 }
