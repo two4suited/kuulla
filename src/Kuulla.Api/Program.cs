@@ -306,6 +306,27 @@ if (app.Environment.IsDevelopment())
         return Results.Ok(episodes);
     });
 
+    // Local-testing-only (Dynamic Playlist Auto-Ordering milestone, #112): unlike /dev/seed-episodes
+    // above, this drives the real EpisodeService.CacheEpisodesAsync path — the same one a live feed
+    // refresh takes — instead of writing straight into Cosmos. That matters here because the thing
+    // under test *is* the enforcement CacheEpisodesAsync triggers (unlistened-limit marking, and
+    // now dynamic-playlist auto-insert/evict), not just the episodes' existence. Same loopback +
+    // Development + DEBUG guard as the other /dev/* endpoints above.
+    app.MapPost("/dev/simulate-new-episodes", async (
+        HttpContext context,
+        SimulateNewEpisodesRequest request,
+        IEpisodeService episodeService,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        await episodeService.CacheEpisodesAsync(request.ShowId, request.Episodes, ct);
+        return Results.Ok(request.Episodes);
+    });
+
     // Local-testing-only (issue #249): lets integration tests seed manual and dynamic Playlists
     // directly into Cosmos, mirroring PlaylistService's own UpsertItemAsync (playlists are
     // upserted, not create-only, so a re-seed with the same id just overwrites — no special

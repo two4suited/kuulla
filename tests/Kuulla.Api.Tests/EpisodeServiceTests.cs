@@ -2,6 +2,7 @@ using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Microsoft.Azure.Cosmos;
 using Moq;
+using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -12,31 +13,75 @@ public class EpisodeServiceTests
 
     private readonly Mock<Container> _episodesContainer = new();
     private readonly Mock<Container> _subscriptionsContainer = new();
+    private readonly Mock<Container> _playlistsContainer = new();
     private readonly Mock<IShowService> _showService = new();
     private readonly Mock<IPodcastFeedClient> _feedClient = new();
     private readonly Mock<ISettingsService> _settingsService = new();
     private readonly Mock<IEpisodeStateService> _episodeStateService = new();
+    private readonly Mock<IConnectionMultiplexer> _redis = new();
+    private readonly Mock<IDatabase> _database = new();
     private readonly EpisodeService _sut;
 
     public EpisodeServiceTests()
     {
+        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
+        // Explicit rather than relying on Moq's default-Task-result behavior for unconfigured
+        // Task<bool> members — makes the sync-summary-cache invalidation path's dependency
+        // obvious rather than incidental.
+        _database
+            .Setup(d => d.KeyDeleteAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync(true);
         _sut = new EpisodeService(
             _episodesContainer.Object,
             _subscriptionsContainer.Object,
+            _playlistsContainer.Object,
             _showService.Object,
             _feedClient.Object,
             _settingsService.Object,
-            _episodeStateService.Object);
+            _episodeStateService.Object,
+            _redis.Object);
 
         // No subscribers by default so the backfill tests (which trigger CacheEpisodesAsync)
         // don't need to stub enforcement — tests that care about it opt in explicitly.
         _subscriptionsContainer
             .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
             .Returns(CosmosTestHelpers.FeedIterator(Array.Empty<string>()));
+
+        // No dynamic playlists reference this show by default — tests covering auto-insert opt in
+        // explicitly, same rationale as the subscriptions default above.
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(Array.Empty<Playlist>()));
     }
 
     private static Episode MakeEpisode(string id) =>
         new(id, ShowId, $"Episode {id}", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), $"https://audio.example/{id}.mp3", null, null, null);
+
+    private static Episode MakeEpisode(string id, string showId, DateTimeOffset publishedAt) =>
+        new(id, showId, $"Episode {id}", publishedAt, TimeSpan.FromMinutes(30), $"https://audio.example/{id}.mp3", null, null, null);
+
+    private static Playlist MakeDynamicPlaylist(
+        string userId, DynamicPlaylistConfig config, IReadOnlyList<PlaylistItem> items) =>
+        new("playlist-1", userId, "Dynamic Playlist", PlaylistType.Dynamic, items,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DynamicConfig: config);
+
+    private void SetupEpisodeRead(Episode episode) =>
+        _episodesContainer
+            .Setup(c => c.ReadItemAsync<Episode>(episode.Id, It.IsAny<PartitionKey>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(episode));
+
+    private void SetupSuccessfulCreate(params Episode[] episodes) =>
+        _episodesContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Episode>(), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Episode e, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(e));
+
+    // InsertIntoPlaylistWithRetryAsync re-reads the playlist by id/partition (for its ETag) before
+    // every insert attempt rather than reusing the query result, so tests exercising the insert
+    // path need this in addition to the GetItemQueryIterator<Playlist> discovery mock.
+    private void SetupPlaylistRead(Playlist playlist) =>
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(playlist.Id, It.IsAny<PartitionKey>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
 
     private void SetupQuery(IReadOnlyList<Episode> items) =>
         _episodesContainer
@@ -319,6 +364,96 @@ public class EpisodeServiceTests
 
         _subscriptionsContainer.Verify(
             c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null), Times.Never);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_InsertsNewEpisodeIntoDynamicPlaylistAtCorrectPosition()
+    {
+        var epoch = DateTimeOffset.UnixEpoch;
+        var oldEpisode = MakeEpisode("old", ShowId, epoch);
+        var newEpisode = MakeEpisode("new-1", ShowId, epoch.AddDays(1));
+        var config = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: null, PriorityList: [ShowId]);
+        var playlist = MakeDynamicPlaylist(UserId, config, [new PlaylistItem("old", ShowId, epoch, "m")]);
+
+        SetupSuccessfulCreate(newEpisode);
+        SetupEpisodeRead(oldEpisode);
+        SetupPlaylistRead(playlist);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { playlist }));
+
+        Playlist? upserted = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => upserted = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.Equal(["new-1", "old"], upserted!.Items.Select(i => i.EpisodeId));
+        Assert.Equal(upserted.Items.Select(i => i.Order).Order(StringComparer.Ordinal), upserted.Items.Select(i => i.Order));
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_SkipsInsertWhenEpisodeAlreadyInPlaylist()
+    {
+        var episode = MakeEpisode("dup", ShowId, DateTimeOffset.UtcNow);
+        var config = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: null, PriorityList: [ShowId]);
+        var playlist = MakeDynamicPlaylist(
+            UserId, config, [new PlaylistItem("dup", ShowId, DateTimeOffset.UtcNow, "m")]);
+
+        SetupSuccessfulCreate(episode);
+        SetupPlaylistRead(playlist);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { playlist }));
+
+        await _sut.CacheEpisodesAsync(ShowId, [episode], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_EvictsUnprotectedTailItemWhenMaxEpisodesExceeded()
+    {
+        var epoch = DateTimeOffset.UnixEpoch;
+        var oldEpisode = MakeEpisode("old", ShowId, epoch);
+        var midEpisode = MakeEpisode("mid", ShowId, epoch.AddDays(1));
+        var newEpisode = MakeEpisode("new-1", ShowId, epoch.AddDays(2));
+        var config = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: 2, PriorityList: [ShowId]);
+        var playlist = MakeDynamicPlaylist(UserId, config, [
+            new PlaylistItem("mid", ShowId, epoch, "m"),
+            new PlaylistItem("old", ShowId, epoch, "n"),
+        ]);
+
+        SetupSuccessfulCreate(newEpisode);
+        SetupEpisodeRead(midEpisode);
+        SetupEpisodeRead(oldEpisode);
+        SetupPlaylistRead(playlist);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { playlist }));
+        // "old" has in-progress playback and must never be evicted (#98's caution); "mid" doesn't,
+        // so it's the one that gives up its slot once the cap is exceeded.
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "old", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodeState("old", UserId, "old", ShowId, PositionSeconds: 120, Completed: false, UpdatedAt: DateTimeOffset.UtcNow));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "mid", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EpisodeState?)null);
+
+        Playlist? upserted = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => upserted = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.Equal(["new-1", "old"], upserted!.Items.Select(i => i.EpisodeId));
     }
 
     [Fact]
