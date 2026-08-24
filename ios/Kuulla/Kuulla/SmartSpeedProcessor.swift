@@ -72,13 +72,33 @@ final class SmartSpeedProcessor {
             unprepare: smartSpeedTapUnprepare,
             process: smartSpeedTapProcess)
 
-        var tap: MTAudioProcessingTap?
+        // MTAudioProcessingTapCreate's `tapOut` C signature (CM_RETURNS_RETAINED_PARAMETER
+        // MTAudioProcessingTapRef CM_NULLABLE * tapOut) imports into Swift differently across
+        // toolchain versions: older Clang importers surface it as Unmanaged<MTAudioProcessingTap>?
+        // (the caller must balance the +1 with takeRetainedValue()), newer ones recognize the
+        // annotation and surface a directly ARC-managed MTAudioProcessingTap? instead. Branching
+        // here keeps this buildable across both rather than pinning to whichever the current dev
+        // toolchain happens to use.
+        let tap: MTAudioProcessingTap?
+        #if compiler(>=6.2)
+        var directTap: MTAudioProcessingTap?
         let status = MTAudioProcessingTapCreate(
-            kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
+            kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &directTap)
+        tap = directTap
+        #else
+        var unmanagedTap: Unmanaged<MTAudioProcessingTap>?
+        let status = MTAudioProcessingTapCreate(
+            kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &unmanagedTap)
+        tap = unmanagedTap?.takeRetainedValue()
+        #endif
         guard status == noErr, let tap else {
-            // Tap creation failed — release the retained reference above ourselves, since
-            // smartSpeedTapFinalize will never run for a tap that was never created.
-            Unmanaged.passUnretained(self).release()
+            // Tap creation failed. Deliberately NOT attempting to release the passRetained(self)
+            // above here: whether CoreMedia already balanced it internally (by invoking finalize
+            // for a tap that got far enough to call init before some later step in Create failed)
+            // is undocumented, and guessing wrong would double-release and crash. This failure
+            // path is only reachable for a genuine tap-creation error (a real audio track was
+            // already confirmed to exist above) — accepting a one-time leak of this processor in
+            // that vanishingly rare case is a far safer trade-off than risking a crash.
             return mix
         }
 
