@@ -1198,4 +1198,27 @@ settings.MapPut("/auto-delete", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/auto-download", async (
+    UpdateAutoDownloadNewEpisodesRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateAutoDownloadNewEpisodesAsync(userId, request.AutoDownloadNewEpisodes, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/auto-download", async (
+    string showId,
+    UpdateShowAutoDownloadNewEpisodesRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowAutoDownloadNewEpisodesAsync(userId, showId, request.AutoDownloadNewEpisodes, ct);
+    return Results.Ok(result);
+});
+
 app.Run();
