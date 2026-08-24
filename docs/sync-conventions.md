@@ -60,9 +60,11 @@ and extracted into reusable infrastructure in #84 — see below.
   the first single-record-per-user domain (as opposed to a per-user collection like
   episodes/playlists): `queryAllAsync` returns a 0-or-1-item list and `changes` is
   capped at one entry per sync call. Summary cached at `sync:settings:{userId}`.
-  `ShowSettings` (per-show overrides, same container) has `updatedAt`/`deviceId`
-  stamped on every write but isn't wired into the reconciler yet — only the global
-  `UserSettings` document syncs across devices so far.
+  `ShowSettings` (per-show overrides, same container) implements `ISyncableRecord` and
+  has `updatedAt` stamped on every write, but isn't wired into the reconciler yet —
+  only the global `UserSettings` document syncs across devices so far. `deviceId` is
+  always `null` on `ShowSettings` today: its write paths don't take a deviceId from
+  the caller, unlike `UserSettings`'s sync push path.
 
 ## Reconciliation framework (`Kuulla.Api.Services.Sync`, #84)
 

@@ -520,6 +520,4 @@ public class SettingsTests : WebTestContext
             Assert.Equal("After7Days", cut.Find("#auto-archive-rule").GetAttribute("value"));
         });
     }
-
-    private sealed record SyncSettingsResponseStub(IReadOnlyList<UserSettings> ServerChanges, DateTimeOffset SyncedAt, string Hash);
 }

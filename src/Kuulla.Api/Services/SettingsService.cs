@@ -93,11 +93,16 @@ public class SettingsService(
         string userId, UnlistenedEpisodeCount unlistenedEpisodeCount, CancellationToken cancellationToken)
     {
         var current = await GetSettingsAsync(userId, cancellationToken);
+        // DeviceId is cleared explicitly rather than left as `current`'s (a `with` expression
+        // otherwise preserves every untouched property) — these field-specific endpoints don't
+        // take a deviceId from the caller, so leaving a stale value here would misattribute this
+        // write to whichever device happened to make the last sync push.
         var updated = current with
         {
             UnlistenedEpisodeCount = unlistenedEpisodeCount,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -132,6 +137,7 @@ public class SettingsService(
             UnlistenedEpisodeCount = unlistenedEpisodeCount,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -161,6 +167,7 @@ public class SettingsService(
             AutoArchiveRule = autoArchiveRule,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -178,6 +185,7 @@ public class SettingsService(
             AutoArchiveRule = autoArchiveRule,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -208,6 +216,7 @@ public class SettingsService(
             AutoSkipOutroSeconds = autoSkipOutroSeconds,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -226,6 +235,7 @@ public class SettingsService(
             AutoSkipOutroSeconds = autoSkipOutroSeconds,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -261,6 +271,7 @@ public class SettingsService(
             PlaybackSpeed = playbackSpeed,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -278,6 +289,7 @@ public class SettingsService(
             PlaybackSpeed = playbackSpeed,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -308,6 +320,7 @@ public class SettingsService(
             AutoDeleteAfterDays = autoDeleteAfterDays,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -325,6 +338,7 @@ public class SettingsService(
             AutoDownloadNewEpisodes = autoDownloadNewEpisodes,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
@@ -342,6 +356,7 @@ public class SettingsService(
             AutoDownloadNewEpisodes = autoDownloadNewEpisodes,
             Version = current.Version + 1,
             UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
         };
 
         var response = await settingsContainer.UpsertItemAsync(
