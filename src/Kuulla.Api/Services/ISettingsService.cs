@@ -43,4 +43,7 @@ public interface ISettingsService
 
     Task<float> GetEffectivePlaybackSpeedAsync(
         string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateAutoDeleteRuleAsync(
+        string userId, AutoDeleteRule autoDeleteRule, int autoDeleteAfterDays, CancellationToken cancellationToken);
 }

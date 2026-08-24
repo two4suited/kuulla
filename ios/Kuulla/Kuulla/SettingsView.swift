@@ -11,12 +11,14 @@ struct SettingsView: View {
     @State private var saveError: String?
     @State private var archiveSaveError: String?
     @State private var autoSkipSaveError: String?
+    @State private var autoDeleteSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
     @State private var saveTask: Task<Void, Never>?
     @State private var archiveSaveTask: Task<Void, Never>?
     @State private var autoSkipSaveTask: Task<Void, Never>?
+    @State private var autoDeleteSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -68,6 +70,27 @@ struct SettingsView: View {
             } footer: {
                 if let autoSkipSaveError {
                     Text(autoSkipSaveError)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section {
+                Picker("Delete downloads", selection: autoDeleteRuleBinding) {
+                    ForEach(AutoDeleteRule.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .disabled(settings == nil)
+
+                if settings?.autoDeleteRule == .afterDays {
+                    Stepper(value: autoDeleteAfterDaysBinding, in: 1...365) {
+                        let days = settings?.autoDeleteAfterDays ?? 7
+                        Text("After \(days) day\(days == 1 ? "" : "s")")
+                    }
+                }
+            } footer: {
+                if let autoDeleteSaveError {
+                    Text(autoDeleteSaveError)
                         .foregroundStyle(.red)
                 }
             }
@@ -140,6 +163,30 @@ struct SettingsView: View {
         )
     }
 
+    private var autoDeleteRuleBinding: Binding<AutoDeleteRule> {
+        Binding(
+            get: { settings?.autoDeleteRule ?? .never },
+            set: { newValue in
+                autoDeleteSaveTask?.cancel()
+                autoDeleteSaveTask = Task {
+                    await updateAutoDeleteRule(newValue, afterDays: settings?.autoDeleteAfterDays ?? 7)
+                }
+            }
+        )
+    }
+
+    private var autoDeleteAfterDaysBinding: Binding<Int> {
+        Binding(
+            get: { settings?.autoDeleteAfterDays ?? 7 },
+            set: { newValue in
+                autoDeleteSaveTask?.cancel()
+                autoDeleteSaveTask = Task {
+                    await updateAutoDeleteRule(settings?.autoDeleteRule ?? .never, afterDays: newValue)
+                }
+            }
+        )
+    }
+
     // The presets don't cover every value the API accepts (0...3600), so a value saved from
     // elsewhere (or a future release with different presets) that doesn't match one of them gets
     // a synthesized "Custom" row rather than silently snapping to the nearest preset (or "Off").
@@ -170,10 +217,14 @@ struct SettingsView: View {
         guard let previous = settings else { return }
 
         saveError = nil
+        // Every field from `previous` is passed through explicitly (not just the one changing)
+        // — omitting any would silently reset it to UserSettings.init's default in this
+        // optimistic local update, until the real server response overwrites it moments later.
         settings = UserSettings(
             userId: previous.userId, unlistenedEpisodeCount: value, version: previous.version,
             autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
-            autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
+            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: previous.playbackSpeed,
+            autoDeleteRule: previous.autoDeleteRule, autoDeleteAfterDays: previous.autoDeleteAfterDays)
 
         do {
             let updated = try await settingsClient.updateUnlistenedEpisodeCount(value)
@@ -195,7 +246,8 @@ struct SettingsView: View {
         settings = UserSettings(
             userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
             autoArchiveRule: value, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
-            autoSkipOutroSeconds: previous.autoSkipOutroSeconds)
+            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: previous.playbackSpeed,
+            autoDeleteRule: previous.autoDeleteRule, autoDeleteAfterDays: previous.autoDeleteAfterDays)
 
         do {
             let updated = try await settingsClient.updateAutoArchiveRule(value)
@@ -216,7 +268,9 @@ struct SettingsView: View {
         autoSkipSaveError = nil
         settings = UserSettings(
             userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds)
+            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds,
+            playbackSpeed: previous.playbackSpeed, autoDeleteRule: previous.autoDeleteRule,
+            autoDeleteAfterDays: previous.autoDeleteAfterDays)
 
         do {
             let updated = try await settingsClient.updateAutoSkip(introSeconds: introSeconds, outroSeconds: outroSeconds)
@@ -227,6 +281,29 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 autoSkipSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateAutoDeleteRule(_ rule: AutoDeleteRule, afterDays: Int) async {
+        guard let previous = settings else { return }
+
+        autoDeleteSaveError = nil
+        settings = UserSettings(
+            userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
+            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
+            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: previous.playbackSpeed,
+            autoDeleteRule: rule, autoDeleteAfterDays: afterDays)
+
+        do {
+            let updated = try await settingsClient.updateAutoDeleteRule(rule, afterDays: afterDays)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoDeleteSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

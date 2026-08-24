@@ -56,6 +56,12 @@ struct SettingsClient {
             ["api", "settings", "shows", showId, "playback-speed"],
             body: UpdateShowPlaybackSpeedRequest(playbackSpeed: value))
     }
+
+    func updateAutoDeleteRule(_ rule: AutoDeleteRule, afterDays: Int) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "auto-delete"],
+            body: UpdateAutoDeleteRuleRequest(autoDeleteRule: rule, autoDeleteAfterDays: afterDays))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -90,4 +96,9 @@ private struct UpdatePlaybackSpeedRequest: Encodable {
 
 private struct UpdateShowPlaybackSpeedRequest: Encodable {
     let playbackSpeed: Float?
+}
+
+private struct UpdateAutoDeleteRuleRequest: Encodable {
+    let autoDeleteRule: AutoDeleteRule
+    let autoDeleteAfterDays: Int
 }

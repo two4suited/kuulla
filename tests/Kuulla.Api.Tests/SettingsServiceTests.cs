@@ -411,4 +411,24 @@ public class SettingsServiceTests
 
         Assert.Equal(1.25f, result);
     }
+
+    [Fact]
+    public async Task UpdateAutoDeleteRuleAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3,
+            AutoArchiveRule.Never, AutoDeleteRule: AutoDeleteRule.Never);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateAutoDeleteRuleAsync(UserId, AutoDeleteRule.AfterPlayed, 14, CancellationToken.None);
+
+        Assert.Equal(AutoDeleteRule.AfterPlayed, result.AutoDeleteRule);
+        Assert.Equal(14, result.AutoDeleteAfterDays);
+        Assert.Equal(4, result.Version);
+    }
 }

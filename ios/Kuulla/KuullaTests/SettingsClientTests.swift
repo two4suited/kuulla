@@ -268,4 +268,40 @@ final class SettingsClientTests: MockedApiTestCase {
         let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
         XCTAssertNil(bodyJSON["playbackSpeed"])
     }
+
+    func testGetSettingsDefaultsAutoDeleteRuleToNeverWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertEqual(settings.autoDeleteRule, .never)
+        XCTAssertEqual(settings.autoDeleteAfterDays, 7)
+    }
+
+    func testUpdateAutoDeleteRuleSendsPutWithIntegerBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"autoDeleteRule":1,"autoDeleteAfterDays":14}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateAutoDeleteRule(.afterPlayed, afterDays: 14)
+
+        XCTAssertEqual(updated.autoDeleteRule, .afterPlayed)
+        XCTAssertEqual(updated.autoDeleteAfterDays, 14)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/auto-delete"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["autoDeleteRule"] as? Int, 1)
+        XCTAssertEqual(bodyJSON["autoDeleteAfterDays"] as? Int, 14)
+    }
 }
