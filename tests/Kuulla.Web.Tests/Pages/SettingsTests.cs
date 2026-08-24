@@ -281,6 +281,26 @@ public class SettingsTests : WebTestContext
     }
 
     [Fact]
+    public void ShowsErrorAndRevertsAutoDownloadNewEpisodes_WhenSaveFails()
+    {
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/settings/auto-download" && request.Method == HttpMethod.Put
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.False(cut.Find("#auto-download-new-episodes").HasAttribute("checked")));
+
+        cut.Find("#auto-download-new-episodes").Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.False(cut.Find("#auto-download-new-episodes").HasAttribute("checked"));
+        });
+    }
+
+    [Fact]
     public void RendersCurrentAutoDeleteRule_WhenLoadSucceeds()
     {
         ConfigureApi(CreateHandler(getResponse: new(

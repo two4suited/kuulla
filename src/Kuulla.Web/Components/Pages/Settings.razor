@@ -460,13 +460,22 @@
             }
 
             await SettingsClient.UpdateAutoDeleteRuleAsync(rule, afterDays);
-            autoDeleteSaveSavedConfirmation = true;
+            if (requestVersion == autoDeleteSaveVersion)
+            {
+                autoDeleteSaveSavedConfirmation = true;
+            }
         }
         catch (HttpRequestException)
         {
-            selectedAutoDeleteRule = previousRule;
-            selectedAutoDeleteAfterDays = previousAfterDays;
-            autoDeleteSaveError = "Something went wrong while saving. Please try again.";
+            // Only roll back to this call's own "previous" snapshot if it's still the latest
+            // request — otherwise a slow, now-superseded call's failure would stomp a newer
+            // (possibly already-succeeded) selection with stale values.
+            if (requestVersion == autoDeleteSaveVersion)
+            {
+                selectedAutoDeleteRule = previousRule;
+                selectedAutoDeleteAfterDays = previousAfterDays;
+                autoDeleteSaveError = "Something went wrong while saving. Please try again.";
+            }
         }
         finally
         {
