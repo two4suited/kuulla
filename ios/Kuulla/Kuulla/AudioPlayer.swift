@@ -13,6 +13,22 @@ final class AudioPlayer {
     private(set) var duration: TimeInterval = 0
     private(set) var currentURL: URL?
 
+    // Set when play() refuses to start a remote stream because Wi-Fi-only streaming (#271) is on
+    // and the device isn't currently on Wi-Fi — cleared at the start of every play() call
+    // (successful or not) so a stale message doesn't linger after the user reconnects or retries.
+    // Paired with the URL it applies to (mirroring onDidFinishPlaying's per-URL guard below):
+    // AudioPlayer.shared is a single global instance, so without this a message set while blocked
+    // on one episode would otherwise keep showing under an unrelated episode's Play button after
+    // the user merely navigates away, without that other episode's own play() ever having run.
+    private(set) var streamBlockedMessage: String?
+    private(set) var streamBlockedURL: URL?
+
+    // Pessimistic default (mirrors DownloadManager's isOnWifi): only LocalSettings.wifiOnlyStreaming
+    // == true even looks at this value, so defaulting to "not on Wi-Fi" costs nothing when the
+    // setting is off, and avoids a stream starting over cellular in the brief window before the
+    // path observer's first real callback lands when the setting is on.
+    private var isOnWifi = false
+
     // Exposes the underlying AVPlayer's actual rate/pitch-algorithm for tests to assert against
     // directly — the bookkeeping playbackSpeed property below would still read correctly even if
     // the .rate assignment or .timeDomain wiring in play()/setPlaybackSpeed() were broken.
@@ -50,8 +66,21 @@ final class AudioPlayer {
     // play() starting a new session.
     private var pendingSeekPlayer: AVPlayer?
 
-    init() {
+    // Retained for the object's lifetime — startObserving's closure only captures `onUpdate`, not
+    // the observer itself, so an unretained NWPathMonitorAdapter would deinit right after this
+    // init returns, silently stopping path updates and leaving isOnWifi stuck at its pessimistic
+    // default (Wi-Fi-only streaming would then block forever, even while genuinely on Wi-Fi).
+    private var pathObserver: NetworkPathObserving
+
+    // pathObserver is a test-only seam (mirroring DownloadManager's) — production always uses the
+    // real NWPathMonitor-backed default; tests inject a mock to simulate Wi-Fi/cellular
+    // transitions deterministically.
+    init(pathObserver: NetworkPathObserving = NWPathMonitorAdapter()) {
+        self.pathObserver = pathObserver
         configureAudioSession()
+        self.pathObserver.startObserving { [weak self] isOnWifi in
+            DispatchQueue.main.async { self?.isOnWifi = isOnWifi }
+        }
     }
 
     func play(
@@ -59,6 +88,18 @@ final class AudioPlayer {
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
         playbackSpeed: Float = 1.0
     ) {
+        streamBlockedMessage = nil
+        streamBlockedURL = nil
+
+        // Only gates a genuine remote stream — a downloaded local file (#177) plays fine over
+        // cellular, or with no connection at all; it isn't "streaming".
+        if !url.isFileURL && LocalSettings.wifiOnlyStreaming && !isOnWifi {
+            streamBlockedMessage = "Streaming is limited to Wi-Fi. Connect to Wi-Fi, or turn off "
+                + "\"Stream over Wi-Fi only\" in Settings, to continue."
+            streamBlockedURL = url
+            return
+        }
+
         removeObservers()
 
         let item = AVPlayerItem(url: url)

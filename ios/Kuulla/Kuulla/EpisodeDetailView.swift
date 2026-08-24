@@ -103,6 +103,16 @@ struct EpisodeDetailView: View {
 
                             DownloadButton(episode: episode, status: downloadStatus, onDidFinish: loadLocalState)
                         }
+
+                        // AudioPlayer.shared is a single global instance, so the message must be
+                        // matched against this screen's own audioURL — otherwise a message left
+                        // over from blocking a different episode's remote stream would keep
+                        // showing here after merely navigating to this one.
+                        if let streamBlockedMessage = audioPlayer.streamBlockedMessage, audioPlayer.streamBlockedURL == audioURL {
+                            Text(streamBlockedMessage)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
                     }
 
                     Button {
