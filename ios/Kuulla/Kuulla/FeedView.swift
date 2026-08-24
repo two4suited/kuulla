@@ -12,6 +12,7 @@ struct FeedView: View {
     @State private var errorMessage: String?
 
     private let subscriptionClient = SubscriptionClient()
+    private let settingsClient = SettingsClient()
 
     var body: some View {
         // A List (rather than ScrollView + LazyVStack, as before), matching ShowDetailView — its
@@ -79,10 +80,83 @@ struct FeedView: View {
             guard !Task.isCancelled else { return }
             episodes = results
             refreshStatuses()
+            await triggerAutoDownloads()
         } catch {
             guard !Task.isCancelled else { return }
             errorMessage = "Something went wrong while loading your new episodes. Please try again."
         }
+    }
+
+    // #270: no new episode-detection mechanism — this reuses getNewEpisodes(), the same
+    // server-side "new episode" signal load() already fetches, rather than inventing a second
+    // one. Only considers episodes with no DownloadedEpisodeRecord at all: one that's already
+    // .downloading/.complete/.failed was touched by something else (a manual tap, a previous
+    // auto-download) and re-triggering it here on every refresh would be at best redundant, at
+    // worst a wasted re-download (or silently retrying a .failed one the user hasn't asked to retry).
+    private func triggerAutoDownloads() async {
+        let candidates = episodes.filter { downloadStatusByEpisodeId[$0.id] == nil }
+        guard !candidates.isEmpty else { return }
+
+        let globalDefault = (try? await settingsClient.getSettings())?.autoDownloadNewEpisodes ?? false
+        let showOverrides = await fetchShowAutoDownloadOverrides(for: Set(candidates.map(\.showId)))
+
+        for episode in candidates {
+            // A show whose settings fetch failed has no key here at all — distinct from a show
+            // that was fetched successfully and has no override (present with a nil value).
+            // Falling through to globalDefault for a failed fetch would risk silently
+            // overriding a user's explicit per-show opt-out (override == false) with a
+            // transient network hiccup; skipping this episode for this round instead fails
+            // closed, and the next refresh gets another chance to resolve it correctly.
+            guard let showOverride = showOverrides[episode.showId] else { continue }
+            if Self.shouldAutoDownload(
+                downloadStatus: downloadStatusByEpisodeId[episode.id], showOverride: showOverride, globalDefault: globalDefault
+            ) {
+                DownloadManager.shared.startDownload(episode: episode)
+            }
+        }
+    }
+
+    // Pulled out as a pure function for testability, mirroring the codebase's established
+    // pattern (EpisodeDetailView.resolvedPlaybackURL, DownloadButton.effectiveStatus).
+    static func shouldAutoDownload(downloadStatus: DownloadStatus?, showOverride: Bool?, globalDefault: Bool) -> Bool {
+        guard downloadStatus == nil else { return false }
+        return showOverride ?? globalDefault
+    }
+
+    // Bounded concurrency (mirroring DownloadsView's episode-metadata fetch) rather than one
+    // request per distinct show at once — a user subscribed to many shows with new episodes
+    // shouldn't burst-request the API for every one of them simultaneously. A show whose fetch
+    // fails is left out of the returned dictionary entirely (not inserted with a nil value) —
+    // triggerAutoDownloads relies on that key's absence to distinguish "fetch failed" from
+    // "fetched fine, no override" and skip the episode rather than guessing.
+    private func fetchShowAutoDownloadOverrides(for showIds: Set<String>) async -> [String: Bool?] {
+        var overridesByShowId: [String: Bool?] = [:]
+        let maxConcurrentRequests = 4
+        var iterator = showIds.makeIterator()
+
+        await withTaskGroup(of: (showId: String, override: Bool?, didFail: Bool).self) { group in
+            func addTaskIfAvailable() {
+                guard let showId = iterator.next() else { return }
+                group.addTask {
+                    guard let showSettings = try? await self.settingsClient.getShowSettings(showId: showId) else {
+                        return (showId, nil, true)
+                    }
+                    return (showId, showSettings.autoDownloadNewEpisodes, false)
+                }
+            }
+
+            for _ in 0..<min(maxConcurrentRequests, showIds.count) {
+                addTaskIfAvailable()
+            }
+            for await result in group {
+                if !result.didFail {
+                    overridesByShowId[result.showId] = result.override
+                }
+                addTaskIfAvailable()
+            }
+        }
+
+        return overridesByShowId
     }
 
     private func restoreAutoPlayed(episodeId: String) async {
