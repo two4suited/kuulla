@@ -2,8 +2,9 @@ import SwiftUI
 
 struct SettingsView: View {
     // Device-local (per docs/data-usage-network-settings.md) — @AppStorage reads/writes the same
-    // UserDefaults key LocalSettings.wifiOnlyDownloads exposes for non-View code (DownloadManager).
+    // UserDefaults keys LocalSettings exposes for non-View code (DownloadManager, AudioPlayer).
     @AppStorage(LocalSettings.wifiOnlyDownloadsKey) private var wifiOnlyDownloads = true
+    @AppStorage(LocalSettings.wifiOnlyStreamingKey) private var wifiOnlyStreaming = false
 
     @State private var settings: UserSettings?
     @State private var isLoading = false
@@ -115,6 +116,8 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Stream over Wi-Fi only", isOn: $wifiOnlyStreaming)
+
                 Toggle("Download over Wi-Fi only", isOn: $wifiOnlyDownloads)
                     .onChange(of: wifiOnlyDownloads) { _, _ in
                         // Re-evaluate queued/in-flight downloads against the new setting
@@ -123,8 +126,10 @@ struct SettingsView: View {
                         // itself hasn't actually changed.
                         DownloadManager.shared.wifiOnlyDownloadsSettingChanged()
                     }
+            } header: {
+                Text("Data Usage & Network")
             } footer: {
-                Text("Downloads requested off Wi-Fi wait until Wi-Fi is available, and pause if Wi-Fi is lost mid-download.")
+                Text("Streaming refuses to start off Wi-Fi when enabled. Downloads requested off Wi-Fi wait until Wi-Fi is available, and pause if Wi-Fi is lost mid-download.")
             }
         }
         .navigationTitle("Settings")

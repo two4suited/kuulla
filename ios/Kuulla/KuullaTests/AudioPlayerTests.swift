@@ -197,4 +197,104 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertFalse(player.isPlaying)
         XCTAssertEqual(player.currentPlayerRate, 0)
     }
+
+    // MARK: - Stream over Wi-Fi only (#271)
+
+    private func withWifiOnlyStreaming(_ enabled: Bool, _ body: () async throws -> Void) async rethrows {
+        let previous = UserDefaults.standard.object(forKey: LocalSettings.wifiOnlyStreamingKey)
+        UserDefaults.standard.set(enabled, forKey: LocalSettings.wifiOnlyStreamingKey)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: LocalSettings.wifiOnlyStreamingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: LocalSettings.wifiOnlyStreamingKey)
+            }
+        }
+        try await body()
+    }
+
+    func testPlayRefusesRemoteStreamWhenWifiOnlyStreamingEnabledAndOffWifi() async throws {
+        try await withWifiOnlyStreaming(true) {
+            let pathObserver = MockPathObserver()
+            let player = AudioPlayer(pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+
+            player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertNil(player.currentURL)
+            XCTAssertNotNil(player.streamBlockedMessage)
+        }
+    }
+
+    func testPlayStartsRemoteStreamWhenWifiOnlyStreamingEnabledAndOnWifi() async throws {
+        try await withWifiOnlyStreaming(true) {
+            let pathObserver = MockPathObserver()
+            let player = AudioPlayer(pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: true)
+
+            player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+            XCTAssertTrue(player.isPlaying)
+            XCTAssertNil(player.streamBlockedMessage)
+        }
+    }
+
+    func testPlayIgnoresWifiOnlyStreamingWhenSettingIsOff() async throws {
+        try await withWifiOnlyStreaming(false) {
+            let pathObserver = MockPathObserver()
+            let player = AudioPlayer(pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+
+            player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+            XCTAssertTrue(player.isPlaying)
+            XCTAssertNil(player.streamBlockedMessage)
+        }
+    }
+
+    func testPlayNeverGatesALocalFileURLRegardlessOfWifiOnlyStreaming() async throws {
+        try await withWifiOnlyStreaming(true) {
+            let pathObserver = MockPathObserver()
+            let player = AudioPlayer(pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+
+            player.play(url: URL(fileURLWithPath: "/tmp/downloaded-episode.mp3"))
+
+            XCTAssertTrue(player.isPlaying)
+            XCTAssertNil(player.streamBlockedMessage)
+        }
+    }
+
+    func testStreamBlockedURLIsScopedToTheBlockedEpisode() async throws {
+        try await withWifiOnlyStreaming(true) {
+            let pathObserver = MockPathObserver()
+            let player = AudioPlayer(pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+            let blockedURL = URL(string: "https://example.com/blocked.mp3")!
+            let otherURL = URL(string: "https://example.com/other.mp3")!
+
+            player.play(url: blockedURL)
+
+            XCTAssertEqual(player.streamBlockedURL, blockedURL)
+            // A view rendering for a different episode must not mistake this message as its own.
+            XCTAssertNotEqual(player.streamBlockedURL, otherURL)
+        }
+    }
+
+    func testPlayClearsAStaleStreamBlockedMessageOnceBackOnWifi() async throws {
+        try await withWifiOnlyStreaming(true) {
+            let pathObserver = MockPathObserver()
+            let player = AudioPlayer(pathObserver: pathObserver)
+            await pathObserver.simulate(isOnWifi: false)
+            player.play(url: URL(string: "https://example.com/audio.mp3")!)
+            XCTAssertNotNil(player.streamBlockedMessage)
+
+            await pathObserver.simulate(isOnWifi: true)
+            player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+            XCTAssertNil(player.streamBlockedMessage)
+            XCTAssertTrue(player.isPlaying)
+        }
+    }
 }
