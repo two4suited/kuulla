@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Bunit;
 using Kuulla.Web.Components.Pages;
 using Kuulla.Web.Models;
+using Microsoft.JSInterop;
 
 namespace Kuulla.Web.Tests.Pages;
 
@@ -414,6 +415,37 @@ public class SettingsTests : WebTestContext
         JSInterop.Setup<string?>("localStorage.getItem", "wifiOnlyStreaming").SetResult("true");
 
         var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.True(cut.Find("#wifi-only-streaming").HasAttribute("checked")));
+    }
+
+    [Fact]
+    public void WifiOnlyStreaming_DefaultsToOffAndStaysUsable_WhenLocalStorageReadThrows()
+    {
+        ConfigureApi(CreateHandler());
+        JSInterop.Setup<string?>("localStorage.getItem", "wifiOnlyStreaming").SetException(new JSException("blocked"));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var checkbox = cut.Find("#wifi-only-streaming");
+            Assert.False(checkbox.HasAttribute("checked"));
+            Assert.False(checkbox.HasAttribute("disabled"));
+        });
+    }
+
+    [Fact]
+    public void WifiOnlyStreaming_StaysToggled_WhenLocalStorageWriteThrows()
+    {
+        ConfigureApi(CreateHandler());
+        JSInterop.Setup<string?>("localStorage.getItem", "wifiOnlyStreaming").SetResult(null);
+        JSInterop.SetupVoid("localStorage.setItem", "wifiOnlyStreaming", "true").SetException(new JSException("blocked"));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.False(cut.Find("#wifi-only-streaming").HasAttribute("checked")));
+
+        cut.Find("#wifi-only-streaming").Change(true);
 
         cut.WaitForAssertion(() => Assert.True(cut.Find("#wifi-only-streaming").HasAttribute("checked")));
     }

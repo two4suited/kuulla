@@ -227,10 +227,22 @@
             return;
         }
 
-        var stored = await JS.InvokeAsync<string?>("localStorage.getItem", "wifiOnlyStreaming");
-        wifiOnlyStreaming = stored == "true";
-        hasLoadedWifiOnlyStreaming = true;
-        StateHasChanged();
+        // localStorage access can throw (e.g. private browsing with storage blocked) — falls back
+        // to the documented default (false) rather than leaving the toggle stuck disabled forever.
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", "wifiOnlyStreaming");
+            wifiOnlyStreaming = stored == "true";
+        }
+        catch (JSException)
+        {
+            wifiOnlyStreaming = false;
+        }
+        finally
+        {
+            hasLoadedWifiOnlyStreaming = true;
+            StateHasChanged();
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -523,6 +535,15 @@
     private async Task OnWifiOnlyStreamingChangedAsync(ChangeEventArgs args)
     {
         wifiOnlyStreaming = args.Value is bool value && value;
-        await JS.InvokeVoidAsync("localStorage.setItem", "wifiOnlyStreaming", wifiOnlyStreaming ? "true" : "false");
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "wifiOnlyStreaming", wifiOnlyStreaming ? "true" : "false");
+        }
+        catch (JSException)
+        {
+            // Best-effort persistence, matching the read side above — the in-memory toggle still
+            // reflects the user's choice for the rest of this session even if it can't be saved.
+        }
     }
 }
