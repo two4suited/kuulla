@@ -66,12 +66,19 @@ final class AudioPlayer {
     // play() starting a new session.
     private var pendingSeekPlayer: AVPlayer?
 
+    // Retained for the object's lifetime — startObserving's closure only captures `onUpdate`, not
+    // the observer itself, so an unretained NWPathMonitorAdapter would deinit right after this
+    // init returns, silently stopping path updates and leaving isOnWifi stuck at its pessimistic
+    // default (Wi-Fi-only streaming would then block forever, even while genuinely on Wi-Fi).
+    private var pathObserver: NetworkPathObserving
+
     // pathObserver is a test-only seam (mirroring DownloadManager's) — production always uses the
     // real NWPathMonitor-backed default; tests inject a mock to simulate Wi-Fi/cellular
     // transitions deterministically.
     init(pathObserver: NetworkPathObserving = NWPathMonitorAdapter()) {
+        self.pathObserver = pathObserver
         configureAudioSession()
-        pathObserver.startObserving { [weak self] isOnWifi in
+        self.pathObserver.startObserving { [weak self] isOnWifi in
             DispatchQueue.main.async { self?.isOnWifi = isOnWifi }
         }
     }
