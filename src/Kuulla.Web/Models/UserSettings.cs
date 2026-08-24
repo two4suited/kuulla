@@ -7,7 +7,10 @@ public record UserSettings(
     AutoArchiveRule AutoArchiveRule = AutoArchiveRule.Never,
     int AutoSkipIntroSeconds = 0,
     int AutoSkipOutroSeconds = 0,
-    float PlaybackSpeed = 1.0f);
+    float PlaybackSpeed = 1.0f,
+    AutoDeleteRule AutoDeleteRule = AutoDeleteRule.Never,
+    int AutoDeleteAfterDays = 7,
+    bool AutoDownloadNewEpisodes = false);
 
 public enum UnlistenedEpisodeCount
 {

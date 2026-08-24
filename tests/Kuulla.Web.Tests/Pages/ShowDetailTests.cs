@@ -22,7 +22,8 @@ public class ShowDetailTests : WebTestContext
     private TestHttpMessageHandler CreateHandler(
         IReadOnlyList<Subscription>? subscriptions = null,
         ShowSettings? showSettings = null,
-        EpisodeState? episodeState = null) =>
+        EpisodeState? episodeState = null,
+        ShowSettings? autoDownloadPutResponse = null) =>
         new(request =>
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -106,6 +107,14 @@ public class ShowDetailTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(showSettings ?? DefaultShowSettings),
+                };
+            }
+
+            if (path == "/api/settings/shows/show-1/auto-download" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(autoDownloadPutResponse ?? showSettings ?? DefaultShowSettings),
                 };
             }
 
@@ -302,6 +311,122 @@ public class ShowDetailTests : WebTestContext
         cut.Find("#show-auto-archive-rule").Change("AfterPlayed");
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void AutoDownloadSelector_DefaultsToUseGlobalDefault_WhenNoOverrideExists()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void AutoDownloadSelector_ShowsExistingOverride()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoDownloadNewEpisodes: true);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void AutoDownloadSelector_SavesOverride_WhenChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler(showSettings: new("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoDownloadNewEpisodes: true)));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Auto-download new episodes", cut.Markup));
+
+        cut.Find("#show-auto-download-new-episodes").Change("true");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void AutoDownloadSelector_SavesUseGlobalDefault_WhenClearedBackToNull()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoDownloadNewEpisodes: true);
+        ConfigureApi(CreateHandler(
+            showSettings: existing,
+            autoDownloadPutResponse: new("user-1:show-1", "user-1", "show-1", null, Version: 3, AutoDownloadNewEpisodes: null)));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+
+        cut.Find("#show-auto-download-new-episodes").Change("");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Saved.", cut.Markup);
+            Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void AutoDownloadSelector_ShowsErrorAndReverts_WhenSaveFails()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/settings/shows/show-1/auto-download" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            }
+
+            if (path == "/api/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(TestShow) };
+            }
+
+            if (path == "/api/shows/show-1/episodes" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new EpisodePage([TestEpisode], null)),
+                };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new Dictionary<string, EpisodeState>()),
+                };
+            }
+
+            if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) };
+            }
+
+            if (path == "/api/settings/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultShowSettings) };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+
+        cut.Find("#show-auto-download-new-episodes").Change("true");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value"));
+        });
     }
 
     [Fact]

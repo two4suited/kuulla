@@ -87,4 +87,37 @@ public class SettingsClient(KuullaApiClient apiClient)
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
     }
+
+    public async Task<UserSettings> UpdateAutoDeleteRuleAsync(
+        AutoDeleteRule autoDeleteRule, int autoDeleteAfterDays, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/auto-delete",
+            new { AutoDeleteRule = autoDeleteRule, AutoDeleteAfterDays = autoDeleteAfterDays },
+            JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<UserSettings> UpdateAutoDownloadNewEpisodesAsync(
+        bool autoDownloadNewEpisodes, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/auto-download", new { AutoDownloadNewEpisodes = autoDownloadNewEpisodes }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowAutoDownloadNewEpisodesAsync(
+        string showId, bool? autoDownloadNewEpisodes, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/auto-download",
+            new { AutoDownloadNewEpisodes = autoDownloadNewEpisodes }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
 }
