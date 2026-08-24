@@ -237,4 +237,47 @@ public class SettingsService(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
         return response.Resource;
     }
+
+    public async Task<UserSettings> UpdateAutoDownloadNewEpisodesAsync(
+        string userId, bool autoDownloadNewEpisodes, CancellationToken cancellationToken)
+    {
+        var current = await GetSettingsAsync(userId, cancellationToken);
+        var updated = current with
+        {
+            AutoDownloadNewEpisodes = autoDownloadNewEpisodes,
+            Version = current.Version + 1,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<ShowSettings> UpdateShowAutoDownloadNewEpisodesAsync(
+        string userId, string showId, bool? autoDownloadNewEpisodes, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            AutoDownloadNewEpisodes = autoDownloadNewEpisodes,
+            Version = current.Version + 1,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<bool> GetEffectiveAutoDownloadNewEpisodesAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.AutoDownloadNewEpisodes is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.AutoDownloadNewEpisodes;
+    }
 }

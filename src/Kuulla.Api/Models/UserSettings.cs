@@ -27,11 +27,15 @@ public record UserSettings(
     AutoDeleteRule AutoDeleteRule = AutoDeleteRule.Never,
     // Only meaningful when AutoDeleteRule == AfterDays; 7 is a reasonable default grace window,
     // matching the scale of AutoArchiveRule's day-count presets.
-    int AutoDeleteAfterDays = 7)
+    int AutoDeleteAfterDays = 7,
+    // False is the safe default — auto-downloading is a bandwidth/storage commitment a user
+    // should opt into, not one made on their behalf the first time they add a show, matching
+    // AutoArchiveRule.Never/PlaybackSpeed: 1.0f's "unmodified until the user opts in" convention.
+    bool AutoDownloadNewEpisodes = false)
 {
     public static UserSettings CreateDefault(string userId) =>
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
-            PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7);
+            PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization
