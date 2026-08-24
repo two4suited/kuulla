@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Bunit;
 using Kuulla.Web.Components.Pages;
 using Kuulla.Web.Models;
 
@@ -77,6 +78,10 @@ public class SettingsTests : WebTestContext
     public SettingsTests()
     {
         AuthContext.SetAuthorized("user-1");
+        // Settings.razor reads/writes "wifiOnlyStreaming" via localStorage.getItem/setItem
+        // (#273) — Loose mode auto-mocks those calls (returning null/default for unconfigured
+        // ones), matching the pattern already used for EpisodeDetail.razor.js's dynamic import.
+        JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
     [Fact]
@@ -388,6 +393,47 @@ public class SettingsTests : WebTestContext
         {
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.Equal("Never", cut.Find("#auto-delete-rule").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void WifiOnlyStreaming_DefaultsToOff_WhenLocalStorageUnset()
+    {
+        ConfigureApi(CreateHandler());
+        JSInterop.Setup<string?>("localStorage.getItem", "wifiOnlyStreaming").SetResult(null);
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.False(cut.Find("#wifi-only-streaming").HasAttribute("checked")));
+    }
+
+    [Fact]
+    public void WifiOnlyStreaming_ReflectsStoredValue()
+    {
+        ConfigureApi(CreateHandler());
+        JSInterop.Setup<string?>("localStorage.getItem", "wifiOnlyStreaming").SetResult("true");
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.True(cut.Find("#wifi-only-streaming").HasAttribute("checked")));
+    }
+
+    [Fact]
+    public void WifiOnlyStreaming_WritesToLocalStorage_WhenToggled()
+    {
+        ConfigureApi(CreateHandler());
+        JSInterop.Setup<string?>("localStorage.getItem", "wifiOnlyStreaming").SetResult(null);
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.False(cut.Find("#wifi-only-streaming").HasAttribute("checked")));
+
+        cut.Find("#wifi-only-streaming").Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            var invocation = JSInterop.Invocations["localStorage.setItem"].Last();
+            Assert.Equal("wifiOnlyStreaming", invocation.Arguments[0]);
+            Assert.Equal("true", invocation.Arguments[1]);
         });
     }
 }

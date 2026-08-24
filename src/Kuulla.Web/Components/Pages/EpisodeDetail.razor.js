@@ -1,5 +1,30 @@
 const PROGRESS_INTERVAL_SECONDS = 15;
 
+// Best-effort Wi-Fi-only streaming gate (#273), mirroring iOS's AudioPlayer gate (#271). The
+// Network Information API's connection.type field (distinguishing "wifi" from cellular) is only
+// implemented in Chromium browsers, and even there it's not always populated — Safari and Firefox
+// expose no connection object at all. Per the issue's own guidance, an unreadable connection type
+// fails OPEN (playback proceeds ungated) rather than blocking playback on browsers we can't
+// reliably read from.
+function isStreamBlocked() {
+    let wifiOnlyStreaming = false;
+    try {
+        wifiOnlyStreaming = localStorage.getItem("wifiOnlyStreaming") === "true";
+    } catch (e) {
+        return false;
+    }
+    if (!wifiOnlyStreaming) {
+        return false;
+    }
+
+    const connection = navigator.connection || navigator.webkitConnection || navigator.mozConnection;
+    if (!connection || typeof connection.type === "undefined") {
+        return false;
+    }
+
+    return connection.type !== "wifi";
+}
+
 export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     let lastReported = 0;
     // The browser fires 'pause' immediately before 'ended' when playback finishes naturally —
@@ -41,6 +66,18 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     // otherwise reset hasEnded via a fresh attach() call) — clear it so progress reporting resumes.
     const onPlay = () => {
         hasEnded = false;
+
+        // Checked here rather than before playback starts: the native <audio controls> element
+        // has no pre-play hook to intercept, so this immediately pauses what the browser just
+        // started rather than truly preventing it from starting — a brief flash of "playing" in
+        // the native UI is an acceptable tradeoff for a best-effort gate (see isStreamBlocked).
+        if (isStreamBlocked()) {
+            audioEl.pause();
+            dotNetRef.invokeMethodAsync("OnStreamBlocked");
+            return;
+        }
+
+        dotNetRef.invokeMethodAsync("OnStreamAllowed");
     };
 
     audioEl.addEventListener("loadedmetadata", onLoadedMetadata);
