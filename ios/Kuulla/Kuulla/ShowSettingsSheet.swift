@@ -12,6 +12,7 @@ struct ShowSettingsSheet: View {
     @State private var archiveSaveError: String?
     @State private var autoSkipSaveError: String?
     @State private var playbackSpeedSaveError: String?
+    @State private var autoDownloadSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
@@ -19,6 +20,7 @@ struct ShowSettingsSheet: View {
     @State private var archiveSaveTask: Task<Void, Never>?
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
+    @State private var autoDownloadSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
     // so unlike the other settings here (where cancelling the previous Task is enough — an
     // in-flight PUT racing a newer one just means the last-arriving response wins, and the last
@@ -96,6 +98,20 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let playbackSpeedSaveError {
                         Text(playbackSpeedSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Auto-download new episodes", selection: autoDownloadOverrideBinding) {
+                        Text("Use global default").tag(Bool?.none)
+                        Text("On").tag(Bool?.some(true))
+                        Text("Off").tag(Bool?.some(false))
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let autoDownloadSaveError {
+                        Text(autoDownloadSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -192,11 +208,7 @@ struct ShowSettingsSheet: View {
         guard let previous = settings else { return }
 
         saveError = nil
-        settings = ShowSettings(
-            id: previous.id, userId: previous.userId, showId: previous.showId,
-            unlistenedEpisodeCount: value, version: previous.version, autoArchiveRule: previous.autoArchiveRule,
-            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds,
-            playbackSpeed: previous.playbackSpeed)
+        settings = previous.with(unlistenedEpisodeCount: value)
 
         do {
             let updated = try await settingsClient.updateShowUnlistenedEpisodeCount(showId: showId, value: value)
@@ -215,11 +227,7 @@ struct ShowSettingsSheet: View {
         guard let previous = settings else { return }
 
         archiveSaveError = nil
-        settings = ShowSettings(
-            id: previous.id, userId: previous.userId, showId: previous.showId,
-            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version, autoArchiveRule: value,
-            autoSkipIntroSeconds: previous.autoSkipIntroSeconds, autoSkipOutroSeconds: previous.autoSkipOutroSeconds,
-            playbackSpeed: previous.playbackSpeed)
+        settings = previous.with(autoArchiveRule: value)
 
         do {
             let updated = try await settingsClient.updateShowAutoArchiveRule(showId: showId, value: value)
@@ -238,11 +246,7 @@ struct ShowSettingsSheet: View {
         guard let previous = settings else { return }
 
         autoSkipSaveError = nil
-        settings = ShowSettings(
-            id: previous.id, userId: previous.userId, showId: previous.showId,
-            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds,
-            playbackSpeed: previous.playbackSpeed)
+        settings = previous.with(autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds)
 
         do {
             let updated = try await settingsClient.updateShowAutoSkip(
@@ -284,11 +288,7 @@ struct ShowSettingsSheet: View {
         guard let previous = settings else { return }
 
         playbackSpeedSaveError = nil
-        settings = ShowSettings(
-            id: previous.id, userId: previous.userId, showId: previous.showId,
-            unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
-            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: value)
+        settings = previous.with(playbackSpeed: value)
 
         playbackSpeedSaveVersion += 1
         let requestVersion = playbackSpeedSaveVersion
@@ -307,6 +307,35 @@ struct ShowSettingsSheet: View {
                     settings = previous
                     playbackSpeedSaveError = "Something went wrong while saving. Please try again."
                 }
+            }
+        }
+    }
+
+    private var autoDownloadOverrideBinding: Binding<Bool?> {
+        Binding(
+            get: { settings?.autoDownloadNewEpisodes },
+            set: { newValue in
+                autoDownloadSaveTask?.cancel()
+                autoDownloadSaveTask = Task { await updateAutoDownloadOverride(newValue) }
+            }
+        )
+    }
+
+    private func updateAutoDownloadOverride(_ value: Bool?) async {
+        guard let previous = settings else { return }
+
+        autoDownloadSaveError = nil
+        settings = previous.with(autoDownloadNewEpisodes: value)
+
+        do {
+            let updated = try await settingsClient.updateShowAutoDownloadNewEpisodes(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoDownloadSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

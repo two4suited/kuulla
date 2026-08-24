@@ -10,11 +10,12 @@ struct UserSettings: Codable, Hashable {
     let playbackSpeed: Float
     let autoDeleteRule: AutoDeleteRule
     let autoDeleteAfterDays: Int
+    let autoDownloadNewEpisodes: Bool
 
     init(
         userId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount, version: Int, autoArchiveRule: AutoArchiveRule,
         autoSkipIntroSeconds: Int = 0, autoSkipOutroSeconds: Int = 0, playbackSpeed: Float = 1.0,
-        autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7
+        autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7, autoDownloadNewEpisodes: Bool = false
     ) {
         self.userId = userId
         self.unlistenedEpisodeCount = unlistenedEpisodeCount
@@ -25,11 +26,12 @@ struct UserSettings: Codable, Hashable {
         self.playbackSpeed = playbackSpeed
         self.autoDeleteRule = autoDeleteRule
         self.autoDeleteAfterDays = autoDeleteAfterDays
+        self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
     }
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDeleteRule, autoDeleteAfterDays
+        case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -48,6 +50,35 @@ struct UserSettings: Codable, Hashable {
         // Default to .never/7 when absent (#179), same rationale as autoArchiveRule above.
         autoDeleteRule = try container.decodeIfPresent(AutoDeleteRule.self, forKey: .autoDeleteRule) ?? .never
         autoDeleteAfterDays = try container.decodeIfPresent(Int.self, forKey: .autoDeleteAfterDays) ?? 7
+        // Default to false (off) when absent (#268), same rationale as autoArchiveRule above.
+        autoDownloadNewEpisodes = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadNewEpisodes) ?? false
+    }
+
+    // Copies every field except the ones explicitly overridden. SettingsView's update*()
+    // methods reconstruct an optimistic local UserSettings after changing just one field — with
+    // a plain memberwise init, omitting any field (easy to do as more get added over time)
+    // silently resets it to that init's default until the real server response arrives moments
+    // later, which happened for real once already (playbackSpeed, before #179 fixed it). Routing
+    // every such reconstruction through this method instead removes that whole bug class.
+    func with(
+        unlistenedEpisodeCount: UnlistenedEpisodeCount? = nil,
+        autoArchiveRule: AutoArchiveRule? = nil,
+        autoSkipIntroSeconds: Int? = nil,
+        autoSkipOutroSeconds: Int? = nil,
+        playbackSpeed: Float? = nil,
+        autoDeleteRule: AutoDeleteRule? = nil,
+        autoDeleteAfterDays: Int? = nil,
+        autoDownloadNewEpisodes: Bool? = nil
+    ) -> UserSettings {
+        UserSettings(
+            userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
+            version: version, autoArchiveRule: autoArchiveRule ?? self.autoArchiveRule,
+            autoSkipIntroSeconds: autoSkipIntroSeconds ?? self.autoSkipIntroSeconds,
+            autoSkipOutroSeconds: autoSkipOutroSeconds ?? self.autoSkipOutroSeconds,
+            playbackSpeed: playbackSpeed ?? self.playbackSpeed,
+            autoDeleteRule: autoDeleteRule ?? self.autoDeleteRule,
+            autoDeleteAfterDays: autoDeleteAfterDays ?? self.autoDeleteAfterDays,
+            autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes)
     }
 }
 

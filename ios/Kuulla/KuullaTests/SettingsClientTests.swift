@@ -304,4 +304,68 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertEqual(bodyJSON["autoDeleteRule"] as? Int, 1)
         XCTAssertEqual(bodyJSON["autoDeleteAfterDays"] as? Int, 14)
     }
+
+    func testGetSettingsDefaultsAutoDownloadNewEpisodesToFalseWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertFalse(settings.autoDownloadNewEpisodes)
+    }
+
+    func testUpdateAutoDownloadNewEpisodesSendsPutWithBooleanBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"autoDownloadNewEpisodes":true}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateAutoDownloadNewEpisodes(true)
+
+        XCTAssertTrue(updated.autoDownloadNewEpisodes)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/auto-download"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["autoDownloadNewEpisodes"] as? Bool, true)
+    }
+
+    func testGetShowSettingsDecodesNullAutoDownloadOverrideAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1,"autoDownloadNewEpisodes":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.autoDownloadNewEpisodes)
+    }
+
+    func testUpdateShowAutoDownloadNewEpisodesClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"autoDownloadNewEpisodes":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowAutoDownloadNewEpisodes(showId: "s1", value: nil)
+
+        XCTAssertNil(updated.autoDownloadNewEpisodes)
+        XCTAssertEqual(updated.version, 3)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/auto-download"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["autoDownloadNewEpisodes"])
+    }
 }

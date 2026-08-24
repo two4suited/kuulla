@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var archiveSaveError: String?
     @State private var autoSkipSaveError: String?
     @State private var autoDeleteSaveError: String?
+    @State private var autoDownloadSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
@@ -19,6 +20,7 @@ struct SettingsView: View {
     @State private var archiveSaveTask: Task<Void, Never>?
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var autoDeleteSaveTask: Task<Void, Never>?
+    @State private var autoDownloadSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -75,6 +77,9 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Auto-download new episodes", isOn: autoDownloadNewEpisodesBinding)
+                    .disabled(settings == nil)
+
                 Picker("Delete downloads", selection: autoDeleteRuleBinding) {
                     ForEach(AutoDeleteRule.allCases) { option in
                         Text(option.label).tag(option)
@@ -88,10 +93,24 @@ struct SettingsView: View {
                         Text("After \(days) day\(days == 1 ? "" : "s")")
                     }
                 }
+
+                NavigationLink(value: CatalogRoute.downloads) {
+                    Text("Manage Downloads")
+                }
+            } header: {
+                Text("Downloads & Storage")
             } footer: {
-                if let autoDeleteSaveError {
-                    Text(autoDeleteSaveError)
-                        .foregroundStyle(.red)
+                // Independent, not else-if: an auto-download save failing shouldn't hide an
+                // auto-delete save failure that's also currently set, or vice versa.
+                VStack(alignment: .leading, spacing: 4) {
+                    if let autoDownloadSaveError {
+                        Text(autoDownloadSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if let autoDeleteSaveError {
+                        Text(autoDeleteSaveError)
+                            .foregroundStyle(.red)
+                    }
                 }
             }
 
@@ -187,6 +206,16 @@ struct SettingsView: View {
         )
     }
 
+    private var autoDownloadNewEpisodesBinding: Binding<Bool> {
+        Binding(
+            get: { settings?.autoDownloadNewEpisodes ?? false },
+            set: { newValue in
+                autoDownloadSaveTask?.cancel()
+                autoDownloadSaveTask = Task { await updateAutoDownloadNewEpisodes(newValue) }
+            }
+        )
+    }
+
     // The presets don't cover every value the API accepts (0...3600), so a value saved from
     // elsewhere (or a future release with different presets) that doesn't match one of them gets
     // a synthesized "Custom" row rather than silently snapping to the nearest preset (or "Off").
@@ -217,14 +246,7 @@ struct SettingsView: View {
         guard let previous = settings else { return }
 
         saveError = nil
-        // Every field from `previous` is passed through explicitly (not just the one changing)
-        // — omitting any would silently reset it to UserSettings.init's default in this
-        // optimistic local update, until the real server response overwrites it moments later.
-        settings = UserSettings(
-            userId: previous.userId, unlistenedEpisodeCount: value, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
-            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: previous.playbackSpeed,
-            autoDeleteRule: previous.autoDeleteRule, autoDeleteAfterDays: previous.autoDeleteAfterDays)
+        settings = previous.with(unlistenedEpisodeCount: value)
 
         do {
             let updated = try await settingsClient.updateUnlistenedEpisodeCount(value)
@@ -243,11 +265,7 @@ struct SettingsView: View {
         guard let previous = settings else { return }
 
         archiveSaveError = nil
-        settings = UserSettings(
-            userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: value, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
-            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: previous.playbackSpeed,
-            autoDeleteRule: previous.autoDeleteRule, autoDeleteAfterDays: previous.autoDeleteAfterDays)
+        settings = previous.with(autoArchiveRule: value)
 
         do {
             let updated = try await settingsClient.updateAutoArchiveRule(value)
@@ -266,11 +284,7 @@ struct SettingsView: View {
         guard let previous = settings else { return }
 
         autoSkipSaveError = nil
-        settings = UserSettings(
-            userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds,
-            playbackSpeed: previous.playbackSpeed, autoDeleteRule: previous.autoDeleteRule,
-            autoDeleteAfterDays: previous.autoDeleteAfterDays)
+        settings = previous.with(autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds)
 
         do {
             let updated = try await settingsClient.updateAutoSkip(introSeconds: introSeconds, outroSeconds: outroSeconds)
@@ -289,11 +303,7 @@ struct SettingsView: View {
         guard let previous = settings else { return }
 
         autoDeleteSaveError = nil
-        settings = UserSettings(
-            userId: previous.userId, unlistenedEpisodeCount: previous.unlistenedEpisodeCount, version: previous.version,
-            autoArchiveRule: previous.autoArchiveRule, autoSkipIntroSeconds: previous.autoSkipIntroSeconds,
-            autoSkipOutroSeconds: previous.autoSkipOutroSeconds, playbackSpeed: previous.playbackSpeed,
-            autoDeleteRule: rule, autoDeleteAfterDays: afterDays)
+        settings = previous.with(autoDeleteRule: rule, autoDeleteAfterDays: afterDays)
 
         do {
             let updated = try await settingsClient.updateAutoDeleteRule(rule, afterDays: afterDays)
@@ -304,6 +314,25 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDeleteSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateAutoDownloadNewEpisodes(_ value: Bool) async {
+        guard let previous = settings else { return }
+
+        autoDownloadSaveError = nil
+        settings = previous.with(autoDownloadNewEpisodes: value)
+
+        do {
+            let updated = try await settingsClient.updateAutoDownloadNewEpisodes(value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoDownloadSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }
