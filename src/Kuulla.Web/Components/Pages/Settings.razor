@@ -99,6 +99,54 @@
                 }
             </div>
 
+            <h2 class="h5 mt-4">Downloads &amp; Storage</h2>
+
+            <div class="mb-3" style="max-width: 24rem;">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="auto-download-new-episodes"
+                           disabled="@isAutoDownloadSaving" checked="@selectedAutoDownloadNewEpisodes"
+                           @onchange="OnAutoDownloadNewEpisodesChangedAsync" />
+                    <label class="form-check-label" for="auto-download-new-episodes">Auto-download new episodes</label>
+                </div>
+                @if (autoDownloadSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@autoDownloadSaveError</p>
+                }
+                else if (autoDownloadSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="auto-delete-rule">Delete downloads</label>
+                <select id="auto-delete-rule" class="form-select" disabled="@isAutoDeleteSaving"
+                        value="@selectedAutoDeleteRule" @onchange="OnAutoDeleteRuleChangedAsync">
+                    @foreach (var option in AutoDeleteRuleUi.Options)
+                    {
+                        <option value="@option">@AutoDeleteRuleUi.Format(option)</option>
+                    }
+                </select>
+                @if (selectedAutoDeleteRule == AutoDeleteRule.AfterDays)
+                {
+                    <div class="mt-2 d-flex align-items-center gap-2">
+                        <label class="form-label mb-0" for="auto-delete-after-days">After</label>
+                        <input id="auto-delete-after-days" type="number" class="form-control" style="width: 6rem;"
+                               min="1" max="365" disabled="@isAutoDeleteSaving" value="@selectedAutoDeleteAfterDays"
+                               @onchange="OnAutoDeleteAfterDaysChangedAsync" />
+                        <span>day(s)</span>
+                    </div>
+                }
+                @if (autoDeleteSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@autoDeleteSaveError</p>
+                }
+                else if (autoDeleteSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
             @if (saveError is not null)
             {
                 <p class="text-danger">@saveError</p>
@@ -137,6 +185,17 @@
     private bool isPlaybackSpeedSaving;
     private string? playbackSpeedSaveError;
     private bool playbackSpeedSaveSavedConfirmation;
+    private bool selectedAutoDownloadNewEpisodes;
+    private bool isAutoDownloadSaving;
+    private string? autoDownloadSaveError;
+    private bool autoDownloadSaveSavedConfirmation;
+    private AutoDeleteRule selectedAutoDeleteRule;
+    private int selectedAutoDeleteAfterDays;
+    private bool isAutoDeleteSaving;
+    private string? autoDeleteSaveError;
+    private bool autoDeleteSaveSavedConfirmation;
+    private int autoDeleteSaveVersion;
+    private readonly SemaphoreSlim autoDeleteSaveLock = new(1, 1);
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -160,6 +219,9 @@
             selectedAutoSkipIntroSeconds = settings.AutoSkipIntroSeconds;
             selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
             selectedPlaybackSpeed = settings.PlaybackSpeed;
+            selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
+            selectedAutoDeleteRule = settings.AutoDeleteRule;
+            selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
         }
         catch (HttpRequestException)
         {
@@ -326,6 +388,93 @@
         finally
         {
             isPlaybackSpeedSaving = false;
+        }
+    }
+
+    private async Task OnAutoDownloadNewEpisodesChangedAsync(ChangeEventArgs args)
+    {
+        var value = args.Value is bool boolValue && boolValue;
+        var previous = selectedAutoDownloadNewEpisodes;
+        selectedAutoDownloadNewEpisodes = value;
+        isAutoDownloadSaving = true;
+        autoDownloadSaveError = null;
+        autoDownloadSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateAutoDownloadNewEpisodesAsync(value);
+            autoDownloadSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedAutoDownloadNewEpisodes = previous;
+            autoDownloadSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isAutoDownloadSaving = false;
+        }
+    }
+
+    private async Task OnAutoDeleteRuleChangedAsync(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<AutoDeleteRule>(args.Value?.ToString(), out var value) || !Enum.IsDefined(value))
+        {
+            return;
+        }
+
+        await SaveAutoDeleteRuleAsync(value, selectedAutoDeleteAfterDays);
+    }
+
+    private async Task OnAutoDeleteAfterDaysChangedAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var value) || value is < 1 or > 365)
+        {
+            return;
+        }
+
+        await SaveAutoDeleteRuleAsync(selectedAutoDeleteRule, value);
+    }
+
+    private async Task SaveAutoDeleteRuleAsync(AutoDeleteRule rule, int afterDays)
+    {
+        // Guards against the rule select and the day-count input racing each other, same as
+        // SaveAutoSkipAsync above — the lock ensures at most one PUT /api/settings/auto-delete is
+        // in flight at a time, and the version check drops a call that was superseded while it
+        // waited for the lock.
+        var requestVersion = ++autoDeleteSaveVersion;
+        var previousRule = selectedAutoDeleteRule;
+        var previousAfterDays = selectedAutoDeleteAfterDays;
+        selectedAutoDeleteRule = rule;
+        selectedAutoDeleteAfterDays = afterDays;
+        isAutoDeleteSaving = true;
+        autoDeleteSaveError = null;
+        autoDeleteSaveSavedConfirmation = false;
+
+        await autoDeleteSaveLock.WaitAsync();
+        try
+        {
+            if (requestVersion != autoDeleteSaveVersion)
+            {
+                return;
+            }
+
+            await SettingsClient.UpdateAutoDeleteRuleAsync(rule, afterDays);
+            autoDeleteSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedAutoDeleteRule = previousRule;
+            selectedAutoDeleteAfterDays = previousAfterDays;
+            autoDeleteSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            autoDeleteSaveLock.Release();
+            if (requestVersion == autoDeleteSaveVersion)
+            {
+                isAutoDeleteSaving = false;
+            }
         }
     }
 }

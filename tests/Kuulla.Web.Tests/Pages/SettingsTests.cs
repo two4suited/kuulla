@@ -11,7 +11,8 @@ public class SettingsTests : WebTestContext
 
     private static TestHttpMessageHandler CreateHandler(
         UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,
-        UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null) =>
+        UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null,
+        UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null) =>
         new(request =>
         {
             if (request.RequestUri!.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
@@ -51,6 +52,22 @@ public class SettingsTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(playbackSpeedPutResponse ?? DefaultSettings),
+                };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/settings/auto-delete" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(autoDeletePutResponse ?? DefaultSettings),
+                };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/settings/auto-download" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(autoDownloadPutResponse ?? DefaultSettings),
                 };
             }
 
@@ -233,6 +250,124 @@ public class SettingsTests : WebTestContext
         {
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.Equal("1", cut.Find("#playback-speed").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void RendersCurrentAutoDownloadNewEpisodes_WhenLoadSucceeds()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            AutoDownloadNewEpisodes: true)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.True(cut.Find("#auto-download-new-episodes").HasAttribute("checked")));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsAutoDownloadNewEpisodes_WhenToggled()
+    {
+        ConfigureApi(CreateHandler(autoDownloadPutResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
+            AutoDownloadNewEpisodes: true)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Auto-download new episodes", cut.Markup));
+
+        cut.Find("#auto-download-new-episodes").Change(true);
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void RendersCurrentAutoDeleteRule_WhenLoadSucceeds()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            AutoDeleteRule: AutoDeleteRule.AfterPlayed)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.Equal("AfterPlayed", cut.Find("#auto-delete-rule").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void ShowsAfterDaysInput_WhenRuleIsAfterDays()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            AutoDeleteRule: AutoDeleteRule.AfterDays, AutoDeleteAfterDays: 14)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.Equal("14", cut.Find("#auto-delete-after-days").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void HidesAfterDaysInput_WhenRuleIsNotAfterDays()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            AutoDeleteRule: AutoDeleteRule.Never)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Delete downloads", cut.Markup));
+        Assert.Empty(cut.FindAll("#auto-delete-after-days"));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsAutoDeleteAfterDays_WhenInputChanges()
+    {
+        ConfigureApi(CreateHandler(
+            getResponse: new(
+                "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+                AutoDeleteRule: AutoDeleteRule.AfterDays, AutoDeleteAfterDays: 7),
+            autoDeletePutResponse: new(
+                "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
+                AutoDeleteRule: AutoDeleteRule.AfterDays, AutoDeleteAfterDays: 21)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("7", cut.Find("#auto-delete-after-days").GetAttribute("value")));
+
+        cut.Find("#auto-delete-after-days").Change("21");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsAutoDeleteRule_WhenSelectionChanges()
+    {
+        ConfigureApi(CreateHandler(autoDeletePutResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
+            AutoDeleteRule: AutoDeleteRule.AfterPlayed)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Delete downloads", cut.Markup));
+
+        cut.Find("#auto-delete-rule").Change("AfterPlayed");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsErrorAndRevertsAutoDeleteRule_WhenSaveFails()
+    {
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/settings/auto-delete" && request.Method == HttpMethod.Put
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("Never", cut.Find("#auto-delete-rule").GetAttribute("value")));
+
+        cut.Find("#auto-delete-rule").Change("AfterPlayed");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.Equal("Never", cut.Find("#auto-delete-rule").GetAttribute("value"));
         });
     }
 }
