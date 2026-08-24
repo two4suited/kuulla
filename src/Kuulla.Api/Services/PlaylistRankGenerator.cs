@@ -15,6 +15,13 @@ namespace Kuulla.Api.Services;
 // makes naive digit-by-digit midpoint algorithms easy to get subtly wrong.
 public static class PlaylistRankGenerator
 {
+    // Shared with PlaylistService's full-rebuild ordering (ComputeDynamicItemsAsync) and
+    // EpisodeService's incremental per-episode insert (EvictOverflowAsync) — both cap an
+    // unbounded (MaxEpisodes: null) dynamic playlist at the same size so it can't grow past
+    // Cosmos's 2MB item size limit. High enough that no real playlist hits it, low enough to
+    // stay comfortably under the document limit.
+    public const int UnboundedSafetyCap = 2000;
+
     private const string Digits = "0123456789abcdefghijklmnopqrstuvwxyz";
     private const int Base = 36;
 
