@@ -3,6 +3,8 @@ import SwiftUI
 struct PlaylistDetailView: View {
     let playlistId: String
 
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var playlist: PlaylistDetail?
     @State private var isLoading = false
     @State private var loadError: String?
@@ -73,6 +75,20 @@ struct PlaylistDetailView: View {
         }
         .task(id: playlistId) {
             await load()
+        }
+        .refreshable {
+            await load()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Mirrors SettingsView's guard/trigger shape (re-fetch on foreground resume), but
+            // skips SettingsView's syncEngine.syncNow() step — this view reloads via
+            // GET /api/playlists/{id} (src/Kuulla.Api/Services/PlaylistService.cs), which always
+            // returns current server state, so a re-fetch alone already reflects a dynamic
+            // playlist's server-side auto-insertions/evictions (#112). KuullaApp already runs
+            // playlistSyncEngine.syncNow() on this same scenePhase transition for pushing this
+            // device's own pending local writes — no need to duplicate that call here.
+            guard newPhase == .active, playlist != nil else { return }
+            Task { await load() }
         }
     }
 
