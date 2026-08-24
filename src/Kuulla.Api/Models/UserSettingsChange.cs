@@ -14,4 +14,5 @@ public record UserSettingsChange(
     AutoDeleteRule AutoDeleteRule,
     int AutoDeleteAfterDays,
     bool AutoDownloadNewEpisodes,
+    bool SmartSpeed,
     DateTimeOffset UpdatedAt);
