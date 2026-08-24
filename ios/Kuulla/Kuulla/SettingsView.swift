@@ -100,12 +100,17 @@ struct SettingsView: View {
             } header: {
                 Text("Downloads & Storage")
             } footer: {
-                if let autoDownloadSaveError {
-                    Text(autoDownloadSaveError)
-                        .foregroundStyle(.red)
-                } else if let autoDeleteSaveError {
-                    Text(autoDeleteSaveError)
-                        .foregroundStyle(.red)
+                // Independent, not else-if: an auto-download save failing shouldn't hide an
+                // auto-delete save failure that's also currently set, or vice versa.
+                VStack(alignment: .leading, spacing: 4) {
+                    if let autoDownloadSaveError {
+                        Text(autoDownloadSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if let autoDeleteSaveError {
+                        Text(autoDeleteSaveError)
+                            .foregroundStyle(.red)
+                    }
                 }
             }
 

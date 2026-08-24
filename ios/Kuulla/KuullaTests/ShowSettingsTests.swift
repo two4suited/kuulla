@@ -33,7 +33,12 @@ final class ShowSettingsTests: XCTestCase {
     }
 
     func testOmittingArgumentLeavesOverrideUntouched() {
-        let updated = base.with(playbackSpeed: nil)
+        // Passes a genuinely different, non-nil value for a different field — unlike
+        // `with(playbackSpeed: nil)`, which is ambiguous-looking (nil-for-omission vs.
+        // nil-for-clear) even though it happens to mean "omitted" here, this leaves no doubt
+        // that autoDownloadNewEpisodes's unchanged value comes from being untouched, not from
+        // some nil-handling coincidence.
+        let updated = base.with(autoSkipIntroSeconds: 99)
         XCTAssertEqual(updated.autoDownloadNewEpisodes, base.autoDownloadNewEpisodes)
     }
 }
