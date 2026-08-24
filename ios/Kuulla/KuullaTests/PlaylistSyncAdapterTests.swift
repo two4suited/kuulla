@@ -75,6 +75,46 @@ final class PlaylistSyncAdapterTests: MockedApiTestCase {
         XCTAssertFalse(stored.isDirty)
     }
 
+    // #114: dynamic playlist item changes (auto-insert/evict, #112) are whole-document Playlist
+    // updates on the server, not the granular per-item changes manual reordering produces —
+    // verify apply(record:in:) replaces the existing record's items/dynamicConfig wholesale with
+    // whatever the server sent, rather than merging, so a server-side insert or eviction round-
+    // trips correctly.
+    func testApplyReplacesItemsAndDynamicConfigOnDynamicPlaylistUpdate() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let originalItem = PlaylistItemRecord(
+            episodeId: "ep1", showId: "show1", addedAt: Date(timeIntervalSince1970: 1_600_000_000), order: "m")
+        context.insert(PlaylistRecord(
+            id: "dynamic1", name: "Auto Mix", type: .dynamic, items: [originalItem],
+            createdAt: Date(timeIntervalSince1970: 1_600_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_600_000_000),
+            isDirty: false,
+            dynamicConfig: DynamicPlaylistConfigRecord(showIds: ["show1"], maxEpisodes: 2, priorityList: ["show1"])))
+        try context.save()
+
+        // Server auto-inserted "ep2" ahead of "ep1" and evicted nothing yet — a whole-document
+        // replacement of Items, exactly what EpisodeService.InsertIntoDynamicPlaylistsAsync's
+        // optimistic-concurrency upsert produces.
+        let adapter = PlaylistSyncAdapter(apiClient: apiClient)
+        let updated = PlaylistRecord(
+            id: "dynamic1", name: "Auto Mix", type: .dynamic,
+            items: [
+                PlaylistItemRecord(episodeId: "ep2", showId: "show1", addedAt: Date(timeIntervalSince1970: 1_700_000_000), order: "b"),
+                PlaylistItemRecord(episodeId: "ep1", showId: "show1", addedAt: Date(timeIntervalSince1970: 1_600_000_000), order: "m"),
+            ],
+            createdAt: Date(timeIntervalSince1970: 1_600_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            dynamicConfig: DynamicPlaylistConfigRecord(showIds: ["show1"], maxEpisodes: 2, priorityList: ["show1"]))
+
+        try adapter.apply(updated, in: context)
+
+        let stored = try XCTUnwrap(try context.fetch(FetchDescriptor<PlaylistRecord>()).first)
+        XCTAssertEqual(stored.items.map(\.episodeId), ["ep2", "ep1"])
+        XCTAssertEqual(stored.dynamicConfig?.maxEpisodes, 2)
+        XCTAssertFalse(stored.isDirty)
+    }
+
     func testApplyDiscardsServerChangeOlderThanStoredRecord() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)
