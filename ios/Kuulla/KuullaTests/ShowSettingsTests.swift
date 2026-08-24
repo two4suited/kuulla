@@ -5,7 +5,7 @@ final class ShowSettingsTests: XCTestCase {
     private let base = ShowSettings(
         id: "show:u1:s1", userId: "u1", showId: "s1", unlistenedEpisodeCount: .ten,
         version: 1, autoArchiveRule: .after7Days, autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20,
-        playbackSpeed: 1.5, autoDownloadNewEpisodes: true)
+        playbackSpeed: 1.5, autoDownloadNewEpisodes: true, smartSpeed: true)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -19,6 +19,7 @@ final class ShowSettingsTests: XCTestCase {
         // ShowSettingsSheet.updatePlaybackSpeedOverride omitted autoDownloadNewEpisodes
         // entirely, which would have silently cleared this override.
         XCTAssertEqual(updated.autoDownloadNewEpisodes, base.autoDownloadNewEpisodes)
+        XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
     }
 
     func testWithNoArgumentsReturnsAnEquivalentCopy() {

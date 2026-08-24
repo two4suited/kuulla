@@ -26,6 +26,7 @@ struct EpisodeDetailView: View {
     @State private var autoSkipIntroSeconds = 0
     @State private var autoSkipOutroSeconds = 0
     @State private var playbackSpeed: Float = 1.0
+    @State private var smartSpeed = false
     // Global-only (no per-show override), per docs/downloads-storage-settings.md.
     @State private var autoDeleteRule: AutoDeleteRule = .never
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
@@ -224,6 +225,7 @@ struct EpisodeDetailView: View {
         autoSkipIntroSeconds = show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0
         autoSkipOutroSeconds = show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0
         playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
+        smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
         autoDeleteRule = user?.autoDeleteRule ?? .never
 
         // This fetch races the play button: a tap before it resolves starts playback at the
@@ -298,7 +300,7 @@ struct EpisodeDetailView: View {
             audioPlayer.play(
                 url: url, startPosition: startPosition,
                 autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
-                playbackSpeed: playbackSpeed)
+                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed)
             startProgressTracking()
         }
     }

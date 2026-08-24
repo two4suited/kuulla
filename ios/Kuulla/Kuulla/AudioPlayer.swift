@@ -45,6 +45,11 @@ final class AudioPlayer {
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
 
+    // Retains the tap's client (MTAudioProcessingTapCreate only weak-refs it via clientInfo) for
+    // as long as the current SmartSpeed-enabled session is playing — nil whenever SmartSpeed is
+    // off, so the tap-processing cost is only ever paid when the feature is actually in use.
+    private var smartSpeedProcessor: SmartSpeedProcessor?
+
     private var autoSkipOutroSeconds: TimeInterval = 0
     // Guards against firing the outro skip more than once per playback (the periodic time
     // observer keeps ticking after the skip fires, since the item is merely paused, not
@@ -86,7 +91,7 @@ final class AudioPlayer {
     func play(
         url: URL, startPosition: TimeInterval = 0,
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
-        playbackSpeed: Float = 1.0
+        playbackSpeed: Float = 1.0, smartSpeed: Bool = false
     ) {
         streamBlockedMessage = nil
         streamBlockedURL = nil
@@ -106,6 +111,26 @@ final class AudioPlayer {
         // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
         // without the chipmunk effect a naive rate change would produce.
         item.audioTimePitchAlgorithm = .timeDomain
+
+        if smartSpeed {
+            let processor = SmartSpeedProcessor()
+            // Captures item weakly so a later play() that replaces self.player (and drops this
+            // item) can't have this stale session's detector seek the new player out from under
+            // it — the identity check below is the real guard, this just avoids retaining a dead
+            // item purely to compare against.
+            processor.onSilenceDetected = { [weak self, weak item] itemTime, runDuration in
+                DispatchQueue.main.async {
+                    guard let self, let item, self.player?.currentItem === item else { return }
+                    let skipTo = max(self.currentTime, itemTime + runDuration)
+                    self.player?.seek(to: CMTime(seconds: skipTo, preferredTimescale: 600))
+                }
+            }
+            item.audioMix = processor.makeAudioMix(for: item)
+            smartSpeedProcessor = processor
+        } else {
+            smartSpeedProcessor = nil
+        }
+
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
         currentURL = url
