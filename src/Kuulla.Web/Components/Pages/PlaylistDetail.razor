@@ -4,6 +4,7 @@
 @using System.Text.Json
 @using Kuulla.Web.Models
 @using Kuulla.Web.Services
+@using Kuulla.Web.Services.Sync
 @inject PlaylistClient PlaylistClient
 @inject EpisodeStateClient EpisodeStateClient
 @inject IJSRuntime JS
@@ -25,7 +26,16 @@ else if (playlist is null)
 else
 {
     <div class="d-flex align-items-center justify-content-between mb-4">
-        <h1 class="mb-0">@playlist.Name</h1>
+        <div class="d-flex align-items-center gap-2">
+            <h1 class="mb-0">@playlist.Name</h1>
+            @if (syncStatusService is not null)
+            {
+                @* @key forces a fresh SyncStatusIndicator instance (and StateChanged subscription)
+                   whenever Id changes, since navigating between playlists reuses this same routed
+                   component rather than remounting it — see syncStatusService's doc comment below. *@
+                <SyncStatusIndicator @key="Id" Service="syncStatusService" />
+            }
+        </div>
         @if (VisibleItems.Count > 0)
         {
             var first = VisibleItems[0];
@@ -143,6 +153,17 @@ else
     private bool showOnlyUnplayed;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
 
+    // Surfaces server-side auto-insertions/evictions (#112) into a dynamic playlist without the
+    // user having to leave and re-enter this page — follows the existing poll-on-focus pattern
+    // (SyncStatusService.cs/SyncStatusIndicator.razor, #86) rather than a new mechanism. Unlike
+    // NewEpisodes.razor's ApplyServerChanges (which merges EpisodeState fields directly),
+    // ApplyServerChanges here just re-fetches the resolved PlaylistDetail: the sync endpoint's
+    // Playlist records carry raw Items (EpisodeId/ShowId/Order) with no resolved title/artwork,
+    // and #112's auto-insert is a whole-document update anyway, so there's nothing granular to
+    // merge — matching PlaylistSyncAdapter.apply(record:in:) on iOS (#114) taking the same
+    // whole-document-replace approach.
+    private SyncStatusService<Kuulla.Web.Models.Playlist>? syncStatusService;
+
     private List<Kuulla.Web.Models.PlaylistItemDetail> VisibleItems =>
         playlist is null
             ? []
@@ -158,6 +179,12 @@ else
     protected override async Task OnParametersSetAsync()
     {
         await DisposeInteropAsync();
+
+        // A previous playlist's sync service is scoped to that playlist's Id/hash bookkeeping —
+        // discard it here rather than leaving it polling for a route the user has navigated away
+        // from. @key="Id" on <SyncStatusIndicator> above handles unsubscribing its own
+        // StateChanged handler when the old instance is torn down.
+        syncStatusService = null;
 
         playlist = null;
         loadError = null;
@@ -183,6 +210,75 @@ else
         // Unplayed-only is the default filter (set above), so hydrate episode states up front
         // rather than waiting for the user to toggle it.
         await LoadEpisodeStatesAsync();
+
+        if (playlist is not null)
+        {
+            await InitializeSyncStatusAsync();
+        }
+    }
+
+    // Kept out of the try/catch blocks above on purpose, same rationale as NewEpisodes.razor's
+    // identical split: the sync-status indicator is supplementary, so a hiccup seeding it
+    // shouldn't hide an already-loaded playlist.
+    private async Task InitializeSyncStatusAsync()
+    {
+        try
+        {
+            var initialSync = await PlaylistClient.SyncAsync(string.Empty, DateTimeOffset.MinValue);
+            syncStatusService = new SyncStatusService<Kuulla.Web.Models.Playlist>(
+                PlaylistClient.SyncAsync,
+                ApplyServerChanges,
+                initialSync.Hash,
+                initialSync.SyncedAt);
+        }
+        catch (HttpRequestException)
+        {
+        }
+    }
+
+    private void ApplyServerChanges(IReadOnlyList<Kuulla.Web.Models.Playlist> serverChanges)
+    {
+        if (serverChanges.All(change => change.Id != Id))
+        {
+            return;
+        }
+
+        // ApplyServerChanges is invoked from SyncStatusService<T>'s poll (ultimately triggered by
+        // SyncStatusIndicator's [JSInvokable] OnFocusRegained), so dispatch the fetch-and-render
+        // through InvokeAsync rather than firing it directly — keeps StateHasChanged on the
+        // renderer's own dispatcher queue instead of assuming this call stack is already on it,
+        // and surfaces any exception through the renderer instead of leaving an unobserved task.
+        _ = InvokeAsync(RefetchAfterRemoteChangeAsync);
+    }
+
+    private async Task RefetchAfterRemoteChangeAsync()
+    {
+        try
+        {
+            playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
+            if (showOnlyUnplayed)
+            {
+                await LoadEpisodeStatesAsync();
+            }
+        }
+        catch (HttpRequestException)
+        {
+            // Leave the currently-displayed playlist as-is — the next focus-regained poll (or a
+            // manual navigation) will retry.
+        }
+        catch (OperationCanceledException)
+        {
+            // Same rationale as LoadEpisodeStatesAsync's identical catch — HttpClient cancellation
+            // surfaces as this (or TaskCanceledException, which derives from it) rather than
+            // always TaskCanceledException specifically.
+        }
+        catch (JsonException)
+        {
+        }
+        finally
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task LoadEpisodeStatesAsync()
@@ -284,6 +380,10 @@ else
                 // matches reality, but say so rather than silently pretending this call succeeded.
                 mutationError = "This playlist no longer exists.";
             }
+            else
+            {
+                await SyncOwnWriteBestEffortAsync();
+            }
         }
         catch (HttpRequestException)
         {
@@ -293,6 +393,24 @@ else
         finally
         {
             busyEpisodeIds.Remove(episodeId);
+        }
+    }
+
+    // Bookkeeping-only, matching NewEpisodes.razor's identical SyncOwnWriteBestEffortAsync: the
+    // write already succeeded server-side, so a failure here shouldn't roll back the UI or report
+    // an error. Without this, the next focus-regained poll would see this device's own write as a
+    // hash change it doesn't recognize and misreport it as "Updated from another device".
+    private async Task SyncOwnWriteBestEffortAsync()
+    {
+        if (syncStatusService is not null)
+        {
+            try
+            {
+                await syncStatusService.SyncOwnWriteAsync();
+            }
+            catch (HttpRequestException)
+            {
+            }
         }
     }
 
@@ -315,6 +433,8 @@ else
         {
             await LoadEpisodeStatesAsync();
         }
+
+        await SyncOwnWriteBestEffortAsync();
     }
 
     [JSInvokable]
@@ -357,6 +477,7 @@ else
                 // from the detail endpoint instead of reusing this response, or the list would lose
                 // its display fields until the next full page load.
                 playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
+                await SyncOwnWriteBestEffortAsync();
             }
         }
         catch (HttpRequestException)
