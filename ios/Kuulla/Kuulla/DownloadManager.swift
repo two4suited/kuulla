@@ -62,6 +62,11 @@ final class DownloadManager: NSObject {
     // first real callback lands when the setting is on.
     private var isOnWifi = false
 
+    // Retained so its NWPathMonitor keeps running — startObserving's closure only captures
+    // onUpdate, not the observer itself, so without this the adapter deinits at the end of
+    // init and path updates silently stop (mirrors the AudioPlayer fix, #271).
+    private var pathObserver: NetworkPathObserving
+
     private convenience override init() {
         let configuration = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
         configuration.sessionSendsLaunchEvents = true
@@ -74,9 +79,10 @@ final class DownloadManager: NSObject {
     // touching the real network or the OS's background-transfer daemon. `pathObserver` is
     // similarly swappable so tests can simulate Wi-Fi/cellular transitions deterministically.
     init(configuration: URLSessionConfiguration, pathObserver: NetworkPathObserving = NWPathMonitorAdapter()) {
+        self.pathObserver = pathObserver
         super.init()
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-        pathObserver.startObserving { [weak self] isOnWifi in
+        self.pathObserver.startObserving { [weak self] isOnWifi in
             DispatchQueue.main.async { self?.handlePathUpdate(isOnWifi: isOnWifi) }
         }
         reattachExistingTasks()
