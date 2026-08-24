@@ -90,7 +90,7 @@ final class PlaylistSyncAdapterTests: MockedApiTestCase {
             createdAt: Date(timeIntervalSince1970: 1_600_000_000),
             updatedAt: Date(timeIntervalSince1970: 1_600_000_000),
             isDirty: false,
-            dynamicConfig: DynamicPlaylistConfigRecord(showIds: ["show1"], maxEpisodes: 2, priorityList: ["show1"])))
+            dynamicConfig: DynamicPlaylistConfigRecord(showIds: ["show1"], maxEpisodes: 5, priorityList: ["show1"])))
         try context.save()
 
         // Server auto-inserted "ep2" ahead of "ep1" and evicted nothing yet — a whole-document

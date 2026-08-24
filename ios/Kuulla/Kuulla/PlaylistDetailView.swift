@@ -3,7 +3,6 @@ import SwiftUI
 struct PlaylistDetailView: View {
     let playlistId: String
 
-    @Environment(\.playlistSyncEngine) private var syncEngine
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var playlist: PlaylistDetail?
@@ -81,22 +80,16 @@ struct PlaylistDetailView: View {
             await load()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            // Mirrors SettingsView's identical guard/trigger: re-fetch when this view resumes in
-            // the foreground, so a dynamic playlist's server-side auto-insertions/evictions (#112)
-            // — which can land at any time a subscribed show's feed refreshes, not just in
-            // response to something this device did — show up without a manual pull.
+            // Mirrors SettingsView's guard/trigger shape (re-fetch on foreground resume), but
+            // skips SettingsView's syncEngine.syncNow() step — this view reloads via
+            // GET /api/playlists/{id} (src/Kuulla.Api/Services/PlaylistService.cs), which always
+            // returns current server state, so a re-fetch alone already reflects a dynamic
+            // playlist's server-side auto-insertions/evictions (#112). KuullaApp already runs
+            // playlistSyncEngine.syncNow() on this same scenePhase transition for pushing this
+            // device's own pending local writes — no need to duplicate that call here.
             guard newPhase == .active, playlist != nil else { return }
-            Task { await refreshFromRemote() }
+            Task { await load() }
         }
-    }
-
-    private func refreshFromRemote() async {
-        // GetPlaylistDetailAsync (src/Kuulla.Api/Services/PlaylistService.cs) always returns
-        // current server state, so load() alone already reflects auto-insertions/evictions —
-        // syncing first only matters for flushing this device's own pending local writes (a
-        // manual reorder/remove) before re-fetching, same rationale as SettingsView.refreshFromRemote.
-        await syncEngine?.syncNow()
-        await load()
     }
 
     private func load() async {
