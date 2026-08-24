@@ -100,6 +100,7 @@ struct FeedView: View {
         let globalDefault = (try? await settingsClient.getSettings())?.autoDownloadNewEpisodes ?? false
         let showOverrides = await fetchShowAutoDownloadOverrides(for: Set(candidates.map(\.showId)))
 
+        var didStartAnyDownload = false
         for episode in candidates {
             // A show whose settings fetch failed has no key here at all — distinct from a show
             // that was fetched successfully and has no override (present with a nil value).
@@ -112,7 +113,18 @@ struct FeedView: View {
                 downloadStatus: downloadStatusByEpisodeId[episode.id], showOverride: showOverride, globalDefault: globalDefault
             ) {
                 DownloadManager.shared.startDownload(episode: episode)
+                didStartAnyDownload = true
             }
+        }
+
+        // startDownload writes a .downloading DownloadedEpisodeRecord synchronously — including
+        // for a Wi-Fi-only download that's merely queued, not yet an actual transfer (#180), the
+        // one case DownloadButton's own live-progress override can't cover on its own, since
+        // DownloadManager.progress has no entry for a queued episode either. Without this,
+        // affected rows would keep showing the down-arrow until something else happened to
+        // trigger a refresh.
+        if didStartAnyDownload {
+            refreshStatuses()
         }
     }
 
