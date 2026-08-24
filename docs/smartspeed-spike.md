@@ -23,12 +23,15 @@ flight over the network.
   separate `AudioUnit` (e.g. `AUDynamicsProcessor`) inside the tap; that's possible but
   adds AudioComponent-hosting complexity this doesn't need for a single gain stage.
 - **Silence trim**: compute rolling RMS per callback; once a below-threshold run
-  exceeds a minimum duration (avoids trimming mid-word pauses), the callback can't seek
-  the player itself — a tap runs off-main and mid-render — so it hands the detected
-  window to `AudioPlayer` via a thread-safe callback, which dispatches an `async` seek
-  on the main queue to skip past it. Because the tap only sees already-buffered audio,
-  the skip target is always inside material `AVPlayer` already has; it never seeks into
-  unbuffered network audio and can't trigger a stall.
+  exceeds a minimum duration (avoids trimming mid-word pauses), the tap can't know how
+  much *longer* the run will last — it only ever sees audio as it's about to render,
+  never ahead of it — so there's no target position to seek to (the audio spanning a
+  "seek past the silence" jump hasn't been decided yet when the run is first
+  confirmed). Instead the callback hands a state transition (silence started/ended) to
+  `AudioPlayer` via a thread-safe callback, which temporarily raises the player's rate
+  while the run is ongoing and drops it back to the configured speed the instant sound
+  resumes — perceptually trimming the pause without needing to predict its length or
+  seek at all.
 - Keeps `AVPlayer` as the playback engine: streaming, progressive download playback,
   buffering/stall handling, background audio session, and remote-command-center/lock-
   screen integration are all unchanged. Playback speed (#194-198) needs no changes.

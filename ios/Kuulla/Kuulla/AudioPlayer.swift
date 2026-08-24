@@ -45,9 +45,11 @@ final class AudioPlayer {
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
 
-    // Retains the tap's client (MTAudioProcessingTapCreate only weak-refs it via clientInfo) for
-    // as long as the current SmartSpeed-enabled session is playing — nil whenever SmartSpeed is
-    // off, so the tap-processing cost is only ever paid when the feature is actually in use.
+    // The current session's SmartSpeed processor, purely so play()/removeObservers() have
+    // something to reference — its actual memory lifetime is owned by the tap itself (see
+    // SmartSpeedProcessor.makeAudioMix's passRetained/release), independent of this property. nil
+    // whenever SmartSpeed is off, so the tap-processing cost is only ever paid when the feature is
+    // actually in use.
     private var smartSpeedProcessor: SmartSpeedProcessor?
 
     private var autoSkipOutroSeconds: TimeInterval = 0
@@ -115,14 +117,21 @@ final class AudioPlayer {
         if smartSpeed {
             let processor = SmartSpeedProcessor()
             // Captures item weakly so a later play() that replaces self.player (and drops this
-            // item) can't have this stale session's detector seek the new player out from under
-            // it — the identity check below is the real guard, this just avoids retaining a dead
-            // item purely to compare against.
-            processor.onSilenceDetected = { [weak self, weak item] itemTime, runDuration in
+            // item) can't have this stale session's detector adjust the new player's rate out
+            // from under it — the identity check below is the real guard, this just avoids
+            // retaining a dead item purely to compare against.
+            processor.onSilenceStateChanged = { [weak self, weak item] isSilent in
                 DispatchQueue.main.async {
-                    guard let self, let item, self.player?.currentItem === item else { return }
-                    let skipTo = max(self.currentTime, itemTime + runDuration)
-                    self.player?.seek(to: CMTime(seconds: skipTo, preferredTimescale: 600))
+                    // isPlaying/pendingSeekPlayer guards mirror setPlaybackSpeed's own: a paused
+                    // session must not have this resume it by setting a nonzero rate, and a
+                    // saved-position seek still in flight must not have its deferred-start-until-
+                    // seeked behavior defeated by a rate change landing early.
+                    guard let self, let item, self.player?.currentItem === item,
+                          self.isPlaying, self.pendingSeekPlayer == nil
+                    else { return }
+                    self.player?.rate = isSilent
+                        ? self.playbackSpeed * SmartSpeedProcessor.silenceSkipRateMultiplier
+                        : self.playbackSpeed
                 }
             }
             item.audioMix = processor.makeAudioMix(for: item)
