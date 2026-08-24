@@ -85,6 +85,7 @@
 		P1000011 /* AutoDeleteRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000011; };
 		P1000012 /* UserSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000012; };
 		P1000013 /* ShowSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000013; };
+		P1000014 /* FeedViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000014; };
 		P1000009 /* DownloadButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000009; };
 		P1000007 /* DownloadsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000007; };
 /* End PBXBuildFile section */
@@ -188,6 +189,7 @@
 		P2000011 /* AutoDeleteRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoDeleteRule.swift; sourceTree = "<group>"; };
 		P2000012 /* UserSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsTests.swift; sourceTree = "<group>"; };
 		P2000013 /* ShowSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsTests.swift; sourceTree = "<group>"; };
+		P2000014 /* FeedViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewTests.swift; sourceTree = "<group>"; };
 		P2000009 /* DownloadButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButtonTests.swift; sourceTree = "<group>"; };
 		P2000007 /* DownloadsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsViewTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -300,6 +302,7 @@
 				P2000009 /* DownloadButtonTests.swift */,
 				P2000012 /* UserSettingsTests.swift */,
 				P2000013 /* ShowSettingsTests.swift */,
+				P2000014 /* FeedViewTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -491,6 +494,7 @@
 				P1000009,
 				P1000012,
 				P1000013,
+				P1000014,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
