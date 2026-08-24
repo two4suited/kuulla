@@ -2,11 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kuulla.Web.Models;
+using Kuulla.Web.Services.Sync;
 
 namespace Kuulla.Web.Services;
 
 public class PlaylistClient(KuullaApiClient apiClient)
 {
+    private const string DeviceId = "web";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<IReadOnlyList<Playlist>> GetPlaylistsAsync(CancellationToken cancellationToken = default)
@@ -139,4 +142,26 @@ public class PlaylistClient(KuullaApiClient apiClient)
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<Playlist>(JsonOptions, cancellationToken);
     }
+
+    // Empty-changes poll for SyncStatusService<Playlist> (#113) — mirrors EpisodeStateClient.
+    // SyncAsync exactly, an empty-changes call to POST /api/sync/playlists that only asks "did
+    // anything change server-side since lastSyncedAt/localHash", never pushing a local write.
+    public async Task<SyncCheckResult<Playlist>> SyncAsync(
+        string localHash, DateTimeOffset lastSyncedAt, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var body = new
+        {
+            DeviceId,
+            LastSyncedAt = lastSyncedAt,
+            LocalHash = localHash,
+            Changes = Array.Empty<object>(),
+        };
+        var response = await client.PostAsJsonAsync("api/sync/playlists", body, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<SyncPlaylistsResponse>(JsonOptions, cancellationToken);
+        return new SyncCheckResult<Playlist>(result!.ServerChanges, result.SyncedAt, result.Hash);
+    }
+
+    private sealed record SyncPlaylistsResponse(IReadOnlyList<Playlist> ServerChanges, DateTimeOffset SyncedAt, string Hash);
 }

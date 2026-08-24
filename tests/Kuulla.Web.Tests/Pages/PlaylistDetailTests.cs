@@ -209,6 +209,53 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void RefetchesDetail_WhenSyncPollReportsAChangeForThisPlaylist()
+    {
+        // #113: a dynamic playlist's server-side auto-insertion/eviction (#112) reaches this page
+        // through the same poll-and-apply mechanism Settings.razor/NewEpisodes.razor already use
+        // (SyncStatusService<T>, #86) — exercises PlaylistDetail's own ApplyServerChanges directly,
+        // same rationale/pattern as SettingsTests' equivalent case, rather than re-deriving
+        // SyncStatusService's own polling behavior (already covered by SyncStatusServiceTests).
+        var initialDetail = MakeDetail(new PlaylistItemDetail("episode-1", "show-1", "Original Episode", null, DateTimeOffset.UtcNow, "m"));
+        var refreshedDetail = MakeDetail(
+            new PlaylistItemDetail("episode-1", "show-1", "Original Episode", null, DateTimeOffset.UtcNow, "m"),
+            new PlaylistItemDetail("episode-2", "show-1", "Auto-Inserted Episode", null, DateTimeOffset.UtcNow, "n"));
+
+        var detailCallCount = 0;
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/sync/playlists")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { ServerChanges = Array.Empty<Playlist>(), SyncedAt = DateTimeOffset.UtcNow, Hash = "h1" }),
+                };
+            }
+
+            if (request.RequestUri.AbsolutePath == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Dictionary<string, EpisodeState>()) };
+            }
+
+            detailCallCount++;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detailCallCount == 1 ? initialDetail : refreshedDetail) };
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Original Episode", cut.Markup));
+        Assert.DoesNotContain("Auto-Inserted Episode", cut.Markup);
+
+        var remotePlaylist = new Playlist(
+            "playlist-1", "Commute", PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var applyServerChanges = cut.Instance.GetType().GetMethod(
+            "ApplyServerChanges", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        cut.InvokeAsync(() => applyServerChanges.Invoke(cut.Instance, [new[] { remotePlaylist }]));
+
+        cut.WaitForAssertion(() => Assert.Contains("Auto-Inserted Episode", cut.Markup));
+    }
+
+    [Fact]
     public void RemovesItem_WhenRemoveClicked()
     {
         var item = new PlaylistItemDetail("episode-1", "show-1", "Episode One", null, DateTimeOffset.UtcNow, "m");
