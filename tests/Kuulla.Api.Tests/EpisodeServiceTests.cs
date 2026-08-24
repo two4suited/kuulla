@@ -25,6 +25,12 @@ public class EpisodeServiceTests
     public EpisodeServiceTests()
     {
         _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
+        // Explicit rather than relying on Moq's default-Task-result behavior for unconfigured
+        // Task<bool> members — makes the sync-summary-cache invalidation path's dependency
+        // obvious rather than incidental.
+        _database
+            .Setup(d => d.KeyDeleteAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync(true);
         _sut = new EpisodeService(
             _episodesContainer.Object,
             _subscriptionsContainer.Object,

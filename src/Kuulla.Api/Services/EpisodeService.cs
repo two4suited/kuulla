@@ -197,8 +197,10 @@ public class EpisodeService(
         }
 
         // Oldest first so each insertion's midpoint rank calc only ever has to reason about items
-        // already placed, not ones still to come.
-        var orderedNewEpisodes = newEpisodes.OrderBy(e => e.PublishedAt).ToList();
+        // already placed, not ones still to come. PublishedAt is nullable (RSS feeds don't always
+        // supply it) — coalesce to MinValue so a missing PublishedAt sorts as "oldest" consistently
+        // rather than floating wherever OrderBy happens to place a null.
+        var orderedNewEpisodes = newEpisodes.OrderBy(e => e.PublishedAt ?? DateTimeOffset.MinValue).ToList();
 
         // Each playlist's read-modify-write is independent (different UserId partition, no shared
         // state) — same "many independent per-entity Cosmos operations" shape as the episode-create
@@ -281,6 +283,12 @@ public class EpisodeService(
                 // it just wrote.
             }
         }
+
+        // Exhausted every attempt still losing the optimistic-concurrency race — surface this
+        // rather than silently dropping the insert, which would undermine the whole point of the
+        // ETag/retry loop above.
+        throw new InvalidOperationException(
+            $"Failed to insert into playlist '{playlistId}' after {maxAttempts} attempts due to concurrent writes.");
     }
 
     // Returns null (no-op) if the episode is already present — per-user fan-out for a new episode
@@ -331,7 +339,12 @@ public class EpisodeService(
                 episodeCache[item.EpisodeId] = itemEpisode;
             }
 
-            if (itemEpisode?.PublishedAt > episode.PublishedAt)
+            // Same MinValue sentinel as above — a missing PublishedAt on either side must still
+            // compare deterministically instead of the null-propagating `?.` making `>` false (and
+            // so treating the item as "not newer") for both a genuinely older episode and a
+            // genuinely missing PublishedAt.
+            var itemPublishedAt = itemEpisode?.PublishedAt ?? DateTimeOffset.MinValue;
+            if (itemPublishedAt > (episode.PublishedAt ?? DateTimeOffset.MinValue))
             {
                 beforeOrder = item.Order;
                 continue;
