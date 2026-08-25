@@ -13,6 +13,7 @@ var subscriptions = cosmos.AddContainer("subscriptions", partitionKeyPath: "/Use
 var settings = cosmos.AddContainer("settings", partitionKeyPath: "/id");
 var episodeStates = cosmos.AddContainer("episodestates", partitionKeyPath: "/UserId");
 var playlists = cosmos.AddContainer("playlists", partitionKeyPath: "/UserId");
+var deviceTokens = cosmos.AddContainer("devicetokens", partitionKeyPath: "/UserId");
 
 var redis = builder.AddRedis("redis");
 
@@ -32,6 +33,7 @@ var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(settings)
     .WithReference(episodeStates)
     .WithReference(playlists)
+    .WithReference(deviceTokens)
     .WithReference(redis)
     .WithEnvironment("Google__ClientId", googleClientId)
     .WithEnvironment("Google__IosClientId", googleIosClientId)
@@ -43,6 +45,7 @@ var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WaitFor(settings)
     .WaitFor(episodeStates)
     .WaitFor(playlists)
+    .WaitFor(deviceTokens)
     .WaitFor(redis);
 
 builder.AddProject<Projects.Kuulla_Web>("web")
