@@ -44,6 +44,7 @@ setting is touched after initial setup (most-used first):
 9. **Siri & Shortcuts** ([#191](https://github.com/sheridan-apps/kuulla/issues/191))
    — iOS-only.
 10. **Accessibility** ([#192](https://github.com/sheridan-apps/kuulla/issues/192)).
+    Spec: [accessibility-settings.md](./accessibility-settings.md).
 11. **Account & Privacy** ([#188](https://github.com/sheridan-apps/kuulla/issues/188))
     — deliberately last: destructive/high-stakes actions (sign out, delete account)
     shouldn't sit next to routine toggles. Spec: [account-privacy-settings.md](./account-privacy-settings.md).
