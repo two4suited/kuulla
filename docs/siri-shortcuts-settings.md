@@ -2,7 +2,7 @@
 
 Spec for [#191](https://github.com/sheridan-apps/kuulla/issues/191)'s "Siri &
 Shortcuts" settings section, decided against
-[settings-architecture.md](./settings-architecture.md)'s IA (section 9, iOS-only).
+[settings-architecture.md](./settings-architecture.md)'s IA (iOS-only).
 
 ## Research
 
