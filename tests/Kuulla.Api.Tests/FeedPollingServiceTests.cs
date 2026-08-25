@@ -1,0 +1,118 @@
+using Kuulla.Api.Models;
+using Kuulla.Api.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+
+namespace Kuulla.Api.Tests;
+
+public class FeedPollingServiceTests
+{
+    private readonly Mock<ISubscriptionService> _subscriptionService = new();
+    private readonly Mock<IShowService> _showService = new();
+    private readonly Mock<IPodcastFeedClient> _feedClient = new();
+    private readonly Mock<IEpisodeService> _episodeService = new();
+    private readonly FeedPollingService _sut;
+
+    public FeedPollingServiceTests()
+    {
+        _sut = new FeedPollingService(
+            _subscriptionService.Object, _showService.Object, _feedClient.Object, _episodeService.Object,
+            NullLogger<FeedPollingService>.Instance);
+    }
+
+    private static Show MakeShow(string id, string feedUrl = "https://feed.example/rss") =>
+        new(id, "Title", "Author", feedUrl, null, null, []);
+
+    private static Episode MakeEpisode(string id, string showId) =>
+        new(id, showId, "Title", DateTimeOffset.UtcNow, null, "https://audio.example/1.mp3", null, null, null);
+
+    [Fact]
+    public async Task PollOnceAsync_CachesEpisodesForEveryDistinctSubscribedShow()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a", "show-b"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>())).ReturnsAsync(MakeShow("show-a", "https://feed.example/a"));
+        _showService.Setup(s => s.GetByIdAsync("show-b", It.IsAny<CancellationToken>())).ReturnsAsync(MakeShow("show-b", "https://feed.example/b"));
+        var episodesA = new[] { MakeEpisode("ep-a", "show-a") };
+        var episodesB = new[] { MakeEpisode("ep-b", "show-b") };
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, episodesA));
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/b", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, episodesB));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _episodeService.Verify(
+            s => s.CacheEpisodesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_SkipsShowWithNoFeedUrl()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>())).ReturnsAsync(MakeShow("show-a", feedUrl: ""));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _episodeService.Verify(
+            s => s.CacheEpisodesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_SkipsShowWithMalformedFeedUrlInsteadOfThrowing()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("show-a", feedUrl: "not a valid url"));
+
+        // Must not throw — an invalid FeedUrl reaching HttpClient would surface as
+        // UriFormatException, which isn't in PollShowAsync's catch and would otherwise cancel
+        // every other show still in flight in the same Parallel.ForEachAsync batch.
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_SkipsShowThatNoLongerExists()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>())).ReturnsAsync((Show?)null);
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_IsolatesOneShowsFeedFailureFromOthers()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a", "show-b"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("show-a", "https://feed.example/a"));
+        _showService.Setup(s => s.GetByIdAsync("show-b", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("show-b", "https://feed.example/b"));
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/a", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("feed unreachable"));
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/b", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep-b", "show-b")]));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _episodeService.Verify(
+            s => s.CacheEpisodesAsync("show-b", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Once);
+        _episodeService.Verify(
+            s => s.CacheEpisodesAsync("show-a", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+}

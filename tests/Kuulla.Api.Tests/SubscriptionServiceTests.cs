@@ -243,4 +243,16 @@ public class SubscriptionServiceTests
 
         Assert.Equal(["healthy"], results.Select(e => e.Episode.Id));
     }
+
+    [Fact]
+    public async Task GetDistinctSubscribedShowIdsAsync_ReturnsAllPagesFromIterator()
+    {
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator<string>(["show-a"], ["show-b"]));
+
+        var results = await _sut.GetDistinctSubscribedShowIdsAsync(CancellationToken.None);
+
+        Assert.Equal(["show-a", "show-b"], results);
+    }
 }

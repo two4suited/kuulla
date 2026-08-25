@@ -37,6 +37,8 @@ builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryCl
     client.BaseAddress = new Uri("https://itunes.apple.com/");
 });
 builder.Services.AddHttpClient<IPodcastFeedClient, PodcastFeedClient>();
+builder.Services.AddScoped<IFeedPollingService, FeedPollingService>();
+builder.Services.AddHostedService<FeedPollingBackgroundService>();
 
 var googleClientId = builder.Configuration["Google:ClientId"];
 var googleIosClientId = builder.Configuration["Google:IosClientId"];
