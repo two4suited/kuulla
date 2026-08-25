@@ -38,9 +38,9 @@ remote command center) will need to restore playback state across a cold launch.
   most recent `EpisodeStateRecord.updatedAt` where `completed == false`. This issue
   and #116 both need that same resolution logic — whichever lands first should own
   it as a shared helper, not a query each reimplements separately.
-- **Play [Podcast]** — a per-show intent, donated once per subscribed show (see
-  "Donation," below), that plays the latest unlistened episode of that specific
-  show.
+- **Play [Podcast]** — a per-show intent, made discoverable per subscribed show
+  (see "Making the intents discoverable," below), that plays the latest
+  unlistened episode of that specific show.
 - **Skip Forward / Skip Back** — calls `AudioPlayer`'s existing skip amount (per
   [playback-settings.md](./playback-settings.md)'s new `SkipForwardSeconds`/
   `SkipBackSeconds` `UserSettings` fields) against whatever's currently playing;
@@ -50,33 +50,43 @@ remote command center) will need to restore playback state across a cold launch.
   whatever's actively playing once that's wired up; a Kuulla-specific intent for
   the same action would just be a second path to identical behavior.
 
-### Donation
+### Making the intents discoverable
 
 - **Play Latest Episode**, **Resume Playback**, **Skip Forward**, and **Skip
-  Back** are donated once, at first launch (or first use), as static
-  `AppShortcutsProvider`-declared shortcuts (the `AppShortcuts` API, iOS 16+) —
-  always available in Shortcuts/Siri without the user having to have triggered the
-  underlying action first, since these don't depend on per-show state.
-- **Play [Podcast]** is donated per show at subscribe time and un-donated at
-  unsubscribe. Donation is an on-device Intents-framework call, so it hooks the
-  iOS client's existing `SubscriptionClient.subscribe(showId:)`/`unsubscribe(showId:)`
-  call sites (`ShowDetailView`'s subscribe/unsubscribe action) — not
+  Back** don't depend on per-show state, so they're declared as static entries in
+  an `AppShortcutsProvider`'s `appShortcuts` array (the App Intents framework,
+  iOS 16+). That declaration is what makes them show up in Siri/Spotlight/the
+  Shortcuts app — it's static metadata read from the app's own code, not a
+  runtime "donate this" call a launch path needs to trigger.
+- **Play [Podcast]** is different: it needs a specific show as a parameter,
+  which a purely static `AppShortcuts` phrase can't supply (there's no fixed
+  list of shows at compile time). This needs an `AppIntent` with a show
+  parameter backed by an `AppEntity` representing subscribed shows, plus
+  runtime signals (the App Intents framework's relevance/donation APIs) telling
+  Siri "this particular show is one the user plays often," hooked into the iOS
+  client's existing `SubscriptionClient.subscribe(showId:)`/`unsubscribe(showId:)`
+  call sites (`ShowDetailView`'s subscribe/unsubscribe action) rather than
   `SubscriptionService.SubscribeAsync`, the API's own same-named server method,
-  which has no access to on-device Intents/Shortcuts at all. Shortcuts has no use
-  for "play a show you're not subscribed to," and leaving stale donations around
-  after unsubscribing would surface dead shortcuts in the system Shortcuts app.
+  which has no access to on-device Intents/Shortcuts at all. The exact
+  relevance/donation API surface is an implementation detail for whichever issue
+  builds this intent to work out against current App Intents documentation, not
+  something this settings-catalog spec needs to pin down precisely; the
+  decision this spec is making is that a subscribed show's entity should stop
+  being offered once the user unsubscribes, mirroring "Shortcuts has no use for
+  playing a show you're not subscribed to."
 
 ### Settings UI
 
 - A single settings screen entry, not a per-intent toggle list: "Siri &
-  Shortcuts" navigates to a screen showing which of the four static shortcuts
-  exist plus a brief explanation, with each row deep-linking to the system
-  `INUIAddVoiceShortcutViewController`/Shortcuts app flow for actually assigning a
-  phrase. Kuulla doesn't need its own per-intent enable/disable switches: the
-  `AppShortcuts` donations exist unconditionally (matching "Which shortcuts/intents
-  to expose" above), and whether a phrase is actually *assigned* to one is state
-  the system's own Shortcuts app already owns and displays — duplicating an
-  enabled/disabled toggle in Kuulla's UI would just be a second, potentially
+  Shortcuts" navigates to a screen listing the four static shortcuts plus a
+  brief explanation, with a link out to the system's own Shortcuts/Siri phrase
+  -assignment flow for actually assigning a voice phrase (the specific system UI
+  for this is an iOS-version-dependent implementation detail, not something this
+  spec needs to name). Kuulla doesn't need its own per-intent enable/disable
+  switches: the four intents are unconditionally declared (matching "Which
+  intents to expose" above), and whether a phrase is actually *assigned* to one
+  is state the system's own Shortcuts app already owns and displays — duplicating
+  an enabled/disabled toggle in Kuulla's UI would just be a second, potentially
   stale view of what the OS already shows accurately.
 - This directly answers the issue's own "any settings UI needed to manage/donate
   shortcuts vs system-level only" question: a system-level entry point, not a
@@ -84,13 +94,12 @@ remote command center) will need to restore playback state across a cold launch.
 
 ## Data model
 
-No `UserSettings`/`ShowSettings` changes — donated shortcuts and any phrase a user
-assigns to one are OS-level state (`NSUserActivity`/`INVoiceShortcut` records
-Siri owns), not something Kuulla stores or syncs. Device-local per
-settings-architecture.md's [Sync scope](./settings-architecture.md#sync-scope) —
-same treatment as Widgets: a donated Siri shortcut is a property of *this*
-device's Siri/Shortcuts configuration, not a preference a second device could
-receive and apply.
+No `UserSettings`/`ShowSettings` changes — declared shortcuts and any phrase a user
+assigns to one are OS-level state that Siri/Shortcuts itself owns, not something
+Kuulla stores or syncs. Device-local per settings-architecture.md's
+[Sync scope](./settings-architecture.md#sync-scope) — same treatment as Widgets: an
+assigned Siri phrase is a property of *this* device's Siri/Shortcuts configuration,
+not a preference a second device could receive and apply.
 
 ## UI
 
@@ -98,5 +107,6 @@ receive and apply.
   hidden entirely per settings-architecture.md): a "Siri & Shortcuts" row
   navigating to the informational screen described above.
 - No per-show override entry point for the four static shortcuts (nothing to
-  override); "Play [Podcast]"'s per-show donation happens automatically at
-  subscribe/unsubscribe, not through a settings toggle a user manages.
+  override); "Play [Podcast]" becoming discoverable per show happens
+  automatically at subscribe/unsubscribe, not through a settings toggle a user
+  manages.
