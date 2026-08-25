@@ -120,4 +120,19 @@ public class SubscriptionService(
             .OrderByDescending(newEpisode => newEpisode.Episode.PublishedAt)
             .ToList();
     }
+
+    public async Task<IReadOnlyList<string>> GetDistinctSubscribedShowIdsAsync(CancellationToken cancellationToken)
+    {
+        var results = new List<string>();
+        using var iterator = subscriptionsContainer.GetItemQueryIterator<string>(
+            new QueryDefinition("SELECT DISTINCT VALUE c.ShowId FROM c"));
+
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            results.AddRange(page);
+        }
+
+        return results;
+    }
 }
