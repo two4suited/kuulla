@@ -14,9 +14,10 @@ checklist the rest of this milestone's screens should be built against.
 
 ## Existing state
 
-Text rendering already uses SwiftUI's semantic text styles throughout (27
-call sites across the iOS app use `.font(.headline/.body/.caption/...)`; zero use a
-fixed-size `.font(.system(size:))`), which means Dynamic Type scaling already works
+Text rendering already uses SwiftUI's semantic text styles throughout — every
+`.font(...)` call site across the iOS app uses a semantic style
+(`.headline`/`.body`/`.caption`/etc.), with zero using a fixed-size
+`.font(.system(size:))` — which means Dynamic Type scaling already works
 structurally almost everywhere — this isn't a from-scratch feature. VoiceOver
 labeling is inconsistent: a handful of icon-only controls already set an explicit
 `accessibilityLabel` (`DownloadButton`, `PlaylistsView`'s "New playlist" button,
@@ -81,7 +82,8 @@ reduced-motion setting would need to gate.
   wrapped in a `@Environment(\.accessibilityReduceMotion)` check, the same way any
   new icon-only control should get an `accessibilityLabel` — a standing convention
   this doc establishes, not a settings toggle Kuulla needs to build (iOS's own
-  Reduce Motion setting is what a `reduceMotion` environment read already reflects).
+  Reduce Motion setting is what an `@Environment(\.accessibilityReduceMotion)`
+  read already reflects).
 
 ### Settings UI for this section
 
