@@ -432,4 +432,68 @@ final class SettingsClientTests: MockedApiTestCase {
         let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
         XCTAssertNil(bodyJSON["smartSpeed"])
     }
+
+    func testGetSettingsDefaultsNotificationsEnabledToTrueWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertTrue(settings.notificationsEnabled)
+    }
+
+    func testUpdateNotificationsEnabledSendsPutWithBooleanBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"notificationsEnabled":false}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateNotificationsEnabled(false)
+
+        XCTAssertFalse(updated.notificationsEnabled)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/notifications"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["notificationsEnabled"] as? Bool, false)
+    }
+
+    func testGetShowSettingsDecodesNullNotificationsEnabledOverrideAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1,"notificationsEnabled":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.notificationsEnabled)
+    }
+
+    func testUpdateShowNotificationsEnabledClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"notificationsEnabled":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowNotificationsEnabled(showId: "s1", value: nil)
+
+        XCTAssertNil(updated.notificationsEnabled)
+        XCTAssertEqual(updated.version, 3)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/notifications"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["notificationsEnabled"])
+    }
 }

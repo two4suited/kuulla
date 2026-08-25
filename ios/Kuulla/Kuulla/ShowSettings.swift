@@ -14,12 +14,13 @@ struct ShowSettings: Codable, Hashable {
     let playbackSpeed: Float?
     let autoDownloadNewEpisodes: Bool?
     let smartSpeed: Bool?
+    let notificationsEnabled: Bool?
 
     init(
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
         version: Int, autoArchiveRule: AutoArchiveRule?,
         autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil,
-        autoDownloadNewEpisodes: Bool? = nil, smartSpeed: Bool? = nil
+        autoDownloadNewEpisodes: Bool? = nil, smartSpeed: Bool? = nil, notificationsEnabled: Bool? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -32,11 +33,12 @@ struct ShowSettings: Codable, Hashable {
         self.playbackSpeed = playbackSpeed
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
         self.smartSpeed = smartSpeed
+        self.notificationsEnabled = notificationsEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDownloadNewEpisodes, smartSpeed
+        case autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -54,6 +56,7 @@ struct ShowSettings: Codable, Hashable {
         playbackSpeed = try container.decodeIfPresent(Float.self, forKey: .playbackSpeed)
         autoDownloadNewEpisodes = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadNewEpisodes)
         smartSpeed = try container.decodeIfPresent(Bool.self, forKey: .smartSpeed)
+        notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)
     }
 
     // Copies every field except the ones explicitly overridden. Every field here is itself
@@ -71,7 +74,8 @@ struct ShowSettings: Codable, Hashable {
         autoSkipOutroSeconds: Int?? = nil,
         playbackSpeed: Float?? = nil,
         autoDownloadNewEpisodes: Bool?? = nil,
-        smartSpeed: Bool?? = nil
+        smartSpeed: Bool?? = nil,
+        notificationsEnabled: Bool?? = nil
     ) -> ShowSettings {
         ShowSettings(
             id: id, userId: userId, showId: showId,
@@ -82,6 +86,7 @@ struct ShowSettings: Codable, Hashable {
             autoSkipOutroSeconds: autoSkipOutroSeconds ?? self.autoSkipOutroSeconds,
             playbackSpeed: playbackSpeed ?? self.playbackSpeed,
             autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes,
-            smartSpeed: smartSpeed ?? self.smartSpeed)
+            smartSpeed: smartSpeed ?? self.smartSpeed,
+            notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled)
     }
 }
