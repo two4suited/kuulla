@@ -1,3 +1,4 @@
+import CarPlay
 import GoogleSignIn
 import SwiftData
 import SwiftUI
@@ -121,6 +122,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // Best-effort — nothing actionable to do beyond not registering a device token.
+    }
+
+    // Routes the CarPlay template scene to CarPlaySceneDelegate; the default (phone/pad) scene
+    // role falls through to SwiftUI's own scene delegate since no delegate class is specified for
+    // it in Info.plist's UIApplicationSceneManifest.
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        if connectingSceneSession.role == .carTemplateApplication {
+            let configuration = UISceneConfiguration(name: "CarPlay Configuration", sessionRole: connectingSceneSession.role)
+            configuration.delegateClass = CarPlaySceneDelegate.self
+            return configuration
+        }
+        return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
 }
 
