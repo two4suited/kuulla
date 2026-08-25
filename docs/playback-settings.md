@@ -92,16 +92,19 @@ introducing parallel ones.
 ## Data model
 
 Extends `UserSettings` (`Kuulla.Api.Models`) — no new document, no changes to
-`ShowSettings` beyond what already exists:
+`ShowSettings` beyond what already exists. Field names below are the JSON wire
+names (camelCase, matching the API's existing minimal-API JSON serialization);
+each maps 1:1 to the PascalCase C# record property of the same name (e.g.
+`skipForwardSeconds` ↔ `UserSettings.SkipForwardSeconds`):
 
 ```
 UserSettings                       (id = userId)
-├─ skipForwardSeconds : int = 30    // new
-├─ skipBackSeconds : int = 15       // new
-├─ autoPlayNext : bool = true       // new
-├─ resumeBehavior : Exact|SkipBackFewSeconds = SkipBackFewSeconds  // new
-├─ playbackSpeed : float = 1.0      // existing, this section now owns its UI
-├─ smartSpeed : bool = false        // existing, this section now owns its UI
+├─ skipForwardSeconds : int = 30    // new — SkipForwardSeconds
+├─ skipBackSeconds : int = 15       // new — SkipBackSeconds
+├─ autoPlayNext : bool = true       // new — AutoPlayNext
+├─ resumeBehavior : Exact|SkipBackFewSeconds = SkipBackFewSeconds  // new — ResumeBehavior
+├─ playbackSpeed : float = 1.0      // existing PlaybackSpeed, this section now owns its UI
+├─ smartSpeed : bool = false        // existing SmartSpeed, this section now owns its UI
 ├─ autoSkipIntroSeconds / autoSkipOutroSeconds : int = 0            // existing
 
 ShowSettings   (id = ShowSettings.BuildId(userId, showId))
@@ -124,17 +127,17 @@ device-local.
   - "Auto-play next episode" toggle.
   - "Resume position" picker: "Exactly where I left off" / "Skip back a few seconds"
     (`ResumeBehavior`).
-  - "Smart Speed" toggle — already in `SettingsView.swift`'s auto-skip section
-    today; this issue just confirms it belongs in this "Playback" grouping, no
-    change needed.
+  - "SmartSpeed" toggle (keeping the existing one-word label) — already in
+    `SettingsView.swift`'s auto-skip section today; this issue just confirms it
+    belongs in this "Playback" grouping, no change needed.
   - "Playback speed" as a settings-screen control — today the global default is
     only ever set indirectly, via `EpisodeDetailView.cyclePlaybackSpeed`'s in-player
     speed button (which both applies live and calls `savePlaybackSpeed` to persist
     the new global default). This adds an explicit picker in Settings for the same
     field, so a user can set their default speed without needing an episode
     playing; the in-player control is unaffected.
-  - The existing "Auto-skip intro" / "Auto-skip outro" pickers (`SettingsView.swift`
-    lines 74–81) stay in this section, unchanged.
+  - The existing "Auto-skip intro" / "Auto-skip outro" pickers (`SettingsView.swift`'s
+    auto-skip section) stay in this section, unchanged.
 - Per-show override: no change to `ShowSettingsSheet`/Web equivalent beyond what it
   already exposes for `PlaybackSpeed`/`SmartSpeed`/auto-skip — the three new fields
   in this issue have no per-show override to add there.
