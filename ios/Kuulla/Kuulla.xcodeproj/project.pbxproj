@@ -27,6 +27,7 @@
 		A1000017 /* SubscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
 		A1000030 /* DeviceTokenClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030; };
 		A1000031 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000031; };
+		A1000040 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040; };
 		A1000018 /* SubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
 		A1000019 /* UserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020; };
 		A1000020 /* ShowSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000021; };
@@ -74,6 +75,7 @@
 		D1000004 /* SubscriptionClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000004; };
 		D1000020 /* DeviceTokenClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000020; };
 		D1000021 /* PushNotificationManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000021; };
+		D1000050 /* PushNotificationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000050; };
 		D1000005 /* EpisodeDurationParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000005; };
 		D1000006 /* EpisodeDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000006; };
 		D1000007 /* EpisodeFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000007; };
@@ -141,6 +143,7 @@
 		A2000030 /* DeviceTokenClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenClient.swift; sourceTree = "<group>"; };
 		A2000031 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		A2000032 /* Kuulla.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuulla.entitlements; sourceTree = "<group>"; };
+		A2000040 /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
 		A2000019 /* SubscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionsView.swift; sourceTree = "<group>"; };
 		A2000020 /* UserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettings.swift; sourceTree = "<group>"; };
 		A2000021 /* ShowSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettings.swift; sourceTree = "<group>"; };
@@ -187,6 +190,7 @@
 		D2000004 /* SubscriptionClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClientTests.swift; sourceTree = "<group>"; };
 		D2000020 /* DeviceTokenClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenClientTests.swift; sourceTree = "<group>"; };
 		D2000021 /* PushNotificationManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManagerTests.swift; sourceTree = "<group>"; };
+		D2000050 /* PushNotificationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationRoutingTests.swift; sourceTree = "<group>"; };
 		D2000005 /* EpisodeDurationParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDurationParsingTests.swift; sourceTree = "<group>"; };
 		D2000006 /* EpisodeDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDecodingTests.swift; sourceTree = "<group>"; };
 		D2000007 /* EpisodeFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeFormattingTests.swift; sourceTree = "<group>"; };
@@ -249,6 +253,7 @@
 				A2000030 /* DeviceTokenClient.swift */,
 				A2000031 /* PushNotificationManager.swift */,
 				A2000032 /* Kuulla.entitlements */,
+				A2000040 /* DeepLinkRouter.swift */,
 				A2000019 /* SubscriptionsView.swift */,
 				A2000020 /* UserSettings.swift */,
 				A2000021 /* ShowSettings.swift */,
@@ -312,6 +317,7 @@
 				D2000004 /* SubscriptionClientTests.swift */,
 				D2000020 /* DeviceTokenClientTests.swift */,
 				D2000021 /* PushNotificationManagerTests.swift */,
+				D2000050 /* PushNotificationRoutingTests.swift */,
 				D2000005 /* EpisodeDurationParsingTests.swift */,
 				D2000006 /* EpisodeDecodingTests.swift */,
 				D2000007 /* EpisodeFormattingTests.swift */,
@@ -462,6 +468,7 @@
 				A1000017,
 				A1000030,
 				A1000031,
+				A1000040,
 				A1000018,
 				A1000019,
 				A1000020,
@@ -514,6 +521,7 @@
 				D1000004,
 				D1000020,
 				D1000021,
+				D1000050,
 				D1000005,
 				D1000006,
 				D1000007,
