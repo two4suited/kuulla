@@ -15,6 +15,7 @@ struct EpisodeDetailView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var episode: Episode?
+    @State private var show: Show?
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var audioPlayer = AudioPlayer.shared
@@ -187,6 +188,7 @@ struct EpisodeDetailView: View {
 
     private func load() async {
         episode = nil
+        show = nil
         loadError = nil
         isLoading = true
         do {
@@ -195,6 +197,18 @@ struct EpisodeDetailView: View {
             if !Task.isCancelled {
                 loadError = "Something went wrong while loading this episode. Please try again."
             }
+        }
+        // Best-effort: only feeds the lock screen/CarPlay Now Playing artist + artwork, so a
+        // failure here shouldn't block or error out episode loading itself.
+        show = try? await catalogClient.getShow(id: showId)
+
+        // This fetch races the play button the same way loadPlaybackSettings' does below: a tap
+        // before it resolves starts playback with no show title/artwork (audioPlayer.play's
+        // metadata argument is only as complete as `show` was at that moment). Correct the
+        // session that's already running rather than leaving it stuck without artwork/artist for
+        // the rest of this episode.
+        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
+            audioPlayer.updateMetadata(NowPlayingMetadata(title: episode.title, showTitle: show?.title, artworkURL: show?.artworkUrl.flatMap(URL.init(string:))))
         }
 
         loadLocalState()
@@ -307,7 +321,12 @@ struct EpisodeDetailView: View {
             audioPlayer.play(
                 url: url, startPosition: startPosition,
                 autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
-                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed)
+                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+                metadata: episode.map { episode in
+                    NowPlayingMetadata(
+                        title: episode.title, showTitle: show?.title,
+                        artworkURL: show?.artworkUrl.flatMap(URL.init(string:)))
+                })
             startProgressTracking()
         }
     }

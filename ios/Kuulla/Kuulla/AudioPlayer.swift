@@ -1,4 +1,15 @@
 import AVFoundation
+import MediaPlayer
+import UIKit
+
+// Metadata for the lock screen / Control Center / CarPlay Now Playing surfaces, all of which read
+// from MPNowPlayingInfoCenter rather than anything AudioPlayer exposes directly. Episode.swift has
+// no artwork of its own (only Show does), so artworkURL is threaded in by the caller from the show.
+struct NowPlayingMetadata {
+    let title: String
+    let showTitle: String?
+    let artworkURL: URL?
+}
 
 @Observable
 final class AudioPlayer {
@@ -79,12 +90,23 @@ final class AudioPlayer {
     // default (Wi-Fi-only streaming would then block forever, even while genuinely on Wi-Fi).
     private var pathObserver: NetworkPathObserving
 
+    // Backs the lock screen / Control Center / CarPlay Now Playing surfaces. Nil whenever nothing
+    // is loaded, so updateNowPlayingInfo() can clear MPNowPlayingInfoCenter instead of showing
+    // stale metadata for a session that's already gone.
+    private var nowPlayingMetadata: NowPlayingMetadata?
+    private var artwork: MPMediaItemArtwork?
+    // Tracks which artwork URL the in-flight (or most recently completed) fetch was for, so a
+    // second play() call for the same show doesn't re-download artwork already fetched, and a
+    // stale completion for a since-replaced show can't clobber the current one's artwork.
+    private var artworkURLBeingFetched: URL?
+
     // pathObserver is a test-only seam (mirroring DownloadManager's) — production always uses the
     // real NWPathMonitor-backed default; tests inject a mock to simulate Wi-Fi/cellular
     // transitions deterministically.
     init(pathObserver: NetworkPathObserving = NWPathMonitorAdapter()) {
         self.pathObserver = pathObserver
         configureAudioSession()
+        configureRemoteCommandCenter()
         self.pathObserver.startObserving { [weak self] isOnWifi in
             DispatchQueue.main.async { self?.isOnWifi = isOnWifi }
         }
@@ -93,7 +115,7 @@ final class AudioPlayer {
     func play(
         url: URL, startPosition: TimeInterval = 0,
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
-        playbackSpeed: Float = 1.0, smartSpeed: Bool = false
+        playbackSpeed: Float = 1.0, smartSpeed: Bool = false, metadata: NowPlayingMetadata? = nil
     ) {
         streamBlockedMessage = nil
         streamBlockedURL = nil
@@ -185,6 +207,15 @@ final class AudioPlayer {
         }
         isPlaying = true
 
+        // A new show's artwork replaces the cached image; the same show (e.g. the next episode
+        // queued up) keeps it, so fetchArtworkIfNeeded below can skip a redundant download.
+        if metadata?.artworkURL != nowPlayingMetadata?.artworkURL {
+            artwork = nil
+        }
+        nowPlayingMetadata = metadata
+        updateNowPlayingInfo()
+        fetchArtworkIfNeeded(for: metadata)
+
         timeObserverToken = newPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
@@ -194,6 +225,7 @@ final class AudioPlayer {
                 self.duration = itemDuration
             }
             self.checkAutoSkipOutro(url: url)
+            self.updateNowPlayingInfo()
         }
 
         endObserver = NotificationCenter.default.addObserver(
@@ -216,18 +248,21 @@ final class AudioPlayer {
         // Cancels a saved-position seek's pending rate-apply, if one is outstanding — otherwise
         // that completion could still land after this pause and resume playback unexpectedly.
         pendingSeekPlayer = nil
+        updateNowPlayingInfo()
     }
 
     func resume() {
         // .rate rather than .play() so resuming doesn't silently reset speed back to 1.0.
         player?.rate = playbackSpeed
         isPlaying = true
+        updateNowPlayingInfo()
     }
 
     func seek(to time: TimeInterval) {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player?.seek(to: cmTime)
         currentTime = time
+        updateNowPlayingInfo()
     }
 
     // Changes the rate of the current playback session. No-ops the underlying player when
@@ -243,6 +278,18 @@ final class AudioPlayer {
         if isPlaying && pendingSeekPlayer == nil {
             player?.rate = speed
         }
+    }
+
+    // Corrects a play() call that started before this episode's Now Playing metadata (show
+    // title/artwork) had resolved, mirroring setPlaybackSpeed()'s same live-correction pattern —
+    // callers apply this once the metadata they raced against finally arrives.
+    func updateMetadata(_ metadata: NowPlayingMetadata?) {
+        if metadata?.artworkURL != nowPlayingMetadata?.artworkURL {
+            artwork = nil
+        }
+        nowPlayingMetadata = metadata
+        updateNowPlayingInfo()
+        fetchArtworkIfNeeded(for: metadata)
     }
 
     // Fires the same finish semantics as a natural end-of-file (isPlaying = false,
@@ -287,5 +334,138 @@ final class AudioPlayer {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .spokenAudio)
         try? session.setActive(true)
+    }
+
+    // Guards against registering more than once per process — MPRemoteCommandCenter.shared() is a
+    // singleton, so every AudioPlayer() instance would otherwise stack another set of targets onto
+    // it with no way to remove them. Harmless for production (AudioPlayer.shared is the only
+    // instance that's ever created), but AudioPlayerTests constructs a fresh AudioPlayer() per
+    // test — without this guard the shared command center would accumulate dozens of stale
+    // handlers over a single test run.
+    private static var hasConfiguredRemoteCommandCenter = false
+
+    // Registered once per process against the process-wide MPRemoteCommandCenter — this is what
+    // CarPlay's CPNowPlayingTemplate, the lock screen, and Control Center all send their
+    // play/pause/skip taps through, independent of any CarPlay-specific UI code (#118).
+    private func configureRemoteCommandCenter() {
+        guard !Self.hasConfiguredRemoteCommandCenter else { return }
+        Self.hasConfiguredRemoteCommandCenter = true
+
+        let commandCenter = MPRemoteCommandCenter.shared()
+
+        // MPRemoteCommandCenter isn't documented to invoke targets on the main thread, but every
+        // property these touch (player, isPlaying, currentTime, ...) is otherwise only ever
+        // read/written on main (mirroring the periodic time observer and pathObserver callback
+        // above) — dispatching synchronously back to main here keeps that guarantee instead of
+        // racing with it.
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNowPlayingItem }
+            return DispatchQueue.main.sync {
+                guard self.player != nil else { return .noActionableNowPlayingItem }
+                self.resume()
+                return .success
+            }
+        }
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNowPlayingItem }
+            return DispatchQueue.main.sync {
+                guard self.player != nil else { return .noActionableNowPlayingItem }
+                self.pause()
+                return .success
+            }
+        }
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self else { return .noActionableNowPlayingItem }
+            return DispatchQueue.main.sync {
+                guard self.player != nil else { return .noActionableNowPlayingItem }
+                self.isPlaying ? self.pause() : self.resume()
+                return .success
+            }
+        }
+        // 15s back / 30s forward matches the common podcast-app convention.
+        commandCenter.skipBackwardCommand.preferredIntervals = [15]
+        commandCenter.skipBackwardCommand.addTarget { [weak self] event in
+            guard let self, let event = event as? MPSkipIntervalCommandEvent else { return .noActionableNowPlayingItem }
+            return DispatchQueue.main.sync {
+                guard self.player != nil else { return .noActionableNowPlayingItem }
+                self.seek(to: max(0, self.currentTime - event.interval))
+                return .success
+            }
+        }
+        commandCenter.skipForwardCommand.preferredIntervals = [30]
+        commandCenter.skipForwardCommand.addTarget { [weak self] event in
+            guard let self, let event = event as? MPSkipIntervalCommandEvent else { return .noActionableNowPlayingItem }
+            return DispatchQueue.main.sync {
+                guard self.player != nil else { return .noActionableNowPlayingItem }
+                self.seek(to: self.currentTime + event.interval)
+                return .success
+            }
+        }
+        commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .noActionableNowPlayingItem }
+            return DispatchQueue.main.sync {
+                guard self.player != nil else { return .noActionableNowPlayingItem }
+                self.seek(to: event.positionTime)
+                return .success
+            }
+        }
+    }
+
+    // Republishes the full Now Playing snapshot — called on play()/pause()/resume()/seek() and on
+    // every periodic time-observer tick, so elapsed time keeps advancing on the lock screen and
+    // CarPlay's scrubber even though nothing else about the session has changed.
+    private func updateNowPlayingInfo() {
+        guard let nowPlayingMetadata else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: nowPlayingMetadata.title,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(playbackSpeed) : 0.0,
+        ]
+        if let showTitle = nowPlayingMetadata.showTitle {
+            info[MPMediaItemPropertyArtist] = showTitle
+        }
+        if duration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        if let artwork {
+            info[MPMediaItemPropertyArtwork] = artwork
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    // Best-effort: artwork is a Now Playing nicety, so a failed/slow download just leaves the
+    // lock screen without art rather than blocking or erroring playback.
+    private func fetchArtworkIfNeeded(for metadata: NowPlayingMetadata?) {
+        guard let artworkURL = metadata?.artworkURL, artworkURLBeingFetched != artworkURL else { return }
+        artworkURLBeingFetched = artworkURL
+
+        URLSession.shared.dataTask(with: artworkURL) { [weak self] data, _, _ in
+            let fetchedArtwork = data.flatMap(UIImage.init(data:)).map { image in
+                MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard let fetchedArtwork else {
+                    // A failed fetch (network error, bad data) clears this so a later play() for
+                    // the same URL — e.g. the next episode of the same show — retries instead of
+                    // being silently skipped forever. A successful fetch leaves it set: it then
+                    // doubles as "artwork already fetched," so a same-show replay doesn't
+                    // redundantly re-download it.
+                    if self.artworkURLBeingFetched == artworkURL {
+                        self.artworkURLBeingFetched = nil
+                    }
+                    return
+                }
+                // The show may have changed again (or playback stopped) while this was in
+                // flight — only apply it if it's still what's actually playing.
+                guard self.nowPlayingMetadata?.artworkURL == artworkURL else { return }
+                self.artwork = fetchedArtwork
+                self.updateNowPlayingInfo()
+            }
+        }.resume()
     }
 }

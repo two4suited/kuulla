@@ -1,7 +1,43 @@
+import MediaPlayer
 import XCTest
 @testable import Kuulla
 
 final class AudioPlayerTests: XCTestCase {
+    // MARK: - Now Playing info (#116)
+
+    func testPlayWithMetadataPublishesNowPlayingInfo() {
+        let player = AudioPlayer()
+        let url = URL(string: "https://example.com/audio.mp3")!
+
+        player.play(
+            url: url, metadata: NowPlayingMetadata(title: "Episode Title", showTitle: "Show Title", artworkURL: nil))
+
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertEqual(info?[MPMediaItemPropertyTitle] as? String, "Episode Title")
+        XCTAssertEqual(info?[MPMediaItemPropertyArtist] as? String, "Show Title")
+        XCTAssertEqual(info?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
+    }
+
+    func testPauseSetsNowPlayingPlaybackRateToZero() {
+        let player = AudioPlayer()
+        player.play(
+            url: URL(string: "https://example.com/audio.mp3")!,
+            metadata: NowPlayingMetadata(title: "Episode Title", showTitle: nil, artworkURL: nil))
+
+        player.pause()
+
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertEqual(info?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 0)
+    }
+
+    func testPlayWithoutMetadataClearsNowPlayingInfo() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        XCTAssertNil(MPNowPlayingInfoCenter.default().nowPlayingInfo)
+    }
+
     func testPlaySetsPlayingStateAndCurrentURL() {
         let player = AudioPlayer()
         let url = URL(string: "https://example.com/audio.mp3")!
