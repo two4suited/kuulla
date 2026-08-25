@@ -17,7 +17,7 @@ setting is touched after initial setup (most-used first):
 
 1. **Playback** ([#182](https://github.com/sheridan-apps/kuulla/issues/182)) — skip
    intervals, auto-play, resume behavior, speed/silence-trim/volume-boost *global
-   defaults*.
+   defaults*. Spec: [playback-settings.md](./playback-settings.md).
 2. **Appearance** ([#183](https://github.com/sheridan-apps/kuulla/issues/183)) —
    theme, app icon, text size.
 3. **Notifications** ([#184](https://github.com/sheridan-apps/kuulla/issues/184)) —
