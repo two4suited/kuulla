@@ -23,9 +23,11 @@ introducing parallel ones.
 ### Skip forward/back interval
 
 - New fields: `UserSettings.SkipForwardSeconds` / `SkipBackSeconds`, `int`, default
-  `30` / `15` — matching the values already hard-coded into the iOS player's skip
-  buttons today, so shipping this setting changes nothing for a user who never opens
-  it.
+  `30` / `15`. The app has no manual skip-forward/back controls today — only a
+  scrubber (`AudioPlayer.seek(to:)`) and the existing auto-skip intro/outro — so this
+  issue is what introduces the buttons as well as their configurability; `30`/`15`
+  are Pocket Casts' and Overcast's common defaults, not values migrated from
+  existing app behavior.
 - Global only, no per-show override. Unlike `AutoSkipIntroSeconds`/`AutoSkipOutroSeconds`
   (which vary by how long a specific show's intro actually is), the skip-button
   interval is a personal scrubbing preference independent of what's playing — Pocket
@@ -116,14 +118,21 @@ device-local.
 
 - iOS `SettingsView.swift` / Web `Settings.razor`: a "Playback" section (position 1)
   containing, in this order:
-  - "Skip forward" / "Skip back" pickers (preset options, e.g. 10/15/30/45s),
-    replacing the two buttons' currently-hardcoded intervals.
+  - "Skip forward" / "Skip back" pickers (preset options, e.g. 10/15/30/45s)
+    configuring the new skip buttons' intervals (see "Decisions" above — the app
+    has no skip buttons prior to this issue).
   - "Auto-play next episode" toggle.
   - "Resume position" picker: "Exactly where I left off" / "Skip back a few seconds"
     (`ResumeBehavior`).
-  - "Playback speed" and "Smart Speed" controls — moved here from wherever they
-    currently render (already `UserSettings` fields, this section is just their new
-    home per the settings-architecture.md IA).
+  - "Smart Speed" toggle — already in `SettingsView.swift`'s auto-skip section
+    today; this issue just confirms it belongs in this "Playback" grouping, no
+    change needed.
+  - "Playback speed" as a settings-screen control — today the global default is
+    only ever set indirectly, via `EpisodeDetailView.cyclePlaybackSpeed`'s in-player
+    speed button (which both applies live and calls `savePlaybackSpeed` to persist
+    the new global default). This adds an explicit picker in Settings for the same
+    field, so a user can set their default speed without needing an episode
+    playing; the in-player control is unaffected.
   - The existing "Auto-skip intro" / "Auto-skip outro" pickers (`SettingsView.swift`
     lines 74–81) stay in this section, unchanged.
 - Per-show override: no change to `ShowSettingsSheet`/Web equivalent beyond what it
