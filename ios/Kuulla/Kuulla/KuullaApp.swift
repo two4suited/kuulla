@@ -47,7 +47,11 @@ struct KuullaApp: App {
                         async let episodes: Void = episodeSyncEngine.syncNow()
                         async let playlists: Void = playlistSyncEngine.syncNow()
                         async let settings: Void = settingsSyncEngine.syncNow()
-                        _ = await (episodes, playlists, settings)
+                        // Catches notification permission having been revoked in Settings since
+                        // this device last registered (#217) — not part of the concurrent group
+                        // above since it's unrelated to sync and shouldn't gate cold-start on it.
+                        async let notifications: Void = PushNotificationManager.shared.syncAuthorizationStatus()
+                        _ = await (episodes, playlists, settings, notifications)
                     }
                 }
                 .onOpenURL { url in
@@ -62,6 +66,7 @@ struct KuullaApp: App {
                     Task { await episodeSyncEngine.syncNow() }
                     Task { await playlistSyncEngine.syncNow() }
                     Task { await settingsSyncEngine.syncNow() }
+                    Task { await PushNotificationManager.shared.syncAuthorizationStatus() }
                 }
             case .background:
                 if AuthManager.shared.isSignedIn {
@@ -93,5 +98,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
         DownloadManager.shared.setBackgroundCompletionHandler(completionHandler)
+    }
+
+    // The only way to receive APNs' actual device token — SwiftUI's App protocol has no hook for
+    // this delegate callback either, same reason handleEventsForBackgroundURLSession above needs
+    // this adaptor (#217).
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        Task { await PushNotificationManager.shared.handleDeviceToken(token) }
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Best-effort — nothing actionable to do beyond not registering a device token.
     }
 }
