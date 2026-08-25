@@ -45,7 +45,7 @@ setting is touched after initial setup (most-used first):
 10. **Accessibility** ([#192](https://github.com/sheridan-apps/kuulla/issues/192)).
 11. **Account & Privacy** ([#188](https://github.com/sheridan-apps/kuulla/issues/188))
     — deliberately last: destructive/high-stakes actions (sign out, delete account)
-    shouldn't sit next to routine toggles.
+    shouldn't sit next to routine toggles. Spec: [account-privacy-settings.md](./account-privacy-settings.md).
 
 Existing `UnlistenedEpisodeCount` (`SettingsView`/`Settings.razor` today) moves under
 **Playback** as an "episode list" subsection — it's a per-show-overridable display
