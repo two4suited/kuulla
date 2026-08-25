@@ -72,4 +72,13 @@ public interface ISettingsService
 
     Task<bool> GetEffectiveSmartSpeedAsync(
         string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateNotificationsEnabledAsync(
+        string userId, bool notificationsEnabled, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowNotificationsEnabledAsync(
+        string userId, string showId, bool? notificationsEnabled, CancellationToken cancellationToken);
+
+    Task<bool> GetEffectiveNotificationsEnabledAsync(
+        string userId, string showId, CancellationToken cancellationToken);
 }

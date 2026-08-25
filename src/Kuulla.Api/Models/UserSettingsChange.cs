@@ -15,4 +15,11 @@ public record UserSettingsChange(
     int AutoDeleteAfterDays,
     bool AutoDownloadNewEpisodes,
     bool SmartSpeed,
+    // Nullable (unlike every non-nullable field above) because this field is newer than the
+    // rest of this DTO: an existing client that hasn't been updated to send it yet will omit
+    // the JSON property entirely, and minimal-API request binding (System.Text.Json) populates a
+    // missing non-nullable bool with false — not the client's actual, unrelated notification
+    // preference. Null here means "this client doesn't know about this setting yet", so
+    // SettingsService.SyncAsync falls back to the stored value instead of clobbering it.
+    bool? NotificationsEnabled,
     DateTimeOffset UpdatedAt);
