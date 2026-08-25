@@ -64,6 +64,23 @@ public class FeedPollingServiceTests
     }
 
     [Fact]
+    public async Task PollOnceAsync_SkipsShowWithMalformedFeedUrlInsteadOfThrowing()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("show-a", feedUrl: "not a valid url"));
+
+        // Must not throw — an invalid FeedUrl reaching HttpClient would surface as
+        // UriFormatException, which isn't in PollShowAsync's catch and would otherwise cancel
+        // every other show still in flight in the same Parallel.ForEachAsync batch.
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task PollOnceAsync_SkipsShowThatNoLongerExists()
     {
         _subscriptionService

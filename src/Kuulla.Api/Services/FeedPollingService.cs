@@ -9,10 +9,11 @@ public class FeedPollingService(
     IEpisodeService episodeService,
     ILogger<FeedPollingService> logger) : IFeedPollingService
 {
-    // Capped in-flight refetches, matching the degree of parallelism EpisodeService.
-    // CacheEpisodesAsync's own per-episode fan-out already uses — a subscriber base spanning
-    // hundreds of shows shouldn't fire hundreds of concurrent outbound feed requests at once.
-    private const int MaxDegreeOfParallelism = 10;
+    // Deliberately lower than EpisodeService.CacheEpisodesAsync's own internal fan-out (20): each
+    // show polled here can itself spawn up to 20 concurrent Cosmos writes/enforcement calls inside
+    // CacheEpisodesAsync, so this level bounds the *outer* degree to keep total concurrent
+    // outbound HTTP + Cosmos load reasonable rather than multiplying the two together.
+    private const int MaxDegreeOfParallelism = 5;
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
@@ -29,8 +30,17 @@ public class FeedPollingService(
         try
         {
             var show = await showService.GetByIdAsync(showId, cancellationToken);
-            if (string.IsNullOrEmpty(show?.FeedUrl))
+            // Absolute-URI check (not just non-empty) so a malformed FeedUrl is isolated to this
+            // show here rather than reaching HttpClient and throwing UriFormatException, which
+            // isn't in the catch below and would otherwise cancel every other show still in
+            // flight in the same Parallel.ForEachAsync batch.
+            if (string.IsNullOrEmpty(show?.FeedUrl) || !Uri.TryCreate(show.FeedUrl, UriKind.Absolute, out _))
             {
+                if (show is not null)
+                {
+                    logger.LogWarning("Show {ShowId} has an invalid FeedUrl {FeedUrl} — skipping", showId, show.FeedUrl);
+                }
+
                 return;
             }
 
@@ -48,12 +58,19 @@ public class FeedPollingService(
             // into — no separate "is this new" bookkeeping needed here.
             await episodeService.CacheEpisodesAsync(showId, feed.Episodes, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or XmlException or TaskCanceledException)
+        catch (Exception ex) when (
+            ex is HttpRequestException or XmlException || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
         {
             // One show's feed being unreachable, timing out, or malformed shouldn't stop the rest
             // of the sweep — same narrow catch SubscriptionService.GetNewEpisodesAsync uses for the
             // same reason. Logged (unlike that request-scoped path) since nothing else observes an
             // unattended background sweep's failures.
+            //
+            // TaskCanceledException is only caught when it's NOT caused by our own
+            // cancellationToken (e.g. an HttpClient-internal per-request timeout) — a real
+            // shutdown cancellation needs to propagate as OperationCanceledException so
+            // BackgroundService's normal shutdown handling applies instead of being logged as a
+            // per-show failure.
             logger.LogWarning(ex, "Failed to poll feed for show {ShowId}", showId);
         }
     }

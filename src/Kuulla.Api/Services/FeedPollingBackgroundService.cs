@@ -19,7 +19,10 @@ public class FeedPollingBackgroundService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var interval = configuration.GetValue<double?>("FeedPolling:IntervalMinutes") is { } minutes
+        // A configured value of 0/negative (or unparsable) would otherwise reach PeriodicTimer's
+        // constructor, which throws ArgumentOutOfRangeException for a non-positive interval and
+        // would crash the app at startup — validate here and fall back instead.
+        var interval = configuration.GetValue<double?>("FeedPolling:IntervalMinutes") is { } minutes && minutes > 0
             ? TimeSpan.FromMinutes(minutes)
             : DefaultInterval;
 
