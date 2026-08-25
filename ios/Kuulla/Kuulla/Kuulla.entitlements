@@ -2,7 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Substituted per build configuration (APS_ENVIRONMENT in project.pbxproj: development for
+	     Debug, production for Release) — entitlements files support $(VAR) substitution the same
+	     way Info.plist does. A single hard-coded "development" here would sign Release/App Store
+	     archives for the APNs sandbox, which production devices can't receive pushes through. -->
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>$(APS_ENVIRONMENT)</string>
 </dict>
 </plist>

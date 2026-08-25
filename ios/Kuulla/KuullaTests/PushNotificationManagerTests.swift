@@ -43,7 +43,12 @@ final class PushNotificationManagerTests: MockedApiTestCase {
         XCTAssertTrue(requestedURL.absoluteString.contains("/api/notifications/device-token/"))
     }
 
-    func testSyncAuthorizationStatusDoesNothingWhenAuthorized() async {
+    func testSyncAuthorizationStatusReRegistersWhenAlreadyAuthorized() async {
+        // Doesn't hit the network client directly (registerForRemoteNotifications() is a live
+        // UIApplication call, not routed through MockURLProtocol) — this just proves the
+        // .authorized branch doesn't call unregister, unlike .denied. The actual re-registration
+        // effect (a fresh handleDeviceToken() call once APNs responds) is covered by
+        // testHandleDeviceTokenRegistersWithApi.
         let authorizing = MockNotificationAuthorizing()
         authorizing.authorizationStatus = .authorized
         let sut = PushNotificationManager(deviceTokenClient: deviceTokenClient, authorizing: authorizing)
@@ -64,6 +69,32 @@ final class PushNotificationManagerTests: MockedApiTestCase {
         await sut.syncAuthorizationStatus()
 
         XCTAssertTrue(MockURLProtocol.requestedURLs.isEmpty)
+    }
+
+    func testHandleDeviceTokenUndoesRegistrationWhenSignOutRacesIt() async throws {
+        // Simulates a sign-out's unregisterCurrentDevice() bumping registrationEpoch while this
+        // register() call is still in flight — the epoch bump happens synchronously inside the
+        // stub handler, which runs strictly before the response is delivered back to
+        // handleDeviceToken's awaiting coroutine, so this deterministically reproduces "sign-out
+        // raced an in-flight registration" without relying on real Task scheduling order. Without
+        // the epoch check, the device would stay registered to an account the app has since
+        // signed out of.
+        let registerJson = """
+        {"id":"u1:d1","userId":"u1","deviceId":"d1","apnsToken":"tok","platform":0,"updatedAt":"2024-01-15T10:30:00+00:00"}
+        """.data(using: .utf8)!
+        let sut = PushNotificationManager(deviceTokenClient: deviceTokenClient, authorizing: MockNotificationAuthorizing())
+        var requestMethods: [String] = []
+        MockURLProtocol.stubHandler = { request in
+            requestMethods.append(request.httpMethod ?? "")
+            if request.httpMethod == "POST" {
+                sut.registrationEpoch += 1
+            }
+            return .success(.init(statusCode: 200, data: registerJson, headers: [:]))
+        }
+
+        await sut.handleDeviceToken("apns-token-hex")
+
+        XCTAssertEqual(requestMethods, ["POST", "DELETE"])
     }
 
     func testUnregisterCurrentDeviceCallsApi() async throws {

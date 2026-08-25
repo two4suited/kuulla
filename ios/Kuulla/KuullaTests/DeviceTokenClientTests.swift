@@ -42,11 +42,16 @@ final class DeviceTokenClientTests: MockedApiTestCase {
     }
 
     func testUnregisterEscapesDeviceIdAndUsesDeleteMethod() async throws {
-        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 204, data: Data(), headers: [:])) }
+        var capturedMethod: String?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            return .success(.init(statusCode: 204, data: Data(), headers: [:]))
+        }
 
         try await client.unregister(deviceId: "a/b")
 
         let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
         XCTAssertTrue(requestedURL.absoluteString.contains("/api/notifications/device-token/a%2Fb"))
+        XCTAssertEqual(capturedMethod, "DELETE")
     }
 }
