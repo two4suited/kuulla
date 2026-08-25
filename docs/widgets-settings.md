@@ -2,7 +2,7 @@
 
 Spec for [#190](https://github.com/sheridan-apps/kuulla/issues/190)'s "Widgets"
 settings section, decided against
-[settings-architecture.md](./settings-architecture.md)'s IA (section 8, iOS-only).
+[settings-architecture.md](./settings-architecture.md)'s IA (iOS-only).
 
 ## Research
 
