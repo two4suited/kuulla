@@ -590,6 +590,11 @@ notifications.MapDelete("/device-token/{deviceId}", async (
     IDeviceTokenService deviceTokenService,
     CancellationToken ct) =>
 {
+    if (string.IsNullOrWhiteSpace(deviceId))
+    {
+        return Results.BadRequest(new { error = "'deviceId' is required." });
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     await deviceTokenService.UnregisterAsync(userId, deviceId, ct);
     return Results.NoContent();

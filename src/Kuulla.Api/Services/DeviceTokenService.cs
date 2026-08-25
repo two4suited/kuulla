@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.DependencyInjection;
 using Kuulla.Api.Models;
 
 namespace Kuulla.Api.Services;
