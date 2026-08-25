@@ -47,7 +47,20 @@ struct ContentView: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Sign Out") {
-                            authManager.signOut()
+                            // Awaited *before* signOut() clears the auth token, not fired
+                            // afterward — ApiClient attaches the bearer token from
+                            // AuthManager.validIdToken() when it actually builds the request
+                            // (several suspension points deep inside the unregister call), so
+                            // simply calling signOut() synchronously right after scheduling this
+                            // Task doesn't guarantee the token is still valid by the time the
+                            // request goes out. Firing it unauthenticated would get rejected with
+                            // 401 and leave the device's token orphaned server-side. The tradeoff
+                            // is the sign-out button waits on one fast local network call rather
+                            // than updating instantly.
+                            Task {
+                                await PushNotificationManager.shared.unregisterCurrentDevice()
+                                authManager.signOut()
+                            }
                         }
                     }
                 }
@@ -86,6 +99,7 @@ struct ContentView: View {
                 try await authManager.signIn(presenting: rootViewController)
                 errorMessage = nil
                 await syncEngine?.syncNow()
+                await PushNotificationManager.shared.requestAuthorizationAndRegister()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -99,6 +113,7 @@ struct ContentView: View {
                 try await authManager.signInAsTestUser()
                 errorMessage = nil
                 await syncEngine?.syncNow()
+                await PushNotificationManager.shared.requestAuthorizationAndRegister()
             } catch {
                 errorMessage = error.localizedDescription
             }
