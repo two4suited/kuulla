@@ -19,7 +19,7 @@ setting is touched after initial setup (most-used first):
    intervals, auto-play, resume behavior, speed/silence-trim/volume-boost *global
    defaults*. Spec: [playback-settings.md](./playback-settings.md).
 2. **Appearance** ([#183](https://github.com/sheridan-apps/kuulla/issues/183)) —
-   theme, app icon, text size.
+   theme, app icon, text size. Spec: [appearance-settings.md](./appearance-settings.md).
 3. **Notifications** ([#184](https://github.com/sheridan-apps/kuulla/issues/184)) —
    global/per-podcast new-episode toggle, download-complete alerts; the API/DB fields
    this needs are tracked separately in
@@ -94,9 +94,22 @@ Siri shortcuts are both properties of *this* device/OS install, not something a
 second device could receive and apply. Neither has a `UserSettings` field in the
 data model below, the same way Data Usage & Network doesn't.
 
-Every other section (Playback, Appearance, Downloads & Storage, Auto-Archive &
-Played Rules, Import/Export triggers, Accessibility, Account & Privacy) is synced.
-`ShowSettings` per-show overrides sync the same way, keyed by `(userId, showId)`.
+Appearance (#183) is a partial exception rather than fully synced like the
+sections below it: its app icon is iOS-only and device-local for the same
+"can't sync a home-screen icon between devices" reason as Widgets/Siri &
+Shortcuts (no `UserSettings` field), and text size has no field at all — Kuulla
+relies on the OS's own Dynamic Type setting rather than storing one. Only
+Appearance's theme is a synced `UserSettings` field, and even that field is
+nullable rather than plainly defaulted — see
+[appearance-settings.md](./appearance-settings.md) for why (an existing
+Web-only `localStorage` preference predates the field, so a resolved default
+can't be assumed on read the way it can for a field with no prior state
+anywhere).
+
+Every other section (Playback, the theme part of Appearance, Downloads &
+Storage, Auto-Archive & Played Rules, Import/Export triggers, Accessibility,
+Account & Privacy) is synced. `ShowSettings` per-show overrides sync the same
+way, keyed by `(userId, showId)`.
 
 ## Settings data model shape
 
@@ -114,10 +127,12 @@ UserSettings              (id = userId)
 │  ├─ autoPlayNext : bool
 │  ├─ resumeBehavior : enum
 │  ├─ defaultSpeed / defaultSilenceTrim / defaultVolumeBoost
-├─ appearance                                        // #183
-│  ├─ theme : Light|Dark|System
-│  ├─ appIcon
-│  ├─ textSize
+├─ appearance                                        // #183, see appearance-settings.md
+│  ├─ theme : Light|Dark|System|null                 // null = no synced preference set yet
+                                                       // (appIcon and textSize are NOT UserSettings
+                                                       // fields — appIcon is iOS-only/device-local,
+                                                       // textSize has no field at all; see
+                                                       // appearance-settings.md's Decisions)
 ├─ notifications                                     // #184, synced subset only
 │  ├─ newEpisodesEnabled : bool
 │  ├─ downloadCompleteEnabled : bool
