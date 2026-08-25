@@ -40,6 +40,7 @@ setting is touched after initial setup (most-used first):
    — OPML. Spec: [opml-import-export-settings.md](./opml-import-export-settings.md).
 8. **Widgets** ([#190](https://github.com/sheridan-apps/kuulla/issues/190)) —
    iOS-only; hidden entirely on Web (see [Web vs iOS parity](#web-vs-ios-parity)).
+   Spec: [widgets-settings.md](./widgets-settings.md).
 9. **Siri & Shortcuts** ([#191](https://github.com/sheridan-apps/kuulla/issues/191))
    — iOS-only.
 10. **Accessibility** ([#192](https://github.com/sheridan-apps/kuulla/issues/192)).
