@@ -19,7 +19,7 @@ setting is touched after initial setup (most-used first):
    intervals, auto-play, resume behavior, speed/silence-trim/volume-boost *global
    defaults*.
 2. **Appearance** ([#183](https://github.com/sheridan-apps/kuulla/issues/183)) —
-   theme, app icon, text size.
+   theme, app icon, text size. Spec: [appearance-settings.md](./appearance-settings.md).
 3. **Notifications** ([#184](https://github.com/sheridan-apps/kuulla/issues/184)) —
    global/per-podcast new-episode toggle, download-complete alerts; the API/DB fields
    this needs are tracked separately in
