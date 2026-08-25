@@ -652,4 +652,21 @@ public class SettingsServiceTests
         _settingsContainer.Verify(
             c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
+
+    [Fact]
+    public void Deserialize_LegacyDocumentMissingNotificationsEnabled_DefaultsToTrue()
+    {
+        // A UserSettings document written before NotificationsEnabled existed has no
+        // "notificationsEnabled" property at all. Without DefaultValueHandling.Populate on that
+        // property, Newtonsoft would fall back to bool's CLR default (false) instead of the
+        // constructor's `= true` default, silently opting pre-existing users out.
+        var legacyJson = $$"""
+            {"id":"{{UserId}}","unlistenedEpisodeCount":5,"version":1,"updatedAt":"2026-01-01T00:00:00Z"}
+            """;
+
+        var deserialized = JsonConvert.DeserializeObject<UserSettings>(legacyJson);
+
+        Assert.NotNull(deserialized);
+        Assert.True(deserialized.NotificationsEnabled);
+    }
 }
