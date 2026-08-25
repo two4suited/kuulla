@@ -31,6 +31,7 @@ builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<IEpisodeStateService, EpisodeStateService>();
 builder.Services.AddScoped<IPlaylistService, PlaylistService>();
+builder.Services.AddScoped<IDeviceTokenService, DeviceTokenService>();
 builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryClient>(client =>
 {
     client.BaseAddress = new Uri("https://itunes.apple.com/");
@@ -563,6 +564,40 @@ subscriptions.MapGet("/episodes", async (ClaimsPrincipal user, ISubscriptionServ
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var results = await subscriptionService.GetNewEpisodesAsync(userId, ct);
     return Results.Ok(results);
+});
+
+var notifications = app.MapGroup("/api/notifications").RequireAuthorization();
+
+notifications.MapPost("/device-token", async (
+    RegisterDeviceTokenRequest request,
+    ClaimsPrincipal user,
+    IDeviceTokenService deviceTokenService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.DeviceId) || string.IsNullOrWhiteSpace(request.ApnsToken))
+    {
+        return Results.BadRequest(new { error = "'deviceId' and 'apnsToken' are required." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var token = await deviceTokenService.RegisterAsync(userId, request.DeviceId, request.ApnsToken, request.Platform, ct);
+    return Results.Ok(token);
+});
+
+notifications.MapDelete("/device-token/{deviceId}", async (
+    string deviceId,
+    ClaimsPrincipal user,
+    IDeviceTokenService deviceTokenService,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(deviceId))
+    {
+        return Results.BadRequest(new { error = "'deviceId' is required." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    await deviceTokenService.UnregisterAsync(userId, deviceId, ct);
+    return Results.NoContent();
 });
 
 var episodeState = app.MapGroup("/api/episodes").RequireAuthorization();
