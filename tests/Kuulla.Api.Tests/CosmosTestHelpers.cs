@@ -9,10 +9,15 @@ namespace Kuulla.Api.Tests;
 // own XML docs: "Create a[n] ItemResponse/FeedResponse as a no-op for mock testing").
 internal static class CosmosTestHelpers
 {
-    public static ItemResponse<T> ItemResponse<T>(T resource)
+    // Defaults to a non-null ETag — a real Cosmos document read/write always carries one, so a
+    // test standing in for "existing document" shouldn't need to opt into that explicitly. Tests
+    // that specifically exercise ETag-based concurrency (a stale/matching/mismatched value) pass
+    // their own.
+    public static ItemResponse<T> ItemResponse<T>(T resource, string etag = "etag")
     {
         var mock = new Mock<ItemResponse<T>>();
         mock.SetupGet(r => r.Resource).Returns(resource);
+        mock.SetupGet(r => r.ETag).Returns(etag);
         return mock.Object;
     }
 
@@ -44,6 +49,9 @@ internal static class CosmosTestHelpers
 
     public static CosmosException Conflict() =>
         new("conflict", System.Net.HttpStatusCode.Conflict, 0, string.Empty, 0);
+
+    public static CosmosException PreconditionFailed() =>
+        new("precondition failed", System.Net.HttpStatusCode.PreconditionFailed, 0, string.Empty, 0);
 
     // Show.FeedUrl is non-nullable, matching production (ItunesPodcastDirectoryClient always
     // sets it) — pass feedUrl: "" for tests that need a show with no feed, mirroring how

@@ -8,10 +8,15 @@ namespace Kuulla.Api.Models;
 // settings" is a single-partition point read, and a user has exactly one settings document —
 // there's nothing to disambiguate with a separate id, so Id and UserId are the same value.
 // Version is a plain counter bumped on every update, surfaced to clients so they can tell
-// their local copy is stale. It is NOT yet compared against on write (updates are a plain
-// read-modify-write upsert), so it doesn't prevent a lost update under concurrent writes —
-// wiring it (or Cosmos's own ETag) into an optimistic-concurrency check on
-// SettingsService.UpdateUnlistenedEpisodeCountAsync is follow-up work.
+// their local copy is stale. The field-specific Update*Async methods on SettingsService are
+// protected against lost updates via Cosmos's own ETag (not this Version field) — see
+// SettingsService.UpdateSettingsWithRetryAsync, which every one of them funnels through: it
+// writes conditionally (IfMatchEtag, or CreateItemAsync for the first write) and retries on a
+// lost race rather than blindly overwriting. Two exceptions: SettingsService.SyncAsync still
+// does an unconditional UpsertItemAsync (its own updatedAt-based reconciliation is the intended
+// conflict resolution there, not ETag), and ShowSettings, stored in the same container, does NOT
+// yet have ETag protection at all — its Update*Async methods are still a plain
+// read-modify-write upsert.
 // UpdatedAt/DeviceId follow the sync-metadata convention in docs/sync-conventions.md — server
 // stamps UpdatedAt on every write, client-supplied values are never trusted for storage.
 // Implements ISyncableRecord (via explicit Id => UserId, since the id column is already named

@@ -57,19 +57,51 @@ public class SettingsServiceTests
     }
 
     [Fact]
-    public async Task UpdateUnlistenedEpisodeCountAsync_UpsertsWithIncrementedVersionWhenNoDocumentExists()
+    public async Task UpdateUnlistenedEpisodeCountAsync_CreatesWithIncrementedVersionWhenNoDocumentExists()
     {
         _settingsContainer
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.CreateItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdateUnlistenedEpisodeCountAsync(UserId, UnlistenedEpisodeCount.Unlimited, CancellationToken.None);
 
         Assert.Equal(UserId, result.UserId);
         Assert.Equal(UnlistenedEpisodeCount.Unlimited, result.UnlistenedEpisodeCount);
+        Assert.Equal(2, result.Version);
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateUnlistenedEpisodeCountAsync_RetriesWhenConcurrentCreateWinsTheRace()
+    {
+        // Two devices both create a brand-new user's settings document for the first time; ours
+        // loses the race to CreateItemAsync (Conflict), so it must re-read the now-existing
+        // document and retry as a conditional update rather than silently giving up or
+        // overwriting via an unconditional upsert.
+        var wonByOtherDevice = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoDownloadNewEpisodes: true);
+
+        _settingsContainer
+            .SetupSequence(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound())
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(wonByOtherDevice, etag: "etag-1"));
+        _settingsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.Conflict());
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(
+                It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(),
+                It.Is<ItemRequestOptions>(o => o!.IfMatchEtag == "etag-1"), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateUnlistenedEpisodeCountAsync(UserId, UnlistenedEpisodeCount.Unlimited, CancellationToken.None);
+
+        Assert.Equal(UnlistenedEpisodeCount.Unlimited, result.UnlistenedEpisodeCount);
+        Assert.True(result.AutoDownloadNewEpisodes);
         Assert.Equal(2, result.Version);
     }
 
@@ -81,7 +113,7 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdateUnlistenedEpisodeCountAsync(UserId, UnlistenedEpisodeCount.One, CancellationToken.None);
@@ -203,7 +235,7 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdateAutoArchiveRuleAsync(UserId, AutoArchiveRule.After7Days, CancellationToken.None);
@@ -274,7 +306,7 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdateAutoSkipAsync(UserId, 15, 30, CancellationToken.None);
@@ -359,7 +391,7 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdatePlaybackSpeedAsync(UserId, 1.5f, CancellationToken.None);
@@ -438,7 +470,7 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdateAutoDeleteRuleAsync(UserId, AutoDeleteRule.AfterPlayed, 14, CancellationToken.None);
@@ -458,7 +490,7 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdateAutoDownloadNewEpisodesAsync(UserId, true, CancellationToken.None);
@@ -531,13 +563,74 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var result = await _sut.UpdateSmartSpeedAsync(UserId, true, CancellationToken.None);
 
         Assert.True(result.SmartSpeed);
         Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateSmartSpeedAsync_RetriesOnStaleETagAndPreservesConcurrentFieldChange()
+    {
+        // Simulates two devices racing: our SmartSpeed update reads first (etag-1), but before
+        // it can upsert, a concurrent AutoDownloadNewEpisodes write from another device lands and
+        // moves the document to etag-2. Without the IfMatchEtag/retry loop, our upsert would
+        // blindly overwrite using our stale read and silently discard that other device's change
+        // (the lost-update scenario UserSettings.Version's doc comment used to call out). With it,
+        // the PreconditionFailed on etag-1 forces a re-read, which picks up the concurrent change
+        // and reapplies our SmartSpeed change on top of it instead of clobbering it.
+        var staleRead = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, AutoArchiveRule.Never,
+            SmartSpeed: false, AutoDownloadNewEpisodes: false);
+        var concurrentlyWritten = staleRead with { AutoDownloadNewEpisodes = true, Version = 4 };
+
+        _settingsContainer
+            .SetupSequence(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(staleRead, etag: "etag-1"))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(concurrentlyWritten, etag: "etag-2"));
+
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(
+                It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(),
+                It.Is<ItemRequestOptions>(o => o!.IfMatchEtag == "etag-1"), default))
+            .ThrowsAsync(CosmosTestHelpers.PreconditionFailed());
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(
+                It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(),
+                It.Is<ItemRequestOptions>(o => o!.IfMatchEtag == "etag-2"), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateSmartSpeedAsync(UserId, true, CancellationToken.None);
+
+        Assert.True(result.SmartSpeed);
+        Assert.True(result.AutoDownloadNewEpisodes);
+        Assert.Equal(5, result.Version);
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default),
+            Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task UpdateSmartSpeedAsync_ThrowsAfterExhaustingRetriesOnPersistentETagConflict()
+    {
+        var current = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3, AutoArchiveRule.Never, SmartSpeed: false);
+
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(current, etag: "etag-always-stale"));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ThrowsAsync(CosmosTestHelpers.PreconditionFailed());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _sut.UpdateSmartSpeedAsync(UserId, true, CancellationToken.None));
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default),
+            Times.Exactly(5));
     }
 
     [Fact]
@@ -694,7 +787,7 @@ public class SettingsServiceTests
             .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
         _settingsContainer
-            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
         var change = MakeChange(DateTimeOffset.UtcNow, playbackSpeed: 1.5f);

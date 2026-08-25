@@ -53,6 +53,76 @@ public class SettingsService(
     private Task RecomputeSyncSummaryAsync(string userId, UserSettings current, CancellationToken cancellationToken) =>
         _syncSummaryCache.SetAsync(userId, SyncSummaryCache<UserSettings>.Compute([current]), cancellationToken);
 
+    private async Task<(UserSettings Settings, string? ETag)> ReadCurrentSettingsWithETagAsync(
+        string userId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await settingsContainer.ReadItemAsync<UserSettings>(
+                userId, new PartitionKey(userId), cancellationToken: cancellationToken);
+            return (response.Resource, response.ETag);
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // No document yet. A null ETag signals "create" to UpdateSettingsWithRetryAsync
+            // below, which uses CreateItemAsync (fails on a concurrent create, unlike an
+            // unconditional upsert) rather than treating this as nothing-to-race-against.
+            return (UserSettings.CreateDefault(userId), null);
+        }
+    }
+
+    private const int MaxUpdateAttempts = 5;
+
+    // Optimistic-concurrency retry shared by every global settings Update*Async method: re-reads
+    // the single per-user settings document (and its ETag) before every attempt and writes
+    // conditionally, retrying on a lost race instead of blindly overwriting. Without this, two
+    // concurrent PUTs touching different fields (e.g. smart-speed from one device and
+    // auto-download from another) could each read the same stale document and have the second
+    // write silently discard the first's field change. This covers both an
+    // existing document (IfMatchEtag) and the very first write for a user (CreateItemAsync,
+    // which fails on a concurrent create the same way IfMatchEtag fails on a concurrent update)
+    // — an unconditional upsert on a null ETag would leave that creation race unprotected.
+    private async Task<UserSettings> UpdateSettingsWithRetryAsync(
+        string userId, Func<UserSettings, UserSettings> applyChange, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < MaxUpdateAttempts; attempt++)
+        {
+            var (current, etag) = await ReadCurrentSettingsWithETagAsync(userId, cancellationToken);
+            // DeviceId is cleared explicitly rather than left as `current`'s (a `with` expression
+            // otherwise preserves every untouched property) — these field-specific endpoints don't
+            // take a deviceId from the caller, so leaving a stale value here would misattribute this
+            // write to whichever device happened to make the last sync push.
+            var updated = applyChange(current) with
+            {
+                Version = current.Version + 1,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                DeviceId = null,
+            };
+
+            try
+            {
+                var response = etag is null
+                    ? await settingsContainer.CreateItemAsync(updated, new PartitionKey(userId), cancellationToken: cancellationToken)
+                    : await settingsContainer.UpsertItemAsync(
+                        updated, new PartitionKey(userId), new ItemRequestOptions { IfMatchEtag = etag }, cancellationToken);
+                await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
+                return response.Resource;
+            }
+            catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+            {
+                // Lost the race to a concurrent writer — loop around and retry against whatever
+                // it just wrote (PreconditionFailed: someone updated the existing document;
+                // Conflict: someone created it first, out from under our CreateItemAsync).
+            }
+        }
+
+        // Exhausted every attempt still losing the optimistic-concurrency race — surface this
+        // rather than silently dropping the update, which would undermine the whole point of the
+        // ETag/retry loop above.
+        throw new InvalidOperationException(
+            $"Failed to update settings for user '{userId}' after {MaxUpdateAttempts} attempts due to concurrent writes.");
+    }
+
     public async Task<SyncSettingsResult> SyncAsync(
         string userId,
         string deviceId,
@@ -95,27 +165,10 @@ public class SettingsService(
         return new SyncSettingsResult(result.ServerChanges, result.SyncedAt, result.Hash);
     }
 
-    public async Task<UserSettings> UpdateUnlistenedEpisodeCountAsync(
-        string userId, UnlistenedEpisodeCount unlistenedEpisodeCount, CancellationToken cancellationToken)
-    {
-        var current = await GetSettingsAsync(userId, cancellationToken);
-        // DeviceId is cleared explicitly rather than left as `current`'s (a `with` expression
-        // otherwise preserves every untouched property) — these field-specific endpoints don't
-        // take a deviceId from the caller, so leaving a stale value here would misattribute this
-        // write to whichever device happened to make the last sync push.
-        var updated = current with
-        {
-            UnlistenedEpisodeCount = unlistenedEpisodeCount,
-            Version = current.Version + 1,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            DeviceId = null,
-        };
-
-        var response = await settingsContainer.UpsertItemAsync(
-            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
-        return response.Resource;
-    }
+    public Task<UserSettings> UpdateUnlistenedEpisodeCountAsync(
+        string userId, UnlistenedEpisodeCount unlistenedEpisodeCount, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { UnlistenedEpisodeCount = unlistenedEpisodeCount }, cancellationToken);
 
     public async Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken)
     {
@@ -164,23 +217,9 @@ public class SettingsService(
         return userSettings.UnlistenedEpisodeCount;
     }
 
-    public async Task<UserSettings> UpdateAutoArchiveRuleAsync(
-        string userId, AutoArchiveRule autoArchiveRule, CancellationToken cancellationToken)
-    {
-        var current = await GetSettingsAsync(userId, cancellationToken);
-        var updated = current with
-        {
-            AutoArchiveRule = autoArchiveRule,
-            Version = current.Version + 1,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            DeviceId = null,
-        };
-
-        var response = await settingsContainer.UpsertItemAsync(
-            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
-        return response.Resource;
-    }
+    public Task<UserSettings> UpdateAutoArchiveRuleAsync(
+        string userId, AutoArchiveRule autoArchiveRule, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(userId, current => current with { AutoArchiveRule = autoArchiveRule }, cancellationToken);
 
     public async Task<ShowSettings> UpdateShowAutoArchiveRuleAsync(
         string userId, string showId, AutoArchiveRule? autoArchiveRule, CancellationToken cancellationToken)
@@ -212,24 +251,12 @@ public class SettingsService(
         return userSettings.AutoArchiveRule;
     }
 
-    public async Task<UserSettings> UpdateAutoSkipAsync(
-        string userId, int autoSkipIntroSeconds, int autoSkipOutroSeconds, CancellationToken cancellationToken)
-    {
-        var current = await GetSettingsAsync(userId, cancellationToken);
-        var updated = current with
-        {
-            AutoSkipIntroSeconds = autoSkipIntroSeconds,
-            AutoSkipOutroSeconds = autoSkipOutroSeconds,
-            Version = current.Version + 1,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            DeviceId = null,
-        };
-
-        var response = await settingsContainer.UpsertItemAsync(
-            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
-        return response.Resource;
-    }
+    public Task<UserSettings> UpdateAutoSkipAsync(
+        string userId, int autoSkipIntroSeconds, int autoSkipOutroSeconds, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId,
+            current => current with { AutoSkipIntroSeconds = autoSkipIntroSeconds, AutoSkipOutroSeconds = autoSkipOutroSeconds },
+            cancellationToken);
 
     public async Task<ShowSettings> UpdateShowAutoSkipAsync(
         string userId, string showId, int? autoSkipIntroSeconds, int? autoSkipOutroSeconds, CancellationToken cancellationToken)
@@ -268,23 +295,9 @@ public class SettingsService(
         return (introSeconds, outroSeconds);
     }
 
-    public async Task<UserSettings> UpdatePlaybackSpeedAsync(
-        string userId, float playbackSpeed, CancellationToken cancellationToken)
-    {
-        var current = await GetSettingsAsync(userId, cancellationToken);
-        var updated = current with
-        {
-            PlaybackSpeed = playbackSpeed,
-            Version = current.Version + 1,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            DeviceId = null,
-        };
-
-        var response = await settingsContainer.UpsertItemAsync(
-            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
-        return response.Resource;
-    }
+    public Task<UserSettings> UpdatePlaybackSpeedAsync(
+        string userId, float playbackSpeed, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(userId, current => current with { PlaybackSpeed = playbackSpeed }, cancellationToken);
 
     public async Task<ShowSettings> UpdateShowPlaybackSpeedAsync(
         string userId, string showId, float? playbackSpeed, CancellationToken cancellationToken)
@@ -316,42 +329,17 @@ public class SettingsService(
         return userSettings.PlaybackSpeed;
     }
 
-    public async Task<UserSettings> UpdateAutoDeleteRuleAsync(
-        string userId, AutoDeleteRule autoDeleteRule, int autoDeleteAfterDays, CancellationToken cancellationToken)
-    {
-        var current = await GetSettingsAsync(userId, cancellationToken);
-        var updated = current with
-        {
-            AutoDeleteRule = autoDeleteRule,
-            AutoDeleteAfterDays = autoDeleteAfterDays,
-            Version = current.Version + 1,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            DeviceId = null,
-        };
+    public Task<UserSettings> UpdateAutoDeleteRuleAsync(
+        string userId, AutoDeleteRule autoDeleteRule, int autoDeleteAfterDays, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId,
+            current => current with { AutoDeleteRule = autoDeleteRule, AutoDeleteAfterDays = autoDeleteAfterDays },
+            cancellationToken);
 
-        var response = await settingsContainer.UpsertItemAsync(
-            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
-        return response.Resource;
-    }
-
-    public async Task<UserSettings> UpdateAutoDownloadNewEpisodesAsync(
-        string userId, bool autoDownloadNewEpisodes, CancellationToken cancellationToken)
-    {
-        var current = await GetSettingsAsync(userId, cancellationToken);
-        var updated = current with
-        {
-            AutoDownloadNewEpisodes = autoDownloadNewEpisodes,
-            Version = current.Version + 1,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            DeviceId = null,
-        };
-
-        var response = await settingsContainer.UpsertItemAsync(
-            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
-        return response.Resource;
-    }
+    public Task<UserSettings> UpdateAutoDownloadNewEpisodesAsync(
+        string userId, bool autoDownloadNewEpisodes, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { AutoDownloadNewEpisodes = autoDownloadNewEpisodes }, cancellationToken);
 
     public async Task<ShowSettings> UpdateShowAutoDownloadNewEpisodesAsync(
         string userId, string showId, bool? autoDownloadNewEpisodes, CancellationToken cancellationToken)
@@ -383,23 +371,9 @@ public class SettingsService(
         return userSettings.AutoDownloadNewEpisodes;
     }
 
-    public async Task<UserSettings> UpdateSmartSpeedAsync(
-        string userId, bool smartSpeed, CancellationToken cancellationToken)
-    {
-        var current = await GetSettingsAsync(userId, cancellationToken);
-        var updated = current with
-        {
-            SmartSpeed = smartSpeed,
-            Version = current.Version + 1,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            DeviceId = null,
-        };
-
-        var response = await settingsContainer.UpsertItemAsync(
-            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
-        return response.Resource;
-    }
+    public Task<UserSettings> UpdateSmartSpeedAsync(
+        string userId, bool smartSpeed, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(userId, current => current with { SmartSpeed = smartSpeed }, cancellationToken);
 
     public async Task<ShowSettings> UpdateShowSmartSpeedAsync(
         string userId, string showId, bool? smartSpeed, CancellationToken cancellationToken)
