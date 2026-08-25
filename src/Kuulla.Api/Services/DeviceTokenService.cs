@@ -32,4 +32,20 @@ public class DeviceTokenService(
             // Already unregistered — idempotent no-op, matching SubscriptionService.UnsubscribeAsync.
         }
     }
+
+    public async Task<IReadOnlyList<DeviceToken>> GetTokensForUserAsync(string userId, CancellationToken cancellationToken)
+    {
+        var results = new List<DeviceToken>();
+        using var iterator = deviceTokensContainer.GetItemQueryIterator<DeviceToken>(
+            new QueryDefinition("SELECT * FROM c"),
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
+
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            results.AddRange(page);
+        }
+
+        return results;
+    }
 }

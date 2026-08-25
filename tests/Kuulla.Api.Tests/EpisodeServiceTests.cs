@@ -1,6 +1,7 @@
 using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using StackExchange.Redis;
 
@@ -18,6 +19,8 @@ public class EpisodeServiceTests
     private readonly Mock<IPodcastFeedClient> _feedClient = new();
     private readonly Mock<ISettingsService> _settingsService = new();
     private readonly Mock<IEpisodeStateService> _episodeStateService = new();
+    private readonly Mock<IDeviceTokenService> _deviceTokenService = new();
+    private readonly Mock<INotificationService> _notificationService = new();
     private readonly Mock<IConnectionMultiplexer> _redis = new();
     private readonly Mock<IDatabase> _database = new();
     private readonly EpisodeService _sut;
@@ -39,7 +42,10 @@ public class EpisodeServiceTests
             _feedClient.Object,
             _settingsService.Object,
             _episodeStateService.Object,
-            _redis.Object);
+            _deviceTokenService.Object,
+            _notificationService.Object,
+            _redis.Object,
+            NullLogger<EpisodeService>.Instance);
 
         // No subscribers by default so the backfill tests (which trigger CacheEpisodesAsync)
         // don't need to stub enforcement — tests that care about it opt in explicitly.
@@ -338,6 +344,149 @@ public class EpisodeServiceTests
 
         _settingsService.Verify(
             s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_NotifiesSubscriberWithNotificationsEnabledAndRegisteredDevices()
+    {
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var episode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+        var tokens = new[] { new DeviceToken("user-1:device-1", UserId, "device-1", "apns-token", DevicePlatform.Ios) };
+
+        SetupSuccessfulCreate(episode);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+        _settingsService
+            .Setup(s => s.GetEffectiveNotificationsEnabledAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _deviceTokenService
+            .Setup(s => s.GetTokensForUserAsync(UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(tokens);
+
+        await _sut.CacheEpisodesAsync(ShowId, [episode], CancellationToken.None);
+
+        _notificationService.Verify(
+            s => s.NotifyNewEpisodesAsync(tokens, ShowId, show.Title, It.Is<IReadOnlyList<Episode>>(l => l.Single().Id == "new-1"), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_DoesNotNotifyWhenNotificationsDisabled()
+    {
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var episode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+
+        SetupSuccessfulCreate(episode);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+        _settingsService
+            .Setup(s => s.GetEffectiveNotificationsEnabledAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        await _sut.CacheEpisodesAsync(ShowId, [episode], CancellationToken.None);
+
+        _deviceTokenService.Verify(s => s.GetTokensForUserAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _notificationService.Verify(
+            s => s.NotifyNewEpisodesAsync(
+                It.IsAny<IReadOnlyList<DeviceToken>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_DoesNotNotifyWhenSubscriberHasNoRegisteredDevices()
+    {
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var episode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+
+        SetupSuccessfulCreate(episode);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+        _settingsService
+            .Setup(s => s.GetEffectiveNotificationsEnabledAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _deviceTokenService
+            .Setup(s => s.GetTokensForUserAsync(UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<DeviceToken>());
+
+        await _sut.CacheEpisodesAsync(ShowId, [episode], CancellationToken.None);
+
+        _notificationService.Verify(
+            s => s.NotifyNewEpisodesAsync(
+                It.IsAny<IReadOnlyList<DeviceToken>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_DoesNotNotifyForOldBackfilledEpisode()
+    {
+        // Simulates a show's whole back catalog landing as "newly inserted" the first time it's
+        // fetched (a fresh subscribe, or the feed poller's first-ever sweep of this show) —
+        // PublishedAt outside RecentEpisodeWindow means "backfill", not "genuinely just published",
+        // so every subscriber shouldn't get notified about a show's entire history at once.
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var oldEpisode = MakeEpisode("old-1", ShowId, DateTimeOffset.UtcNow.AddDays(-30));
+
+        SetupSuccessfulCreate(oldEpisode);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+
+        await _sut.CacheEpisodesAsync(ShowId, [oldEpisode], CancellationToken.None);
+
+        _settingsService.Verify(
+            s => s.GetEffectiveNotificationsEnabledAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _notificationService.Verify(
+            s => s.NotifyNewEpisodesAsync(
+                It.IsAny<IReadOnlyList<DeviceToken>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_DoesNotNotifyForFutureDatedEpisode()
+    {
+        // Some feeds publish a PublishedAt ahead of the actual release. Without an explicit
+        // publishedAt <= now check, `now - publishedAt` is negative and still satisfies
+        // `<= RecentEpisodeWindow`, which would incorrectly treat a not-yet-released episode as
+        // "recent" and notify subscribers about content that isn't actually out yet.
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var futureEpisode = MakeEpisode("future-1", ShowId, DateTimeOffset.UtcNow.AddDays(7));
+
+        SetupSuccessfulCreate(futureEpisode);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+
+        await _sut.CacheEpisodesAsync(ShowId, [futureEpisode], CancellationToken.None);
+
+        _settingsService.Verify(
+            s => s.GetEffectiveNotificationsEnabledAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _notificationService.Verify(
+            s => s.NotifyNewEpisodesAsync(
+                It.IsAny<IReadOnlyList<DeviceToken>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
