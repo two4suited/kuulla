@@ -12,6 +12,7 @@ struct UserSettings: Codable, Hashable {
     let autoDeleteAfterDays: Int
     let autoDownloadNewEpisodes: Bool
     let smartSpeed: Bool
+    let notificationsEnabled: Bool
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -21,7 +22,7 @@ struct UserSettings: Codable, Hashable {
         userId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount, version: Int, autoArchiveRule: AutoArchiveRule,
         autoSkipIntroSeconds: Int = 0, autoSkipOutroSeconds: Int = 0, playbackSpeed: Float = 1.0,
         autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7, autoDownloadNewEpisodes: Bool = false,
-        smartSpeed: Bool = false, updatedAt: Date = .distantPast
+        smartSpeed: Bool = false, notificationsEnabled: Bool = true, updatedAt: Date = .distantPast
     ) {
         self.userId = userId
         self.unlistenedEpisodeCount = unlistenedEpisodeCount
@@ -34,12 +35,13 @@ struct UserSettings: Codable, Hashable {
         self.autoDeleteAfterDays = autoDeleteAfterDays
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
         self.smartSpeed = smartSpeed
+        self.notificationsEnabled = notificationsEnabled
         self.updatedAt = updatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, updatedAt
+        case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -62,6 +64,10 @@ struct UserSettings: Codable, Hashable {
         autoDownloadNewEpisodes = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadNewEpisodes) ?? false
         // Default to false (off) when absent (predates #200), same rationale as autoArchiveRule above.
         smartSpeed = try container.decodeIfPresent(Bool.self, forKey: .smartSpeed) ?? false
+        // Default to true (on) when absent (predates #211) — matches the API's own opt-out
+        // default (UserSettings.cs: notifications are the point of registering a device for
+        // push, so absence should mean "on" here, unlike every opt-in field above).
+        notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -82,7 +88,8 @@ struct UserSettings: Codable, Hashable {
         autoDeleteRule: AutoDeleteRule? = nil,
         autoDeleteAfterDays: Int? = nil,
         autoDownloadNewEpisodes: Bool? = nil,
-        smartSpeed: Bool? = nil
+        smartSpeed: Bool? = nil,
+        notificationsEnabled: Bool? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -93,7 +100,8 @@ struct UserSettings: Codable, Hashable {
             autoDeleteRule: autoDeleteRule ?? self.autoDeleteRule,
             autoDeleteAfterDays: autoDeleteAfterDays ?? self.autoDeleteAfterDays,
             autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes,
-            smartSpeed: smartSpeed ?? self.smartSpeed, updatedAt: updatedAt)
+            smartSpeed: smartSpeed ?? self.smartSpeed,
+            notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled, updatedAt: updatedAt)
     }
 }
 

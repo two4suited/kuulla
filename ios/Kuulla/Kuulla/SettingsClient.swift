@@ -84,6 +84,18 @@ struct SettingsClient {
             ["api", "settings", "shows", showId, "smart-speed"],
             body: UpdateShowSmartSpeedRequest(smartSpeed: value))
     }
+
+    func updateNotificationsEnabled(_ value: Bool) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "notifications"],
+            body: UpdateNotificationsEnabledRequest(notificationsEnabled: value))
+    }
+
+    func updateShowNotificationsEnabled(showId: String, value: Bool?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "notifications"],
+            body: UpdateShowNotificationsEnabledRequest(notificationsEnabled: value))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -139,4 +151,12 @@ private struct UpdateSmartSpeedRequest: Encodable {
 
 private struct UpdateShowSmartSpeedRequest: Encodable {
     let smartSpeed: Bool?
+}
+
+private struct UpdateNotificationsEnabledRequest: Encodable {
+    let notificationsEnabled: Bool
+}
+
+private struct UpdateShowNotificationsEnabledRequest: Encodable {
+    let notificationsEnabled: Bool?
 }

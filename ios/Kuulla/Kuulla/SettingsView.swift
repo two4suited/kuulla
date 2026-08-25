@@ -22,6 +22,7 @@ struct SettingsView: View {
     @State private var autoDeleteSaveError: String?
     @State private var autoDownloadSaveError: String?
     @State private var smartSpeedSaveError: String?
+    @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
@@ -31,6 +32,7 @@ struct SettingsView: View {
     @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
+    @State private var notificationsEnabledSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -132,6 +134,20 @@ struct SettingsView: View {
                         Text(autoDeleteSaveError)
                             .foregroundStyle(.red)
                     }
+                }
+            }
+
+            Section {
+                Toggle("New episode notifications", isOn: notificationsEnabledBinding)
+                    .disabled(settings == nil)
+            } header: {
+                Text("Notifications")
+            } footer: {
+                if let notificationsEnabledSaveError {
+                    Text(notificationsEnabledSaveError)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Get notified when a show you're subscribed to publishes a new episode. Override per show from its settings.")
                 }
             }
 
@@ -244,6 +260,16 @@ struct SettingsView: View {
             set: { newValue in
                 smartSpeedSaveTask?.cancel()
                 smartSpeedSaveTask = Task { await updateSmartSpeed(newValue) }
+            }
+        )
+    }
+
+    private var notificationsEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { settings?.notificationsEnabled ?? true },
+            set: { newValue in
+                notificationsEnabledSaveTask?.cancel()
+                notificationsEnabledSaveTask = Task { await updateNotificationsEnabled(newValue) }
             }
         )
     }
@@ -460,6 +486,26 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 smartSpeedSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateNotificationsEnabled(_ value: Bool) async {
+        guard let previous = settings else { return }
+
+        notificationsEnabledSaveError = nil
+        settings = previous.with(notificationsEnabled: value)
+
+        do {
+            let updated = try await settingsClient.updateNotificationsEnabled(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                notificationsEnabledSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }
