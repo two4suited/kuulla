@@ -195,7 +195,14 @@ public class EpisodeService(
         // see RecentEpisodeWindow's doc comment above for why. Runs after (not folded into) the
         // subscriber-enforcement loop above so a notification failure can never affect the
         // unlistened-limit/playlist side effects those loops exist for.
-        var recentEpisodes = insertedEpisodes.Where(e => e.PublishedAt is { } publishedAt && DateTimeOffset.UtcNow - publishedAt <= RecentEpisodeWindow).ToList();
+        var now = DateTimeOffset.UtcNow;
+        // publishedAt <= now guards against a future-dated PublishedAt (some feeds schedule
+        // episodes ahead of release) — without it, `now - publishedAt` is negative and still
+        // satisfies `<= RecentEpisodeWindow`, so a not-yet-released episode would count as
+        // "recent" and trigger a notification for content that isn't actually out yet.
+        var recentEpisodes = insertedEpisodes
+            .Where(e => e.PublishedAt is { } publishedAt && publishedAt <= now && now - publishedAt <= RecentEpisodeWindow)
+            .ToList();
         if (recentEpisodes.Count > 0 && subscriberIds.Count > 0)
         {
             await NotifySubscribersAsync(showId, subscriberIds, recentEpisodes, cancellationToken);

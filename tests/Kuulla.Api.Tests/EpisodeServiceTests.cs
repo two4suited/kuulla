@@ -461,6 +461,35 @@ public class EpisodeServiceTests
     }
 
     [Fact]
+    public async Task CacheEpisodesAsync_DoesNotNotifyForFutureDatedEpisode()
+    {
+        // Some feeds publish a PublishedAt ahead of the actual release. Without an explicit
+        // publishedAt <= now check, `now - publishedAt` is negative and still satisfies
+        // `<= RecentEpisodeWindow`, which would incorrectly treat a not-yet-released episode as
+        // "recent" and notify subscribers about content that isn't actually out yet.
+        var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);
+        var futureEpisode = MakeEpisode("future-1", ShowId, DateTimeOffset.UtcNow.AddDays(7));
+
+        SetupSuccessfulCreate(futureEpisode);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+
+        await _sut.CacheEpisodesAsync(ShowId, [futureEpisode], CancellationToken.None);
+
+        _settingsService.Verify(
+            s => s.GetEffectiveNotificationsEnabledAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _notificationService.Verify(
+            s => s.NotifyNewEpisodesAsync(
+                It.IsAny<IReadOnlyList<DeviceToken>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task CacheEpisodesAsync_SkipsEnforcementWhenNoEpisodesWereNewlyInserted()
     {
         var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);

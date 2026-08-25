@@ -14,6 +14,12 @@ public class ApnsNotificationService(
     ApnsNotificationServiceOptions options,
     ILogger<ApnsNotificationService> logger) : INotificationService
 {
+    // Bounded rather than Task.WhenAll's unbounded fan-out — this runs once per subscriber, and
+    // EpisodeService.NotifySubscribersAsync itself fans out to up to 20 subscribers concurrently,
+    // so an unbounded per-user send here could multiply into a large concurrent-request spike
+    // against Apple's APNs endpoint when many subscribers each have several registered devices.
+    private const int MaxDegreeOfParallelism = 10;
+
     public async Task NotifyNewEpisodesAsync(
         IReadOnlyList<DeviceToken> tokens,
         string showId,
@@ -25,7 +31,10 @@ public class ApnsNotificationService(
             ? $"New episode: {newEpisodes[0].Title}"
             : $"{newEpisodes.Count} new episodes";
 
-        await Task.WhenAll(tokens.Select(token => SendAsync(token, showId, showTitle, body, newEpisodes, cancellationToken)));
+        await Parallel.ForEachAsync(
+            tokens,
+            new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism, CancellationToken = cancellationToken },
+            (token, ct) => new ValueTask(SendAsync(token, showId, showTitle, body, newEpisodes, ct)));
     }
 
     private async Task SendAsync(
