@@ -78,8 +78,7 @@ public class SettingsService(
     // conditionally, retrying on a lost race instead of blindly overwriting. Without this, two
     // concurrent PUTs touching different fields (e.g. smart-speed from one device and
     // auto-download from another) could each read the same stale document and have the second
-    // write silently discard the first's field change — the lost-update scenario
-    // UserSettings.Version's doc comment calls out as follow-up work. This covers both an
+    // write silently discard the first's field change. This covers both an
     // existing document (IfMatchEtag) and the very first write for a user (CreateItemAsync,
     // which fails on a concurrent create the same way IfMatchEtag fails on a concurrent update)
     // — an unconditional upsert on a null ETag would leave that creation race unprotected.
