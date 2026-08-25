@@ -37,7 +37,7 @@ setting is touched after initial setup (most-used first):
    decides *what* to download/keep, this one decides *over what connection*. Spec:
    [data-usage-network-settings.md](./data-usage-network-settings.md).
 7. **Import & Export** ([#189](https://github.com/sheridan-apps/kuulla/issues/189))
-   — OPML.
+   — OPML. Spec: [opml-import-export-settings.md](./opml-import-export-settings.md).
 8. **Widgets** ([#190](https://github.com/sheridan-apps/kuulla/issues/190)) —
    iOS-only; hidden entirely on Web (see [Web vs iOS parity](#web-vs-ios-parity)).
 9. **Siri & Shortcuts** ([#191](https://github.com/sheridan-apps/kuulla/issues/191))
