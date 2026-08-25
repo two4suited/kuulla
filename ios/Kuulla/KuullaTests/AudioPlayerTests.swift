@@ -3,6 +3,14 @@ import XCTest
 @testable import Kuulla
 
 final class AudioPlayerTests: XCTestCase {
+    // Now Playing tests read/write the process-wide MPNowPlayingInfoCenter singleton — without
+    // this, a later test could observe a value left behind by an earlier one, making the suite
+    // order-dependent.
+    override func tearDown() {
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        super.tearDown()
+    }
+
     // MARK: - Now Playing info (#116)
 
     func testPlayWithMetadataPublishesNowPlayingInfo() {

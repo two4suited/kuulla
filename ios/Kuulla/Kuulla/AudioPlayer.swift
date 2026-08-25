@@ -206,15 +206,7 @@ final class AudioPlayer {
             newPlayer.rate = playbackSpeed
         }
         isPlaying = true
-
-        // A new show's artwork replaces the cached image; the same show (e.g. the next episode
-        // queued up) keeps it, so fetchArtworkIfNeeded below can skip a redundant download.
-        if metadata?.artworkURL != nowPlayingMetadata?.artworkURL {
-            artwork = nil
-        }
-        nowPlayingMetadata = metadata
-        updateNowPlayingInfo()
-        fetchArtworkIfNeeded(for: metadata)
+        applyMetadata(metadata)
 
         timeObserverToken = newPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main
@@ -238,6 +230,7 @@ final class AudioPlayer {
             // a second finish for the same playback.
             guard !self.hasTriggeredOutroSkip else { return }
             self.isPlaying = false
+            self.updateNowPlayingInfo()
             self.onDidFinishPlaying?(url)
         }
     }
@@ -284,8 +277,19 @@ final class AudioPlayer {
     // title/artwork) had resolved, mirroring setPlaybackSpeed()'s same live-correction pattern —
     // callers apply this once the metadata they raced against finally arrives.
     func updateMetadata(_ metadata: NowPlayingMetadata?) {
+        applyMetadata(metadata)
+    }
+
+    // Shared by play() and updateMetadata() so the artwork-cache invalidation only lives in one
+    // place. A new artwork URL (including nil, e.g. a show with no artwork) clears both the
+    // cached image and the in-flight/completed-fetch marker — clearing only `artwork` and
+    // leaving `artworkURLBeingFetched` pointed at the old URL would make fetchArtworkIfNeeded
+    // believe that URL's artwork is already fetched (or being fetched) forever, so returning to
+    // that same show later would never re-fetch it despite `artwork` having been cleared.
+    private func applyMetadata(_ metadata: NowPlayingMetadata?) {
         if metadata?.artworkURL != nowPlayingMetadata?.artworkURL {
             artwork = nil
+            artworkURLBeingFetched = nil
         }
         nowPlayingMetadata = metadata
         updateNowPlayingInfo()
@@ -356,11 +360,10 @@ final class AudioPlayer {
         // MPRemoteCommandCenter isn't documented to invoke targets on the main thread, but every
         // property these touch (player, isPlaying, currentTime, ...) is otherwise only ever
         // read/written on main (mirroring the periodic time observer and pathObserver callback
-        // above) — dispatching synchronously back to main here keeps that guarantee instead of
-        // racing with it.
+        // above) — running via Self.onMain here keeps that guarantee instead of racing with it.
         commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            return DispatchQueue.main.sync {
+            return Self.onMain {
                 guard self.player != nil else { return .noActionableNowPlayingItem }
                 self.resume()
                 return .success
@@ -368,7 +371,7 @@ final class AudioPlayer {
         }
         commandCenter.pauseCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            return DispatchQueue.main.sync {
+            return Self.onMain {
                 guard self.player != nil else { return .noActionableNowPlayingItem }
                 self.pause()
                 return .success
@@ -376,7 +379,7 @@ final class AudioPlayer {
         }
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            return DispatchQueue.main.sync {
+            return Self.onMain {
                 guard self.player != nil else { return .noActionableNowPlayingItem }
                 self.isPlaying ? self.pause() : self.resume()
                 return .success
@@ -386,7 +389,7 @@ final class AudioPlayer {
         commandCenter.skipBackwardCommand.preferredIntervals = [15]
         commandCenter.skipBackwardCommand.addTarget { [weak self] event in
             guard let self, let event = event as? MPSkipIntervalCommandEvent else { return .noActionableNowPlayingItem }
-            return DispatchQueue.main.sync {
+            return Self.onMain {
                 guard self.player != nil else { return .noActionableNowPlayingItem }
                 self.seek(to: max(0, self.currentTime - event.interval))
                 return .success
@@ -395,7 +398,7 @@ final class AudioPlayer {
         commandCenter.skipForwardCommand.preferredIntervals = [30]
         commandCenter.skipForwardCommand.addTarget { [weak self] event in
             guard let self, let event = event as? MPSkipIntervalCommandEvent else { return .noActionableNowPlayingItem }
-            return DispatchQueue.main.sync {
+            return Self.onMain {
                 guard self.player != nil else { return .noActionableNowPlayingItem }
                 self.seek(to: self.currentTime + event.interval)
                 return .success
@@ -403,12 +406,21 @@ final class AudioPlayer {
         }
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .noActionableNowPlayingItem }
-            return DispatchQueue.main.sync {
+            return Self.onMain {
                 guard self.player != nil else { return .noActionableNowPlayingItem }
                 self.seek(to: event.positionTime)
                 return .success
             }
         }
+    }
+
+    // Runs `body` inline if already on the main thread, otherwise synchronously dispatches it to
+    // main. A plain DispatchQueue.main.sync deadlocks if the caller is already on main (which
+    // MPRemoteCommandCenter's delivery thread isn't documented to never be) — this is the same
+    // status-returning shape addTarget's closures need, so callers can't just fire-and-forget an
+    // async block instead.
+    private static func onMain<T>(_ body: () -> T) -> T {
+        Thread.isMainThread ? body() : DispatchQueue.main.sync(execute: body)
     }
 
     // Republishes the full Now Playing snapshot — called on play()/pause()/resume()/seek() and on
