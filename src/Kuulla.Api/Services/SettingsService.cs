@@ -80,7 +80,11 @@ public class SettingsService(
                 change.AutoDeleteAfterDays,
                 change.AutoDownloadNewEpisodes,
                 change.SmartSpeed,
-                change.NotificationsEnabled,
+                // Null means the pushing client doesn't send this field yet (see
+                // UserSettingsChange.NotificationsEnabled) — fall back to whatever's already
+                // stored (or the true default for a brand-new document) instead of clobbering an
+                // existing preference the client never actually touched.
+                change.NotificationsEnabled ?? stored?.NotificationsEnabled ?? true,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),

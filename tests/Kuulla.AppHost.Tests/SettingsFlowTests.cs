@@ -80,11 +80,63 @@ public class SettingsFlowTests(AppHostFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
     }
 
-    // Mints a local test token via /dev/test-token and attaches it to the client so subsequent
-    // requests hit authenticated endpoints.
-    private static async Task AuthenticateAsync(HttpClient client)
+    // End-to-end coverage for the global + per-show notification-preference routes (#214) — not
+    // just JSON binding/route wiring, but that clearing a per-show override with an explicit null
+    // (not just omitting the field) actually round-trips through the real API + Cosmos emulator.
+    [Fact]
+    public async Task Notifications_UpdateThenRead_RoundTripsThroughRealCosmos()
     {
-        var tokenResponse = await client.PostAsync("/dev/test-token", content: null);
+        using var client = fixture.CreateApiClient();
+        // Own userId (see AuthenticateAsync's doc comment) — GetThenUpdate_RoundTripsThroughRealCosmos
+        // above also writes the global UserSettings singleton for the default test user, and xUnit
+        // doesn't guarantee ordering between the two.
+        await AuthenticateAsync(client, userId: "settings-notifications-test-user");
+
+        var defaultSettings = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
+        Assert.True(defaultSettings?.NotificationsEnabled);
+
+        var updateResponse = await client.PutAsJsonAsync("/api/settings/notifications", new { NotificationsEnabled = false });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<UserSettingsResponse>();
+        Assert.False(updated?.NotificationsEnabled);
+
+        var reread = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
+        Assert.False(reread?.NotificationsEnabled);
+    }
+
+    [Fact]
+    public async Task ShowNotifications_SetThenClear_RoundTripsThroughRealCosmos()
+    {
+        using var client = fixture.CreateApiClient();
+        await AuthenticateAsync(client);
+        const string showId = "show-notifications-1";
+
+        var defaultSettings = await client.GetFromJsonAsync<ShowSettingsResponse>($"/api/settings/shows/{showId}");
+        Assert.Null(defaultSettings?.NotificationsEnabled);
+
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/settings/shows/{showId}/notifications", new { NotificationsEnabled = false });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<ShowSettingsResponse>();
+        Assert.False(updated?.NotificationsEnabled);
+
+        var clearResponse = await client.PutAsJsonAsync(
+            $"/api/settings/shows/{showId}/notifications", new { NotificationsEnabled = (bool?)null });
+        Assert.Equal(HttpStatusCode.OK, clearResponse.StatusCode);
+        var cleared = await clearResponse.Content.ReadFromJsonAsync<ShowSettingsResponse>();
+        Assert.Null(cleared?.NotificationsEnabled);
+    }
+
+    // Mints a local test token via /dev/test-token and attaches it to the client so subsequent
+    // requests hit authenticated endpoints. userId defaults to /dev/test-token's own fixed
+    // "local-test-user" subject — every test in this file that reads/writes the *global*
+    // UserSettings document (a per-user singleton) must instead pass its own unique userId (see
+    // PlaylistSeedFlowTests/DynamicPlaylistAutoOrderingFlowTests for the same pattern), or its
+    // Version/state assertions can collide with any other global-settings test in this class,
+    // since xUnit doesn't guarantee method execution order.
+    private static async Task AuthenticateAsync(HttpClient client, string? userId = null)
+    {
+        var tokenResponse = await client.PostAsync(userId is null ? "/dev/test-token" : $"/dev/test-token?sub={userId}", content: null);
         Assert.Equal(HttpStatusCode.OK, tokenResponse.StatusCode);
         var tokenPayload = await tokenResponse.Content.ReadFromJsonAsync<TestTokenResponse>();
         Assert.False(string.IsNullOrEmpty(tokenPayload?.Token));
@@ -94,7 +146,7 @@ public class SettingsFlowTests(AppHostFixture fixture)
 
     private sealed record TestTokenResponse(string Token);
 
-    private sealed record UserSettingsResponse(string UserId, int UnlistenedEpisodeCount, int Version);
+    private sealed record UserSettingsResponse(string UserId, int UnlistenedEpisodeCount, int Version, bool NotificationsEnabled);
 
-    private sealed record ShowSettingsResponse(string UserId, string ShowId, int? UnlistenedEpisodeCount, int Version);
+    private sealed record ShowSettingsResponse(string UserId, string ShowId, int? UnlistenedEpisodeCount, int Version, bool? NotificationsEnabled);
 }
