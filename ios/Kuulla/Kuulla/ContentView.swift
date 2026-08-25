@@ -1,25 +1,43 @@
 import SwiftUI
 import UIKit
 
+private enum AppTab: Hashable {
+    case library, search, subscriptions, playlists, settings
+}
+
 struct ContentView: View {
     @Environment(\.episodeSyncEngine) private var syncEngine
     @State private var authManager = AuthManager.shared
     @State private var errorMessage: String?
+    @State private var deepLinkRouter = DeepLinkRouter.shared
+    @State private var selectedTab: AppTab = .library
+    // Each tab keeps its own independent navigation stack (tapping a show in Search shouldn't
+    // affect Library's stack), so a deep link needs to target one tab's path specifically rather
+    // than a single shared NavigationPath — Library is the natural "content" home to land a
+    // show/episode deep link (#218) regardless of which tab was active when it arrived.
+    @State private var tabPaths: [AppTab: NavigationPath] = [:]
 
     var body: some View {
         if authManager.isSignedIn {
-            TabView {
-                tab { LibraryView() }
+            TabView(selection: $selectedTab) {
+                tab(.library) { LibraryView() }
                     .tabItem { Label("Library", systemImage: "house") }
-                tab { SearchView() }
+                    .tag(AppTab.library)
+                tab(.search) { SearchView() }
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                tab { SubscriptionsView() }
+                    .tag(AppTab.search)
+                tab(.subscriptions) { SubscriptionsView() }
                     .tabItem { Label("Subscriptions", systemImage: "square.stack") }
-                tab { PlaylistsView() }
+                    .tag(AppTab.subscriptions)
+                tab(.playlists) { PlaylistsView() }
                     .tabItem { Label("Playlists", systemImage: "music.note.list") }
-                tab { SettingsView() }
+                    .tag(AppTab.playlists)
+                tab(.settings) { SettingsView() }
                     .tabItem { Label("Settings", systemImage: "gearshape") }
+                    .tag(AppTab.settings)
             }
+            .onChange(of: deepLinkRouter.pendingRoute) { _, _ in applyPendingDeepLinkIfNeeded() }
+            .onAppear { applyPendingDeepLinkIfNeeded() }
         } else {
             NavigationStack {
                 signInPrompt
@@ -27,8 +45,22 @@ struct ContentView: View {
         }
     }
 
-    private func tab<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        NavigationStack {
+    // Handles both a route that arrives while ContentView is already on screen (.onChange) and
+    // one that was set before it appeared — e.g. a cold launch triggered by tapping a
+    // notification, where AppDelegate's didReceive can fire before this view's .onChange handler
+    // has been registered (#218).
+    private func applyPendingDeepLinkIfNeeded() {
+        guard let route = deepLinkRouter.pendingRoute else { return }
+        selectedTab = .library
+        tabPaths[.library, default: NavigationPath()].append(route)
+        deepLinkRouter.pendingRoute = nil
+    }
+
+    private func tab<Content: View>(_ tabId: AppTab, @ViewBuilder content: () -> Content) -> some View {
+        NavigationStack(path: Binding(
+            get: { tabPaths[tabId, default: NavigationPath()] },
+            set: { tabPaths[tabId] = $0 }
+        )) {
             content()
                 .navigationDestination(for: CatalogRoute.self) { route in
                     switch route {

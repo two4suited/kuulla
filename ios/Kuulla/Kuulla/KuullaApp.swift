@@ -1,6 +1,7 @@
 import GoogleSignIn
 import SwiftData
 import SwiftUI
+import UserNotifications
 
 @main
 struct KuullaApp: App {
@@ -90,6 +91,16 @@ struct KuullaApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // Must be set before the app can receive any notification delegate callback — including
+        // one delivered from a cold launch triggered by tapping a notification (#218).
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
@@ -110,5 +121,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // Best-effort — nothing actionable to do beyond not registering a device token.
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    // Without implementing this, a push arriving while the app is in the foreground is delivered
+    // silently — no banner, no sound — which is UNUserNotificationCenterDelegate's default when
+    // no delegate (or a delegate that doesn't implement this method) is set (#218).
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound, .list]
+    }
+
+    // Fires when the user taps a notification (whether the app was foregrounded, backgrounded,
+    // or not running at all) — the single, unified hook for "the user wants to go to what this
+    // notification was about" (#218).
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard let route = PushNotificationRouting.route(from: response.notification.request.content.userInfo) else {
+            return
+        }
+        DeepLinkRouter.shared.pendingRoute = route
     }
 }
