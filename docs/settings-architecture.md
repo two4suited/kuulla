@@ -41,7 +41,7 @@ setting is touched after initial setup (most-used first):
 8. **Widgets** ([#190](https://github.com/sheridan-apps/kuulla/issues/190)) —
    iOS-only; hidden entirely on Web (see [Web vs iOS parity](#web-vs-ios-parity)).
 9. **Siri & Shortcuts** ([#191](https://github.com/sheridan-apps/kuulla/issues/191))
-   — iOS-only.
+   — iOS-only. Spec: [siri-shortcuts-settings.md](./siri-shortcuts-settings.md).
 10. **Accessibility** ([#192](https://github.com/sheridan-apps/kuulla/issues/192)).
 11. **Account & Privacy** ([#188](https://github.com/sheridan-apps/kuulla/issues/188))
     — deliberately last: destructive/high-stakes actions (sign out, delete account)
