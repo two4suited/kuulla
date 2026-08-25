@@ -15,4 +15,5 @@ public record UserSettingsChange(
     int AutoDeleteAfterDays,
     bool AutoDownloadNewEpisodes,
     bool SmartSpeed,
+    bool NotificationsEnabled,
     DateTimeOffset UpdatedAt);

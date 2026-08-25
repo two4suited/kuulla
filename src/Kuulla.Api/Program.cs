@@ -1349,4 +1349,27 @@ settings.MapPut("/shows/{showId}/smart-speed", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/notifications", async (
+    UpdateNotificationsEnabledRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateNotificationsEnabledAsync(userId, request.NotificationsEnabled, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/notifications", async (
+    string showId,
+    UpdateShowNotificationsEnabledRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowNotificationsEnabledAsync(userId, showId, request.NotificationsEnabled, ct);
+    return Results.Ok(result);
+});
+
 app.Run();

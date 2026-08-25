@@ -80,6 +80,7 @@ public class SettingsService(
                 change.AutoDeleteAfterDays,
                 change.AutoDownloadNewEpisodes,
                 change.SmartSpeed,
+                change.NotificationsEnabled,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -424,5 +425,53 @@ public class SettingsService(
 
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.SmartSpeed;
+    }
+
+    public async Task<UserSettings> UpdateNotificationsEnabledAsync(
+        string userId, bool notificationsEnabled, CancellationToken cancellationToken)
+    {
+        var current = await GetSettingsAsync(userId, cancellationToken);
+        var updated = current with
+        {
+            NotificationsEnabled = notificationsEnabled,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<ShowSettings> UpdateShowNotificationsEnabledAsync(
+        string userId, string showId, bool? notificationsEnabled, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            NotificationsEnabled = notificationsEnabled,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<bool> GetEffectiveNotificationsEnabledAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.NotificationsEnabled is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.NotificationsEnabled;
     }
 }
