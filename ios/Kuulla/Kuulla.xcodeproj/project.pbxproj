@@ -28,6 +28,7 @@
 		A1000030 /* DeviceTokenClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030; };
 		A1000031 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000031; };
 		A1000040 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040; };
+		C1000001 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001; };
 		A1000018 /* SubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
 		A1000019 /* UserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020; };
 		A1000020 /* ShowSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000021; };
@@ -217,6 +218,7 @@
 		P2000014 /* FeedViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewTests.swift; sourceTree = "<group>"; };
 		P2000009 /* DownloadButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButtonTests.swift; sourceTree = "<group>"; };
 		P2000007 /* DownloadsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsViewTests.swift; sourceTree = "<group>"; };
+		C2000001 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -254,6 +256,7 @@
 				A2000031 /* PushNotificationManager.swift */,
 				A2000032 /* Kuulla.entitlements */,
 				A2000040 /* DeepLinkRouter.swift */,
+				C2000001 /* CarPlaySceneDelegate.swift */,
 				A2000019 /* SubscriptionsView.swift */,
 				A2000020 /* UserSettings.swift */,
 				A2000021 /* ShowSettings.swift */,
@@ -469,6 +472,7 @@
 				A1000030,
 				A1000031,
 				A1000040,
+				C1000001,
 				A1000018,
 				A1000019,
 				A1000020,
