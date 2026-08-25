@@ -107,6 +107,24 @@
                 }
             </div>
 
+            <div class="mb-3" style="max-width: 24rem;">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="smart-speed"
+                           disabled="@isSmartSpeedSaving" checked="@selectedSmartSpeed"
+                           @onchange="OnSmartSpeedChangedAsync" />
+                    <label class="form-check-label" for="smart-speed">SmartSpeed</label>
+                </div>
+                <div class="form-text">Trims silence and boosts quiet passages during playback.</div>
+                @if (smartSpeedSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@smartSpeedSaveError</p>
+                }
+                else if (smartSpeedSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
             <h2 class="h5 mt-4">Downloads &amp; Storage</h2>
 
             <div class="mb-3" style="max-width: 24rem;">
@@ -204,6 +222,10 @@
     private bool isPlaybackSpeedSaving;
     private string? playbackSpeedSaveError;
     private bool playbackSpeedSaveSavedConfirmation;
+    private bool selectedSmartSpeed;
+    private bool isSmartSpeedSaving;
+    private string? smartSpeedSaveError;
+    private bool smartSpeedSaveSavedConfirmation;
     private bool selectedAutoDownloadNewEpisodes;
     private bool isAutoDownloadSaving;
     private string? autoDownloadSaveError;
@@ -272,6 +294,7 @@
             selectedAutoSkipIntroSeconds = settings.AutoSkipIntroSeconds;
             selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
             selectedPlaybackSpeed = settings.PlaybackSpeed;
+            selectedSmartSpeed = settings.SmartSpeed;
             selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
             selectedAutoDeleteRule = settings.AutoDeleteRule;
             selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
@@ -321,6 +344,7 @@
         selectedAutoSkipIntroSeconds = settings.AutoSkipIntroSeconds;
         selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
         selectedPlaybackSpeed = settings.PlaybackSpeed;
+        selectedSmartSpeed = settings.SmartSpeed;
         selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
         selectedAutoDeleteRule = settings.AutoDeleteRule;
         selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
@@ -506,6 +530,33 @@
         finally
         {
             isPlaybackSpeedSaving = false;
+        }
+
+        await SyncOwnWriteBestEffortAsync();
+    }
+
+    private async Task OnSmartSpeedChangedAsync(ChangeEventArgs args)
+    {
+        var value = args.Value is bool boolValue && boolValue;
+        var previous = selectedSmartSpeed;
+        selectedSmartSpeed = value;
+        isSmartSpeedSaving = true;
+        smartSpeedSaveError = null;
+        smartSpeedSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateSmartSpeedAsync(value);
+            smartSpeedSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedSmartSpeed = previous;
+            smartSpeedSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isSmartSpeedSaving = false;
         }
 
         await SyncOwnWriteBestEffortAsync();

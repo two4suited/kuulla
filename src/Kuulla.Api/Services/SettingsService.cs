@@ -79,6 +79,7 @@ public class SettingsService(
                 change.AutoDeleteRule,
                 change.AutoDeleteAfterDays,
                 change.AutoDownloadNewEpisodes,
+                change.SmartSpeed,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -375,5 +376,53 @@ public class SettingsService(
 
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.AutoDownloadNewEpisodes;
+    }
+
+    public async Task<UserSettings> UpdateSmartSpeedAsync(
+        string userId, bool smartSpeed, CancellationToken cancellationToken)
+    {
+        var current = await GetSettingsAsync(userId, cancellationToken);
+        var updated = current with
+        {
+            SmartSpeed = smartSpeed,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(userId), cancellationToken: cancellationToken);
+        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<ShowSettings> UpdateShowSmartSpeedAsync(
+        string userId, string showId, bool? smartSpeed, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            SmartSpeed = smartSpeed,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<bool> GetEffectiveSmartSpeedAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.SmartSpeed is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.SmartSpeed;
     }
 }

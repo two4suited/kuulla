@@ -1325,4 +1325,27 @@ settings.MapPut("/shows/{showId}/auto-download", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/smart-speed", async (
+    UpdateSmartSpeedRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateSmartSpeedAsync(userId, request.SmartSpeed, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/smart-speed", async (
+    string showId,
+    UpdateShowSmartSpeedRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowSmartSpeedAsync(userId, showId, request.SmartSpeed, ct);
+    return Results.Ok(result);
+});
+
 app.Run();

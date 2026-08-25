@@ -63,4 +63,13 @@ public interface ISettingsService
 
     Task<bool> GetEffectiveAutoDownloadNewEpisodesAsync(
         string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateSmartSpeedAsync(
+        string userId, bool smartSpeed, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowSmartSpeedAsync(
+        string userId, string showId, bool? smartSpeed, CancellationToken cancellationToken);
+
+    Task<bool> GetEffectiveSmartSpeedAsync(
+        string userId, string showId, CancellationToken cancellationToken);
 }

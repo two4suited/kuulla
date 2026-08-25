@@ -13,6 +13,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveError: String?
     @State private var playbackSpeedSaveError: String?
     @State private var autoDownloadSaveError: String?
+    @State private var smartSpeedSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
@@ -21,6 +22,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
+    @State private var smartSpeedSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
     // so unlike the other settings here (where cancelling the previous Task is enough — an
     // in-flight PUT racing a newer one just means the last-arriving response wins, and the last
@@ -112,6 +114,20 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let autoDownloadSaveError {
                         Text(autoDownloadSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("SmartSpeed", selection: smartSpeedOverrideBinding) {
+                        Text("Use global default").tag(Bool?.none)
+                        Text("On").tag(Bool?.some(true))
+                        Text("Off").tag(Bool?.some(false))
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let smartSpeedSaveError {
+                        Text(smartSpeedSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -336,6 +352,35 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDownloadSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var smartSpeedOverrideBinding: Binding<Bool?> {
+        Binding(
+            get: { settings?.smartSpeed },
+            set: { newValue in
+                smartSpeedSaveTask?.cancel()
+                smartSpeedSaveTask = Task { await updateSmartSpeedOverride(newValue) }
+            }
+        )
+    }
+
+    private func updateSmartSpeedOverride(_ value: Bool?) async {
+        guard let previous = settings else { return }
+
+        smartSpeedSaveError = nil
+        settings = previous.with(smartSpeed: value)
+
+        do {
+            let updated = try await settingsClient.updateShowSmartSpeed(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                smartSpeedSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

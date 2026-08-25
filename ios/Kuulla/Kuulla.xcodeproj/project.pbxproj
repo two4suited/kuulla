@@ -12,6 +12,7 @@
 		A1000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000003; };
 		A1000004 /* ApiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004; };
 		A1000005 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005; };
+		R1000001 /* SmartSpeedProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = R2000001; };
 		A1000006 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006; };
 		A1000007 /* Show.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008; };
 		A1000008 /* Episode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009; };
@@ -89,6 +90,7 @@
 		P1000011 /* AutoDeleteRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000011; };
 		P1000012 /* UserSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000012; };
 		P1000013 /* ShowSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000013; };
+		R1000002 /* SmartSpeedProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = R2000002; };
 		P1000014 /* FeedViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000014; };
 		P1000009 /* DownloadButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000009; };
 		P1000007 /* DownloadsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000007; };
@@ -118,6 +120,7 @@
 		A2000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000004 /* ApiClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClient.swift; sourceTree = "<group>"; };
 		A2000005 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		R2000001 /* SmartSpeedProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartSpeedProcessor.swift; sourceTree = "<group>"; };
 		A2000006 /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
 		A2000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000008 /* Show.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Show.swift; sourceTree = "<group>"; };
@@ -197,6 +200,7 @@
 		P2000011 /* AutoDeleteRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoDeleteRule.swift; sourceTree = "<group>"; };
 		P2000012 /* UserSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsTests.swift; sourceTree = "<group>"; };
 		P2000013 /* ShowSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsTests.swift; sourceTree = "<group>"; };
+		R2000002 /* SmartSpeedProcessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartSpeedProcessorTests.swift; sourceTree = "<group>"; };
 		P2000014 /* FeedViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewTests.swift; sourceTree = "<group>"; };
 		P2000009 /* DownloadButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButtonTests.swift; sourceTree = "<group>"; };
 		P2000007 /* DownloadsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsViewTests.swift; sourceTree = "<group>"; };
@@ -220,6 +224,7 @@
 				A2000002 /* ContentView.swift */,
 				A2000004 /* ApiClient.swift */,
 				A2000005 /* AudioPlayer.swift */,
+				R2000001 /* SmartSpeedProcessor.swift */,
 				A2000006 /* AuthManager.swift */,
 				A2000008 /* Show.swift */,
 				A2000009 /* Episode.swift */,
@@ -315,6 +320,7 @@
 				P2000012 /* UserSettingsTests.swift */,
 				P2000013 /* ShowSettingsTests.swift */,
 				P2000014 /* FeedViewTests.swift */,
+				R2000002 /* SmartSpeedProcessorTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -478,6 +484,7 @@
 				K1000002,
 				L1000001,
 				L1000002,
+				R1000001,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -511,6 +518,7 @@
 				P1000012,
 				P1000013,
 				P1000014,
+				R1000002,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

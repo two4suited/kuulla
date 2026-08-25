@@ -74,6 +74,16 @@ struct SettingsClient {
             ["api", "settings", "shows", showId, "auto-download"],
             body: UpdateShowAutoDownloadNewEpisodesRequest(autoDownloadNewEpisodes: value))
     }
+
+    func updateSmartSpeed(_ value: Bool) async throws -> UserSettings {
+        try await apiClient.put(["api", "settings", "smart-speed"], body: UpdateSmartSpeedRequest(smartSpeed: value))
+    }
+
+    func updateShowSmartSpeed(showId: String, value: Bool?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "smart-speed"],
+            body: UpdateShowSmartSpeedRequest(smartSpeed: value))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -121,4 +131,12 @@ private struct UpdateAutoDownloadNewEpisodesRequest: Encodable {
 
 private struct UpdateShowAutoDownloadNewEpisodesRequest: Encodable {
     let autoDownloadNewEpisodes: Bool?
+}
+
+private struct UpdateSmartSpeedRequest: Encodable {
+    let smartSpeed: Bool
+}
+
+private struct UpdateShowSmartSpeedRequest: Encodable {
+    let smartSpeed: Bool?
 }

@@ -58,7 +58,7 @@ final class SettingsSyncAdapterTests: MockedApiTestCase {
 
         stubSync(
             serverChanges: """
-            [{"unlistenedEpisodeCount":10,"version":2,"autoArchiveRule":1,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":2.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":true,"updatedAt":"2026-08-19T09:00:00Z"}]
+            [{"unlistenedEpisodeCount":10,"version":2,"autoArchiveRule":1,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":2.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":true,"smartSpeed":true,"updatedAt":"2026-08-19T09:00:00Z"}]
             """,
             hash: "h2")
         let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")
@@ -70,6 +70,7 @@ final class SettingsSyncAdapterTests: MockedApiTestCase {
         XCTAssertEqual(stored.id, UserSettingsRecord.localId)
         XCTAssertEqual(stored.playbackSpeed, 2.0)
         XCTAssertTrue(stored.autoDownloadNewEpisodes)
+        XCTAssertTrue(stored.smartSpeed)
         XCTAssertFalse(stored.isDirty)
     }
 

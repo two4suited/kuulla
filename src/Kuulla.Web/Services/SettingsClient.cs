@@ -124,6 +124,16 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<UserSettings> UpdateSmartSpeedAsync(
+        bool smartSpeed, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/smart-speed", new { SmartSpeed = smartSpeed }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
     // Polls (empty changes) or pushes (one change) via POST /api/sync/settings, mirroring
     // EpisodeStateClient.SyncAsync — see docs/sync-conventions.md.
     public async Task<SyncCheckResult<UserSettings>> SyncAsync(

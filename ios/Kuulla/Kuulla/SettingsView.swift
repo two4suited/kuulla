@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var autoSkipSaveError: String?
     @State private var autoDeleteSaveError: String?
     @State private var autoDownloadSaveError: String?
+    @State private var smartSpeedSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
@@ -29,6 +30,7 @@ struct SettingsView: View {
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
+    @State private var smartSpeedSaveTask: Task<Void, Never>?
 
     private let settingsClient = SettingsClient()
 
@@ -77,10 +79,21 @@ struct SettingsView: View {
                     autoSkipPickerOptions(for: settings?.autoSkipOutroSeconds ?? 0)
                 }
                 .disabled(settings == nil)
+
+                Toggle("SmartSpeed", isOn: smartSpeedBinding)
+                    .disabled(settings == nil)
             } footer: {
-                if let autoSkipSaveError {
-                    Text(autoSkipSaveError)
-                        .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 4) {
+                    if let autoSkipSaveError {
+                        Text(autoSkipSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if let smartSpeedSaveError {
+                        Text(smartSpeedSaveError)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Trims silence and boosts quiet passages during playback.")
+                    }
                 }
             }
 
@@ -221,6 +234,16 @@ struct SettingsView: View {
                 autoDeleteSaveTask = Task {
                     await updateAutoDeleteRule(settings?.autoDeleteRule ?? .never, afterDays: newValue)
                 }
+            }
+        )
+    }
+
+    private var smartSpeedBinding: Binding<Bool> {
+        Binding(
+            get: { settings?.smartSpeed ?? false },
+            set: { newValue in
+                smartSpeedSaveTask?.cancel()
+                smartSpeedSaveTask = Task { await updateSmartSpeed(newValue) }
             }
         )
     }
@@ -417,6 +440,26 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDownloadSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateSmartSpeed(_ value: Bool) async {
+        guard let previous = settings else { return }
+
+        smartSpeedSaveError = nil
+        settings = previous.with(smartSpeed: value)
+
+        do {
+            let updated = try await settingsClient.updateSmartSpeed(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                smartSpeedSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

@@ -5,7 +5,7 @@ final class UserSettingsTests: XCTestCase {
     private let base = UserSettings(
         userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .after7Days,
         autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20, playbackSpeed: 1.5,
-        autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true)
+        autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true, smartSpeed: true)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -20,6 +20,10 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(updated.autoDeleteRule, base.autoDeleteRule)
         XCTAssertEqual(updated.autoDeleteAfterDays, base.autoDeleteAfterDays)
         XCTAssertEqual(updated.autoDownloadNewEpisodes, base.autoDownloadNewEpisodes)
+        // Regresses against the same bug class ShowSettingsTests guards against: a hand-written
+        // `with()` that omits a field silently resets it to that field's default instead of
+        // preserving it.
+        XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
     }
 
     func testWithNoArgumentsReturnsAnEquivalentCopy() {
