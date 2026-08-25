@@ -2,12 +2,13 @@
 
 Spec for [#189](https://github.com/sheridan-apps/kuulla/issues/189)'s "Import &
 Export" settings section, decided against
-[settings-architecture.md](./settings-architecture.md)'s IA (section 7).
+[settings-architecture.md](./settings-architecture.md)'s IA, which places this as
+its own standalone section (7) rather than folding it into another category.
 
 ## Research
 
 - **Pocket Casts**: OPML import/export under Settings > Import/Export, the common
-  migration path onto/off of the app.
+  migration path onto/off the app.
 - **Overcast**: OPML import/export, same purpose — moving subscriptions to/from
   Apple Podcasts, Pocket Casts, etc.
 
