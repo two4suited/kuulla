@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Kuulla.Api.Services.Sync;
 using Newtonsoft.Json;
 
@@ -45,6 +46,13 @@ public record UserSettings(
     // True is the default here (unlike the opt-in settings above) — notifications are the point
     // of registering a device for push, so a user who grants notification permission expects new
     // episodes to actually notify them until they turn it off, not silently do nothing.
+    // Unlike every `false`/0/1.0f default above, `true` differs from the CLR default for `bool`,
+    // so a document written before this field existed would deserialize it as `false` (silently
+    // opting users out) without DefaultValueHandling.Populate telling Newtonsoft to fall back to
+    // the constructor's default value instead of the type's zero value when the property is
+    // absent from the stored JSON.
+    [property: DefaultValue(true)]
+    [property: JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
     bool NotificationsEnabled = true,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
