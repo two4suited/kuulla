@@ -20,9 +20,24 @@ public class EpisodeService(
     IPodcastFeedClient feedClient,
     ISettingsService settingsService,
     IEpisodeStateService episodeStateService,
-    IConnectionMultiplexer redis) : IEpisodeService
+    IDeviceTokenService deviceTokenService,
+    INotificationService notificationService,
+    IConnectionMultiplexer redis,
+    ILogger<EpisodeService> logger) : IEpisodeService
 {
     private readonly SyncSummaryCache<Playlist> _playlistSummaryCache = new(redis, "playlists");
+
+    // Excludes an episode from push notifications if its PublishedAt is older than this, even
+    // though it's newly *inserted* into Cosmos — insertedEpisodes conflates "genuinely just
+    // published" with "backfilled into the cache for the first time" (e.g. a user subscribing to
+    // a show and viewing it for the first time caches its whole back catalog as "inserted"; the
+    // very first poll of a show nobody's opened yet does the same). Gating on recency instead of
+    // "was this the show's first-ever fetch" avoids notifying every subscriber about a show's
+    // entire history the first time anyone looks at or polls it, without needing to track that
+    // distinction separately. 48h comfortably covers the default 15-minute poll interval plus any
+    // reasonable delay (a paused API instance, a slow feed) without being so wide it starts
+    // catching genuine backfill.
+    private static readonly TimeSpan RecentEpisodeWindow = TimeSpan.FromHours(48);
 
     public async Task<EpisodePage> GetEpisodesAsync(
         string showId,
@@ -175,6 +190,58 @@ public class EpisodeService(
         // show (#112) — separate from the per-subscriber loop above since a dynamic playlist isn't
         // scoped to this show's subscribers and can belong to any user.
         await InsertIntoDynamicPlaylistsAsync(showId, insertedEpisodes.ToList(), cancellationToken);
+
+        // Push notifications (#216) — best-effort and gated to recently-published episodes only,
+        // see RecentEpisodeWindow's doc comment above for why. Runs after (not folded into) the
+        // subscriber-enforcement loop above so a notification failure can never affect the
+        // unlistened-limit/playlist side effects those loops exist for.
+        var recentEpisodes = insertedEpisodes.Where(e => e.PublishedAt is { } publishedAt && DateTimeOffset.UtcNow - publishedAt <= RecentEpisodeWindow).ToList();
+        if (recentEpisodes.Count > 0 && subscriberIds.Count > 0)
+        {
+            await NotifySubscribersAsync(showId, subscriberIds, recentEpisodes, cancellationToken);
+        }
+    }
+
+    private async Task NotifySubscribersAsync(
+        string showId, IReadOnlyList<string> subscriberIds, IReadOnlyList<Episode> recentEpisodes, CancellationToken cancellationToken)
+    {
+        // Only fetched (an extra Cosmos read) once there's actually at least one subscriber to
+        // notify — subscriberIds.Count > 0 is already checked by the caller above.
+        var show = await showService.GetByIdAsync(showId, cancellationToken);
+        if (show is null)
+        {
+            return;
+        }
+
+        await Parallel.ForEachAsync(
+            subscriberIds,
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
+            async (userId, ct) =>
+            {
+                try
+                {
+                    var notificationsEnabled = await settingsService.GetEffectiveNotificationsEnabledAsync(userId, showId, ct);
+                    if (!notificationsEnabled)
+                    {
+                        return;
+                    }
+
+                    var tokens = await deviceTokenService.GetTokensForUserAsync(userId, ct);
+                    if (tokens.Count == 0)
+                    {
+                        return;
+                    }
+
+                    await notificationService.NotifyNewEpisodesAsync(tokens, showId, show.Title, recentEpisodes, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // A push-delivery failure for one subscriber is best-effort and must never
+                    // fail episode caching itself (the reason CacheEpisodesAsync is called at
+                    // all) — log and move on to the next subscriber.
+                    logger.LogWarning(ex, "Failed to notify user {UserId} of new episodes for show {ShowId}", userId, showId);
+                }
+            });
     }
 
     // Finds every dynamic playlist referencing showId and inserts each newly-cached episode into

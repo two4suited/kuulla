@@ -80,4 +80,18 @@ public class DeviceTokenServiceTests
 
         await _sut.UnregisterAsync(UserId, DeviceId, CancellationToken.None);
     }
+
+    [Fact]
+    public async Task GetTokensForUserAsync_ReturnsAllPagesFromIterator()
+    {
+        var page1 = new[] { new DeviceToken(DeviceToken.BuildId(UserId, "device-1"), UserId, "device-1", "token-1", DevicePlatform.Ios) };
+        var page2 = new[] { new DeviceToken(DeviceToken.BuildId(UserId, "device-2"), UserId, "device-2", "token-2", DevicePlatform.Ios) };
+        _deviceTokensContainer
+            .Setup(c => c.GetItemQueryIterator<DeviceToken>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<DeviceToken>(page1, page2));
+
+        var results = await _sut.GetTokensForUserAsync(UserId, CancellationToken.None);
+
+        Assert.Equal(page1.Concat(page2), results);
+    }
 }

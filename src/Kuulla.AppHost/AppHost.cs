@@ -24,6 +24,16 @@ var googleClientId = builder.AddParameter("google-client-id");
 var googleClientSecret = builder.AddParameter("google-client-secret", secret: true);
 var googleIosClientId = builder.AddParameter("google-ios-client-id");
 
+// APNs credentials for push notifications (milestone #32, issue #216). Unlike the Google OAuth
+// params above, these default to empty strings rather than being required — push notifications
+// are optional infrastructure, so a `dotnet user-secrets set` for these isn't part of getting a
+// local dev environment running; the API falls back to a no-op notification sender (with a
+// startup warning) when any of them is unset.
+var apnsKeyId = builder.AddParameter("apns-key-id", value: "", secret: false);
+var apnsTeamId = builder.AddParameter("apns-team-id", value: "", secret: false);
+var apnsBundleId = builder.AddParameter("apns-bundle-id", value: "", secret: false);
+var apnsPrivateKey = builder.AddParameter("apns-private-key", value: "", secret: true);
+
 var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(cosmos)
     .WithReference(users)
@@ -37,6 +47,10 @@ var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(redis)
     .WithEnvironment("Google__ClientId", googleClientId)
     .WithEnvironment("Google__IosClientId", googleIosClientId)
+    .WithEnvironment("Apns__KeyId", apnsKeyId)
+    .WithEnvironment("Apns__TeamId", apnsTeamId)
+    .WithEnvironment("Apns__BundleId", apnsBundleId)
+    .WithEnvironment("Apns__PrivateKey", apnsPrivateKey)
     .WaitFor(cosmos)
     .WaitFor(users)
     .WaitFor(shows)

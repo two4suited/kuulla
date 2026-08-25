@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using dotAPNS;
 using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Kuulla.Api.Services.Sync;
@@ -39,6 +40,44 @@ builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryCl
 builder.Services.AddHttpClient<IPodcastFeedClient, PodcastFeedClient>();
 builder.Services.AddScoped<IFeedPollingService, FeedPollingService>();
 builder.Services.AddHostedService<FeedPollingBackgroundService>();
+
+// APNs credentials (milestone #32, issue #216) — optional, unlike Google OAuth's required-audience
+// check above: push notifications are additive infrastructure, not something local dev or CI needs
+// configured to run the app. Falls back to a no-op sender (with a one-time startup warning) when
+// any of the four values is unset, rather than failing startup.
+var apnsKeyId = builder.Configuration["Apns:KeyId"];
+var apnsTeamId = builder.Configuration["Apns:TeamId"];
+var apnsBundleId = builder.Configuration["Apns:BundleId"];
+var apnsPrivateKey = builder.Configuration["Apns:PrivateKey"];
+if (!string.IsNullOrEmpty(apnsKeyId) && !string.IsNullOrEmpty(apnsTeamId)
+    && !string.IsNullOrEmpty(apnsBundleId) && !string.IsNullOrEmpty(apnsPrivateKey))
+{
+    builder.Services.AddHttpClient("apns");
+    builder.Services.AddSingleton<IApnsClient>(sp =>
+    {
+        var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("apns");
+        return ApnsClient.CreateUsingJwt(httpClient, new ApnsJwtOptions
+        {
+            CertContent = apnsPrivateKey,
+            KeyId = apnsKeyId,
+            TeamId = apnsTeamId,
+            BundleId = apnsBundleId,
+        });
+    });
+    // Development always talks to Apple's sandbox APNs environment — a debug-signed build's
+    // device tokens are only ever valid there, never on the production endpoint. Set per-push
+    // (ApplePush.SendToDevelopmentServer()) rather than on the client itself — ApnsClient.
+    // UseSandbox() is obsolete in this package version.
+    builder.Services.AddSingleton(sp => new ApnsNotificationServiceOptions(UseSandbox: builder.Environment.IsDevelopment()));
+    builder.Services.AddScoped<INotificationService, ApnsNotificationService>();
+}
+else
+{
+    Console.WriteLine(
+        "warn: APNs not configured ('Apns:KeyId'/'Apns:TeamId'/'Apns:BundleId'/'Apns:PrivateKey') " +
+        "— push notifications are disabled; new-episode pushes will be silently skipped.");
+    builder.Services.AddScoped<INotificationService, NoOpNotificationService>();
+}
 
 var googleClientId = builder.Configuration["Google:ClientId"];
 var googleIosClientId = builder.Configuration["Google:IosClientId"];
