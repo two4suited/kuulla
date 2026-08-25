@@ -42,6 +42,10 @@ public record UserSettings(
     // user should opt in rather than have it applied the first time they open the app, matching
     // AutoDownloadNewEpisodes' "opt-in, not on-by-default" convention above.
     bool SmartSpeed = false,
+    // True is the default here (unlike the opt-in settings above) — notifications are the point
+    // of registering a device for push, so a user who grants notification permission expects new
+    // episodes to actually notify them until they turn it off, not silently do nothing.
+    bool NotificationsEnabled = true,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -50,7 +54,7 @@ public record UserSettings(
     public static UserSettings CreateDefault(string userId) =>
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
             PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false,
-            SmartSpeed: false, UpdatedAt: DateTimeOffset.UtcNow);
+            SmartSpeed: false, NotificationsEnabled: true, UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization
