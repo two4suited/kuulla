@@ -4,6 +4,12 @@ import SwiftUI
 // AudioPlayer.shared rather than being scoped to a specific episode — a sleep timer stops
 // whatever's currently playing, mirroring how AudioPlayer's own play/pause commands work — and
 // to SettingsClient to remember the user's last-picked duration as the new global default.
+//
+// @MainActor (mirroring EpisodeDetailView's own rationale) so loadDefaultDuration()'s and
+// start(minutes:)'s Task {} bodies stay main-actor-isolated across their await points — without
+// it, the @State writes after those awaits could run on a background executor, and AudioPlayer's
+// own properties are only ever safely read/mutated on main.
+@MainActor
 struct SleepTimerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var audioPlayer = AudioPlayer.shared
@@ -97,8 +103,11 @@ struct SleepTimerSheet: View {
     }
 
     // Pulled out as a pure function for testability, mirroring AudioPlayer's own
-    // shouldTriggerOutroSkip/EpisodeDetailView's resolvedPlaybackURL test seams.
-    static func formatRemaining(_ seconds: TimeInterval?) -> String? {
+    // shouldTriggerOutroSkip/EpisodeDetailView's resolvedPlaybackURL test seams. nonisolated so
+    // tests (and EpisodeDetailView's own use of this from its non-MainActor-declared
+    // sleepTimerButtonTitle) can call it synchronously without hopping onto the main actor —
+    // it touches no actor-isolated state, so isolation would only add friction here.
+    nonisolated static func formatRemaining(_ seconds: TimeInterval?) -> String? {
         guard let seconds else { return nil }
         let totalSeconds = max(0, Int(seconds.rounded(.up)))
         return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
