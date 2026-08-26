@@ -7,4 +7,7 @@ namespace Kuulla.Api.Services;
 public interface IPodcastDirectoryClient
 {
     Task<IReadOnlyList<Show>> SearchAsync(string query, CancellationToken cancellationToken);
+
+    // category is an iTunes podcast genre ID (e.g. "1489" for News); null returns the overall top charts.
+    Task<IReadOnlyList<Show>> GetTrendingAsync(string? category, CancellationToken cancellationToken);
 }
