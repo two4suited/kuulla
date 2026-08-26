@@ -85,6 +85,7 @@
 		D1000010 /* SettingsClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000010; };
 		D1000011 /* SyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000011; };
 		H1000001 /* EpisodeStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000001; };
+		H1000002 /* CarPlaySceneDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000002; };
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002; };
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003; };
@@ -200,6 +201,7 @@
 		D2000010 /* SettingsClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClientTests.swift; sourceTree = "<group>"; };
 		D2000011 /* SyncEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngineTests.swift; sourceTree = "<group>"; };
 		H2000001 /* EpisodeStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStatusTests.swift; sourceTree = "<group>"; };
+		H2000002 /* CarPlaySceneDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegateTests.swift; sourceTree = "<group>"; };
 		D3000000 /* KuullaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2000001 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
 		E2000002 /* SearchAndSubscribeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAndSubscribeUITests.swift; sourceTree = "<group>"; };
@@ -329,6 +331,7 @@
 				D2000010 /* SettingsClientTests.swift */,
 				D2000011 /* SyncEngineTests.swift */,
 				H2000001 /* EpisodeStatusTests.swift */,
+				H2000002 /* CarPlaySceneDelegateTests.swift */,
 				J2000008 /* PlaylistSyncAdapterTests.swift */,
 				Q2000004 /* SettingsSyncAdapterTests.swift */,
 				J2000009 /* PlaylistClientTests.swift */,
@@ -534,6 +537,7 @@
 				D1000010,
 				D1000011,
 				H1000001,
+				H1000002,
 				J1000008,
 				J1000009,
 				Q1000004,
