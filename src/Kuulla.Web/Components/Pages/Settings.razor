@@ -130,10 +130,13 @@
                 <select id="sleep-timer-default-duration" class="form-select" disabled="@isSleepTimerDefaultDurationSaving"
                         value="@(selectedSleepTimerDefaultDurationMinutes?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")"
                         @onchange="OnSleepTimerDefaultDurationChangedAsync">
-                    <option value="">Not set</option>
+                    @if (selectedSleepTimerDefaultDurationMinutes is null)
+                    {
+                        <option value="">Not set</option>
+                    }
                     @foreach (var option in SleepTimerDurationUi.OptionsIncluding(selectedSleepTimerDefaultDurationMinutes))
                     {
-                        <option value="@option">@SleepTimerDurationUi.Format(option)</option>
+                        <option value="@option.ToString(System.Globalization.CultureInfo.InvariantCulture)">@SleepTimerDurationUi.Format(option)</option>
                     }
                 </select>
                 <div class="form-text">Used to seed the sleep timer on your other devices — not itself a running timer.</div>

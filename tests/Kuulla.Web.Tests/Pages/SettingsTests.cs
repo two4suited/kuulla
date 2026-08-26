@@ -421,6 +421,25 @@ public class SettingsTests : WebTestContext
     }
 
     [Fact]
+    public void RemovesNotSetOption_OnceASleepTimerDefaultDurationIsSet()
+    {
+        // "Not set" is display-only — once a real duration is selected there's no way back to
+        // null (the API's update endpoint never clears it), so the option must stop being
+        // selectable rather than sticking around and letting the UI drift from the saved value.
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            SleepTimerDefaultDurationMinutes: 30)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var options = cut.Find("#sleep-timer-default-duration").QuerySelectorAll("option");
+            Assert.DoesNotContain(options, o => o.GetAttribute("value") == "");
+        });
+    }
+
+    [Fact]
     public void ShowsErrorAndRevertsSleepTimerDefaultDuration_WhenSaveFails()
     {
         ConfigureApi(new TestHttpMessageHandler(request =>
