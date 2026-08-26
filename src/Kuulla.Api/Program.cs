@@ -1020,6 +1020,11 @@ sync.MapPost("/settings", async (
         {
             return Results.BadRequest(new { error });
         }
+        if (!TryValidateNullableSleepTimerDefaultDurationMinutes(
+                change.SleepTimerDefaultDurationMinutes, "sleepTimerDefaultDurationMinutes", out error))
+        {
+            return Results.BadRequest(new { error });
+        }
     }
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -1460,6 +1465,55 @@ settings.MapPut("/shows/{showId}/notifications", async (
 {
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateShowNotificationsEnabledAsync(userId, showId, request.NotificationsEnabled, ct);
+    return Results.Ok(result);
+});
+
+// Upper bound is generous (12 hours) — it exists only to reject obviously-wrong input (e.g. a
+// negative or zero duration, which would fire the timer either instantly or never), not to model
+// any real limit on how long a listening session can run.
+const int MaxSleepTimerDefaultDurationMinutes = 720;
+
+bool TryValidateSleepTimerDefaultDurationMinutes(int minutes, string fieldName, out string? error)
+{
+    if (minutes < 1 || minutes > MaxSleepTimerDefaultDurationMinutes)
+    {
+        error = $"'{fieldName}' must be between 1 and {MaxSleepTimerDefaultDurationMinutes}.";
+        return false;
+    }
+
+    error = null;
+    return true;
+}
+
+// Shared by the sync endpoint above (where the field is nullable — see UserSettingsChange's own
+// doc comment) and the field-specific PUT below (where it's required) so both routes reject the
+// same out-of-range values instead of only the PUT catching them.
+bool TryValidateNullableSleepTimerDefaultDurationMinutes(int? minutes, string fieldName, out string? error)
+{
+    if (minutes is { } value)
+    {
+        return TryValidateSleepTimerDefaultDurationMinutes(value, fieldName, out error);
+    }
+
+    error = null;
+    return true;
+}
+
+settings.MapPut("/sleep-timer-default-duration", async (
+    UpdateSleepTimerDefaultDurationRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateSleepTimerDefaultDurationMinutes(
+            request.SleepTimerDefaultDurationMinutes, "sleepTimerDefaultDurationMinutes", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateSleepTimerDefaultDurationAsync(
+        userId, request.SleepTimerDefaultDurationMinutes, ct);
     return Results.Ok(result);
 });
 
