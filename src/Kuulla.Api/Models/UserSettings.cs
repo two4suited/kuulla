@@ -59,6 +59,11 @@ public record UserSettings(
     [property: DefaultValue(true)]
     [property: JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
     bool NotificationsEnabled = true,
+    // Null means the user has never started (or picked a duration for) a sleep timer — the
+    // player should offer its own baked-in default duration rather than a synced one. This is a
+    // remembered default only; the actual running countdown is session-local and lives entirely
+    // on-device (AudioPlayer/SleepTimer on iOS), never synced or persisted here.
+    int? SleepTimerDefaultDurationMinutes = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -67,7 +72,7 @@ public record UserSettings(
     public static UserSettings CreateDefault(string userId) =>
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
             PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false,
-            SmartSpeed: false, NotificationsEnabled: true, UpdatedAt: DateTimeOffset.UtcNow);
+            SmartSpeed: false, NotificationsEnabled: true, SleepTimerDefaultDurationMinutes: null, UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization

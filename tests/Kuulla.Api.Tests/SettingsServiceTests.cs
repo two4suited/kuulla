@@ -876,4 +876,29 @@ public class SettingsServiceTests
         Assert.NotNull(deserialized);
         Assert.True(deserialized.NotificationsEnabled);
     }
+
+    [Fact]
+    public void Deserialize_LegacyDocumentMissingSleepTimerDefaultDurationMinutes_DefaultsToNull()
+    {
+        // A UserSettings document written before this field existed has no
+        // "sleepTimerDefaultDurationMinutes" property. Unlike NotificationsEnabled, null is
+        // already the field's declared default, so no DefaultValueHandling.Populate is needed —
+        // this test just guards against a future regression that adds one incorrectly.
+        var legacyJson = $$"""
+            {"id":"{{UserId}}","unlistenedEpisodeCount":5,"version":1,"updatedAt":"2026-01-01T00:00:00Z"}
+            """;
+
+        var deserialized = JsonConvert.DeserializeObject<UserSettings>(legacyJson);
+
+        Assert.NotNull(deserialized);
+        Assert.Null(deserialized.SleepTimerDefaultDurationMinutes);
+    }
+
+    [Fact]
+    public void CreateDefault_SleepTimerDefaultDurationMinutesIsNull()
+    {
+        var defaults = UserSettings.CreateDefault(UserId);
+
+        Assert.Null(defaults.SleepTimerDefaultDurationMinutes);
+    }
 }
