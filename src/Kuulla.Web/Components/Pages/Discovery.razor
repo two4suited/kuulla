@@ -1,0 +1,79 @@
+@page "/discover"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PodcastCatalogClient CatalogClient
+
+<PageTitle>Discover</PageTitle>
+
+<h1>Discover</h1>
+
+@if (isLoading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (errorMessage is not null)
+{
+    <p class="text-danger">@errorMessage</p>
+}
+else if (overview is not null)
+{
+    <h2>Trending</h2>
+    @if (overview.Trending.Count == 0)
+    {
+        <p>No trending shows right now.</p>
+    }
+    else
+    {
+        <div class="row row-cols-2 row-cols-md-4 g-4 mb-5">
+            @foreach (var show in overview.Trending)
+            {
+                <div class="col">
+                    <ShowCard Show="show" />
+                </div>
+            }
+        </div>
+    }
+
+    <h2>Categories</h2>
+    @if (overview.Categories.Count == 0)
+    {
+        <p>No categories available right now.</p>
+    }
+    else
+    {
+        <div class="list-group" style="max-width: 32rem;">
+            @foreach (var category in overview.Categories)
+            {
+                <a href="@($"discover/categories/{category.Id}")" class="list-group-item list-group-item-action">
+                    @category.Name
+                </a>
+            }
+        </div>
+    }
+}
+
+@code {
+    private DiscoveryOverview? overview;
+    private bool isLoading;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            overview = await CatalogClient.GetDiscoveryOverviewAsync();
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "Something went wrong while loading discovery. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}
