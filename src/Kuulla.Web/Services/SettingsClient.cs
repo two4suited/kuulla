@@ -134,6 +134,17 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<UserSettings> UpdateSleepTimerDefaultDurationAsync(
+        int sleepTimerDefaultDurationMinutes, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/sleep-timer-default-duration",
+            new { SleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
     // Polls (empty changes) or pushes (one change) via POST /api/sync/settings, mirroring
     // EpisodeStateClient.SyncAsync — see docs/sync-conventions.md.
     public async Task<SyncCheckResult<UserSettings>> SyncAsync(

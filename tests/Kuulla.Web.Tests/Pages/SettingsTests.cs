@@ -21,7 +21,7 @@ public class SettingsTests : WebTestContext
         UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,
         UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null,
         UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null,
-        UserSettings? smartSpeedPutResponse = null,
+        UserSettings? smartSpeedPutResponse = null, UserSettings? sleepTimerDefaultDurationPutResponse = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onSync = null) =>
         new(request =>
         {
@@ -86,6 +86,14 @@ public class SettingsTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(smartSpeedPutResponse ?? DefaultSettings),
+                };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/settings/sleep-timer-default-duration" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(sleepTimerDefaultDurationPutResponse ?? DefaultSettings),
                 };
             }
 
@@ -373,6 +381,80 @@ public class SettingsTests : WebTestContext
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.False(cut.Find("#smart-speed").HasAttribute("checked"));
         });
+    }
+
+    [Fact]
+    public void RendersNotSet_WhenSleepTimerDefaultDurationIsNull()
+    {
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#sleep-timer-default-duration").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void RendersCurrentSleepTimerDefaultDuration_WhenLoadSucceeds()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            SleepTimerDefaultDurationMinutes: 30)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.Equal("30", cut.Find("#sleep-timer-default-duration").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsSleepTimerDefaultDuration_WhenSelectionChanges()
+    {
+        ConfigureApi(CreateHandler(sleepTimerDefaultDurationPutResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
+            SleepTimerDefaultDurationMinutes: 45)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Default sleep timer duration", cut.Markup));
+
+        cut.Find("#sleep-timer-default-duration").Change("45");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsErrorAndRevertsSleepTimerDefaultDuration_WhenSaveFails()
+    {
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/settings/sleep-timer-default-duration" && request.Method == HttpMethod.Put
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#sleep-timer-default-duration").GetAttribute("value")));
+
+        cut.Find("#sleep-timer-default-duration").Change("45");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.Equal("", cut.Find("#sleep-timer-default-duration").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void DoesNotSave_WhenNotSetIsSelected()
+    {
+        // "Not set" is display-only (SleepTimerDurationUi's doc comment) — the API's update
+        // endpoint only ever sets a concrete duration, there's no clear-to-null request to send.
+        var handler = new TestHttpMessageHandler(request =>
+            request.Method == HttpMethod.Put && request.RequestUri!.AbsolutePath == "/api/settings/sleep-timer-default-duration"
+                ? throw new InvalidOperationException("Should not PUT when \"Not set\" is selected.")
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) });
+        ConfigureApi(handler);
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#sleep-timer-default-duration").GetAttribute("value")));
+
+        cut.Find("#sleep-timer-default-duration").Change("");
     }
 
     [Fact]
