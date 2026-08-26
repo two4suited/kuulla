@@ -496,4 +496,37 @@ final class SettingsClientTests: MockedApiTestCase {
         let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
         XCTAssertNil(bodyJSON["notificationsEnabled"])
     }
+
+    func testGetSettingsDefaultsSleepTimerDefaultDurationMinutesToNilWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertNil(settings.sleepTimerDefaultDurationMinutes)
+    }
+
+    func testUpdateSleepTimerDefaultDurationSendsPutWithMinutesBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"sleepTimerDefaultDurationMinutes":30}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateSleepTimerDefaultDuration(30)
+
+        XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, 30)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/sleep-timer-default-duration"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["sleepTimerDefaultDurationMinutes"] as? Int, 30)
+    }
 }

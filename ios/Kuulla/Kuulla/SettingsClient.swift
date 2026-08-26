@@ -96,6 +96,12 @@ struct SettingsClient {
             ["api", "settings", "shows", showId, "notifications"],
             body: UpdateShowNotificationsEnabledRequest(notificationsEnabled: value))
     }
+
+    func updateSleepTimerDefaultDuration(_ minutes: Int) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "sleep-timer-default-duration"],
+            body: UpdateSleepTimerDefaultDurationRequest(sleepTimerDefaultDurationMinutes: minutes))
+    }
 }
 
 private struct UpdateSettingsRequest: Encodable {
@@ -159,4 +165,8 @@ private struct UpdateNotificationsEnabledRequest: Encodable {
 
 private struct UpdateShowNotificationsEnabledRequest: Encodable {
     let notificationsEnabled: Bool?
+}
+
+private struct UpdateSleepTimerDefaultDurationRequest: Encodable {
+    let sleepTimerDefaultDurationMinutes: Int
 }

@@ -90,4 +90,47 @@ final class SettingsSyncAdapterTests: MockedApiTestCase {
         let stored = try XCTUnwrap(try context.fetch(FetchDescriptor<UserSettingsRecord>()).first)
         XCTAssertEqual(stored.playbackSpeed, 1.8)
     }
+
+    func testSyncNowSendsDirtySleepTimerDefaultDurationMinutesInRequestBody() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let settings = UserSettings(
+            userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .never,
+            sleepTimerDefaultDurationMinutes: 15, updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(UserSettingsRecord(from: settings, isDirty: true))
+        try context.save()
+
+        var capturedBody: Data?
+        let json = """
+        {"serverChanges":[],"syncedAt":"2026-08-19T10:00:00Z","hash":"h1"}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+        await engine.syncNow()
+
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        let changes = try XCTUnwrap(bodyJSON["changes"] as? [[String: Any]])
+        XCTAssertEqual(changes.first?["sleepTimerDefaultDurationMinutes"] as? Int, 15)
+    }
+
+    func testSyncNowAppliesServerSleepTimerDefaultDurationMinutesIntoLocalStore() async throws {
+        let container = try makeContainer()
+
+        stubSync(
+            serverChanges: """
+            [{"unlistenedEpisodeCount":10,"version":2,"autoArchiveRule":1,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":2.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":true,"smartSpeed":true,"notificationsEnabled":false,"sleepTimerDefaultDurationMinutes":45,"updatedAt":"2026-08-19T09:00:00Z"}]
+            """,
+            hash: "h2")
+        let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+
+        await engine.syncNow()
+
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<UserSettingsRecord>()).first)
+        XCTAssertEqual(stored.sleepTimerDefaultDurationMinutes, 45)
+    }
 }

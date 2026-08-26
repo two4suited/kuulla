@@ -13,6 +13,12 @@ struct UserSettings: Codable, Hashable {
     let autoDownloadNewEpisodes: Bool
     let smartSpeed: Bool
     let notificationsEnabled: Bool
+    // Nil means the user has never picked a sleep timer duration yet (#208 seeds the picker with
+    // its own baked-in default in that case, rather than this being some other sentinel). Unlike
+    // every field above, genuinely nullable in storage (Kuulla.Api.Models.UserSettings.cs) — not
+    // just "absent from an old response" — so absence-from-JSON and "no default chosen" collapse
+    // to the same nil here, same as the API's own decode.
+    let sleepTimerDefaultDurationMinutes: Int?
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -22,7 +28,8 @@ struct UserSettings: Codable, Hashable {
         userId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount, version: Int, autoArchiveRule: AutoArchiveRule,
         autoSkipIntroSeconds: Int = 0, autoSkipOutroSeconds: Int = 0, playbackSpeed: Float = 1.0,
         autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7, autoDownloadNewEpisodes: Bool = false,
-        smartSpeed: Bool = false, notificationsEnabled: Bool = true, updatedAt: Date = .distantPast
+        smartSpeed: Bool = false, notificationsEnabled: Bool = true, sleepTimerDefaultDurationMinutes: Int? = nil,
+        updatedAt: Date = .distantPast
     ) {
         self.userId = userId
         self.unlistenedEpisodeCount = unlistenedEpisodeCount
@@ -36,12 +43,14 @@ struct UserSettings: Codable, Hashable {
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
         self.smartSpeed = smartSpeed
         self.notificationsEnabled = notificationsEnabled
+        self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.updatedAt = updatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled, updatedAt
+        case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
+        case sleepTimerDefaultDurationMinutes, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -68,6 +77,9 @@ struct UserSettings: Codable, Hashable {
         // default (UserSettings.cs: notifications are the point of registering a device for
         // push, so absence should mean "on" here, unlike every opt-in field above).
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
+        // Absent (predates #205) decodes the same as an explicit null (no default chosen yet) —
+        // both mean "nothing to seed the picker with", so there's no separate fallback here.
+        sleepTimerDefaultDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .sleepTimerDefaultDurationMinutes)
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -89,7 +101,12 @@ struct UserSettings: Codable, Hashable {
         autoDeleteAfterDays: Int? = nil,
         autoDownloadNewEpisodes: Bool? = nil,
         smartSpeed: Bool? = nil,
-        notificationsEnabled: Bool? = nil
+        notificationsEnabled: Bool? = nil,
+        // Only ever used to set a picked duration (SleepTimerSheet), never to clear one back to
+        // "unset" — a plain Int? param can't distinguish "omitted" from "explicitly nil" the way
+        // every other field's own nil-means-unset case doesn't need to here, since this feature
+        // never needs that distinction.
+        sleepTimerDefaultDurationMinutes: Int? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -101,7 +118,9 @@ struct UserSettings: Codable, Hashable {
             autoDeleteAfterDays: autoDeleteAfterDays ?? self.autoDeleteAfterDays,
             autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes,
             smartSpeed: smartSpeed ?? self.smartSpeed,
-            notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled, updatedAt: updatedAt)
+            notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,
+            sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes ?? self.sleepTimerDefaultDurationMinutes,
+            updatedAt: updatedAt)
     }
 }
 

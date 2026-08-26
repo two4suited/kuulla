@@ -5,7 +5,8 @@ final class UserSettingsTests: XCTestCase {
     private let base = UserSettings(
         userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .after7Days,
         autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20, playbackSpeed: 1.5,
-        autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true, smartSpeed: true)
+        autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true, smartSpeed: true,
+        sleepTimerDefaultDurationMinutes: 15)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -24,6 +25,7 @@ final class UserSettingsTests: XCTestCase {
         // `with()` that omits a field silently resets it to that field's default instead of
         // preserving it.
         XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
+        XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, base.sleepTimerDefaultDurationMinutes)
     }
 
     func testWithNoArgumentsReturnsAnEquivalentCopy() {
@@ -36,5 +38,21 @@ final class UserSettingsTests: XCTestCase {
         // correctly applies false rather than falling back to base's `true`.
         let updated = base.with(autoDownloadNewEpisodes: false)
         XCTAssertFalse(updated.autoDownloadNewEpisodes)
+    }
+
+    func testWithSetsSleepTimerDefaultDurationMinutes() {
+        let updated = base.with(sleepTimerDefaultDurationMinutes: 45)
+
+        XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, 45)
+    }
+
+    func testDecodingLegacyResponseMissingSleepTimerDefaultDurationMinutesDefaultsToNil() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertNil(decoded.sleepTimerDefaultDurationMinutes)
     }
 }

@@ -24,6 +24,7 @@ struct EpisodeDetailView: View {
     @State private var downloadStatus: DownloadStatus?
     @State private var progressTrackingTask: Task<Void, Never>?
     @State private var isShowingAddToPlaylist = false
+    @State private var isShowingSleepTimer = false
     @State private var autoSkipIntroSeconds = 0
     @State private var autoSkipOutroSeconds = 0
     @State private var playbackSpeed: Float = 1.0
@@ -58,6 +59,19 @@ struct EpisodeDetailView: View {
             return option.label
         }
         return "\(playbackSpeed.formatted(.number.precision(.fractionLength(0...2))))x"
+    }
+
+    // Reflects whichever sleep timer mode (if any) is currently active — a global AudioPlayer
+    // state, same caveat as isPlaying(_:) above: this doesn't scope to this screen's episode,
+    // since the sleep timer stops whatever's actually playing.
+    private var sleepTimerButtonTitle: String {
+        if audioPlayer.sleepTimerEndOfEpisodeEnabled {
+            return "Sleep Timer: End of Episode"
+        }
+        if let remaining = SleepTimerSheet.formatRemaining(audioPlayer.sleepTimerRemainingSeconds) {
+            return "Sleep Timer: \(remaining)"
+        }
+        return "Sleep Timer"
     }
 
     // AudioPlayer is a single shared instance, so isPlaying/currentURL are global, not scoped to
@@ -134,6 +148,14 @@ struct EpisodeDetailView: View {
                             .foregroundStyle(.red)
                     }
 
+                    Button {
+                        isShowingSleepTimer = true
+                    } label: {
+                        Label(sleepTimerButtonTitle, systemImage: "moon.zzz")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
                     Button(completedButtonTitle) {
                         Task { await handleCompletedButtonTapped() }
                     }
@@ -176,6 +198,9 @@ struct EpisodeDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isShowingAddToPlaylist) {
             AddToPlaylistSheet(episodeId: episodeId, showId: showId)
+        }
+        .sheet(isPresented: $isShowingSleepTimer) {
+            SleepTimerSheet()
         }
         .task(id: episodeId) {
             await load()
