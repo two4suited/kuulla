@@ -27,6 +27,7 @@ builder.AddRedisClient("redis");
 
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IShowService, ShowService>();
+builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddScoped<IEpisodeService, EpisodeService>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
@@ -535,6 +536,20 @@ shows.MapGet("/{id}/episodes/{episodeId}", async (
 {
     var episode = await episodeService.GetEpisodeAsync(id, episodeId, ct);
     return episode is not null ? Results.Ok(episode) : Results.NotFound();
+});
+
+var discovery = app.MapGroup("/api/discovery");
+
+discovery.MapGet("", async (IDiscoveryService discoveryService, CancellationToken ct) =>
+{
+    var overview = await discoveryService.GetOverviewAsync(ct);
+    return Results.Ok(overview);
+});
+
+discovery.MapGet("/categories/{categoryId}", async (string categoryId, IDiscoveryService discoveryService, CancellationToken ct) =>
+{
+    var category = await discoveryService.GetCategoryAsync(categoryId, ct);
+    return category is not null ? Results.Ok(category) : Results.NotFound();
 });
 
 var subscriptions = app.MapGroup("/api/subscriptions").RequireAuthorization();
