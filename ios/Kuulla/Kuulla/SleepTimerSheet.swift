@@ -22,6 +22,11 @@ struct SleepTimerSheet: View {
     // pattern — without it, quickly tapping several presets could send overlapping PUTs whose
     // responses arrive out of order and persist an older pick as the default.
     @State private var saveDefaultDurationVersion = 0
+    // Set the moment the user taps a preset. Guards loadDefaultDuration()'s assignment below —
+    // without it, a load still in flight when the user taps a preset would land afterward and
+    // clobber defaultDurationMinutes back to the (now stale) server value, desyncing the
+    // checkmark from the timer that's actually running.
+    @State private var hasAppliedUserSelection = false
 
     private let settingsClient = SettingsClient()
 
@@ -130,7 +135,13 @@ struct SleepTimerSheet: View {
 
     private func loadDefaultDuration() async {
         isLoadingDefault = true
-        defaultDurationMinutes = try? await settingsClient.getSettings().sleepTimerDefaultDurationMinutes
+        let loaded = try? await settingsClient.getSettings().sleepTimerDefaultDurationMinutes
+        // If the user already tapped a preset while this was in flight, that selection wins —
+        // applying the load result here would silently revert it (see hasAppliedUserSelection's
+        // doc comment).
+        if !hasAppliedUserSelection {
+            defaultDurationMinutes = loaded
+        }
         isLoadingDefault = false
     }
 
@@ -138,6 +149,7 @@ struct SleepTimerSheet: View {
     // save shouldn't undo the timer that's already running, it just means the next time this
     // sheet opens it won't be pre-checked with this pick.
     private func start(minutes: Int) {
+        hasAppliedUserSelection = true
         audioPlayer.startSleepTimer(minutes: minutes)
         defaultDurationMinutes = minutes
         saveDefaultError = nil
