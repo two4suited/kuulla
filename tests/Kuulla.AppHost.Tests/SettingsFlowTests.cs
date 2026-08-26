@@ -127,6 +127,41 @@ public class SettingsFlowTests(AppHostFixture fixture)
         Assert.Null(cleared?.NotificationsEnabled);
     }
 
+    // End-to-end coverage for the sleep timer default duration route (#206) — real API +
+    // Cosmos emulator, catching route wiring/JSON binding regressions the same way
+    // Notifications_UpdateThenRead_RoundTripsThroughRealCosmos does above.
+    [Fact]
+    public async Task SleepTimerDefaultDuration_UpdateThenRead_RoundTripsThroughRealCosmos()
+    {
+        using var client = fixture.CreateApiClient();
+        // Own userId, same rationale as Notifications_UpdateThenRead_RoundTripsThroughRealCosmos.
+        await AuthenticateAsync(client, userId: "settings-sleep-timer-test-user");
+
+        var defaultSettings = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
+        Assert.Null(defaultSettings?.SleepTimerDefaultDurationMinutes);
+
+        var updateResponse = await client.PutAsJsonAsync(
+            "/api/settings/sleep-timer-default-duration", new { SleepTimerDefaultDurationMinutes = 30 });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<UserSettingsResponse>();
+        Assert.Equal(30, updated?.SleepTimerDefaultDurationMinutes);
+
+        var reread = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
+        Assert.Equal(30, reread?.SleepTimerDefaultDurationMinutes);
+    }
+
+    [Fact]
+    public async Task SleepTimerDefaultDuration_Update_InvalidValue_ReturnsBadRequest()
+    {
+        using var client = fixture.CreateApiClient();
+        await AuthenticateAsync(client);
+
+        var updateResponse = await client.PutAsJsonAsync(
+            "/api/settings/sleep-timer-default-duration", new { SleepTimerDefaultDurationMinutes = 0 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+    }
+
     // Mints a local test token via /dev/test-token and attaches it to the client so subsequent
     // requests hit authenticated endpoints. userId defaults to /dev/test-token's own fixed
     // "local-test-user" subject — every test in this file that reads/writes the *global*
@@ -146,7 +181,8 @@ public class SettingsFlowTests(AppHostFixture fixture)
 
     private sealed record TestTokenResponse(string Token);
 
-    private sealed record UserSettingsResponse(string UserId, int UnlistenedEpisodeCount, int Version, bool NotificationsEnabled);
+    private sealed record UserSettingsResponse(
+        string UserId, int UnlistenedEpisodeCount, int Version, bool NotificationsEnabled, int? SleepTimerDefaultDurationMinutes);
 
     private sealed record ShowSettingsResponse(string UserId, string ShowId, int? UnlistenedEpisodeCount, int Version, bool? NotificationsEnabled);
 }
