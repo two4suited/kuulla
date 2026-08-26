@@ -51,12 +51,15 @@ struct DiscoveryCategoryDetailView: View {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        categoryNotFound = false
         defer { isLoading = false }
 
         do {
             guard let result = try await catalogClient.getCategoryDiscovery(categoryId: categoryId) else {
                 guard !Task.isCancelled else { return }
                 categoryNotFound = true
+                categoryName = nil
+                shows = []
                 return
             }
             guard !Task.isCancelled else { return }
