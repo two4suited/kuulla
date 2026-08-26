@@ -69,6 +69,21 @@ final class AudioPlayer {
     // deallocated or seeked to its true end).
     private var hasTriggeredOutroSkip = false
 
+    // Counts down in real wall-clock time via its own Timer, independent of AVPlayer's periodic
+    // time observer — a sleep timer should keep ticking (and eventually fire) even while playback
+    // is paused, not buy the user extra listening time. Not persisted or synced (#207): a
+    // relaunch always starts with no sleep timer active, matching LocalSettings' device-local,
+    // non-synced conventions for other session state. Survives across play() calls (switching
+    // episodes doesn't cancel it) — only cancelSleepTimer() or expiry clears it.
+    private(set) var sleepTimerRemainingSeconds: TimeInterval?
+    // True while an "end of current episode" sleep timer is armed. Checked at both
+    // onDidFinishPlaying call sites below (natural end-of-file and the outro auto-skip) so
+    // reaching the end of whatever's currently playing stops playback outright instead of running
+    // the caller's normal onDidFinishPlaying behavior (typically auto-advancing to the next
+    // episode) — that's the whole point of this mode.
+    private(set) var sleepTimerEndOfEpisodeEnabled = false
+    private var sleepTimer: Timer?
+
     // The desired session rate. Not always what AVPlayer.rate itself reads (that's 0 while
     // paused, or before a seek/buffer completes), but the value play()/resume()/setPlaybackSpeed()
     // apply and reapply — tracked separately so pause/resume can restore it without needing to
@@ -110,6 +125,10 @@ final class AudioPlayer {
         self.pathObserver.startObserving { [weak self] isOnWifi in
             DispatchQueue.main.async { self?.isOnWifi = isOnWifi }
         }
+    }
+
+    deinit {
+        sleepTimer?.invalidate()
     }
 
     func play(
@@ -231,7 +250,7 @@ final class AudioPlayer {
             guard !self.hasTriggeredOutroSkip else { return }
             self.isPlaying = false
             self.updateNowPlayingInfo()
-            self.onDidFinishPlaying?(url)
+            self.fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
         }
     }
 
@@ -280,6 +299,74 @@ final class AudioPlayer {
         applyMetadata(metadata)
     }
 
+    // MARK: - Sleep timer
+
+    // Starts (replacing any existing countdown or "end of episode" mode) a duration-based sleep
+    // timer that pauses playback once `minutes` of real time have elapsed.
+    func startSleepTimer(minutes: Int) {
+        sleepTimerEndOfEpisodeEnabled = false
+        sleepTimerRemainingSeconds = TimeInterval(minutes * 60)
+        sleepTimer?.invalidate()
+        // Timer.scheduledTimer(withTimeInterval:...) schedules into the run loop's .default mode
+        // only, which stops firing during UI event tracking (e.g. a user scrolling the episode
+        // list) — exactly the kind of interaction someone would do while a sleep timer is
+        // counting down in the background. Constructing the timer directly and adding it to
+        // RunLoop.main in .common (rather than just .default) keeps it firing through tracking.
+        // The callback already always lands on main (RunLoop.main), so no DispatchQueue hop is
+        // needed to call tickSleepTimer() safely.
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.tickSleepTimer()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        sleepTimer = timer
+    }
+
+    // Arms "stop at the end of whatever's currently playing" instead of a duration countdown —
+    // see fireOnDidFinishPlayingUnlessSleepTimerStopsHere for where this actually takes effect.
+    func startSleepTimerForEndOfEpisode() {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepTimerRemainingSeconds = nil
+        sleepTimerEndOfEpisodeEnabled = true
+    }
+
+    // Adds (or, with a negative value, subtracts) minutes from an already-running duration
+    // countdown, clamped so it can't go negative. A no-op when no duration countdown is active
+    // (nil remaining, or "end of episode" mode) — there's nothing to adjust.
+    func adjustSleepTimer(byMinutes minutes: Int) {
+        guard let remaining = sleepTimerRemainingSeconds else { return }
+        sleepTimerRemainingSeconds = max(0, remaining + TimeInterval(minutes * 60))
+    }
+
+    func cancelSleepTimer() {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepTimerRemainingSeconds = nil
+        sleepTimerEndOfEpisodeEnabled = false
+    }
+
+    // Internal (not private) so tests can drive the countdown deterministically instead of
+    // waiting on a real Timer's 1-second ticks — mirrors shouldTriggerOutroSkip's pure-function
+    // test seam below, just as a method instead of a static func since it mutates state.
+    func tickSleepTimer() {
+        guard let remaining = sleepTimerRemainingSeconds else { return }
+        let next = remaining - 1
+        if next <= 0 {
+            // nil (not 0) once expired — nil is this property's sole "inactive" contract, checked
+            // by tickSleepTimer's own early-return guard above, adjustSleepTimer, and UI callers
+            // (e.g. EpisodeDetailView's button title) that use it to decide whether a countdown
+            // is running at all. Leaving it at 0 would satisfy `if let` everywhere else, letting
+            // an already-expired timer look active (and be "adjusted" back to a positive value
+            // with no Timer left to actually count it down).
+            sleepTimerRemainingSeconds = nil
+            sleepTimer?.invalidate()
+            sleepTimer = nil
+            pause()
+        } else {
+            sleepTimerRemainingSeconds = next
+        }
+    }
+
     // Shared by play() and updateMetadata() so the artwork-cache invalidation only lives in one
     // place. A new artwork URL (including nil, e.g. a show with no artwork) clears both the
     // cached image and the in-flight/completed-fetch marker — clearing only `artwork` and
@@ -309,6 +396,22 @@ final class AudioPlayer {
         hasTriggeredOutroSkip = true
         player?.pause()
         isPlaying = false
+        fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
+    }
+
+    // Shared by the natural end-of-file observer and the outro auto-skip above — both represent
+    // "this episode just finished," which is exactly what an "end of episode" sleep timer is
+    // waiting for. When armed, this consumes it and stops here instead of invoking the caller's
+    // onDidFinishPlaying, which would otherwise auto-advance to the next episode.
+    //
+    // Internal (not private) so tests can drive it directly instead of needing a real AVPlayer to
+    // reach AVPlayerItemDidPlayToEndTime or the outro-skip threshold — mirrors tickSleepTimer's
+    // own test seam above.
+    func fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: URL) {
+        if sleepTimerEndOfEpisodeEnabled {
+            sleepTimerEndOfEpisodeEnabled = false
+            return
+        }
         onDidFinishPlaying?(url)
     }
 
