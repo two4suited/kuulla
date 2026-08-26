@@ -11,6 +11,9 @@ public class TestHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage
     public static TestHttpMessageHandler Routed(Func<Uri, HttpResponseMessage> route) =>
         new(request => route(request.RequestUri!));
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-        Task.FromResult(handler(request));
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(handler(request));
+    }
 }

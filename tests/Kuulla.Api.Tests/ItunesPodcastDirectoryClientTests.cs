@@ -131,6 +131,18 @@ public class ItunesPodcastDirectoryClientTests
     }
 
     [Fact]
+    public async Task GetTrendingAsync_ReturnsEmptyWhenChartsFeedEntryIsNull()
+    {
+        var handler = TestHttpMessageHandler.Json(new { feed = new { entry = (object?)null } });
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://itunes.apple.com/") };
+        var sut = new ItunesPodcastDirectoryClient(httpClient);
+
+        var results = await sut.GetTrendingAsync(null, CancellationToken.None);
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
     public async Task GetTrendingAsync_ReturnsEmptyWhenChartsFeedHasNoEntries()
     {
         var handler = TestHttpMessageHandler.Json(new { feed = new { } });
