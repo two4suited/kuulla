@@ -403,7 +403,11 @@ final class AudioPlayer {
     // "this episode just finished," which is exactly what an "end of episode" sleep timer is
     // waiting for. When armed, this consumes it and stops here instead of invoking the caller's
     // onDidFinishPlaying, which would otherwise auto-advance to the next episode.
-    private func fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: URL) {
+    //
+    // Internal (not private) so tests can drive it directly instead of needing a real AVPlayer to
+    // reach AVPlayerItemDidPlayToEndTime or the outro-skip threshold — mirrors tickSleepTimer's
+    // own test seam above.
+    func fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: URL) {
         if sleepTimerEndOfEpisodeEnabled {
             sleepTimerEndOfEpisodeEnabled = false
             return
