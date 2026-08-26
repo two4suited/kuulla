@@ -22,4 +22,12 @@ public record UserSettingsChange(
     // preference. Null here means "this client doesn't know about this setting yet", so
     // SettingsService.SyncAsync falls back to the stored value instead of clobbering it.
     bool? NotificationsEnabled,
+    // Nullable for two overlapping reasons: like NotificationsEnabled above, an existing client
+    // that hasn't been updated to send it yet must not clobber the stored value with 0; and
+    // separately, null is also this field's own steady-state meaning in UserSettings itself (the
+    // user has never picked a sleep timer duration). SettingsService.SyncAsync can't tell those
+    // two "null" cases apart from this DTO alone, so it falls back to the stored value either
+    // way — a client can never explicitly clear a previously-picked default back to "unset" via
+    // sync, only by picking a different duration.
+    int? SleepTimerDefaultDurationMinutes,
     DateTimeOffset UpdatedAt);

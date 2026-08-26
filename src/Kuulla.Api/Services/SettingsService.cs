@@ -155,6 +155,9 @@ public class SettingsService(
                 // stored (or the true default for a brand-new document) instead of clobbering an
                 // existing preference the client never actually touched.
                 change.NotificationsEnabled ?? stored?.NotificationsEnabled ?? true,
+                // See UserSettingsChange.SleepTimerDefaultDurationMinutes — null from the client
+                // always means "keep whatever's stored", never "clear it to unset".
+                change.SleepTimerDefaultDurationMinutes ?? stored?.SleepTimerDefaultDurationMinutes,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -374,6 +377,13 @@ public class SettingsService(
     public Task<UserSettings> UpdateSmartSpeedAsync(
         string userId, bool smartSpeed, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(userId, current => current with { SmartSpeed = smartSpeed }, cancellationToken);
+
+    public Task<UserSettings> UpdateSleepTimerDefaultDurationAsync(
+        string userId, int sleepTimerDefaultDurationMinutes, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId,
+            current => current with { SleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes },
+            cancellationToken);
 
     public async Task<ShowSettings> UpdateShowSmartSpeedAsync(
         string userId, string showId, bool? smartSpeed, CancellationToken cancellationToken)

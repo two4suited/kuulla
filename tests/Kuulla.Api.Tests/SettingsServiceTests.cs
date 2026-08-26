@@ -760,8 +760,14 @@ public class SettingsServiceTests
         Assert.False(result);
     }
 
-    private static UserSettingsChange MakeChange(DateTimeOffset updatedAt, float playbackSpeed = 1.0f, bool? notificationsEnabled = true) =>
-        new(UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false, notificationsEnabled, updatedAt);
+    private static UserSettingsChange MakeChange(
+        DateTimeOffset updatedAt,
+        float playbackSpeed = 1.0f,
+        bool? notificationsEnabled = true,
+        int? sleepTimerDefaultDurationMinutes = null) =>
+        new(
+            UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
+            notificationsEnabled, sleepTimerDefaultDurationMinutes, updatedAt);
 
     [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
@@ -900,5 +906,73 @@ public class SettingsServiceTests
         var defaults = UserSettings.CreateDefault(UserId);
 
         Assert.Null(defaults.SleepTimerDefaultDurationMinutes);
+    }
+
+    [Fact]
+    public async Task UpdateSleepTimerDefaultDurationAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3,
+            AutoArchiveRule.Never, SleepTimerDefaultDurationMinutes: null);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateSleepTimerDefaultDurationAsync(UserId, 30, CancellationToken.None);
+
+        Assert.Equal(30, result.SleepTimerDefaultDurationMinutes);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task SyncAsync_AcceptsSleepTimerDefaultDurationMinutesWhenChangeSendsIt()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            SleepTimerDefaultDurationMinutes: null);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var change = MakeChange(DateTimeOffset.UtcNow, sleepTimerDefaultDurationMinutes: 15);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.SleepTimerDefaultDurationMinutes == 15),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesStoredSleepTimerDefaultDurationMinutesWhenChangeOmitsIt()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            SleepTimerDefaultDurationMinutes: 45);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        // sleepTimerDefaultDurationMinutes: null simulates a client that doesn't send this field yet.
+        var change = MakeChange(DateTimeOffset.UtcNow, sleepTimerDefaultDurationMinutes: null);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.SleepTimerDefaultDurationMinutes == 45),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
     }
 }
