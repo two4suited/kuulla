@@ -78,6 +78,15 @@ struct SleepTimerSheet: View {
             Button("Cancel Sleep Timer", role: .destructive) {
                 audioPlayer.cancelSleepTimer()
             }
+        } footer: {
+            // A save started by start(minutes:) can still be in flight (or fail) after the UI
+            // has already switched to this section — saveDefaultError needs to be visible here
+            // too, not just in inactiveSection, or a failure right at the moment users are most
+            // likely to trigger one (tapping a preset) would never actually be shown.
+            if let saveDefaultError {
+                Text(saveDefaultError)
+                    .foregroundStyle(.red)
+            }
         }
     }
 
