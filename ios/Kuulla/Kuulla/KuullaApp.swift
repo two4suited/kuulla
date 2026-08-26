@@ -33,6 +33,7 @@ struct KuullaApp: App {
         settingsEngine.registerBackgroundTask()
         DownloadManager.shared.configure(modelContainer: container)
         CarPlaySceneDelegate.modelContainer = container
+        CarPlaySceneDelegate.episodeSyncEngine = episodeEngine
     }
 
     var body: some Scene {
