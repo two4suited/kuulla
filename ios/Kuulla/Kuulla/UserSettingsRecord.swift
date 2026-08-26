@@ -26,6 +26,10 @@ final class UserSettingsRecord: Syncable {
     // "missing attribute values on mandatory destination attribute", a hard crash on launch for
     // any device with a store predating this field, not just a test artifact).
     var notificationsEnabled: Bool = true
+    // No inline default needed (unlike notificationsEnabled above) — SwiftData's lightweight
+    // migration can synthesize nil for a new *optional* attribute on already-persisted rows
+    // without one; the default-required case only applies to non-optional attributes.
+    var sleepTimerDefaultDurationMinutes: Int?
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -34,7 +38,8 @@ final class UserSettingsRecord: Syncable {
         unlistenedEpisodeCount: UnlistenedEpisodeCount, autoArchiveRule: AutoArchiveRule,
         autoSkipIntroSeconds: Int, autoSkipOutroSeconds: Int, playbackSpeed: Float,
         autoDeleteRule: AutoDeleteRule, autoDeleteAfterDays: Int, autoDownloadNewEpisodes: Bool,
-        smartSpeed: Bool, notificationsEnabled: Bool, version: Int, updatedAt: Date, isDirty: Bool = false
+        smartSpeed: Bool, notificationsEnabled: Bool, sleepTimerDefaultDurationMinutes: Int? = nil,
+        version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
         self.unlistenedEpisodeCount = unlistenedEpisodeCount
@@ -47,6 +52,7 @@ final class UserSettingsRecord: Syncable {
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
         self.smartSpeed = smartSpeed
         self.notificationsEnabled = notificationsEnabled
+        self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -59,6 +65,7 @@ final class UserSettingsRecord: Syncable {
             playbackSpeed: settings.playbackSpeed, autoDeleteRule: settings.autoDeleteRule,
             autoDeleteAfterDays: settings.autoDeleteAfterDays, autoDownloadNewEpisodes: settings.autoDownloadNewEpisodes,
             smartSpeed: settings.smartSpeed, notificationsEnabled: settings.notificationsEnabled,
+            sleepTimerDefaultDurationMinutes: settings.sleepTimerDefaultDurationMinutes,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -75,6 +82,7 @@ final class UserSettingsRecord: Syncable {
         autoDownloadNewEpisodes = settings.autoDownloadNewEpisodes
         smartSpeed = settings.smartSpeed
         notificationsEnabled = settings.notificationsEnabled
+        sleepTimerDefaultDurationMinutes = settings.sleepTimerDefaultDurationMinutes
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -94,6 +102,7 @@ final class UserSettingsRecord: Syncable {
         autoDownloadNewEpisodes = other.autoDownloadNewEpisodes
         smartSpeed = other.smartSpeed
         notificationsEnabled = other.notificationsEnabled
+        sleepTimerDefaultDurationMinutes = other.sleepTimerDefaultDurationMinutes
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -108,6 +117,7 @@ final class UserSettingsRecord: Syncable {
             userId: "", unlistenedEpisodeCount: unlistenedEpisodeCount, version: version, autoArchiveRule: autoArchiveRule,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed,
             autoDeleteRule: autoDeleteRule, autoDeleteAfterDays: autoDeleteAfterDays, autoDownloadNewEpisodes: autoDownloadNewEpisodes,
-            smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled, updatedAt: updatedAt)
+            smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
+            sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes, updatedAt: updatedAt)
     }
 }

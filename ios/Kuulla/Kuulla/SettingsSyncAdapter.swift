@@ -41,6 +41,7 @@ struct SettingsSyncAdapter: SyncAdapter {
                 autoDownloadNewEpisodes: $0.autoDownloadNewEpisodes,
                 smartSpeed: $0.smartSpeed,
                 notificationsEnabled: $0.notificationsEnabled,
+                sleepTimerDefaultDurationMinutes: $0.sleepTimerDefaultDurationMinutes,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -79,6 +80,7 @@ private struct UserSettingsChangeDTO: Encodable {
     let autoDownloadNewEpisodes: Bool
     let smartSpeed: Bool
     let notificationsEnabled: Bool
+    let sleepTimerDefaultDurationMinutes: Int?
     let updatedAt: Date
 }
 
@@ -110,6 +112,7 @@ private struct UserSettingsDTO: Decodable {
     let autoDownloadNewEpisodes: Bool
     let smartSpeed: Bool
     let notificationsEnabled: Bool
+    let sleepTimerDefaultDurationMinutes: Int?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -117,6 +120,7 @@ private struct UserSettingsDTO: Decodable {
             unlistenedEpisodeCount: unlistenedEpisodeCount, autoArchiveRule: autoArchiveRule,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed,
             autoDeleteRule: autoDeleteRule, autoDeleteAfterDays: autoDeleteAfterDays, autoDownloadNewEpisodes: autoDownloadNewEpisodes,
-            smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled, version: version, updatedAt: updatedAt)
+            smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
+            sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes, version: version, updatedAt: updatedAt)
     }
 }
