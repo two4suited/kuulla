@@ -7,6 +7,12 @@ import UIKit
 // phone UI (SubscriptionClient, PodcastCatalogClient, EpisodeStatus, EpisodeDetailView's
 // resolvedPlaybackURL) rather than hand-rolling CarPlay-specific data access or a second,
 // divergent playback-progress path.
+// @MainActor to match EpisodeDetailView's own reasoning: AudioPlayer's properties are only ever
+// mutated on the main queue (its periodic time observer and NotificationCenter observer both use
+// queue: .main), and CPInterfaceController's template calls need to happen on main too — every
+// Task {} this delegate creates should inherit main-actor isolation rather than resuming on
+// whatever arbitrary executor CPTemplateApplicationSceneDelegate's callbacks land on.
+@MainActor
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     // Set once by KuullaApp.init(), mirroring DownloadManager.shared.configure(modelContainer:) —
     // CarPlay's scene delegate is instantiated by UIKit, not SwiftUI, so it has no @Environment
@@ -20,9 +26,14 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private let catalogClient = PodcastCatalogClient()
     private let settingsClient = SettingsClient()
 
-    // Owned by this delegate (not AudioPlayer, which has no view-lifecycle concept of its own) so
-    // disconnecting from CarPlay stops the periodic saves rather than leaking a Task that keeps
-    // writing after there's no CarPlay session left to have driven them.
+    // Best-effort artwork cache keyed by URL string — the episodes list reuses the same show
+    // artwork URL for every row, so without this every row would re-fetch it independently.
+    private var imageCache: [String: UIImage] = [:]
+
+    // Tracked so disconnecting from CarPlay cancels in-flight loads/saves rather than leaking a
+    // Task that keeps running (and, for progressTrackingTask, keeps writing) after there's no
+    // CarPlay session left to have driven it.
+    private var loadTask: Task<Void, Never>?
     private var progressTrackingTask: Task<Void, Never>?
 
     func templateApplicationScene(
@@ -31,7 +42,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     ) {
         self.interfaceController = interfaceController
         interfaceController.setRootTemplate(Self.placeholderRootTemplate, animated: false, completion: nil)
-        Task { await loadSubscriptionsList() }
+        loadTask = Task { await loadSubscriptionsList() }
     }
 
     func templateApplicationScene(
@@ -39,6 +50,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         didDisconnectInterfaceController interfaceController: CPInterfaceController
     ) {
         self.interfaceController = nil
+        loadTask?.cancel()
+        loadTask = nil
         progressTrackingTask?.cancel()
         progressTrackingTask = nil
     }
@@ -195,31 +208,43 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     private static func persist(episodeId: String, showId: String, positionSeconds: Int, completed: Bool) async {
         guard let syncEngine = episodeSyncEngine else { return }
-        try? await syncEngine.write { context in
-            let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
-            if let existing = try context.fetch(descriptor).first {
-                existing.showId = showId
-                existing.positionSeconds = positionSeconds
-                existing.completed = completed
-                existing.updatedAt = Date()
-                existing.autoPlayed = false
-                existing.isDirty = true
-            } else {
-                context.insert(EpisodeStateRecord(
-                    id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                    completed: completed, updatedAt: Date(), isDirty: true))
+        do {
+            try await syncEngine.write { context in
+                let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
+                if let existing = try context.fetch(descriptor).first {
+                    existing.showId = showId
+                    existing.positionSeconds = positionSeconds
+                    existing.completed = completed
+                    existing.updatedAt = Date()
+                    existing.autoPlayed = false
+                    existing.isDirty = true
+                } else {
+                    context.insert(EpisodeStateRecord(
+                        id: episodeId, showId: showId, positionSeconds: positionSeconds,
+                        completed: completed, updatedAt: Date(), isDirty: true))
+                }
             }
+        } catch {
+            // Mirrors EpisodeDetailView.persist()'s own assertionFailure — a silent try? here
+            // would hide a lost playback position/completion write with nothing to point at.
+            assertionFailure("Failed to persist episode state from CarPlay: \(episodeId): \(error)")
         }
     }
 
     // Best-effort artwork fetch for a list item — mirrors AudioPlayer.fetchArtworkIfNeeded's
     // "missing/failed artwork just leaves the row without an image" tolerance rather than
-    // blocking the row from appearing.
+    // blocking the row from appearing. Checks imageCache first: the episodes list reuses the same
+    // show artwork URL for every row, so without this every row would refetch it independently.
     private func loadImage(for item: CPListItem, urlString: String?) {
         guard let urlString, let url = URL(string: urlString) else { return }
-        URLSession.shared.dataTask(with: url) { data, _, _ in
+        if let cached = imageCache[urlString] {
+            item.setImage(cached)
+            return
+        }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
             DispatchQueue.main.async {
+                self?.imageCache[urlString] = image
                 item.setImage(image)
             }
         }.resume()
@@ -227,11 +252,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     // Pulled out as pure functions so the row-building logic is unit-testable without a real
     // CPInterfaceController (which only exists once actually connected to CarPlay/its simulator).
-    static func sortedSubscriptions(_ subscriptions: [Subscription]) -> [Subscription] {
+    // nonisolated (mirroring EpisodeDetailView.resolvedPlaybackURL) since they touch no
+    // actor-isolated state, so tests can call them from a plain, non-MainActor context.
+    nonisolated static func sortedSubscriptions(_ subscriptions: [Subscription]) -> [Subscription] {
         subscriptions.sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
     }
 
-    static func episodeDetailText(episode: Episode, status: EpisodeStatus) -> String {
+    nonisolated static func episodeDetailText(episode: Episode, status: EpisodeStatus) -> String {
         [episode.duration.map(EpisodeFormatting.formatDuration), status.label]
             .compactMap { $0 }
             .joined(separator: " · ")
