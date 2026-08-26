@@ -1463,12 +1463,25 @@ settings.MapPut("/shows/{showId}/notifications", async (
     return Results.Ok(result);
 });
 
+// Upper bound is generous (12 hours) — it exists only to reject obviously-wrong input (e.g. a
+// negative or zero duration, which would fire the timer either instantly or never), not to model
+// any real limit on how long a listening session can run.
+const int MaxSleepTimerDefaultDurationMinutes = 720;
+
 settings.MapPut("/sleep-timer-default-duration", async (
     UpdateSleepTimerDefaultDurationRequest request,
     ClaimsPrincipal user,
     ISettingsService settingsService,
     CancellationToken ct) =>
 {
+    if (request.SleepTimerDefaultDurationMinutes is < 1 or > MaxSleepTimerDefaultDurationMinutes)
+    {
+        return Results.BadRequest(new
+        {
+            error = $"'sleepTimerDefaultDurationMinutes' must be between 1 and {MaxSleepTimerDefaultDurationMinutes}.",
+        });
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateSleepTimerDefaultDurationAsync(
         userId, request.SleepTimerDefaultDurationMinutes, ct);
