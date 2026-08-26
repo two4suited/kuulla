@@ -307,9 +307,18 @@ final class AudioPlayer {
         sleepTimerEndOfEpisodeEnabled = false
         sleepTimerRemainingSeconds = TimeInterval(minutes * 60)
         sleepTimer?.invalidate()
-        sleepTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async { self?.tickSleepTimer() }
+        // Timer.scheduledTimer(withTimeInterval:...) schedules into the run loop's .default mode
+        // only, which stops firing during UI event tracking (e.g. a user scrolling the episode
+        // list) — exactly the kind of interaction someone would do while a sleep timer is
+        // counting down in the background. Constructing the timer directly and adding it to
+        // RunLoop.main in .common (rather than just .default) keeps it firing through tracking.
+        // The callback already always lands on main (RunLoop.main), so no DispatchQueue hop is
+        // needed to call tickSleepTimer() safely.
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.tickSleepTimer()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        sleepTimer = timer
     }
 
     // Arms "stop at the end of whatever's currently playing" instead of a duration countdown —
