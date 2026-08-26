@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum AppTab: Hashable {
-    case library, search, subscriptions, playlists, settings
+    case library, search, discovery, subscriptions, playlists, settings
 }
 
 struct ContentView: View {
@@ -26,6 +26,9 @@ struct ContentView: View {
                 tab(.search) { SearchView() }
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
                     .tag(AppTab.search)
+                tab(.discovery) { DiscoveryView() }
+                    .tabItem { Label("Discover", systemImage: "sparkles") }
+                    .tag(AppTab.discovery)
                 tab(.subscriptions) { SubscriptionsView() }
                     .tabItem { Label("Subscriptions", systemImage: "square.stack") }
                     .tag(AppTab.subscriptions)
@@ -74,6 +77,8 @@ struct ContentView: View {
                         UpNextView()
                     case .downloads:
                         DownloadsView()
+                    case .discoveryCategory(let id):
+                        DiscoveryCategoryDetailView(categoryId: id)
                     }
                 }
                 .toolbar {

@@ -6,4 +6,5 @@ enum CatalogRoute: Hashable {
     case playlist(id: String)
     case upNext
     case downloads
+    case discoveryCategory(id: String)
 }

@@ -34,4 +34,16 @@ struct PodcastCatalogClient {
             return nil
         }
     }
+
+    func getDiscovery() async throws -> Discovery {
+        try await apiClient.get(["api", "discovery"])
+    }
+
+    func getCategoryDiscovery(categoryId: String) async throws -> CategoryDiscovery? {
+        do {
+            return try await apiClient.get(["api", "discovery", "categories", categoryId])
+        } catch ApiError.requestFailed(statusCode: 404) {
+            return nil
+        }
+    }
 }

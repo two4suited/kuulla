@@ -102,6 +102,12 @@
 		P1000014 /* FeedViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000014; };
 		P1000009 /* DownloadButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000009; };
 		P1000007 /* DownloadsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000007; };
+		S1000001 /* ShowRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = S2000001; };
+		S1000002 /* DiscoveryCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = S2000002; };
+		S1000003 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = S2000003; };
+		S1000004 /* CategoryDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = S2000004; };
+		S1000005 /* DiscoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = S2000005; };
+		S1000006 /* DiscoveryCategoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = S2000006; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -221,6 +227,12 @@
 		P2000009 /* DownloadButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadButtonTests.swift; sourceTree = "<group>"; };
 		P2000007 /* DownloadsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadsViewTests.swift; sourceTree = "<group>"; };
 		C2000001 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
+		S2000001 /* ShowRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowRow.swift; sourceTree = "<group>"; };
+		S2000002 /* DiscoveryCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryCategory.swift; sourceTree = "<group>"; };
+		S2000003 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
+		S2000004 /* CategoryDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDiscovery.swift; sourceTree = "<group>"; };
+		S2000005 /* DiscoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryView.swift; sourceTree = "<group>"; };
+		S2000006 /* DiscoveryCategoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryCategoryDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -297,6 +309,12 @@
 				K2000002 /* UnplayedCounts.swift */,
 				L2000001 /* EpisodeProgress.swift */,
 				L2000002 /* EpisodeListFilter.swift */,
+				S2000001 /* ShowRow.swift */,
+				S2000002 /* DiscoveryCategory.swift */,
+				S2000003 /* Discovery.swift */,
+				S2000004 /* CategoryDiscovery.swift */,
+				S2000005 /* DiscoveryView.swift */,
+				S2000006 /* DiscoveryCategoryDetailView.swift */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -515,6 +533,12 @@
 				L1000001,
 				L1000002,
 				R1000001,
+				S1000001,
+				S1000002,
+				S1000003,
+				S1000004,
+				S1000005,
+				S1000006,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
