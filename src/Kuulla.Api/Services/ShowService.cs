@@ -13,11 +13,22 @@ public class ShowService(
     public async Task<IReadOnlyList<Show>> SearchAsync(string query, CancellationToken cancellationToken)
     {
         var results = await directoryClient.SearchAsync(query, cancellationToken);
+        await CacheAsync(results, cancellationToken);
+        return results;
+    }
 
-        // Cache discovered shows so GetByIdAsync/episode lookups have something to work
-        // from. Create-only: never clobber a record we've already enriched with a
-        // feed-derived description.
-        await Task.WhenAll(results.Select(async show =>
+    public async Task<IReadOnlyList<Show>> GetTrendingAsync(string? category, CancellationToken cancellationToken)
+    {
+        var results = await directoryClient.GetTrendingAsync(category, cancellationToken);
+        await CacheAsync(results, cancellationToken);
+        return results;
+    }
+
+    // Cache discovered shows so GetByIdAsync/episode lookups have something to work from.
+    // Create-only: never clobber a record we've already enriched with a feed-derived description.
+    private async Task CacheAsync(IReadOnlyList<Show> shows, CancellationToken cancellationToken)
+    {
+        await Task.WhenAll(shows.Select(async show =>
         {
             try
             {
@@ -27,8 +38,6 @@ public class ShowService(
             {
             }
         }));
-
-        return results;
     }
 
     public async Task<Show?> GetByIdAsync(string id, CancellationToken cancellationToken)
