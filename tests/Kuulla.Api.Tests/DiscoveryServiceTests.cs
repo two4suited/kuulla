@@ -61,6 +61,20 @@ public class DiscoveryServiceTests
     }
 
     [Fact]
+    public async Task GetOverviewAsync_RecomputesWhenCachedValueIsCorrupted()
+    {
+        _database
+            .Setup(d => d.StringGetAsync("discovery:overview", It.IsAny<CommandFlags>()))
+            .ReturnsAsync(new RedisValue("not valid json"));
+        var shows = new[] { CosmosTestHelpers.MakeShow("1") };
+        _showService.Setup(s => s.GetTrendingAsync(null, It.IsAny<CancellationToken>())).ReturnsAsync(shows);
+
+        var overview = await _sut.GetOverviewAsync(CancellationToken.None);
+
+        Assert.Equal(shows.Select(s => s.Id), overview.Trending.Select(s => s.Id));
+    }
+
+    [Fact]
     public async Task GetCategoryAsync_ReturnsNullForUnknownCategory()
     {
         var result = await _sut.GetCategoryAsync("not-a-real-category", CancellationToken.None);

@@ -9,8 +9,8 @@ public class DiscoveryService(IShowService showService, IConnectionMultiplexer r
     // Apple's top-level podcast genre IDs (https://podcasts.apple.com/us/genre/id{id}), fixed
     // rather than fetched — Apple doesn't expose a genre-listing API, and this set changes rarely
     // enough to just hardcode.
-    public static readonly IReadOnlyList<DiscoveryCategory> Categories =
-    [
+    public static readonly IReadOnlyList<DiscoveryCategory> Categories = new List<DiscoveryCategory>
+    {
         new("1301", "Arts"),
         new("1321", "Business"),
         new("1303", "Comedy"),
@@ -28,7 +28,7 @@ public class DiscoveryService(IShowService showService, IConnectionMultiplexer r
         new("1318", "Technology"),
         new("1309", "TV & Film"),
         new("1488", "True Crime"),
-    ];
+    }.AsReadOnly();
 
     // Charts and categories change slowly enough that hitting iTunes on every request would be
     // wasteful — a multi-hour TTL keeps the response fresh without that cost.
@@ -39,10 +39,9 @@ public class DiscoveryService(IShowService showService, IConnectionMultiplexer r
         var db = redis.GetDatabase();
         const string key = "discovery:overview";
 
-        var cached = await db.StringGetAsync(key);
-        if (cached.HasValue)
+        if (TryDeserialize<DiscoveryOverview>(await db.StringGetAsync(key), out var cached))
         {
-            return JsonConvert.DeserializeObject<DiscoveryOverview>((string)cached!)!;
+            return cached;
         }
 
         var trending = await showService.GetTrendingAsync(null, cancellationToken);
@@ -62,15 +61,39 @@ public class DiscoveryService(IShowService showService, IConnectionMultiplexer r
         var db = redis.GetDatabase();
         var key = $"discovery:category:{categoryId}";
 
-        var cached = await db.StringGetAsync(key);
-        if (cached.HasValue)
+        if (TryDeserialize<CategoryDiscovery>(await db.StringGetAsync(key), out var cached))
         {
-            return JsonConvert.DeserializeObject<CategoryDiscovery>((string)cached!);
+            return cached;
         }
 
         var trending = await showService.GetTrendingAsync(categoryId, cancellationToken);
         var result = new CategoryDiscovery(category, trending);
         await db.StringSetAsync(key, JsonConvert.SerializeObject(result), Ttl);
         return result;
+    }
+
+    // A corrupted/incompatible cached value (e.g. left over from a since-changed model shape)
+    // should fall back to recomputing rather than 500 the request — treated the same as a cache
+    // miss.
+    private static bool TryDeserialize<T>(RedisValue cached, out T value)
+    {
+        if (cached.HasValue)
+        {
+            try
+            {
+                var deserialized = JsonConvert.DeserializeObject<T>((string)cached!);
+                if (deserialized is not null)
+                {
+                    value = deserialized;
+                    return true;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        value = default!;
+        return false;
     }
 }
