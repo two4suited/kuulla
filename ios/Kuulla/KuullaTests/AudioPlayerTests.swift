@@ -565,4 +565,45 @@ final class AudioPlayerTests: XCTestCase {
 
         XCTAssertFalse(player.sleepTimerEndOfEpisodeEnabled)
     }
+
+    func testFireOnDidFinishPlayingSuppressesCallbackWhenEndOfEpisodeSleepTimerIsArmed() {
+        let player = AudioPlayer()
+        let url = URL(string: "https://example.com/audio.mp3")!
+        player.startSleepTimerForEndOfEpisode()
+        var callbackInvoked = false
+        player.onDidFinishPlaying = { _ in callbackInvoked = true }
+
+        player.fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
+
+        XCTAssertFalse(callbackInvoked)
+        // The mode is consumed by firing once — a second finish (e.g. the next episode
+        // completing naturally) must not still be silently suppressed.
+        XCTAssertFalse(player.sleepTimerEndOfEpisodeEnabled)
+    }
+
+    func testFireOnDidFinishPlayingInvokesCallbackWhenNoEndOfEpisodeSleepTimerIsArmed() {
+        let player = AudioPlayer()
+        let url = URL(string: "https://example.com/audio.mp3")!
+        var receivedURL: URL?
+        player.onDidFinishPlaying = { receivedURL = $0 }
+
+        player.fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
+
+        XCTAssertEqual(receivedURL, url)
+    }
+
+    func testFireOnDidFinishPlayingInvokesCallbackWhenADurationSleepTimerIsStillRunning() {
+        // A duration-based countdown (as opposed to "end of episode" mode) has nothing to do
+        // with whether this particular episode just finished — it must not suppress the finish
+        // callback just because a countdown happens to still be active.
+        let player = AudioPlayer()
+        let url = URL(string: "https://example.com/audio.mp3")!
+        player.startSleepTimer(minutes: 10)
+        var callbackInvoked = false
+        player.onDidFinishPlaying = { _ in callbackInvoked = true }
+
+        player.fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
+
+        XCTAssertTrue(callbackInvoked)
+    }
 }
