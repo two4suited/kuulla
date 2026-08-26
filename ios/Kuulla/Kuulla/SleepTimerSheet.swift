@@ -16,6 +16,12 @@ struct SleepTimerSheet: View {
     @State private var defaultDurationMinutes: Int?
     @State private var isLoadingDefault = false
     @State private var saveDefaultError: String?
+    @State private var saveDefaultDurationTask: Task<Void, Never>?
+    // Bumped on every start(minutes:) call; lets a save task tell whether it's still the latest
+    // one after waiting on its predecessor, mirroring EpisodeDetailView.savePlaybackSpeed's same
+    // pattern — without it, quickly tapping several presets could send overlapping PUTs whose
+    // responses arrive out of order and persist an older pick as the default.
+    @State private var saveDefaultDurationVersion = 0
 
     private let settingsClient = SettingsClient()
 
@@ -126,11 +132,28 @@ struct SleepTimerSheet: View {
         audioPlayer.startSleepTimer(minutes: minutes)
         defaultDurationMinutes = minutes
         saveDefaultError = nil
-        Task {
+        saveDefaultDuration(minutes)
+    }
+
+    // Chains each save behind the previous one (awaiting it before sending), same rationale as
+    // EpisodeDetailView.savePlaybackSpeed: the endpoint is a plain read-then-upsert, so two
+    // in-flight PUTs could otherwise land out of order and leave a stale duration persisted as
+    // the default. The version check after that wait coalesces away anything superseded by a
+    // newer tap before it would even be sent.
+    private func saveDefaultDuration(_ minutes: Int) {
+        saveDefaultDurationVersion += 1
+        let requestVersion = saveDefaultDurationVersion
+        let previousTask = saveDefaultDurationTask
+        saveDefaultDurationTask = Task {
+            await previousTask?.value
+            guard requestVersion == saveDefaultDurationVersion else { return }
+
             do {
                 _ = try await settingsClient.updateSleepTimerDefaultDuration(minutes)
             } catch {
-                saveDefaultError = "Something went wrong while saving your default duration."
+                if requestVersion == saveDefaultDurationVersion {
+                    saveDefaultError = "Something went wrong while saving your default duration."
+                }
             }
         }
     }
