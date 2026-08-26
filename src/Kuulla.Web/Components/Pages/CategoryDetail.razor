@@ -1,0 +1,69 @@
+@page "/discover/categories/{CategoryId}"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Kuulla.Web.Models
+@using Kuulla.Web.Services
+@inject PodcastCatalogClient CatalogClient
+
+<PageTitle>@(categoryDiscovery?.Category.Name ?? "Category")</PageTitle>
+
+@if (isLoading)
+{
+    <p>Loading&hellip;</p>
+}
+else if (errorMessage is not null)
+{
+    <p class="text-danger">@errorMessage</p>
+}
+else if (categoryDiscovery is null)
+{
+    <p>This category couldn't be found.</p>
+}
+else
+{
+    <h1>@categoryDiscovery.Category.Name</h1>
+
+    @if (categoryDiscovery.Trending.Count == 0)
+    {
+        <p>No trending shows in this category right now.</p>
+    }
+    else
+    {
+        <div class="row row-cols-2 row-cols-md-4 g-4">
+            @foreach (var show in categoryDiscovery.Trending)
+            {
+                <div class="col">
+                    <ShowCard Show="show" />
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public string CategoryId { get; set; } = "";
+
+    private CategoryDiscovery? categoryDiscovery;
+    private bool isLoading;
+    private string? errorMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        categoryDiscovery = null;
+        errorMessage = null;
+        isLoading = true;
+
+        try
+        {
+            categoryDiscovery = await CatalogClient.GetCategoryDiscoveryAsync(CategoryId);
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "Something went wrong while loading this category. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

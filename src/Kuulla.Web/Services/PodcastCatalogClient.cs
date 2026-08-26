@@ -60,4 +60,25 @@ public class PodcastCatalogClient(KuullaApiClient apiClient)
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<Episode>(JsonOptions, cancellationToken);
     }
+
+    public async Task<DiscoveryOverview> GetDiscoveryOverviewAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var overview = await client.GetFromJsonAsync<DiscoveryOverview>("api/discovery", JsonOptions, cancellationToken);
+        return overview ?? new DiscoveryOverview([], []);
+    }
+
+    public async Task<CategoryDiscovery?> GetCategoryDiscoveryAsync(string categoryId, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.GetAsync(
+            $"api/discovery/categories/{Uri.EscapeDataString(categoryId)}", cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<CategoryDiscovery>(JsonOptions, cancellationToken);
+    }
 }
