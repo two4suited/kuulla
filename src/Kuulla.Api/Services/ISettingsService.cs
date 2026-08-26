@@ -76,6 +76,9 @@ public interface ISettingsService
     Task<UserSettings> UpdateNotificationsEnabledAsync(
         string userId, bool notificationsEnabled, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateSleepTimerDefaultDurationAsync(
+        string userId, int sleepTimerDefaultDurationMinutes, CancellationToken cancellationToken);
+
     Task<ShowSettings> UpdateShowNotificationsEnabledAsync(
         string userId, string showId, bool? notificationsEnabled, CancellationToken cancellationToken);
 

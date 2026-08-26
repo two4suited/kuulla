@@ -1463,4 +1463,16 @@ settings.MapPut("/shows/{showId}/notifications", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/sleep-timer-default-duration", async (
+    UpdateSleepTimerDefaultDurationRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateSleepTimerDefaultDurationAsync(
+        userId, request.SleepTimerDefaultDurationMinutes, ct);
+    return Results.Ok(result);
+});
+
 app.Run();
