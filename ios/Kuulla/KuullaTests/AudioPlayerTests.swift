@@ -341,4 +341,106 @@ final class AudioPlayerTests: XCTestCase {
             XCTAssertTrue(player.isPlaying)
         }
     }
+
+    // MARK: - Remote command routing (#118)
+    //
+    // CPNowPlayingTemplate, the lock screen, and Control Center all send taps through the same
+    // MPRemoteCommandCenter targets configureRemoteCommandCenter() registers — there's no
+    // separate CarPlay playback path, so these handle*Command methods are what CarPlay's
+    // transport controls actually invoke. MPRemoteCommandEvent has no public initializer, so a
+    // real command can't be simulated end-to-end here — these call the extracted handler methods
+    // directly instead, which is the entire body of what each MPRemoteCommandCenter target does.
+
+    func testHandlePlayCommandResumesPlayback() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+        player.pause()
+
+        let status = player.handlePlayCommand()
+
+        XCTAssertEqual(status, .success)
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    func testHandlePlayCommandWithNoActiveItemReturnsNoActionableNowPlayingItem() {
+        let player = AudioPlayer()
+
+        XCTAssertEqual(player.handlePlayCommand(), .noActionableNowPlayingItem)
+    }
+
+    func testHandlePauseCommandPausesPlayback() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        let status = player.handlePauseCommand()
+
+        XCTAssertEqual(status, .success)
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    func testHandleTogglePlayPauseCommandPausesWhilePlaying() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        let status = player.handleTogglePlayPauseCommand()
+
+        XCTAssertEqual(status, .success)
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    func testHandleTogglePlayPauseCommandResumesWhilePaused() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+        player.pause()
+
+        let status = player.handleTogglePlayPauseCommand()
+
+        XCTAssertEqual(status, .success)
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    func testHandleSkipBackwardCommandSeeksBackByInterval() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 100)
+
+        let status = player.handleSkipBackwardCommand(interval: 15)
+
+        XCTAssertEqual(status, .success)
+        XCTAssertEqual(player.currentTime, 85)
+    }
+
+    func testHandleSkipBackwardCommandClampsToZero() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 10)
+
+        _ = player.handleSkipBackwardCommand(interval: 15)
+
+        XCTAssertEqual(player.currentTime, 0)
+    }
+
+    func testHandleSkipForwardCommandSeeksForwardByInterval() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 100)
+
+        let status = player.handleSkipForwardCommand(interval: 30)
+
+        XCTAssertEqual(status, .success)
+        XCTAssertEqual(player.currentTime, 130)
+    }
+
+    func testHandleChangePlaybackPositionCommandSeeksToPosition() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 10)
+
+        let status = player.handleChangePlaybackPositionCommand(positionTime: 200)
+
+        XCTAssertEqual(status, .success)
+        XCTAssertEqual(player.currentTime, 200)
+    }
+
+    func testHandleSkipForwardCommandWithNoActiveItemReturnsNoActionableNowPlayingItem() {
+        let player = AudioPlayer()
+
+        XCTAssertEqual(player.handleSkipForwardCommand(interval: 30), .noActionableNowPlayingItem)
+    }
 }

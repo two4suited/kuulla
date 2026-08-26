@@ -361,57 +361,81 @@ final class AudioPlayer {
         // property these touch (player, isPlaying, currentTime, ...) is otherwise only ever
         // read/written on main (mirroring the periodic time observer and pathObserver callback
         // above) — running via Self.onMain here keeps that guarantee instead of racing with it.
+        // Each target just unpacks the event and calls a handle*Command method below — kept
+        // separate so tests can call those directly (MPRemoteCommandEvent has no public
+        // initializer, so a real command can't otherwise be simulated in a test).
         commandCenter.playCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            return Self.onMain {
-                guard self.player != nil else { return .noActionableNowPlayingItem }
-                self.resume()
-                return .success
-            }
+            return Self.onMain { self.handlePlayCommand() }
         }
         commandCenter.pauseCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            return Self.onMain {
-                guard self.player != nil else { return .noActionableNowPlayingItem }
-                self.pause()
-                return .success
-            }
+            return Self.onMain { self.handlePauseCommand() }
         }
         commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
             guard let self else { return .noActionableNowPlayingItem }
-            return Self.onMain {
-                guard self.player != nil else { return .noActionableNowPlayingItem }
-                self.isPlaying ? self.pause() : self.resume()
-                return .success
-            }
+            return Self.onMain { self.handleTogglePlayPauseCommand() }
         }
         // 15s back / 30s forward matches the common podcast-app convention.
         commandCenter.skipBackwardCommand.preferredIntervals = [15]
         commandCenter.skipBackwardCommand.addTarget { [weak self] event in
             guard let self, let event = event as? MPSkipIntervalCommandEvent else { return .noActionableNowPlayingItem }
-            return Self.onMain {
-                guard self.player != nil else { return .noActionableNowPlayingItem }
-                self.seek(to: max(0, self.currentTime - event.interval))
-                return .success
-            }
+            return Self.onMain { self.handleSkipBackwardCommand(interval: event.interval) }
         }
         commandCenter.skipForwardCommand.preferredIntervals = [30]
         commandCenter.skipForwardCommand.addTarget { [weak self] event in
             guard let self, let event = event as? MPSkipIntervalCommandEvent else { return .noActionableNowPlayingItem }
-            return Self.onMain {
-                guard self.player != nil else { return .noActionableNowPlayingItem }
-                self.seek(to: self.currentTime + event.interval)
-                return .success
-            }
+            return Self.onMain { self.handleSkipForwardCommand(interval: event.interval) }
         }
         commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .noActionableNowPlayingItem }
-            return Self.onMain {
-                guard self.player != nil else { return .noActionableNowPlayingItem }
-                self.seek(to: event.positionTime)
-                return .success
-            }
+            return Self.onMain { self.handleChangePlaybackPositionCommand(positionTime: event.positionTime) }
         }
+    }
+
+    // CarPlay's CPNowPlayingTemplate sends its play/pause/skip taps through these same
+    // MPRemoteCommandCenter targets — there's no separate CarPlay playback path (#118), so
+    // verifying these round-trip through play()/pause()/resume()/seek() covers CarPlay too.
+    @discardableResult
+    func handlePlayCommand() -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noActionableNowPlayingItem }
+        resume()
+        return .success
+    }
+
+    @discardableResult
+    func handlePauseCommand() -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noActionableNowPlayingItem }
+        pause()
+        return .success
+    }
+
+    @discardableResult
+    func handleTogglePlayPauseCommand() -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noActionableNowPlayingItem }
+        isPlaying ? pause() : resume()
+        return .success
+    }
+
+    @discardableResult
+    func handleSkipBackwardCommand(interval: TimeInterval) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noActionableNowPlayingItem }
+        seek(to: max(0, currentTime - interval))
+        return .success
+    }
+
+    @discardableResult
+    func handleSkipForwardCommand(interval: TimeInterval) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noActionableNowPlayingItem }
+        seek(to: currentTime + interval)
+        return .success
+    }
+
+    @discardableResult
+    func handleChangePlaybackPositionCommand(positionTime: TimeInterval) -> MPRemoteCommandHandlerStatus {
+        guard player != nil else { return .noActionableNowPlayingItem }
+        seek(to: positionTime)
+        return .success
     }
 
     // Runs `body` inline if already on the main thread, otherwise synchronously dispatches it to
