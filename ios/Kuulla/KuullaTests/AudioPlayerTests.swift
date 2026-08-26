@@ -443,4 +443,112 @@ final class AudioPlayerTests: XCTestCase {
 
         XCTAssertEqual(player.handleSkipForwardCommand(interval: 30), .noActionableNowPlayingItem)
     }
+
+    // MARK: - Sleep timer (#207)
+
+    func testStartSleepTimerSetsRemainingSecondsFromMinutes() {
+        let player = AudioPlayer()
+
+        player.startSleepTimer(minutes: 15)
+
+        XCTAssertEqual(player.sleepTimerRemainingSeconds, 900)
+        XCTAssertFalse(player.sleepTimerEndOfEpisodeEnabled)
+    }
+
+    func testTickSleepTimerDecrementsRemainingSecondsBySecond() {
+        let player = AudioPlayer()
+        player.startSleepTimer(minutes: 1)
+
+        player.tickSleepTimer()
+
+        XCTAssertEqual(player.sleepTimerRemainingSeconds, 59)
+    }
+
+    func testTickSleepTimerPausesPlaybackAndClearsCountdownOnceItReachesZero() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+        player.startSleepTimer(minutes: 0)
+        // minutes: 0 seeds 0 remaining seconds directly (no whole minute to count down from),
+        // so a single tick is what actually crosses the zero threshold and fires expiry.
+
+        player.tickSleepTimer()
+
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.sleepTimerRemainingSeconds, 0)
+    }
+
+    func testTickSleepTimerIsANoOpWhenNoCountdownIsActive() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        player.tickSleepTimer()
+
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertNil(player.sleepTimerRemainingSeconds)
+    }
+
+    func testAdjustSleepTimerAddsMinutesToRunningCountdown() {
+        let player = AudioPlayer()
+        player.startSleepTimer(minutes: 10)
+
+        player.adjustSleepTimer(byMinutes: 5)
+
+        XCTAssertEqual(player.sleepTimerRemainingSeconds, 900)
+    }
+
+    func testAdjustSleepTimerSubtractsMinutesAndClampsAtZeroRatherThanGoingNegative() {
+        let player = AudioPlayer()
+        player.startSleepTimer(minutes: 2)
+
+        player.adjustSleepTimer(byMinutes: -10)
+
+        XCTAssertEqual(player.sleepTimerRemainingSeconds, 0)
+    }
+
+    func testAdjustSleepTimerIsANoOpWhenNoCountdownIsActive() {
+        let player = AudioPlayer()
+
+        player.adjustSleepTimer(byMinutes: 5)
+
+        XCTAssertNil(player.sleepTimerRemainingSeconds)
+    }
+
+    func testCancelSleepTimerClearsCountdown() {
+        let player = AudioPlayer()
+        player.startSleepTimer(minutes: 10)
+
+        player.cancelSleepTimer()
+
+        XCTAssertNil(player.sleepTimerRemainingSeconds)
+        XCTAssertFalse(player.sleepTimerEndOfEpisodeEnabled)
+    }
+
+    func testStartSleepTimerForEndOfEpisodeEnablesFlagAndClearsAnyCountdown() {
+        let player = AudioPlayer()
+        player.startSleepTimer(minutes: 10)
+
+        player.startSleepTimerForEndOfEpisode()
+
+        XCTAssertTrue(player.sleepTimerEndOfEpisodeEnabled)
+        XCTAssertNil(player.sleepTimerRemainingSeconds)
+    }
+
+    func testStartSleepTimerReplacesAnActiveEndOfEpisodeMode() {
+        let player = AudioPlayer()
+        player.startSleepTimerForEndOfEpisode()
+
+        player.startSleepTimer(minutes: 5)
+
+        XCTAssertFalse(player.sleepTimerEndOfEpisodeEnabled)
+        XCTAssertEqual(player.sleepTimerRemainingSeconds, 300)
+    }
+
+    func testCancelSleepTimerClearsEndOfEpisodeMode() {
+        let player = AudioPlayer()
+        player.startSleepTimerForEndOfEpisode()
+
+        player.cancelSleepTimer()
+
+        XCTAssertFalse(player.sleepTimerEndOfEpisodeEnabled)
+    }
 }
