@@ -464,7 +464,7 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.sleepTimerRemainingSeconds, 59)
     }
 
-    func testTickSleepTimerPausesPlaybackAndClearsCountdownOnceItReachesZero() {
+    func testTickSleepTimerPausesPlaybackAndClearsCountdownToNilOnceItReachesZero() {
         let player = AudioPlayer()
         player.play(url: URL(string: "https://example.com/audio.mp3")!)
         player.startSleepTimer(minutes: 0)
@@ -474,7 +474,10 @@ final class AudioPlayerTests: XCTestCase {
         player.tickSleepTimer()
 
         XCTAssertFalse(player.isPlaying)
-        XCTAssertEqual(player.sleepTimerRemainingSeconds, 0)
+        // nil (not 0) once expired — nil is the sole "no countdown active" contract every other
+        // caller (adjustSleepTimer, UI) relies on; leaving it at 0 would make an expired timer
+        // still look active.
+        XCTAssertNil(player.sleepTimerRemainingSeconds)
     }
 
     func testTickSleepTimerIsANoOpWhenNoCountdownIsActive() {
@@ -503,6 +506,17 @@ final class AudioPlayerTests: XCTestCase {
         player.adjustSleepTimer(byMinutes: -10)
 
         XCTAssertEqual(player.sleepTimerRemainingSeconds, 0)
+    }
+
+    func testAdjustSleepTimerIsANoOpAfterTheCountdownHasAlreadyExpired() {
+        let player = AudioPlayer()
+        player.startSleepTimer(minutes: 0)
+        player.tickSleepTimer()
+
+        player.adjustSleepTimer(byMinutes: 5)
+
+        // Must stay nil, not resurrect a 5-minute countdown with no Timer left running it.
+        XCTAssertNil(player.sleepTimerRemainingSeconds)
     }
 
     func testAdjustSleepTimerIsANoOpWhenNoCountdownIsActive() {

@@ -343,7 +343,13 @@ final class AudioPlayer {
         guard let remaining = sleepTimerRemainingSeconds else { return }
         let next = remaining - 1
         if next <= 0 {
-            sleepTimerRemainingSeconds = 0
+            // nil (not 0) once expired — nil is this property's sole "inactive" contract, checked
+            // by tickSleepTimer's own early-return guard above, adjustSleepTimer, and UI callers
+            // (e.g. EpisodeDetailView's button title) that use it to decide whether a countdown
+            // is running at all. Leaving it at 0 would satisfy `if let` everywhere else, letting
+            // an already-expired timer look active (and be "adjusted" back to a positive value
+            // with no Timer left to actually count it down).
+            sleepTimerRemainingSeconds = nil
             sleepTimer?.invalidate()
             sleepTimer = nil
             pause()
