@@ -125,6 +125,31 @@
                 }
             </div>
 
+            <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="sleep-timer-default-duration">Default sleep timer duration</label>
+                <select id="sleep-timer-default-duration" class="form-select" disabled="@isSleepTimerDefaultDurationSaving"
+                        value="@(selectedSleepTimerDefaultDurationMinutes?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")"
+                        @onchange="OnSleepTimerDefaultDurationChangedAsync">
+                    @if (selectedSleepTimerDefaultDurationMinutes is null)
+                    {
+                        <option value="">Not set</option>
+                    }
+                    @foreach (var option in SleepTimerDurationUi.OptionsIncluding(selectedSleepTimerDefaultDurationMinutes))
+                    {
+                        <option value="@option.ToString(System.Globalization.CultureInfo.InvariantCulture)">@SleepTimerDurationUi.Format(option)</option>
+                    }
+                </select>
+                <div class="form-text">Used to seed the sleep timer on your other devices — not itself a running timer.</div>
+                @if (sleepTimerDefaultDurationSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@sleepTimerDefaultDurationSaveError</p>
+                }
+                else if (sleepTimerDefaultDurationSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
             <h2 class="h5 mt-4">Downloads &amp; Storage</h2>
 
             <div class="mb-3" style="max-width: 24rem;">
@@ -226,6 +251,10 @@
     private bool isSmartSpeedSaving;
     private string? smartSpeedSaveError;
     private bool smartSpeedSaveSavedConfirmation;
+    private int? selectedSleepTimerDefaultDurationMinutes;
+    private bool isSleepTimerDefaultDurationSaving;
+    private string? sleepTimerDefaultDurationSaveError;
+    private bool sleepTimerDefaultDurationSaveSavedConfirmation;
     private bool selectedAutoDownloadNewEpisodes;
     private bool isAutoDownloadSaving;
     private string? autoDownloadSaveError;
@@ -295,6 +324,7 @@
             selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
             selectedPlaybackSpeed = settings.PlaybackSpeed;
             selectedSmartSpeed = settings.SmartSpeed;
+            selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
             selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
             selectedAutoDeleteRule = settings.AutoDeleteRule;
             selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
@@ -345,6 +375,7 @@
         selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
         selectedPlaybackSpeed = settings.PlaybackSpeed;
         selectedSmartSpeed = settings.SmartSpeed;
+        selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
         selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
         selectedAutoDeleteRule = settings.AutoDeleteRule;
         selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
@@ -557,6 +588,45 @@
         finally
         {
             isSmartSpeedSaving = false;
+        }
+
+        await SyncOwnWriteBestEffortAsync();
+    }
+
+    private async Task OnSleepTimerDefaultDurationChangedAsync(ChangeEventArgs args)
+    {
+        var raw = args.Value?.ToString();
+        if (string.IsNullOrEmpty(raw))
+        {
+            // "Not set" selected — the API's update endpoint only ever sets a concrete duration
+            // (see SleepTimerDurationUi's doc comment), so there's nothing to save here; this
+            // option only exists to represent a value this page never sends a PUT for.
+            return;
+        }
+        if (!int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var value))
+        {
+            return;
+        }
+
+        var previous = selectedSleepTimerDefaultDurationMinutes;
+        selectedSleepTimerDefaultDurationMinutes = value;
+        isSleepTimerDefaultDurationSaving = true;
+        sleepTimerDefaultDurationSaveError = null;
+        sleepTimerDefaultDurationSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateSleepTimerDefaultDurationAsync(value);
+            sleepTimerDefaultDurationSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedSleepTimerDefaultDurationMinutes = previous;
+            sleepTimerDefaultDurationSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isSleepTimerDefaultDurationSaving = false;
         }
 
         await SyncOwnWriteBestEffortAsync();

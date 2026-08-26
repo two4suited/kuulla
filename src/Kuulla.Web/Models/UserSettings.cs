@@ -12,6 +12,7 @@ public record UserSettings(
     int AutoDeleteAfterDays = 7,
     bool AutoDownloadNewEpisodes = false,
     bool SmartSpeed = false,
+    int? SleepTimerDefaultDurationMinutes = null,
     DateTimeOffset UpdatedAt = default,
     string? DeviceId = null);
 
