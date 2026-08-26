@@ -72,4 +72,40 @@ final class PodcastCatalogClientTests: MockedApiTestCase {
         let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
         XCTAssertEqual(requestedURL.query, "q=test")
     }
+
+    func testGetDiscoveryDecodesCategoriesAndTrending() async throws {
+        let json = """
+        {"categories":[{"id":"1301","name":"Arts"}],"trending":[{"id":"1","title":"T","author":"A","feedUrl":"https://feed","artworkUrl":null,"description":null,"categories":[]}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let discovery = try await client.getDiscovery()
+
+        XCTAssertEqual(discovery.categories.first?.name, "Arts")
+        XCTAssertEqual(discovery.trending.first?.title, "T")
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertEqual(requestedURL.path, "/api/discovery")
+    }
+
+    func testGetCategoryDiscoveryReturnsNilOn404() async throws {
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 404, data: Data(), headers: [:])) }
+
+        let result = try await client.getCategoryDiscovery(categoryId: "missing")
+
+        XCTAssertNil(result)
+    }
+
+    func testGetCategoryDiscoveryDecodesCategoryAndTrending() async throws {
+        let json = """
+        {"category":{"id":"1301","name":"Arts"},"trending":[{"id":"1","title":"T","author":"A","feedUrl":"https://feed","artworkUrl":null,"description":null,"categories":[]}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let result = try await client.getCategoryDiscovery(categoryId: "1301")
+
+        XCTAssertEqual(result?.category.name, "Arts")
+        XCTAssertEqual(result?.trending.first?.title, "T")
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertEqual(requestedURL.path, "/api/discovery/categories/1301")
+    }
 }
