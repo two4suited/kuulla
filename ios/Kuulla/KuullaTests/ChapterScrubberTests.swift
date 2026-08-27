@@ -2,9 +2,10 @@ import XCTest
 @testable import Kuulla
 
 final class ChapterScrubberTests: XCTestCase {
-    private func makeChapter(startTime: TimeInterval, title: String) -> EpisodeChapter {
+    private func makeChapter(startTime: TimeInterval, title: String, url: String? = nil) -> EpisodeChapter {
+        let urlJson = url.map { "\"\($0)\"" } ?? "null"
         let json = """
-        { "startTime": "\(Self.formatSeconds(startTime))", "title": "\(title)", "imageUrl": null, "url": null }
+        { "startTime": "\(Self.formatSeconds(startTime))", "title": "\(title)", "imageUrl": null, "url": \(urlJson) }
         """.data(using: .utf8)!
         return try! JSONDecoder().decode(EpisodeChapter.self, from: json)
     }
@@ -60,6 +61,7 @@ final class ChapterScrubberTests: XCTestCase {
     func testTickOffsetClampsEndOfEpisodeChapterToStayOnScreen() {
         // startTime == duration would otherwise land exactly at trackWidth, pushing the
         // tickWidth-wide tick fully off the visible track.
+
         let offset = ChapterScrubber.tickOffset(startTime: 100, duration: 100, trackWidth: 200)
 
         XCTAssertEqual(offset, 200 - ChapterScrubber.tickWidth)
@@ -80,5 +82,23 @@ final class ChapterScrubberTests: XCTestCase {
         // the upper bound itself.
         XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 0, duration: 100, trackWidth: 1), 0)
         XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 50, duration: 100, trackWidth: 1), 0)
+    }
+
+    func testTapActionSeeksWhenChapterIsNotActive() {
+        let chapter = makeChapter(startTime: 60, title: "Segment 1", url: "https://sponsor.example")
+
+        XCTAssertEqual(ChapterScrubber.tapAction(for: chapter, isActive: false), .seek(60))
+    }
+
+    func testTapActionSeeksWhenActiveChapterHasNoUrl() {
+        let chapter = makeChapter(startTime: 60, title: "Segment 1")
+
+        XCTAssertEqual(ChapterScrubber.tapAction(for: chapter, isActive: true), .seek(60))
+    }
+
+    func testTapActionOpensLinkWhenActiveChapterHasUrl() {
+        let chapter = makeChapter(startTime: 60, title: "Segment 1", url: "https://sponsor.example")
+
+        XCTAssertEqual(ChapterScrubber.tapAction(for: chapter, isActive: true), .openLink(URL(string: "https://sponsor.example")!))
     }
 }
