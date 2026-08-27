@@ -101,4 +101,10 @@ final class ChapterScrubberTests: XCTestCase {
 
         XCTAssertEqual(ChapterScrubber.tapAction(for: chapter, isActive: true), .openLink(URL(string: "https://sponsor.example")!))
     }
+
+    func testTapActionSeeksWhenActiveChapterUrlIsNotHttpOrHttps() {
+        let chapter = makeChapter(startTime: 60, title: "Segment 1", url: "mailto:sponsor@example.com")
+
+        XCTAssertEqual(ChapterScrubber.tapAction(for: chapter, isActive: true), .seek(60))
+    }
 }

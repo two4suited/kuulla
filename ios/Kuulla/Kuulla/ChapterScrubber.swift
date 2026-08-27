@@ -147,8 +147,12 @@ struct ChapterScrubber: View {
 
     // Pulled out as a pure static function (mirroring activeChapterIndex above) so the
     // seek-vs-open-link decision is unit-testable without going through the SwiftUI Button action.
+    // Restricted to http/https — SFSafariViewController is built for web content, and a
+    // scheme-less or non-web URL (a chapter's url happens to be "sponsor" or a custom scheme)
+    // would just present a sheet that fails to load rather than doing anything useful.
     static func tapAction(for chapter: EpisodeChapter, isActive: Bool) -> TapAction {
-        if isActive, let urlString = chapter.url, let url = URL(string: urlString) {
+        if isActive, let urlString = chapter.url, let url = URL(string: urlString),
+           let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
             return .openLink(url)
         }
         return .seek(chapter.startTime)
