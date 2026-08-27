@@ -465,7 +465,13 @@ else
         }
     }
 
-    public async ValueTask DisposeAsync() => await DisposeInteropAsync();
+    public async ValueTask DisposeAsync()
+    {
+        // Also invalidates any in-flight LoadTranscriptAsync so its completion doesn't call
+        // StateHasChanged on a disposed component.
+        _loadGeneration++;
+        await DisposeInteropAsync();
+    }
 
     private async Task DisposeInteropAsync()
     {
