@@ -57,5 +57,54 @@ final class EpisodeDecodingTests: XCTestCase {
         XCTAssertNil(episode.description)
         XCTAssertNil(episode.bitrateKbps)
         XCTAssertNil(episode.fileSizeBytes)
+        XCTAssertNil(episode.chapters)
+    }
+
+    func testDecodesEpisodeWithChapters() throws {
+        let json = """
+        {
+            "id": "e1",
+            "showId": "s1",
+            "title": "Episode 1",
+            "audioUrl": "https://example.com/audio.mp3",
+            "chapters": [
+                { "startTime": "00:00:00", "title": "Intro", "imageUrl": null, "url": null },
+                { "startTime": "00:02:05", "title": "Sponsor", "imageUrl": "https://example.com/art.jpg", "url": "https://sponsor.example" }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let episode = try JSONDecoder().decode(Episode.self, from: json)
+
+        XCTAssertEqual(episode.chapters?.count, 2)
+        XCTAssertEqual(episode.chapters?[0].startTime, 0)
+        XCTAssertEqual(episode.chapters?[0].title, "Intro")
+        XCTAssertEqual(episode.chapters?[1].startTime, 125)
+        XCTAssertEqual(episode.chapters?[1].imageUrl, "https://example.com/art.jpg")
+        XCTAssertEqual(episode.chapters?[1].url, "https://sponsor.example")
+    }
+
+    func testChapterWithInvalidStartTimeFailsToDecode() {
+        let json = """
+        { "startTime": "not-a-timespan", "title": "Intro", "imageUrl": null, "url": null }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(EpisodeChapter.self, from: json))
+    }
+
+    func testChapterWithNonNumericDayPrefixFailsToDecode() {
+        let json = """
+        { "startTime": "abc.00:00:00", "title": "Intro", "imageUrl": null, "url": null }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(EpisodeChapter.self, from: json))
+    }
+
+    func testChapterWithNegativeStartTimeFailsToDecode() {
+        let json = """
+        { "startTime": "-00:00:05", "title": "Intro", "imageUrl": null, "url": null }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(EpisodeChapter.self, from: json))
     }
 }

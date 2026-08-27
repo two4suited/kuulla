@@ -111,6 +111,8 @@
 		T1000001 /* SleepTimerDuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000001; };
 		T1000002 /* SleepTimerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000002; };
 		T1000003 /* SleepTimerSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003; };
+		Z1000001 /* ChapterScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000001; };
+		Z1000002 /* ChapterScrubberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -239,6 +241,8 @@
 		T2000001 /* SleepTimerDuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerDuration.swift; sourceTree = "<group>"; };
 		T2000002 /* SleepTimerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheet.swift; sourceTree = "<group>"; };
 		T2000003 /* SleepTimerSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheetTests.swift; sourceTree = "<group>"; };
+		Z2000001 /* ChapterScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubber.swift; sourceTree = "<group>"; };
+		Z2000002 /* ChapterScrubberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubberTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -323,6 +327,7 @@
 				S2000006 /* DiscoveryCategoryDetailView.swift */,
 				T2000001 /* SleepTimerDuration.swift */,
 				T2000002 /* SleepTimerSheet.swift */,
+				Z2000001 /* ChapterScrubber.swift */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -374,6 +379,7 @@
 				P2000014 /* FeedViewTests.swift */,
 				R2000002 /* SmartSpeedProcessorTests.swift */,
 				T2000003 /* SleepTimerSheetTests.swift */,
+				Z2000002 /* ChapterScrubberTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -550,6 +556,7 @@
 				S1000006,
 				T1000001,
 				T1000002,
+				Z1000001,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -589,6 +596,7 @@
 				P1000014,
 				R1000002,
 				T1000003,
+				Z1000002,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

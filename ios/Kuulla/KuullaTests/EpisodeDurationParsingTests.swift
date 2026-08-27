@@ -29,4 +29,8 @@ final class EpisodeDurationParsingTests: XCTestCase {
     func testReturnsNilForEmptyString() {
         XCTAssertNil(Episode.parseDuration(""))
     }
+
+    func testReturnsNilForNonNumericDayPrefix() {
+        XCTAssertNil(Episode.parseDuration("abc.00:00:00"))
+    }
 }
