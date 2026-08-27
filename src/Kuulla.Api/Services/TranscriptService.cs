@@ -94,7 +94,20 @@ public class TranscriptService(
 
         var declaredType = transcriptType ?? response.Content.Headers.ContentType?.MediaType;
         var format = TranscriptParsing.DetectFormat(declaredType, content);
-        var segments = TranscriptParsing.Parse(format, content);
+
+        IReadOnlyList<TranscriptSegment> segments;
+        try
+        {
+            segments = TranscriptParsing.Parse(format, content);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Transcript content is untrusted — a parser edge case must degrade to "no transcript"
+            // (404), never a 500.
+            logger.LogWarning(ex, "Failed to parse podcast:transcript from {TranscriptUrl}", fetchableUrl);
+            return null;
+        }
+
         if (segments.Count == 0)
         {
             logger.LogInformation(

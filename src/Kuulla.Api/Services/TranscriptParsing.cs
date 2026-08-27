@@ -299,7 +299,16 @@ public static partial class TranscriptParsing
             }
         }
 
-        value = new TimeSpan(0, hours, minutes, seconds, milliseconds);
-        return true;
+        try
+        {
+            // A huge hours component (transcript content is untrusted) overflows the TimeSpan
+            // constructor — treat that as an unparseable cue, not a 500.
+            value = new TimeSpan(0, hours, minutes, seconds, milliseconds);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 }

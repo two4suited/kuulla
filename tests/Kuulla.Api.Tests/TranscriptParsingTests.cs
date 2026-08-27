@@ -168,4 +168,22 @@ public class TranscriptParsingTests
     {
         Assert.Empty(TranscriptParsing.Parse(TranscriptFormat.Unknown, "anything"));
     }
+
+    [Fact]
+    public void ParseSubtitles_SkipsCueWithOverflowingHoursInsteadOfThrowing()
+    {
+        // 999999999 hours parses as an int but overflows the TimeSpan constructor.
+        const string srt = """
+            1
+            999999999:00:00,000 --> 999999999:00:05,000
+            overflow
+
+            2
+            00:00:10,000 --> 00:00:12,000
+            fine
+            """;
+
+        var segment = Assert.Single(TranscriptParsing.Parse(TranscriptFormat.Srt, srt));
+        Assert.Equal("fine", segment.Text);
+    }
 }

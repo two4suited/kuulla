@@ -115,7 +115,16 @@ public class PodcastFeedClient(
                 continue;
             }
 
-            var type = tag.Attribute("type")?.Value?.Trim();
+            // Normalize to a bare MIME type: strip any parameters ("application/json; charset=utf-8"
+            // -> "application/json") and treat blank as absent, so both rank correctly and the
+            // value stored on Episode.TranscriptType stays a bare type as its model comment expects.
+            var rawType = tag.Attribute("type")?.Value;
+            var type = string.IsNullOrWhiteSpace(rawType) ? null : rawType.Split(';', 2)[0].Trim();
+            if (string.IsNullOrEmpty(type))
+            {
+                type = null;
+            }
+
             var rank = type is null
                 ? TranscriptTypePreference.Length
                 : Array.FindIndex(TranscriptTypePreference, t => string.Equals(t, type, StringComparison.OrdinalIgnoreCase));
