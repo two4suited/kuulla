@@ -57,8 +57,14 @@ enum TranscriptSync {
     // Found by comparison rather than `.last`, mirroring ChapterScrubber.activeChapterIndex —
     // the API preserves the feed's own ordering, which isn't guaranteed to be sorted by time.
     static func activeSegmentIndex(segments: [TranscriptSegment], currentTime: TimeInterval) -> Int? {
-        segments.indices
-            .filter { segments[$0].startTime <= currentTime }
-            .max { segments[$0].startTime < segments[$1].startTime }
+        // Single pass, no intermediate array — this is recomputed on every playback tick. `>`
+        // (not `>=`) keeps the first of any segments sharing the greatest reached start time.
+        var best: Int?
+        for index in segments.indices where segments[index].startTime <= currentTime {
+            if best == nil || segments[index].startTime > segments[best!].startTime {
+                best = index
+            }
+        }
+        return best
     }
 }

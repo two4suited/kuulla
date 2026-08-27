@@ -21,11 +21,13 @@ struct TranscriptView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                        // Iterating indices (not Array(enumerated())) avoids allocating a fresh
+                        // array of tuples on every body pass while playback ticks.
+                        ForEach(segments.indices, id: \.self) { index in
                             Button {
-                                onSeek(segment.startTime)
+                                onSeek(segments[index].startTime)
                             } label: {
-                                TranscriptRow(segment: segment, isActive: index == activeIndex)
+                                TranscriptRow(segment: segments[index], isActive: index == activeIndex)
                             }
                             .buttonStyle(.plain)
                             .id(index)
