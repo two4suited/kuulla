@@ -17,19 +17,23 @@ public class PodcastFeedClient(
     // address is rejected") is verifiable without depending on real DNS or a live network.
     Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null,
     // Overridable purely for testing, for the same reason as hostResolver above. Production sends
-    // through NoRedirectHttpClient (auto-redirect disabled) rather than the shared httpClient, so
-    // FetchChaptersAsync can see and re-validate every redirect hop itself instead of the runtime
-    // following one transparently to an address the SSRF guard never got to check.
-    Func<Uri, CancellationToken, Task<HttpResponseMessage>>? sendChaptersRequestAsync = null) : IPodcastFeedClient
+    // through the "chapters" named client (auto-redirect disabled, registered in Program.cs) rather
+    // than the shared httpClient, so FetchChaptersAsync can see and re-validate every redirect hop
+    // itself instead of the runtime following one transparently to an address the SSRF guard never
+    // got to check. Routed through IHttpClientFactory (rather than a private static HttpClient) so
+    // it still inherits the app's HTTP defaults — resilience handler, service discovery, OTel
+    // instrumentation — from ConfigureHttpClientDefaults in ServiceDefaults.
+    Func<Uri, CancellationToken, Task<HttpResponseMessage>>? sendChaptersRequestAsync = null,
+    IHttpClientFactory? httpClientFactory = null) : IPodcastFeedClient
 {
     private static readonly XNamespace ItunesNamespace = "http://www.itunes.com/dtds/podcast-1.0.dtd";
     private static readonly XNamespace PodcastNamespace = "https://podcastindex.org/namespace/1.0";
-    private static readonly HttpClient NoRedirectHttpClient = new(new SocketsHttpHandler { AllowAutoRedirect = false });
     private const int MaxChaptersRedirects = 5;
 
     private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolveHostAsync = hostResolver ?? Dns.GetHostAddressesAsync;
     private readonly Func<Uri, CancellationToken, Task<HttpResponseMessage>> _sendChaptersRequestAsync =
-        sendChaptersRequestAsync ?? ((uri, ct) => NoRedirectHttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct));
+        sendChaptersRequestAsync ?? ((uri, ct) => httpClientFactory!.CreateClient("chapters")
+            .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct));
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)
     {
