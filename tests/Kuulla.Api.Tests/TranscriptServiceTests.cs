@@ -91,14 +91,29 @@ public class TranscriptServiceTests
     }
 
     [Fact]
-    public async Task GetTranscriptAsync_ReturnsNullAndDoesNotCacheWhenNoSegmentsParsed()
+    public async Task GetTranscriptAsync_NegativeCachesBrieflyWhenNoSegmentsParsed()
     {
         var sut = MakeSut((_, _) => Task.FromResult(Ok("nothing parseable here")));
 
         var document = await sut.GetTranscriptAsync(TranscriptUrl, "text/plain", CancellationToken.None);
 
         Assert.Null(document);
-        Assert.DoesNotContain(_database.Invocations, i => i.Method.Name == nameof(IDatabaseAsync.StringSetAsync));
+        var set = Assert.Single(_database.Invocations, i => i.Method.Name == nameof(IDatabaseAsync.StringSetAsync));
+        Assert.Equal((Expiration)TimeSpan.FromMinutes(15), (Expiration)set.Arguments[2]!);
+    }
+
+    [Fact]
+    public async Task GetTranscriptAsync_TreatsCachedEmptyDocumentAsNoTranscript()
+    {
+        var negative = new TranscriptDocument(null, []);
+        _database
+            .Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync(new RedisValue(JsonConvert.SerializeObject(negative)));
+        var fetched = false;
+        var sut = MakeSut((_, _) => { fetched = true; return Task.FromResult(Ok("{}")); });
+
+        Assert.Null(await sut.GetTranscriptAsync(TranscriptUrl, null, CancellationToken.None));
+        Assert.False(fetched);
     }
 
     [Fact]

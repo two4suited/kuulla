@@ -16,6 +16,14 @@ public class TranscriptService(
     // permanent.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromDays(7);
 
+    // A "no usable transcript" outcome (unreachable, rejected by the SSRF guard, or nothing
+    // parseable) is cached too, but only briefly. This endpoint is unauthenticated, so without a
+    // negative entry an anonymous caller could make every request re-drive an outbound fetch to
+    // the feed-supplied URL; a short TTL blunts that while still letting a parser fix or a feed
+    // that later serves a valid document recover within the hour.
+    private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromMinutes(15);
+    private static readonly TranscriptDocument NegativeCacheEntry = new(null, []);
+
     // A hostile or misconfigured server could stream an unbounded body; 16 MiB is far more than
     // any real episode transcript (a 3-hour word-level JSON transcript is ~1-2 MiB) while still
     // bounding memory.
@@ -40,7 +48,8 @@ public class TranscriptService(
                 var document = JsonConvert.DeserializeObject<TranscriptDocument>(cached!);
                 if (document is not null)
                 {
-                    return document;
+                    // An empty segment list is the negative-cache marker (see NegativeCacheEntry).
+                    return document.Segments.Count > 0 ? document : null;
                 }
             }
             catch (JsonException ex)
@@ -49,6 +58,17 @@ public class TranscriptService(
             }
         }
 
+        var result = await FetchAndParseAsync(transcriptUrl, transcriptType, cancellationToken);
+        await db.StringSetAsync(
+            cacheKey,
+            JsonConvert.SerializeObject(result ?? NegativeCacheEntry),
+            result is not null ? CacheTtl : NegativeCacheTtl);
+        return result;
+    }
+
+    private async Task<TranscriptDocument?> FetchAndParseAsync(
+        string transcriptUrl, string? transcriptType, CancellationToken cancellationToken)
+    {
         var fetchableUrl = await resourceFetcher.ResolveFetchableUrlAsync(transcriptUrl, cancellationToken);
         if (fetchableUrl is null)
         {
@@ -77,17 +97,13 @@ public class TranscriptService(
         var segments = TranscriptParsing.Parse(format, content);
         if (segments.Count == 0)
         {
-            // Nothing usable — don't cache, so a later parser fix (or a feed that later serves a
-            // valid document at the same URL) isn't stuck behind a week-long empty entry.
             logger.LogInformation(
                 "podcast:transcript from {TranscriptUrl} (declared type '{DeclaredType}', detected {Format}) yielded no segments",
                 fetchableUrl, declaredType, format);
             return null;
         }
 
-        var result = new TranscriptDocument(declaredType, segments);
-        await db.StringSetAsync(cacheKey, JsonConvert.SerializeObject(result), CacheTtl);
-        return result;
+        return new TranscriptDocument(declaredType, segments);
     }
 
     private static async Task<string> ReadBoundedStringAsync(HttpResponseMessage response, CancellationToken cancellationToken)

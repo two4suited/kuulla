@@ -48,7 +48,9 @@ builder.Services.AddScoped<ITranscriptService, TranscriptService>();
 // factory creates.
 builder.Services.AddHttpClient(PublicResourceFetcher.HttpClientName)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
-builder.Services.AddScoped<PublicResourceFetcher>();
+// Stateless — it only holds the injected factory/resolver — so a singleton avoids any
+// captive-dependency concern from the transient PodcastFeedClient taking it as a dependency.
+builder.Services.AddSingleton<PublicResourceFetcher>();
 builder.Services.AddScoped<IFeedPollingService, FeedPollingService>();
 builder.Services.AddHostedService<FeedPollingBackgroundService>();
 
