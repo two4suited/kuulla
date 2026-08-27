@@ -68,3 +68,18 @@ enum TranscriptSync {
         return best
     }
 }
+
+enum TranscriptSearch {
+    // Case- and diacritic-insensitive so "cafe" finds "café" and vice versa.
+    static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+
+    // Indices into `segments`, in document order, whose text contains the (trimmed) query. An
+    // empty/whitespace query matches nothing.
+    static func matchIndices(segments: [TranscriptSegment], query: String) -> [Int] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        return segments.indices.filter {
+            segments[$0].text.range(of: trimmed, options: options) != nil
+        }
+    }
+}
