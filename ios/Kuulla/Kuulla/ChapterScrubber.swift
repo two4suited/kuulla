@@ -8,6 +8,11 @@ struct ChapterScrubber: View {
     let duration: TimeInterval
     let chapters: [EpisodeChapter]
     let onSeek: (TimeInterval) -> Void
+    // Called instead of onSeek when the tapped row is the currently-active chapter and it has a
+    // Url — seeking to a chapter you're already in is a no-op, so that tap is repurposed to open
+    // its link (e.g. a sponsor/reference URL) instead. Defaults to a no-op for callers (like
+    // previews/tests) that don't care about link handling.
+    var onOpenLink: (URL) -> Void = { _ in }
 
     // Local drag state so the slider tracks the user's finger smoothly and only actually seeks
     // once they lift it — seeking on every intermediate value would flood AVPlayer with seeks and
@@ -79,7 +84,11 @@ struct ChapterScrubber: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
                         Button {
-                            onSeek(chapter.startTime)
+                            if index == activeChapterIndex, let url = chapter.url.flatMap(URL.init) {
+                                onOpenLink(url)
+                            } else {
+                                onSeek(chapter.startTime)
+                            }
                         } label: {
                             HStack {
                                 Text(chapter.title)
