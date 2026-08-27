@@ -162,6 +162,8 @@ public class PodcastFeedClient(
                 || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
                 || (bytes[0] == 192 && bytes[1] == 168)
                 || (bytes[0] == 169 && bytes[1] == 254) // link-local
+                || (bytes[0] == 100 && bytes[1] is >= 64 and <= 127) // CGNAT (100.64.0.0/10)
+                || (bytes[0] == 198 && bytes[1] is 18 or 19) // benchmarking (198.18.0.0/15)
                 || bytes[0] is >= 224 and <= 255, // multicast (224-239) + reserved Class E (240-255)
             // fc00::/7 (unique-local) covers both defined fc00::/8 and fd00::/8 blocks — checking
             // the top 7 bits directly rather than IsIPv6SiteLocal, which only recognizes the older,
