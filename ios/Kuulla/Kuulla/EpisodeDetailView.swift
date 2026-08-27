@@ -337,13 +337,17 @@ struct EpisodeDetailView: View {
         stateRecord = (try? modelContext.fetch(Self.stateDescriptor(for: episodeId)))?.first
         downloadStatus = DownloadStatus.statusMap(for: [episodeId], in: modelContext)[episodeId]
 
-        // Pinned rather than switched out from under an already-playing session — a download
-        // completing mid-playback would otherwise flip resolvedAudioURL to the new local file
-        // while audioPlayer.currentURL still points at the remote stream that's actually
-        // playing, breaking every isPlaying(_:)/currentURL == audioURL check in this view (the
-        // UI would flip back to "Play" and hide the scrubber/chapters despite audio continuing).
-        // The next reload once playback has moved on picks up the now-local file normally.
-        if let resolvedAudioURL, audioPlayer.currentURL == resolvedAudioURL {
+        // Pinned to the episode's remote URL rather than switched to a newly-completed local
+        // download, whenever AudioPlayer already has that remote URL loaded (playing or paused)
+        // — checked against episode.audioUrl directly, not the previous resolvedAudioURL, so this
+        // also covers navigating away and back to a screen whose download finished in the
+        // background (resolvedAudioURL starts nil again on load(), so comparing against it alone
+        // would miss that case). Otherwise every isPlaying(_:)/currentURL == audioURL check in
+        // this view would stop matching an in-flight session (the UI would flip back to "Play"
+        // and hide the scrubber/chapters despite audio still loaded/playing). The next reload
+        // once playback has moved off this episode's remote URL picks up the local file normally.
+        if let episode, let remoteURL = URL(string: episode.audioUrl), audioPlayer.currentURL == remoteURL {
+            resolvedAudioURL = remoteURL
             return
         }
         resolvedAudioURL = episode.flatMap(resolvedPlaybackURL(for:))

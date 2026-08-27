@@ -84,8 +84,12 @@ struct ChapterScrubber: View {
             if !chapters.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                        // Computed once and reused below (rather than calling tapAction(for:) a
+                        // second time for .accessibilityHint) — it re-parses the chapter's URL,
+                        // which would otherwise repeat on every render while playback updates.
+                        let tapAction = ChapterScrubber.tapAction(for: chapter, isActive: index == activeChapterIndex)
                         Button {
-                            switch ChapterScrubber.tapAction(for: chapter, isActive: index == activeChapterIndex) {
+                            switch tapAction {
                             case .openLink(let url):
                                 onOpenLink(url)
                             case .seek(let startTime):
@@ -107,7 +111,7 @@ struct ChapterScrubber: View {
                         // whether this row is active + has a URL — VoiceOver only reads the title
                         // and time otherwise, with no way to tell which action activating it will
                         // take.
-                        .accessibilityHint(ChapterScrubber.tapAction(for: chapter, isActive: index == activeChapterIndex).accessibilityHint)
+                        .accessibilityHint(tapAction.accessibilityHint)
                     }
                 }
                 .padding(.top, 4)
