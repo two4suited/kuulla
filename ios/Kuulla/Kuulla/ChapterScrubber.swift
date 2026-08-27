@@ -9,9 +9,10 @@ struct ChapterScrubber: View {
     let chapters: [EpisodeChapter]
     let onSeek: (TimeInterval) -> Void
     // Called instead of onSeek when the tapped row is the currently-active chapter and it has a
-    // URL — seeking to a chapter you're already in is a no-op, so that tap is repurposed to open
-    // its link (e.g. a sponsor/reference URL) instead. Defaults to a no-op for callers (like
-    // previews/tests) that don't care about link handling.
+    // URL — seeking to the chapter you're already in would just rewind playback back to its start
+    // rather than doing anything useful, so that tap is repurposed to open its link (e.g. a
+    // sponsor/reference URL) instead. Defaults to a no-op for callers (like previews/tests) that
+    // don't care about link handling.
     var onOpenLink: (URL) -> Void = { _ in }
 
     // Local drag state so the slider tracks the user's finger smoothly and only actually seeks

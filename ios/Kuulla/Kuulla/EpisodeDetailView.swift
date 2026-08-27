@@ -22,6 +22,12 @@ struct EpisodeDetailView: View {
 
     @State private var stateRecord: EpisodeStateRecord?
     @State private var downloadStatus: DownloadStatus?
+    // Cached rather than recomputed inline in the view body — resolvedPlaybackURL(for:) does a
+    // synchronous SwiftData fetch, and episodeHeader also reads audioPlayer.currentTime (via
+    // activeChapter/ChapterScrubber), which re-renders every second during playback. Recomputed
+    // only when the episode loads or the download status changes (loadLocalState), the only two
+    // things that can actually change which URL resolves.
+    @State private var resolvedAudioURL: URL?
     @State private var progressTrackingTask: Task<Void, Never>?
     @State private var isShowingAddToPlaylist = false
     @State private var isShowingSleepTimer = false
@@ -122,10 +128,12 @@ struct EpisodeDetailView: View {
     // Split into two (rather than one big episodeContent) for the same reason.
     @ViewBuilder
     private func episodeHeader(_ episode: Episode) -> some View {
-        // Computed once here and reused below (rather than calling resolvedPlaybackURL(for:)
-        // again per section) since it's the same SwiftData fetch every time and every section
-        // below needs to gate on the same URL.
-        let audioURL: URL? = resolvedPlaybackURL(for: episode)
+        // Read from the cached resolvedAudioURL (refreshed in loadLocalState) rather than calling
+        // resolvedPlaybackURL(for:) here — this function reads audioPlayer.currentTime below
+        // (via activeChapter/ChapterScrubber), which re-renders every second during playback, and
+        // resolvedPlaybackURL(for:) does a synchronous SwiftData fetch that shouldn't repeat that
+        // often for a value that only actually changes on load or a download-status change.
+        let audioURL = resolvedAudioURL
         let currentChapter: EpisodeChapter? = audioURL.flatMap { activeChapter(for: episode, audioURL: $0) }
 
         artworkRow(showArtworkUrl: show?.artworkUrl, chapterArtworkUrl: currentChapter?.imageUrl)
@@ -322,6 +330,7 @@ struct EpisodeDetailView: View {
     private func loadLocalState() {
         stateRecord = (try? modelContext.fetch(Self.stateDescriptor(for: episodeId)))?.first
         downloadStatus = DownloadStatus.statusMap(for: [episodeId], in: modelContext)[episodeId]
+        resolvedAudioURL = episode.flatMap(resolvedPlaybackURL(for:))
     }
 
     // Best-effort: these are playback niceties, not core functionality, so a failure here
