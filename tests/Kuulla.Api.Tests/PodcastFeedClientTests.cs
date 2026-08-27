@@ -20,24 +20,14 @@ public class PodcastFeedClientTests
         Func<Uri, CancellationToken, Task<HttpResponseMessage>>? sendChaptersRequestAsync = null)
     {
         var httpClient = new HttpClient(TestHttpMessageHandler.Routed(route));
-        return new PodcastFeedClient(
-            httpClient, NullLogger<PodcastFeedClient>.Instance,
+        var resourceFetcher = new PublicResourceFetcher(
+            NullLogger<PublicResourceFetcher>.Instance,
             hostResolver ?? ((_, _) => Task.FromResult(new[] { PublicTestAddress })),
             // Defaults to routing straight through the same `route` function used for the feed
             // XML fetch above, so every existing chapters test (none of which exercise redirects)
             // keeps working unchanged — a test that needs to simulate a redirect passes its own.
             sendChaptersRequestAsync ?? ((uri, _) => Task.FromResult(route(uri))));
-    }
-
-    [Fact]
-    public void Constructor_ThrowsWhenNeitherSendChaptersRequestAsyncNorHttpClientFactoryIsProvided()
-    {
-        var httpClient = new HttpClient(TestHttpMessageHandler.Routed(_ => new HttpResponseMessage(HttpStatusCode.OK)));
-
-        var ex = Assert.Throws<InvalidOperationException>(() => new PodcastFeedClient(httpClient, NullLogger<PodcastFeedClient>.Instance));
-
-        Assert.Contains("sendChaptersRequestAsync", ex.Message);
-        Assert.Contains("httpClientFactory", ex.Message);
+        return new PodcastFeedClient(httpClient, NullLogger<PodcastFeedClient>.Instance, resourceFetcher);
     }
 
     private static string FeedXml(string itemXml) => $"""
@@ -453,6 +443,94 @@ public class PodcastFeedClientTests
 
         var episode = Assert.Single(feed!.Episodes);
         Assert.Null(episode.Chapters);
+    }
+
+    [Fact]
+    public async Task FetchAsync_RecordsTranscriptUrlAndTypeWithoutFetchingIt()
+    {
+        var itemXml = """
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:transcript url="https://feed.example/ep1.json" type="application/json" />
+            </item>
+            """;
+        var transcriptRequested = false;
+        var sut = MakeSut(uri =>
+        {
+            if (uri.AbsoluteUri == "https://feed.example/ep1.json")
+            {
+                transcriptRequested = true;
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) };
+        });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Equal("https://feed.example/ep1.json", episode.TranscriptUrl);
+        Assert.Equal("application/json", episode.TranscriptType);
+        Assert.False(transcriptRequested);
+    }
+
+    [Fact]
+    public async Task FetchAsync_PrefersJsonTranscriptOverSubtitleFormats()
+    {
+        var itemXml = """
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:transcript url="https://feed.example/ep1.srt" type="application/x-subrip" />
+              <podcast:transcript url="https://feed.example/ep1.json" type="application/json" />
+              <podcast:transcript url="https://feed.example/ep1.vtt" type="text/vtt" />
+            </item>
+            """;
+        var sut = MakeSut(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Equal("https://feed.example/ep1.json", episode.TranscriptUrl);
+        Assert.Equal("application/json", episode.TranscriptType);
+    }
+
+    [Fact]
+    public async Task FetchAsync_FallsBackToUnrankedTranscriptTypeWhenNoPreferredOneOffered()
+    {
+        var itemXml = """
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:transcript url="https://feed.example/ep1.txt" type="text/plain" />
+            </item>
+            """;
+        var sut = MakeSut(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Equal("https://feed.example/ep1.txt", episode.TranscriptUrl);
+        Assert.Equal("text/plain", episode.TranscriptType);
+    }
+
+    [Fact]
+    public async Task FetchAsync_LeavesTranscriptNullWhenTagAbsentOrHasNoUrl()
+    {
+        var itemXml = """
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:transcript type="application/json" />
+            </item>
+            """;
+        var sut = MakeSut(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Null(episode.TranscriptUrl);
+        Assert.Null(episode.TranscriptType);
     }
 
     [Fact]

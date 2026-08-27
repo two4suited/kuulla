@@ -39,13 +39,16 @@ builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryCl
     client.BaseAddress = new Uri("https://itunes.apple.com/");
 });
 builder.Services.AddHttpClient<IPodcastFeedClient, PodcastFeedClient>();
-// Used only for podcast:chapters fetches — auto-redirect is disabled so PodcastFeedClient can see
-// and re-validate every redirect hop itself (see ResolveFetchableChaptersUrlAsync) instead of the
-// runtime following one straight past the SSRF guard. Still inherits the app's HTTP defaults
-// (resilience handler, service discovery, OTel instrumentation) from ConfigureHttpClientDefaults
-// in ServiceDefaults, since that applies to every client the factory creates.
-builder.Services.AddHttpClient("chapters")
+builder.Services.AddScoped<ITranscriptService, TranscriptService>();
+// Used for every fetch of an untrusted feed-supplied URL (podcast:chapters, podcast:transcript)
+// via PublicResourceFetcher — auto-redirect is disabled so it can see and re-validate every
+// redirect hop itself instead of the runtime following one straight past the SSRF guard. Still
+// inherits the app's HTTP defaults (resilience handler, service discovery, OTel instrumentation)
+// from ConfigureHttpClientDefaults in ServiceDefaults, since that applies to every client the
+// factory creates.
+builder.Services.AddHttpClient(PublicResourceFetcher.HttpClientName)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<PublicResourceFetcher>();
 builder.Services.AddScoped<IFeedPollingService, FeedPollingService>();
 builder.Services.AddHostedService<FeedPollingBackgroundService>();
 
@@ -543,6 +546,26 @@ shows.MapGet("/{id}/episodes/{episodeId}", async (
 {
     var episode = await episodeService.GetEpisodeAsync(id, episodeId, ct);
     return episode is not null ? Results.Ok(episode) : Results.NotFound();
+});
+
+// Timed transcript segments for an episode, normalized from whatever format the feed's
+// podcast:transcript tag pointed at (JSON / SRT / VTT). 404 when the episode doesn't exist, has
+// no transcript tag, or the referenced document can't be fetched or parsed into segments.
+shows.MapGet("/{id}/episodes/{episodeId}/transcript", async (
+    string id,
+    string episodeId,
+    IEpisodeService episodeService,
+    ITranscriptService transcriptService,
+    CancellationToken ct) =>
+{
+    var episode = await episodeService.GetEpisodeAsync(id, episodeId, ct);
+    if (episode?.TranscriptUrl is null)
+    {
+        return Results.NotFound();
+    }
+
+    var transcript = await transcriptService.GetTranscriptAsync(episode.TranscriptUrl, episode.TranscriptType, ct);
+    return transcript is not null ? Results.Ok(transcript) : Results.NotFound();
 });
 
 var discovery = app.MapGroup("/api/discovery");
