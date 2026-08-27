@@ -13,9 +13,15 @@ struct Episode: Decodable, Identifiable {
     let bitrateKbps: Int?
     let fileSizeBytes: Int?
     let chapters: [EpisodeChapter]?
+    // From the feed's podcast:transcript tag. The document itself is fetched on demand from the
+    // transcript endpoint (see PodcastCatalogClient.getEpisodeTranscript); only its presence is
+    // known here, and it's what gates whether the transcript view is shown at all.
+    let transcriptUrl: String?
+    let transcriptType: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, showId, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes, chapters
+        case transcriptUrl, transcriptType
     }
 
     init(from decoder: Decoder) throws {
@@ -29,6 +35,8 @@ struct Episode: Decodable, Identifiable {
         bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps)
         fileSizeBytes = try container.decodeIfPresent(Int.self, forKey: .fileSizeBytes)
         chapters = try container.decodeIfPresent([EpisodeChapter].self, forKey: .chapters)
+        transcriptUrl = try container.decodeIfPresent(String.self, forKey: .transcriptUrl)
+        transcriptType = try container.decodeIfPresent(String.self, forKey: .transcriptType)
 
         if let durationText = try container.decodeIfPresent(String.self, forKey: .duration) {
             duration = Episode.parseDuration(durationText)

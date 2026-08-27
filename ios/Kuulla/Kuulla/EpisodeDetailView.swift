@@ -22,6 +22,9 @@ struct EpisodeDetailView: View {
 
     @State private var stateRecord: EpisodeStateRecord?
     @State private var downloadStatus: DownloadStatus?
+    // Fetched lazily (best-effort) once the episode is known to advertise a transcript; nil until
+    // then, and stays nil if the episode has no transcript or the fetch fails.
+    @State private var transcript: TranscriptDocument?
     // Cached rather than recomputed inline in the view body — resolvedPlaybackURL(for:) does a
     // synchronous SwiftData fetch, and episodeHeader also reads audioPlayer.currentTime (via
     // activeChapter/ChapterScrubber), which re-renders every second during playback. Recomputed
@@ -194,6 +197,17 @@ struct EpisodeDetailView: View {
                     onSeek: { audioPlayer.seek(to: $0) },
                     onOpenLink: { chapterLinkURL = $0 })
             }
+
+            // Shown whenever the feed advertised a transcript and one was fetched — not gated on
+            // this episode being the one currently loaded. Playback-position sync and tap-to-seek
+            // only act live when it is; otherwise a tap starts this episode at that point.
+            if episode.transcriptUrl != nil, let segments = transcript?.segments, !segments.isEmpty {
+                let isActiveEpisode = audioPlayer.currentURL == audioURL
+                TranscriptView(
+                    segments: segments,
+                    currentTime: isActiveEpisode ? audioPlayer.currentTime : 0,
+                    onSeek: { seekTranscript(to: $0, audioURL: audioURL) })
+            }
         }
     }
 
@@ -301,6 +315,7 @@ struct EpisodeDetailView: View {
     private func load() async {
         episode = nil
         show = nil
+        transcript = nil
         loadError = nil
         isLoading = true
         do {
@@ -339,6 +354,18 @@ struct EpisodeDetailView: View {
             await loadPlaybackSettings()
         }
         isLoading = false
+
+        // After isLoading flips — the transcript is supplementary and the API may take a moment to
+        // normalize/cache it on a cold hit, so it shouldn't hold up rendering the rest of the
+        // screen. .task(id: episodeId) cancels this if the user navigates away first.
+        await loadTranscript()
+    }
+
+    private func loadTranscript() async {
+        guard let episode, episode.transcriptUrl != nil else {
+            return
+        }
+        transcript = try? await catalogClient.getEpisodeTranscript(showId: showId, episodeId: episodeId)
     }
 
     private func loadLocalState() {
@@ -442,27 +469,43 @@ struct EpisodeDetailView: View {
             audioPlayer.resume()
             startProgressTracking()
         } else {
-            let startPosition = TimeInterval(stateRecord?.positionSeconds ?? 0)
-            // Assigned only when actually starting playback for this URL (not merely on screen
-            // appearance) — AudioPlayer has one completion-callback slot shared across the app, and
-            // starting playback here always fully replaces whatever was playing before, so tying
-            // the callback to this exact moment keeps it pointed at whichever episode is actually
-            // playing rather than being silently stolen by a screen that never pressed play.
-            audioPlayer.onDidFinishPlaying = { finishedURL in
-                guard finishedURL == url else { return }
-                self.stopProgressTracking()
-                Task { await self.persistProgress(completed: true) }
-            }
-            audioPlayer.play(
-                url: url, startPosition: startPosition,
-                autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
-                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
-                metadata: episode.map { episode in
-                    NowPlayingMetadata(
-                        title: episode.title, showTitle: show?.title,
-                        artworkURL: show?.artworkUrl.flatMap(URL.init(string:)))
-                })
-            startProgressTracking()
+            startPlayback(url: url, startPosition: TimeInterval(stateRecord?.positionSeconds ?? 0))
+        }
+    }
+
+    // Fully replaces whatever's playing with this episode at `startPosition`. Split out of
+    // togglePlayback so a transcript tap on an episode that isn't loaded yet can start it at the
+    // tapped segment rather than at the saved resume position.
+    private func startPlayback(url: URL, startPosition: TimeInterval) {
+        // Assigned only when actually starting playback for this URL (not merely on screen
+        // appearance) — AudioPlayer has one completion-callback slot shared across the app, and
+        // starting playback here always fully replaces whatever was playing before, so tying
+        // the callback to this exact moment keeps it pointed at whichever episode is actually
+        // playing rather than being silently stolen by a screen that never pressed play.
+        audioPlayer.onDidFinishPlaying = { finishedURL in
+            guard finishedURL == url else { return }
+            self.stopProgressTracking()
+            Task { await self.persistProgress(completed: true) }
+        }
+        audioPlayer.play(
+            url: url, startPosition: startPosition,
+            autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
+            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+            metadata: episode.map { episode in
+                NowPlayingMetadata(
+                    title: episode.title, showTitle: show?.title,
+                    artworkURL: show?.artworkUrl.flatMap(URL.init(string:)))
+            })
+        startProgressTracking()
+    }
+
+    // A transcript segment tap: seek if this episode is already loaded, otherwise start it at
+    // that point.
+    private func seekTranscript(to position: TimeInterval, audioURL: URL) {
+        if audioPlayer.currentURL == audioURL {
+            audioPlayer.seek(to: position)
+        } else {
+            startPlayback(url: audioURL, startPosition: position)
         }
     }
 
