@@ -76,4 +76,33 @@ final class TranscriptTests: XCTestCase {
         let result = TranscriptSync.activeSegmentIndex(segments: segments([30, 0, 10]), currentTime: 15)
         XCTAssertEqual(result, 2)
     }
+
+    // MARK: - TranscriptSearch.matchIndices
+
+    private func textSegments(_ texts: [String]) -> [TranscriptSegment] {
+        texts.enumerated().map { TranscriptSegment(startTime: TimeInterval($0.offset), endTime: nil, text: $0.element) }
+    }
+
+    func testMatchIndicesReturnsEmptyForBlankQuery() {
+        let segs = textSegments(["hello world"])
+        XCTAssertEqual(TranscriptSearch.matchIndices(segments: segs, query: ""), [])
+        XCTAssertEqual(TranscriptSearch.matchIndices(segments: segs, query: "   "), [])
+    }
+
+    func testMatchIndicesIsCaseInsensitiveAndInDocumentOrder() {
+        let segs = textSegments(["The Quick brown fox", "lazy dog", "QUICK reflexes", "nothing here"])
+        XCTAssertEqual(TranscriptSearch.matchIndices(segments: segs, query: "quick"), [0, 2])
+    }
+
+    func testMatchIndicesIsDiacriticInsensitive() {
+        let segs = textSegments(["a nice café", "plain cafe", "tea"])
+        XCTAssertEqual(TranscriptSearch.matchIndices(segments: segs, query: "cafe"), [0, 1])
+        XCTAssertEqual(TranscriptSearch.matchIndices(segments: segs, query: "café"), [0, 1])
+    }
+
+    func testMatchIndicesTrimsQueryAndReturnsEmptyWhenNothingMatches() {
+        let segs = textSegments(["one", "two", "three"])
+        XCTAssertEqual(TranscriptSearch.matchIndices(segments: segs, query: "  two  "), [1])
+        XCTAssertEqual(TranscriptSearch.matchIndices(segments: segs, query: "zzz"), [])
+    }
 }

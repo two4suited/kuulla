@@ -4,68 +4,202 @@ import SwiftUI
 // auto-scroll to keep pace with playback, and seek when tapped. Given its own fixed-height
 // scroll area (rather than laid out inline) so a long transcript stays navigable and the
 // auto-scroll has something to drive.
+//
+// A search field filters the list to matching lines, highlights the query within them, and
+// (via the up/down controls) steps playback through each occurrence.
 struct TranscriptView: View {
     let segments: [TranscriptSegment]
     let currentTime: TimeInterval
     let onSeek: (TimeInterval) -> Void
 
-    private var activeIndex: Int? {
-        TranscriptSync.activeSegmentIndex(segments: segments, currentTime: currentTime)
+    @State private var query = ""
+    // Which match, 0-based, the next/previous controls currently point at. Reset whenever the
+    // query changes.
+    @State private var selectedMatchOrdinal = 0
+
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var isSearching: Bool { !trimmedQuery.isEmpty }
+
+    // Indices into `segments`, in document order, whose text contains the query.
+    private var matchIndices: [Int] {
+        TranscriptSearch.matchIndices(segments: segments, query: query)
+    }
+
+    // Playback-position highlight only applies when not searching — during a search the list is
+    // filtered and the user is navigating matches, not following the playhead.
+    private var activePlaybackIndex: Int? {
+        isSearching ? nil : TranscriptSync.activeSegmentIndex(segments: segments, currentTime: currentTime)
+    }
+
+    private var selectedMatchIndex: Int? {
+        guard isSearching, !matchIndices.isEmpty else { return nil }
+        return matchIndices[clampedOrdinal]
+    }
+
+    private var clampedOrdinal: Int {
+        guard !matchIndices.isEmpty else { return 0 }
+        return min(max(selectedMatchOrdinal, 0), matchIndices.count - 1)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Transcript")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            header
+
+            searchField
 
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        // Iterating indices (not Array(enumerated())) avoids allocating a fresh
-                        // array of tuples on every body pass while playback ticks.
-                        ForEach(segments.indices, id: \.self) { index in
-                            Button {
-                                onSeek(segments[index].startTime)
-                            } label: {
-                                TranscriptRow(segment: segments[index], isActive: index == activeIndex)
+                        if isSearching {
+                            if matchIndices.isEmpty {
+                                Text("No matching lines.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.vertical, 8)
                             }
-                            .buttonStyle(.plain)
-                            .id(index)
+                            // matchIndices is an array either way (a filter result); everything
+                            // else iterates segments.indices directly to avoid allocating a copy
+                            // on every body pass while playback ticks.
+                            ForEach(matchIndices, id: \.self) { segmentRow($0) }
+                        } else {
+                            ForEach(segments.indices, id: \.self) { segmentRow($0) }
                         }
                     }
                     .padding(.vertical, 4)
                 }
                 .frame(height: 320)
-                .onChange(of: activeIndex) { _, newIndex in
+                .onChange(of: activePlaybackIndex) { _, newIndex in
                     guard let newIndex else { return }
                     withAnimation(.easeInOut(duration: 0.25)) {
                         proxy.scrollTo(newIndex, anchor: .center)
                     }
                 }
+                .onChange(of: selectedMatchIndex) { _, newIndex in
+                    guard let newIndex else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(newIndex, anchor: .center)
+                    }
+                }
+                .onChange(of: query) { _, _ in
+                    selectedMatchOrdinal = 0
+                }
                 .onAppear {
-                    // Jump straight to wherever playback already is when the pane first appears,
-                    // without the animation onChange uses for in-flight updates.
-                    if let activeIndex {
-                        proxy.scrollTo(activeIndex, anchor: .center)
+                    if let activePlaybackIndex {
+                        proxy.scrollTo(activePlaybackIndex, anchor: .center)
                     }
                 }
             }
         }
     }
+
+    @ViewBuilder
+    private func segmentRow(_ index: Int) -> some View {
+        Button {
+            onSeek(segments[index].startTime)
+        } label: {
+            TranscriptRow(
+                text: highlighted(segments[index].text),
+                startTime: segments[index].startTime,
+                isActive: index == activePlaybackIndex || index == selectedMatchIndex)
+        }
+        .buttonStyle(.plain)
+        .id(index)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("Transcript")
+                .font(.headline)
+
+            if isSearching {
+                Spacer()
+
+                if matchIndices.isEmpty {
+                    Text("No matches")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(clampedOrdinal + 1) of \(matchIndices.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    Button { step(by: -1) } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .accessibilityLabel("Previous match")
+
+                    Button { step(by: 1) } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .accessibilityLabel("Next match")
+                }
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("Search transcript", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(8)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    // Advances the selected match by ±1 (wrapping), scrolls it into view (via onChange above) and
+    // seeks playback to it — so the up/down controls step audibly through every occurrence.
+    private func step(by delta: Int) {
+        let count = matchIndices.count
+        guard count > 0 else { return }
+        selectedMatchOrdinal = ((clampedOrdinal + delta) % count + count) % count
+        if let index = selectedMatchIndex {
+            onSeek(segments[index].startTime)
+        }
+    }
+
+    private func highlighted(_ text: String) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard isSearching else { return attributed }
+
+        var searchStart = attributed.startIndex
+        while searchStart < attributed.endIndex,
+              let range = attributed[searchStart...].range(of: trimmedQuery, options: TranscriptSearch.options) {
+            attributed[range].backgroundColor = Color.yellow.opacity(0.4)
+            attributed[range].inlinePresentationIntent = .stronglyEmphasized
+            searchStart = range.upperBound
+        }
+        return attributed
+    }
 }
 
 private struct TranscriptRow: View {
-    let segment: TranscriptSegment
+    let text: AttributedString
+    let startTime: TimeInterval
     let isActive: Bool
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(EpisodeFormatting.formatDuration(segment.startTime))
+            Text(EpisodeFormatting.formatDuration(startTime))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 44, alignment: .leading)
 
-            Text(segment.text)
+            Text(text)
                 .font(isActive ? .body.weight(.semibold) : .body)
                 .foregroundStyle(isActive ? Color.accentColor : .primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
