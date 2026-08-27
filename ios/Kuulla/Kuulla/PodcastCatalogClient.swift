@@ -35,6 +35,16 @@ struct PodcastCatalogClient {
         }
     }
 
+    // nil when the episode has no transcript — the API returns 404 both for "no podcast:transcript
+    // tag" and for a referenced document it couldn't normalize into segments.
+    func getEpisodeTranscript(showId: String, episodeId: String) async throws -> TranscriptDocument? {
+        do {
+            return try await apiClient.get(["api", "shows", showId, "episodes", episodeId, "transcript"])
+        } catch ApiError.requestFailed(statusCode: 404) {
+            return nil
+        }
+    }
+
     func getDiscovery() async throws -> Discovery {
         try await apiClient.get(["api", "discovery"])
     }

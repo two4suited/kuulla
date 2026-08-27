@@ -31,6 +31,29 @@ final class PodcastCatalogClientTests: MockedApiTestCase {
         XCTAssertNil(episode)
     }
 
+    func testGetEpisodeTranscriptReturnsNilOn404() async throws {
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 404, data: Data(), headers: [:])) }
+
+        let transcript = try await client.getEpisodeTranscript(showId: "1", episodeId: "ep-1")
+
+        XCTAssertNil(transcript)
+    }
+
+    func testGetEpisodeTranscriptDecodesSegments() async throws {
+        let json = """
+        {"sourceType":"text/vtt","segments":[{"startTime":"00:00:01","endTime":"00:00:03","text":"hi"}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let transcript = try await client.getEpisodeTranscript(showId: "1", episodeId: "ep-1")
+
+        XCTAssertEqual(transcript?.segments.count, 1)
+        XCTAssertEqual(transcript?.segments.first?.startTime, 1)
+        XCTAssertEqual(transcript?.segments.first?.text, "hi")
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.last)
+        XCTAssertEqual(requestedURL.path, "/api/shows/1/episodes/ep-1/transcript")
+    }
+
     func testGetEpisodesIncludesContinuationTokenAndPageSize() async throws {
         let json = """
         {"items":[],"continuationToken":null}
