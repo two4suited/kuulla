@@ -11,9 +11,3 @@ public record Episode(
     int? BitrateKbps,
     long? FileSizeBytes,
     IReadOnlyList<EpisodeChapter>? Chapters = null);
-
-public record EpisodeChapter(
-    TimeSpan StartTime,
-    string Title,
-    string? ImageUrl,
-    string? Url);

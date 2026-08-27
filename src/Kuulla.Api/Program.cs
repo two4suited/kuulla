@@ -39,6 +39,13 @@ builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryCl
     client.BaseAddress = new Uri("https://itunes.apple.com/");
 });
 builder.Services.AddHttpClient<IPodcastFeedClient, PodcastFeedClient>();
+// Used only for podcast:chapters fetches — auto-redirect is disabled so PodcastFeedClient can see
+// and re-validate every redirect hop itself (see ResolveFetchableChaptersUrlAsync) instead of the
+// runtime following one straight past the SSRF guard. Still inherits the app's HTTP defaults
+// (resilience handler, service discovery, OTel instrumentation) from ConfigureHttpClientDefaults
+// in ServiceDefaults, since that applies to every client the factory creates.
+builder.Services.AddHttpClient("chapters")
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<IFeedPollingService, FeedPollingService>();
 builder.Services.AddHostedService<FeedPollingBackgroundService>();
 

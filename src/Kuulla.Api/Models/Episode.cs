@@ -18,10 +18,3 @@ public record Episode(
     int? BitrateKbps,
     long? FileSizeBytes,
     IReadOnlyList<EpisodeChapter>? Chapters = null);
-
-// Parsed from a podcast:chapters feed (https://podcastindex.org/namespace/1.0#chapters).
-public record EpisodeChapter(
-    TimeSpan StartTime,
-    string Title,
-    string? ImageUrl,
-    string? Url);
