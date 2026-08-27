@@ -8,6 +8,12 @@ struct ChapterScrubber: View {
     let duration: TimeInterval
     let chapters: [EpisodeChapter]
     let onSeek: (TimeInterval) -> Void
+    // Called instead of onSeek when the tapped row is the currently-active chapter and it has a
+    // URL — seeking to the chapter you're already in would just rewind playback back to its start
+    // rather than doing anything useful, so that tap is repurposed to open its link (e.g. a
+    // sponsor/reference URL) instead. Defaults to a no-op for callers (like previews/tests) that
+    // don't care about link handling.
+    var onOpenLink: (URL) -> Void = { _ in }
 
     // Local drag state so the slider tracks the user's finger smoothly and only actually seeks
     // once they lift it — seeking on every intermediate value would flood AVPlayer with seeks and
@@ -78,8 +84,17 @@ struct ChapterScrubber: View {
             if !chapters.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                        // Computed once and reused below (rather than calling tapAction(for:) a
+                        // second time for .accessibilityHint) — it re-parses the chapter's URL,
+                        // which would otherwise repeat on every render while playback updates.
+                        let tapAction = ChapterScrubber.tapAction(for: chapter, isActive: index == activeChapterIndex)
                         Button {
-                            onSeek(chapter.startTime)
+                            switch tapAction {
+                            case .openLink(let url):
+                                onOpenLink(url)
+                            case .seek(let startTime):
+                                onSeek(startTime)
+                            }
                         } label: {
                             HStack {
                                 Text(chapter.title)
@@ -92,6 +107,11 @@ struct ChapterScrubber: View {
                             .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)
+                        // The tap action switches between seeking and opening a link depending on
+                        // whether this row is active + has a URL — VoiceOver only reads the title
+                        // and time otherwise, with no way to tell which action activating it will
+                        // take.
+                        .accessibilityHint(tapAction.accessibilityHint)
                     }
                 }
                 .padding(.top, 4)
@@ -128,5 +148,30 @@ struct ChapterScrubber: View {
         // `trackWidth - tickWidth` negative and let a negative offset through.
         let maxOffset = max(trackWidth - tickWidth, 0)
         return min(max(rawOffset, 0), maxOffset)
+    }
+
+    enum TapAction: Equatable {
+        case seek(TimeInterval)
+        case openLink(URL)
+
+        var accessibilityHint: String {
+            switch self {
+            case .seek: "Seeks to this chapter."
+            case .openLink: "Opens this chapter's link."
+            }
+        }
+    }
+
+    // Pulled out as a pure static function (mirroring activeChapterIndex above) so the
+    // seek-vs-open-link decision is unit-testable without going through the SwiftUI Button action.
+    // Restricted to http/https — SFSafariViewController is built for web content, and a
+    // scheme-less or non-web URL (a chapter's url happens to be "sponsor" or a custom scheme)
+    // would just present a sheet that fails to load rather than doing anything useful.
+    static func tapAction(for chapter: EpisodeChapter, isActive: Bool) -> TapAction {
+        if isActive, let urlString = chapter.url, let url = URL(string: urlString),
+           let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+            return .openLink(url)
+        }
+        return .seek(chapter.startTime)
     }
 }

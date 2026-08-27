@@ -22,9 +22,17 @@ struct EpisodeDetailView: View {
 
     @State private var stateRecord: EpisodeStateRecord?
     @State private var downloadStatus: DownloadStatus?
+    // Cached rather than recomputed inline in the view body — resolvedPlaybackURL(for:) does a
+    // synchronous SwiftData fetch, and episodeHeader also reads audioPlayer.currentTime (via
+    // activeChapter/ChapterScrubber), which re-renders every second during playback. Recomputed
+    // only when the episode loads or the download status changes (loadLocalState), the only two
+    // things that can actually change which URL resolves.
+    @State private var resolvedAudioURL: URL?
     @State private var progressTrackingTask: Task<Void, Never>?
     @State private var isShowingAddToPlaylist = false
     @State private var isShowingSleepTimer = false
+    // Non-nil while the in-app browser sheet for a chapter link (e.g. a sponsor URL) is open.
+    @State private var chapterLinkURL: URL?
     @State private var autoSkipIntroSeconds = 0
     @State private var autoSkipOutroSeconds = 0
     @State private var playbackSpeed: Float = 1.0
@@ -81,115 +89,172 @@ struct EpisodeDetailView: View {
         audioPlayer.isPlaying && audioPlayer.currentURL == url
     }
 
+    // Same "is this screen's episode the one actually loaded" gate the rest of this view uses —
+    // nil whenever this episode isn't the one currently playing/paused in AudioPlayer, since
+    // currentTime/duration would otherwise belong to whatever different episode played last.
+    private func activeChapter(for episode: Episode, audioURL: URL) -> EpisodeChapter? {
+        guard audioPlayer.currentURL == audioURL, let chapters = episode.chapters, !chapters.isEmpty else {
+            return nil
+        }
+        guard let index = ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: audioPlayer.currentTime) else {
+            return nil
+        }
+        return chapters[index]
+    }
+
+    // Pulled out of body — inlining this HStack there pushed the surrounding VStack's single
+    // expression past what the type-checker could resolve in reasonable time.
+    @ViewBuilder
+    private func artworkRow(showArtworkUrl: String?, chapterArtworkUrl: String?) -> some View {
+        if showArtworkUrl != nil || chapterArtworkUrl != nil {
+            HStack(spacing: 12) {
+                if let showArtworkUrl {
+                    EpisodeArtworkImage(urlString: showArtworkUrl)
+                        .frame(width: 96, height: 96)
+                }
+
+                // Alongside (not replacing) the episode artwork — falls back to nothing extra
+                // shown when the active chapter has no image of its own.
+                if let chapterArtworkUrl {
+                    EpisodeArtworkImage(urlString: chapterArtworkUrl)
+                        .frame(width: 96, height: 96)
+                }
+            }
+        }
+    }
+
+    // Pulled out of body — inlining these directly in the ScrollView's VStack made the type-checker
+    // time out on the combined expression (artworkRow/ChapterScrubber pushed it over the edge).
+    // Split into two (rather than one big episodeContent) for the same reason.
+    @ViewBuilder
+    private func episodeHeader(_ episode: Episode) -> some View {
+        // Read from the cached resolvedAudioURL (refreshed in loadLocalState) rather than calling
+        // resolvedPlaybackURL(for:) here — this function reads audioPlayer.currentTime below
+        // (via activeChapter/ChapterScrubber), which re-renders every second during playback, and
+        // resolvedPlaybackURL(for:) does a synchronous SwiftData fetch that shouldn't repeat that
+        // often for a value that only actually changes on load or a download-status change.
+        let audioURL = resolvedAudioURL
+        let currentChapter: EpisodeChapter? = audioURL.flatMap { activeChapter(for: episode, audioURL: $0) }
+
+        artworkRow(showArtworkUrl: show?.artworkUrl, chapterArtworkUrl: currentChapter?.imageUrl)
+
+        HStack(alignment: .firstTextBaseline) {
+            Text(episode.title)
+                .font(.title2)
+                .bold()
+            Spacer()
+            StatusBadge(status: status)
+        }
+
+        HStack(spacing: 4) {
+            if let publishedAt = episode.publishedAt {
+                Text(publishedAt.formatted(date: .abbreviated, time: .omitted))
+            }
+            if episode.publishedAt != nil && episode.duration != nil {
+                Text("·")
+            }
+            if let duration = episode.duration {
+                Text(EpisodeFormatting.formatDuration(duration))
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+
+        if let audioURL {
+            HStack {
+                Button {
+                    togglePlayback(url: audioURL)
+                } label: {
+                    Label(isPlaying(audioURL) ? "Pause" : "Play", systemImage: isPlaying(audioURL) ? "pause.fill" : "play.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                DownloadButton(episode: episode, status: downloadStatus, onDidFinish: loadLocalState)
+            }
+
+            // AudioPlayer.shared is a single global instance, so the message must be
+            // matched against this screen's own audioURL — otherwise a message left
+            // over from blocking a different episode's remote stream would keep
+            // showing here after merely navigating to this one.
+            if let streamBlockedMessage = audioPlayer.streamBlockedMessage, audioPlayer.streamBlockedURL == audioURL {
+                Text(streamBlockedMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            // Same "is this screen's episode the one actually loaded" gate as
+            // isPlaying(_:) above — AudioPlayer's currentTime/duration are otherwise
+            // whatever a different episode last left them at.
+            if audioPlayer.currentURL == audioURL {
+                ChapterScrubber(
+                    currentTime: audioPlayer.currentTime,
+                    duration: audioPlayer.duration,
+                    chapters: episode.chapters ?? [],
+                    onSeek: { audioPlayer.seek(to: $0) },
+                    onOpenLink: { chapterLinkURL = $0 })
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func episodeActions(_ episode: Episode) -> some View {
+        Button {
+            cyclePlaybackSpeed()
+        } label: {
+            Label("\(playbackSpeedLabel) speed", systemImage: "speedometer")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
+        // resolved from settings yet — cycling from an unresolved value here would
+        // itself get overwritten the moment that fetch lands.
+        .disabled(isLoading)
+        if let playbackSpeedSaveError {
+            Text(playbackSpeedSaveError)
+                .font(.caption)
+                .foregroundStyle(.red)
+        }
+
+        Button {
+            isShowingSleepTimer = true
+        } label: {
+            Label(sleepTimerButtonTitle, systemImage: "moon.zzz")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+
+        Button(completedButtonTitle) {
+            Task { await handleCompletedButtonTapped() }
+        }
+        .buttonStyle(.bordered)
+        .frame(maxWidth: .infinity)
+
+        Button {
+            isShowingAddToPlaylist = true
+        } label: {
+            Label("Add to Playlist", systemImage: "text.badge.plus")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+
+        if let description = episode.description, !description.isEmpty {
+            Text("Show notes")
+                .font(.headline)
+                .padding(.top, 8)
+            Text(description)
+        } else {
+            Text("No show notes available for this episode.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let episode {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(episode.title)
-                            .font(.title2)
-                            .bold()
-                        Spacer()
-                        StatusBadge(status: status)
-                    }
-
-                    HStack(spacing: 4) {
-                        if let publishedAt = episode.publishedAt {
-                            Text(publishedAt.formatted(date: .abbreviated, time: .omitted))
-                        }
-                        if episode.publishedAt != nil && episode.duration != nil {
-                            Text("·")
-                        }
-                        if let duration = episode.duration {
-                            Text(EpisodeFormatting.formatDuration(duration))
-                        }
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                    if let audioURL = resolvedPlaybackURL(for: episode) {
-                        HStack {
-                            Button {
-                                togglePlayback(url: audioURL)
-                            } label: {
-                                Label(isPlaying(audioURL) ? "Pause" : "Play", systemImage: isPlaying(audioURL) ? "pause.fill" : "play.fill")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            DownloadButton(episode: episode, status: downloadStatus, onDidFinish: loadLocalState)
-                        }
-
-                        // AudioPlayer.shared is a single global instance, so the message must be
-                        // matched against this screen's own audioURL — otherwise a message left
-                        // over from blocking a different episode's remote stream would keep
-                        // showing here after merely navigating to this one.
-                        if let streamBlockedMessage = audioPlayer.streamBlockedMessage, audioPlayer.streamBlockedURL == audioURL {
-                            Text(streamBlockedMessage)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                        }
-
-                        // Same "is this screen's episode the one actually loaded" gate as
-                        // isPlaying(_:) above — AudioPlayer's currentTime/duration are otherwise
-                        // whatever a different episode last left them at.
-                        if audioPlayer.currentURL == audioURL {
-                            ChapterScrubber(
-                                currentTime: audioPlayer.currentTime,
-                                duration: audioPlayer.duration,
-                                chapters: episode.chapters ?? [],
-                                onSeek: { audioPlayer.seek(to: $0) })
-                        }
-                    }
-
-                    Button {
-                        cyclePlaybackSpeed()
-                    } label: {
-                        Label("\(playbackSpeedLabel) speed", systemImage: "speedometer")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
-                    // resolved from settings yet — cycling from an unresolved value here would
-                    // itself get overwritten the moment that fetch lands.
-                    .disabled(isLoading)
-                    if let playbackSpeedSaveError {
-                        Text(playbackSpeedSaveError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-
-                    Button {
-                        isShowingSleepTimer = true
-                    } label: {
-                        Label(sleepTimerButtonTitle, systemImage: "moon.zzz")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button(completedButtonTitle) {
-                        Task { await handleCompletedButtonTapped() }
-                    }
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity)
-
-                    Button {
-                        isShowingAddToPlaylist = true
-                    } label: {
-                        Label("Add to Playlist", systemImage: "text.badge.plus")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-
-                    if let description = episode.description, !description.isEmpty {
-                        Text("Show notes")
-                            .font(.headline)
-                            .padding(.top, 8)
-                        Text(description)
-                    } else {
-                        Text("No show notes available for this episode.")
-                            .foregroundStyle(.secondary)
-                    }
+                    episodeHeader(episode)
+                    episodeActions(episode)
                 } else if let loadError {
                     Text(loadError)
                         .foregroundStyle(.red)
@@ -213,6 +278,17 @@ struct EpisodeDetailView: View {
         .sheet(isPresented: $isShowingSleepTimer) {
             SleepTimerSheet()
         }
+        .sheet(isPresented: Binding(get: { chapterLinkURL != nil }, set: { if !$0 { chapterLinkURL = nil } })) {
+            if let chapterLinkURL {
+                // SFSafariViewController's URL can't be changed after init, and
+                // updateUIViewController is a no-op — without .id, SwiftUI can reuse the same
+                // underlying controller across presentations and show a stale URL if the user
+                // opens a different chapter's link later. .id forces a fresh controller whenever
+                // the URL changes.
+                SafariView(url: chapterLinkURL)
+                    .id(chapterLinkURL)
+            }
+        }
         .task(id: episodeId) {
             await load()
         }
@@ -234,6 +310,13 @@ struct EpisodeDetailView: View {
                 loadError = "Something went wrong while loading this episode. Please try again."
             }
         }
+
+        // Resolved before the show fetch below (rather than after) — resolvedAudioURL gates
+        // whether Play/Pause and the download button render at all, so a slow/failed getShow
+        // shouldn't delay or block starting playback when the episode's own audio URL is already
+        // known.
+        loadLocalState()
+
         // Best-effort: only feeds the lock screen/CarPlay Now Playing artist + artwork, so a
         // failure here shouldn't block or error out episode loading itself.
         show = try? await catalogClient.getShow(id: showId)
@@ -242,12 +325,13 @@ struct EpisodeDetailView: View {
         // before it resolves starts playback with no show title/artwork (audioPlayer.play's
         // metadata argument is only as complete as `show` was at that moment). Correct the
         // session that's already running rather than leaving it stuck without artwork/artist for
-        // the rest of this episode.
-        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
+        // the rest of this episode. Reads the cached resolvedAudioURL (rather than calling
+        // resolvedPlaybackURL(for:) fresh) so this stays consistent with loadLocalState's pin to
+        // an already-loaded remote session.
+        if let episode, let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
             audioPlayer.updateMetadata(NowPlayingMetadata(title: episode.title, showTitle: show?.title, artworkURL: show?.artworkUrl.flatMap(URL.init(string:))))
         }
 
-        loadLocalState()
         // Skip fetching playback settings when the episode itself failed to load — playback
         // isn't possible without an episode, so there's no reason to wait on (or surface errors
         // from) a settings fetch that won't be used.
@@ -260,6 +344,21 @@ struct EpisodeDetailView: View {
     private func loadLocalState() {
         stateRecord = (try? modelContext.fetch(Self.stateDescriptor(for: episodeId)))?.first
         downloadStatus = DownloadStatus.statusMap(for: [episodeId], in: modelContext)[episodeId]
+
+        // Pinned to the episode's remote URL rather than switched to a newly-completed local
+        // download, whenever AudioPlayer already has that remote URL loaded (playing or paused)
+        // — checked against episode.audioUrl directly, not the previous resolvedAudioURL, so this
+        // also covers navigating away and back to a screen whose download finished in the
+        // background (resolvedAudioURL starts nil again on load(), so comparing against it alone
+        // would miss that case). Otherwise every isPlaying(_:)/currentURL == audioURL check in
+        // this view would stop matching an in-flight session (the UI would flip back to "Play"
+        // and hide the scrubber/chapters despite audio still loaded/playing). The next reload
+        // once playback has moved off this episode's remote URL picks up the local file normally.
+        if let episode, let remoteURL = URL(string: episode.audioUrl), audioPlayer.currentURL == remoteURL {
+            resolvedAudioURL = remoteURL
+            return
+        }
+        resolvedAudioURL = episode.flatMap(resolvedPlaybackURL(for:))
     }
 
     // Best-effort: these are playback niceties, not core functionality, so a failure here
@@ -289,8 +388,8 @@ struct EpisodeDetailView: View {
         // 1.0 fallback (audioPlayer.play's own default), since togglePlayback reads whatever
         // playbackSpeed currently holds. If that happened, apply the now-resolved speed to the
         // session that's already running rather than leaving it stuck at the fallback for the
-        // rest of this episode.
-        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
+        // rest of this episode. Reads the cached resolvedAudioURL, same reason as in load() above.
+        if let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
             audioPlayer.setPlaybackSpeed(playbackSpeed)
         }
     }
@@ -379,8 +478,9 @@ struct EpisodeDetailView: View {
         playbackSpeed = next.rawValue
         // AudioPlayer is shared across detail screens — only push the live rate change when
         // this screen's episode is the one actually playing, otherwise a tap here would change
-        // the speed of whatever different episode happens to be playing in the background.
-        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
+        // the speed of whatever different episode happens to be playing in the background. Reads
+        // the cached resolvedAudioURL, same reason as in load() above.
+        if let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
             audioPlayer.setPlaybackSpeed(next.rawValue)
         }
 
@@ -539,6 +639,19 @@ struct EpisodeDetailView: View {
         // still present and downloadStatus must keep showing .complete, not go stale as nil.
         guard DownloadCleanup.delete([record], from: modelContext) else { return }
         downloadStatus = nil
+    }
+}
+
+private struct EpisodeArtworkImage: View {
+    let urlString: String?
+
+    var body: some View {
+        AsyncImage(url: urlString.flatMap(URL.init)) { image in
+            image.resizable().aspectRatio(contentMode: .fill)
+        } placeholder: {
+            Color.secondary.opacity(0.2)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
