@@ -36,6 +36,22 @@ final class ChapterScrubberTests: XCTestCase {
         XCTAssertEqual(ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: 301), 2)
     }
 
+    func testActiveChapterIndexIsCorrectWhenChaptersAreOutOfOrder() {
+        // The feed's own chapter JSON order is preserved as-is, not guaranteed sorted by
+        // startTime — activeChapterIndex must still pick the greatest eligible startTime, not
+        // just the last matching array index.
+        let chapters = [
+            makeChapter(startTime: 300, title: "Segment 2"),
+            makeChapter(startTime: 0, title: "Intro"),
+            makeChapter(startTime: 60, title: "Segment 1"),
+        ]
+
+        XCTAssertEqual(ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: 0), 1)
+        XCTAssertEqual(ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: 59), 1)
+        XCTAssertEqual(ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: 60), 2)
+        XCTAssertEqual(ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: 301), 0)
+    }
+
     func testTickOffsetScalesWithinTrack() {
         XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 0, duration: 100, trackWidth: 200), 0)
         XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 50, duration: 100, trackWidth: 200), 100)

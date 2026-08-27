@@ -103,7 +103,13 @@ struct ChapterScrubber: View {
     // function so the "which chapter is currently playing" logic is unit-testable without a real
     // Slider/GeometryReader.
     static func activeChapterIndex(chapters: [EpisodeChapter], currentTime: TimeInterval) -> Int? {
-        chapters.indices.last { chapters[$0].startTime <= currentTime }
+        // The index of the greatest startTime <= currentTime, found by comparison rather than
+        // taking the last matching index — the backend preserves the feed's own chapter JSON
+        // order, which isn't guaranteed to be sorted by startTime, so `.last` would pick the
+        // wrong chapter for an out-of-order feed.
+        chapters.indices
+            .filter { chapters[$0].startTime <= currentTime }
+            .max { chapters[$0].startTime < chapters[$1].startTime }
     }
 
     static let tickWidth: CGFloat = 2
