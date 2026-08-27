@@ -401,8 +401,13 @@ public class EpisodeDetailTests : WebTestContext
             .Add(p => p.ShowId, "show-1")
             .Add(p => p.EpisodeId, "ep-1"));
 
-        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
-        Assert.DoesNotContain("<h2>Transcript</h2>", cut.Markup);
+        // The section briefly shows a loading spinner before the 404 resolves and hides it, so
+        // wait for the steady state rather than asserting immediately.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Monday Edition", cut.Markup);
+            Assert.DoesNotContain("<h2>Transcript</h2>", cut.Markup);
+        });
     }
 
     [Fact]
