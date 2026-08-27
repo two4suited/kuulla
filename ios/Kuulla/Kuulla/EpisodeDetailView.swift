@@ -310,6 +310,13 @@ struct EpisodeDetailView: View {
                 loadError = "Something went wrong while loading this episode. Please try again."
             }
         }
+
+        // Resolved before the show fetch below (rather than after) — resolvedAudioURL gates
+        // whether Play/Pause and the download button render at all, so a slow/failed getShow
+        // shouldn't delay or block starting playback when the episode's own audio URL is already
+        // known.
+        loadLocalState()
+
         // Best-effort: only feeds the lock screen/CarPlay Now Playing artist + artwork, so a
         // failure here shouldn't block or error out episode loading itself.
         show = try? await catalogClient.getShow(id: showId)
@@ -318,12 +325,13 @@ struct EpisodeDetailView: View {
         // before it resolves starts playback with no show title/artwork (audioPlayer.play's
         // metadata argument is only as complete as `show` was at that moment). Correct the
         // session that's already running rather than leaving it stuck without artwork/artist for
-        // the rest of this episode.
-        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
+        // the rest of this episode. Reads the cached resolvedAudioURL (rather than calling
+        // resolvedPlaybackURL(for:) fresh) so this stays consistent with loadLocalState's pin to
+        // an already-loaded remote session.
+        if let episode, let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
             audioPlayer.updateMetadata(NowPlayingMetadata(title: episode.title, showTitle: show?.title, artworkURL: show?.artworkUrl.flatMap(URL.init(string:))))
         }
 
-        loadLocalState()
         // Skip fetching playback settings when the episode itself failed to load — playback
         // isn't possible without an episode, so there's no reason to wait on (or surface errors
         // from) a settings fetch that won't be used.
@@ -380,8 +388,8 @@ struct EpisodeDetailView: View {
         // 1.0 fallback (audioPlayer.play's own default), since togglePlayback reads whatever
         // playbackSpeed currently holds. If that happened, apply the now-resolved speed to the
         // session that's already running rather than leaving it stuck at the fallback for the
-        // rest of this episode.
-        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
+        // rest of this episode. Reads the cached resolvedAudioURL, same reason as in load() above.
+        if let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
             audioPlayer.setPlaybackSpeed(playbackSpeed)
         }
     }
@@ -470,8 +478,9 @@ struct EpisodeDetailView: View {
         playbackSpeed = next.rawValue
         // AudioPlayer is shared across detail screens — only push the live rate change when
         // this screen's episode is the one actually playing, otherwise a tap here would change
-        // the speed of whatever different episode happens to be playing in the background.
-        if let episode, let audioURL = resolvedPlaybackURL(for: episode), audioPlayer.currentURL == audioURL {
+        // the speed of whatever different episode happens to be playing in the background. Reads
+        // the cached resolvedAudioURL, same reason as in load() above.
+        if let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
             audioPlayer.setPlaybackSpeed(next.rawValue)
         }
 
