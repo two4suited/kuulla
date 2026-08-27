@@ -27,7 +27,10 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
             channel.Element(ItunesNamespace + "summary")?.Value,
             channel.Element("description")?.Value));
 
-        var items = channel.Elements("item").ToList();
+        // Cloned rather than referencing the shared XDocument's nodes directly — LINQ-to-XML gives
+        // no thread-safety guarantee for concurrent reads across the parallel loop below, and a
+        // clone gives each task its own independent tree to read from.
+        var items = channel.Elements("item").Select(item => new XElement(item)).ToList();
         var parsedEpisodes = new Episode[items.Count];
         await Parallel.ForEachAsync(
             Enumerable.Range(0, items.Count),
@@ -124,7 +127,7 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
         if (!element.TryGetProperty("startTime", out var startTimeElement)
             || !startTimeElement.TryGetDouble(out var startTimeSeconds)
             || !double.IsFinite(startTimeSeconds)
-            || startTimeSeconds < TimeSpan.MinValue.TotalSeconds
+            || startTimeSeconds < 0
             || startTimeSeconds > TimeSpan.MaxValue.TotalSeconds)
         {
             return false;

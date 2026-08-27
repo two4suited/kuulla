@@ -159,6 +159,38 @@ public class PodcastFeedClientTests
     }
 
     [Fact]
+    public async Task FetchAsync_SkipsChapterEntryWithNegativeStartTime()
+    {
+        var itemXml = $"""
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:chapters url="{ChaptersUrl}" type="application/json+chapters" />
+            </item>
+            """;
+        var chaptersJson = """
+            {
+              "chapters": [
+                { "startTime": 0, "title": "Intro" },
+                { "startTime": -5, "title": "Negative" },
+                { "startTime": 60, "title": "Segment 1" }
+              ]
+            }
+            """;
+        var sut = MakeSut(uri => uri.AbsoluteUri == ChaptersUrl
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(chaptersJson) }
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.NotNull(episode.Chapters);
+        Assert.Equal(2, episode.Chapters!.Count);
+        Assert.Equal("Intro", episode.Chapters[0].Title);
+        Assert.Equal("Segment 1", episode.Chapters[1].Title);
+    }
+
+    [Fact]
     public async Task FetchAsync_DoesNotFetchChaptersForItemWithNoEnclosure()
     {
         var itemXml = $"""
