@@ -20,6 +20,15 @@ public class EpisodeDetailTests : WebTestContext
         "ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20),
         "https://audio", "Show notes here", 128, 1024);
 
+    private static readonly Episode EpisodeWithChapters = TestEpisode with
+    {
+        Chapters =
+        [
+            new EpisodeChapter(TimeSpan.Zero, "Intro", null, null),
+            new EpisodeChapter(TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(5), "Sponsor", "https://img.example/1.jpg", "https://sponsor.example"),
+        ],
+    };
+
     private static readonly EpisodeState InProgressState = new(
         "ep-1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "device-1");
 
@@ -28,11 +37,12 @@ public class EpisodeDetailTests : WebTestContext
 
     private static TestHttpMessageHandler RouteHandler(
         Func<HttpRequestMessage, HttpResponseMessage>? onGetState = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? onPutState = null) => new(request =>
+        Func<HttpRequestMessage, HttpResponseMessage>? onPutState = null,
+        Episode? episode = null) => new(request =>
     {
         if (request.RequestUri!.AbsolutePath == "/api/shows/show-1/episodes/ep-1" && request.Method == HttpMethod.Get)
         {
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(TestEpisode) };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(episode ?? TestEpisode) };
         }
 
         if (request.RequestUri.AbsolutePath == "/api/episodes/ep-1/state" && request.Method == HttpMethod.Get)
@@ -273,5 +283,53 @@ public class EpisodeDetailTests : WebTestContext
             Assert.Contains("Monday Edition", cut.Markup);
             Assert.DoesNotContain("Something went wrong", cut.Markup);
         });
+    }
+
+    [Fact]
+    public void RendersChapterList_WhenEpisodeHasChapters()
+    {
+        ConfigureApi(RouteHandler(episode: EpisodeWithChapters));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Chapters", cut.Markup);
+            Assert.Contains("Intro", cut.Markup);
+            Assert.Contains("Sponsor", cut.Markup);
+            Assert.Contains("2:05", cut.Markup);
+            Assert.Contains("https://img.example/1.jpg", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void DoesNotRenderChapterList_WhenEpisodeHasNoChapters()
+    {
+        ConfigureApi(RouteHandler());
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+        Assert.DoesNotContain("Chapters", cut.Markup);
+    }
+
+    [Fact]
+    public void ClickingChapter_SeeksAudioElementToStartTime()
+    {
+        ConfigureApi(RouteHandler(episode: EpisodeWithChapters));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Sponsor", cut.Markup));
+
+        cut.Find("button.btn-link").Click();
+
+        var invocation = JSInterop.VerifyInvoke("seekTo");
+        Assert.Equal(0d, invocation.Arguments[0]);
     }
 }
