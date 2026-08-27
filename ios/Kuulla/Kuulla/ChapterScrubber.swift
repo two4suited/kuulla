@@ -40,7 +40,12 @@ struct ChapterScrubber: View {
 
             Slider(
                 value: Binding(
-                    get: { displayedTime },
+                    // Clamped rather than passed straight through — AudioPlayer can report
+                    // currentTime > 0 before duration is populated by the periodic time observer
+                    // (duration defaults to 0, so effectiveDuration is briefly 1), and an
+                    // unclamped value outside 0...effectiveDuration triggers a SwiftUI runtime
+                    // warning and a visibly stuck/invalid thumb position.
+                    get: { min(max(displayedTime, 0), effectiveDuration) },
                     set: { dragValue = $0 }
                 ),
                 in: 0...effectiveDuration,
