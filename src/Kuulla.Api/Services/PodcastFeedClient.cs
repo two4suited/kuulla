@@ -32,8 +32,23 @@ public class PodcastFeedClient(
 
     private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolveHostAsync = hostResolver ?? Dns.GetHostAddressesAsync;
     private readonly Func<Uri, CancellationToken, Task<HttpResponseMessage>> _sendChaptersRequestAsync =
-        sendChaptersRequestAsync ?? ((uri, ct) => httpClientFactory!.CreateClient("chapters")
-            .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct));
+        sendChaptersRequestAsync ?? MakeDefaultSendChaptersRequestAsync(httpClientFactory);
+
+    // Failing fast here (at construction) rather than deferring the null-forgiving httpClientFactory!
+    // to first use — a caller that skips both sendChaptersRequestAsync and httpClientFactory (real
+    // DI always supplies the latter; only a hand-built instance without either could hit this) gets
+    // an immediate, self-explanatory error instead of a NullReferenceException on the first fetch.
+    private static Func<Uri, CancellationToken, Task<HttpResponseMessage>> MakeDefaultSendChaptersRequestAsync(
+        IHttpClientFactory? httpClientFactory)
+    {
+        if (httpClientFactory is null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(PodcastFeedClient)} requires either {nameof(sendChaptersRequestAsync)} or {nameof(httpClientFactory)} to be provided.");
+        }
+
+        return (uri, ct) => httpClientFactory.CreateClient("chapters").GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+    }
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)
     {
