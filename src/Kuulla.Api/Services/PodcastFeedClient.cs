@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,10 +9,17 @@ using Kuulla.Api.Models;
 
 namespace Kuulla.Api.Services;
 
-public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient> logger) : IPodcastFeedClient
+public class PodcastFeedClient(
+    HttpClient httpClient,
+    ILogger<PodcastFeedClient> logger,
+    // Overridable purely for testing — production always resolves through real DNS. Tests supply
+    // canned results instead so SSRF-guard behavior (e.g. "a hostname resolving to a private
+    // address is rejected") is verifiable without depending on real DNS or a live network.
+    Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null) : IPodcastFeedClient
 {
     private static readonly XNamespace ItunesNamespace = "http://www.itunes.com/dtds/podcast-1.0.dtd";
     private static readonly XNamespace PodcastNamespace = "https://podcastindex.org/namespace/1.0";
+    private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolveHostAsync = hostResolver ?? Dns.GetHostAddressesAsync;
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)
     {
@@ -71,7 +79,8 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
         // Where(AudioUrl) regardless, so fetching its chapters would just be a wasted HTTP request
         // (and a spurious warning log on failure) for something that's discarded either way.
         var chaptersUrl = item.Element(PodcastNamespace + "chapters")?.Attribute("url")?.Value;
-        var chapters = !string.IsNullOrEmpty(audioUrl) && IsFetchableChaptersUrl(chaptersUrl, out var chaptersUri)
+        var chaptersUri = !string.IsNullOrEmpty(audioUrl) ? await ResolveFetchableChaptersUrlAsync(chaptersUrl, cancellationToken) : null;
+        var chapters = chaptersUri is not null
             ? await FetchChaptersAsync(chaptersUri, cancellationToken)
             : null;
 
@@ -80,39 +89,60 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
 
     // chaptersUrl comes straight from feed XML that a third party controls — reject anything that
     // isn't an absolute http(s) URL pointed at a public host before this server fetches it, rather
-    // than relying on the request itself to fail for a bad scheme, and to cut down SSRF exposure
-    // to internal/loopback addresses.
-    private static bool IsFetchableChaptersUrl(string? chaptersUrl, out Uri uri)
+    // than relying on the request itself to fail for a bad scheme. Also resolves a hostname (rather
+    // than only checking IP literals) and rejects it if ANY resolved address is
+    // private/loopback/link-local — otherwise a hostname that resolves to an internal address (DNS
+    // rebinding, a nip.io-style domain) would sail straight through the literal-only check.
+    private async Task<Uri?> ResolveFetchableChaptersUrlAsync(string? chaptersUrl, CancellationToken cancellationToken)
     {
-        uri = null!;
         if (string.IsNullOrEmpty(chaptersUrl) || !Uri.TryCreate(chaptersUrl, UriKind.Absolute, out var parsed))
         {
-            return false;
+            return null;
         }
 
         if (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
         {
-            return false;
+            return null;
         }
 
-        if (Uri.CheckHostName(parsed.Host) == UriHostNameType.IPv4 || Uri.CheckHostName(parsed.Host) == UriHostNameType.IPv6)
+        // "localhost" resolves to loopback on essentially every system without a DNS query, so
+        // check it directly rather than depending on the resolver (real or test-mocked) getting
+        // it right.
+        if (parsed.IsLoopback || string.Equals(parsed.Host, "localhost", StringComparison.OrdinalIgnoreCase))
         {
-            if (IPAddress.TryParse(parsed.Host, out var address) && IsPrivateOrLoopback(address))
+            return null;
+        }
+
+        IPAddress[] addresses;
+        if (IPAddress.TryParse(parsed.Host, out var literalAddress))
+        {
+            addresses = [literalAddress];
+        }
+        else
+        {
+            try
             {
-                return false;
+                addresses = await _resolveHostAsync(parsed.Host, cancellationToken);
+            }
+            catch (Exception ex) when (ex is SocketException or ArgumentException)
+            {
+                return null;
             }
         }
-        else if (parsed.IsLoopback || string.Equals(parsed.Host, "localhost", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
 
-        uri = parsed;
-        return true;
+        return addresses.Length > 0 && addresses.All(a => !IsPrivateOrLoopback(a)) ? parsed : null;
     }
 
     private static bool IsPrivateOrLoopback(IPAddress address)
     {
+        // An IPv4-mapped IPv6 address (::ffff:10.0.0.1) must be evaluated as its embedded IPv4
+        // form — otherwise it skips the IPv4 range checks below entirely and only IsLoopback()
+        // would ever catch it.
+        if (address.IsIPv4MappedToIPv6)
+        {
+            address = address.MapToIPv4();
+        }
+
         if (IPAddress.IsLoopback(address))
         {
             return true;
@@ -121,12 +151,16 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
         var bytes = address.GetAddressBytes();
         return address.AddressFamily switch
         {
-            System.Net.Sockets.AddressFamily.InterNetwork =>
+            AddressFamily.InterNetwork =>
                 bytes[0] == 10
                 || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
                 || (bytes[0] == 192 && bytes[1] == 168)
                 || (bytes[0] == 169 && bytes[1] == 254), // link-local
-            System.Net.Sockets.AddressFamily.InterNetworkV6 => address.IsIPv6LinkLocal || address.IsIPv6SiteLocal,
+            // fc00::/7 (unique-local) covers both defined fc00::/8 and fd00::/8 blocks — checking
+            // the top 7 bits directly rather than IsIPv6SiteLocal, which only recognizes the older,
+            // deprecated fec0::/10 site-local range and misses unique-local entirely.
+            AddressFamily.InterNetworkV6 =>
+                address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || (bytes[0] & 0xFE) == 0xFC,
             _ => false,
         };
     }

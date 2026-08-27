@@ -9,10 +9,19 @@ public class PodcastFeedClientTests
     private const string FeedUrl = "https://feed.example/rss";
     private const string ChaptersUrl = "https://feed.example/ep1-chapters.json";
 
-    private static PodcastFeedClient MakeSut(Func<Uri, HttpResponseMessage> route)
+    // Defaults every hostname to a public address so tests don't depend on real DNS resolving
+    // fake ".example" domains — a test that needs a specific resolution (e.g. a hostname
+    // rebinding to a private address) passes its own hostResolver instead.
+    private static readonly IPAddress PublicTestAddress = IPAddress.Parse("93.184.216.34");
+
+    private static PodcastFeedClient MakeSut(
+        Func<Uri, HttpResponseMessage> route,
+        Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null)
     {
         var httpClient = new HttpClient(TestHttpMessageHandler.Routed(route));
-        return new PodcastFeedClient(httpClient, NullLogger<PodcastFeedClient>.Instance);
+        return new PodcastFeedClient(
+            httpClient, NullLogger<PodcastFeedClient>.Instance,
+            hostResolver ?? ((_, _) => Task.FromResult(new[] { PublicTestAddress })));
     }
 
     private static string FeedXml(string itemXml) => $"""
@@ -223,6 +232,8 @@ public class PodcastFeedClientTests
     [InlineData("http://169.254.169.254/chapters.json")] // cloud metadata endpoint
     [InlineData("http://10.0.0.5/chapters.json")]
     [InlineData("http://192.168.1.1/chapters.json")]
+    [InlineData("http://[fd12:3456:789a::1]/chapters.json")] // IPv6 unique-local (fc00::/7)
+    [InlineData("http://[::ffff:10.0.0.1]/chapters.json")] // IPv4-mapped IPv6
     [InlineData("ftp://feed.example/chapters.json")]
     [InlineData("not-a-url")]
     public async Task FetchAsync_DoesNotFetchChaptersFromUnsafeUrl(string unsafeChaptersUrl)
@@ -244,6 +255,41 @@ public class PodcastFeedClientTests
 
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) };
         });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Null(episode.Chapters);
+        Assert.False(chaptersRequested);
+    }
+
+    [Fact]
+    public async Task FetchAsync_DoesNotFetchChaptersWhenHostnameResolvesToPrivateAddress()
+    {
+        // A hostname whose own literal doesn't look private (unlike "127.0.0.1") but that DNS
+        // resolves to an internal address — the "DNS rebinding" case the literal-only check missed.
+        const string rebindingChaptersUrl = "https://rebinding.example/chapters.json";
+        var itemXml = $"""
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:chapters url="{rebindingChaptersUrl}" type="application/json+chapters" />
+            </item>
+            """;
+        var chaptersRequested = false;
+        var sut = MakeSut(
+            uri =>
+            {
+                if (uri.AbsoluteUri == rebindingChaptersUrl)
+                {
+                    chaptersRequested = true;
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) };
+            },
+            hostResolver: (host, _) => Task.FromResult(host == "rebinding.example"
+                ? new[] { IPAddress.Parse("10.0.0.1") }
+                : new[] { PublicTestAddress }));
 
         var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
 
