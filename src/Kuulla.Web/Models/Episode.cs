@@ -10,4 +10,6 @@ public record Episode(
     string? Description,
     int? BitrateKbps,
     long? FileSizeBytes,
-    IReadOnlyList<EpisodeChapter>? Chapters = null);
+    IReadOnlyList<EpisodeChapter>? Chapters = null,
+    string? TranscriptUrl = null,
+    string? TranscriptType = null);
