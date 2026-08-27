@@ -113,6 +113,7 @@
 		T1000003 /* SleepTimerSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003; };
 		Z1000001 /* ChapterScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000001; };
 		Z1000002 /* ChapterScrubberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000002; };
+		V1000001 /* SafariView.swift in Sources */ = {isa = PBXBuildFile; fileRef = V2000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -243,6 +244,7 @@
 		T2000003 /* SleepTimerSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheetTests.swift; sourceTree = "<group>"; };
 		Z2000001 /* ChapterScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubber.swift; sourceTree = "<group>"; };
 		Z2000002 /* ChapterScrubberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubberTests.swift; sourceTree = "<group>"; };
+		V2000001 /* SafariView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -328,6 +330,7 @@
 				T2000001 /* SleepTimerDuration.swift */,
 				T2000002 /* SleepTimerSheet.swift */,
 				Z2000001 /* ChapterScrubber.swift */,
+				V2000001 /* SafariView.swift */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -557,6 +560,7 @@
 				T1000001,
 				T1000002,
 				Z1000001,
+				V1000001,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
