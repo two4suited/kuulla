@@ -129,6 +129,17 @@ struct EpisodeDetailView: View {
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }
+
+                        // Same "is this screen's episode the one actually loaded" gate as
+                        // isPlaying(_:) above — AudioPlayer's currentTime/duration are otherwise
+                        // whatever a different episode last left them at.
+                        if audioPlayer.currentURL == audioURL {
+                            ChapterScrubber(
+                                currentTime: audioPlayer.currentTime,
+                                duration: audioPlayer.duration,
+                                chapters: episode.chapters ?? [],
+                                onSeek: { audioPlayer.seek(to: $0) })
+                        }
                     }
 
                     Button {
