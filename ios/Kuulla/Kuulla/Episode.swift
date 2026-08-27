@@ -12,9 +12,10 @@ struct Episode: Decodable, Identifiable {
     let description: String?
     let bitrateKbps: Int?
     let fileSizeBytes: Int?
+    let chapters: [EpisodeChapter]?
 
     private enum CodingKeys: String, CodingKey {
-        case id, showId, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes
+        case id, showId, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes, chapters
     }
 
     init(from decoder: Decoder) throws {
@@ -27,6 +28,7 @@ struct Episode: Decodable, Identifiable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps)
         fileSizeBytes = try container.decodeIfPresent(Int.self, forKey: .fileSizeBytes)
+        chapters = try container.decodeIfPresent([EpisodeChapter].self, forKey: .chapters)
 
         if let durationText = try container.decodeIfPresent(String.self, forKey: .duration) {
             duration = Episode.parseDuration(durationText)
@@ -63,5 +65,27 @@ struct Episode: Decodable, Identifiable {
         } else {
             return nil
         }
+    }
+}
+
+// Parsed from a podcast:chapters feed; startTime arrives as the same .NET TimeSpan string
+// format as Episode.duration, so it's decoded through the same parseDuration helper.
+struct EpisodeChapter: Decodable {
+    let startTime: TimeInterval
+    let title: String
+    let imageUrl: String?
+    let url: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case startTime, title, imageUrl, url
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let startTimeText = try container.decode(String.self, forKey: .startTime)
+        startTime = Episode.parseDuration(startTimeText) ?? 0
+        title = try container.decode(String.self, forKey: .title)
+        imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
     }
 }
