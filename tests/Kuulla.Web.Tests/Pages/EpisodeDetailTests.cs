@@ -327,9 +327,12 @@ public class EpisodeDetailTests : WebTestContext
             .Add(p => p.EpisodeId, "ep-1"));
         cut.WaitForAssertion(() => Assert.Contains("Sponsor", cut.Markup));
 
-        cut.Find("button.btn-link").Click();
+        // Specifically the "Sponsor" chapter (not just the first .btn-link, which is "Intro" at
+        // 0:00 and wouldn't catch a chapter wired to the wrong start time).
+        var sponsorButton = cut.FindAll("button.btn-link").Single(b => b.TextContent.Contains("Sponsor"));
+        sponsorButton.Click();
 
         var invocation = JSInterop.VerifyInvoke("seekTo");
-        Assert.Equal(0d, invocation.Arguments[0]);
+        Assert.Equal(125d, invocation.Arguments[0]);
     }
 }
