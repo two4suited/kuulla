@@ -365,7 +365,12 @@ struct EpisodeDetailView: View {
         guard let episode, episode.transcriptUrl != nil else {
             return
         }
-        transcript = try? await catalogClient.getEpisodeTranscript(showId: showId, episodeId: episodeId)
+        let fetched = try? await catalogClient.getEpisodeTranscript(showId: showId, episodeId: episodeId)
+        // The @State box is shared across view-value re-creations, so a fetch that resolves after
+        // the user navigated to another episode (this task cancelled, load() re-run) would
+        // otherwise write that episode's transcript over the new one's.
+        guard !Task.isCancelled else { return }
+        transcript = fetched
     }
 
     private func loadLocalState() {
