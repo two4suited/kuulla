@@ -29,6 +29,20 @@ public class EpisodeDetailTests : WebTestContext
         ],
     };
 
+    private static readonly Episode EpisodeWithTranscript = TestEpisode with
+    {
+        TranscriptUrl = "https://feed.example/ep1-transcript.json",
+        TranscriptType = "application/json",
+    };
+
+    private static readonly TranscriptDocument TestTranscript = new(
+        "application/json",
+        [
+            new TranscriptSegment(TimeSpan.Zero, TimeSpan.FromSeconds(4), "Welcome to the show"),
+            new TranscriptSegment(TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(9), "Our sponsor today"),
+            new TranscriptSegment(TimeSpan.FromMinutes(10), null, "Back to the welcome mat"),
+        ]);
+
     private static readonly EpisodeState InProgressState = new(
         "ep-1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "device-1");
 
@@ -38,9 +52,15 @@ public class EpisodeDetailTests : WebTestContext
     private static TestHttpMessageHandler RouteHandler(
         Func<HttpRequestMessage, HttpResponseMessage>? onGetState = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onPutState = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onTranscript = null,
         Episode? episode = null) => new(request =>
     {
-        if (request.RequestUri!.AbsolutePath == "/api/shows/show-1/episodes/ep-1" && request.Method == HttpMethod.Get)
+        if (request.RequestUri!.AbsolutePath == "/api/shows/show-1/episodes/ep-1/transcript" && request.Method == HttpMethod.Get)
+        {
+            return onTranscript?.Invoke(request) ?? new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/shows/show-1/episodes/ep-1" && request.Method == HttpMethod.Get)
         {
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(episode ?? TestEpisode) };
         }
@@ -330,6 +350,131 @@ public class EpisodeDetailTests : WebTestContext
         // Specifically the "Sponsor" chapter (not just the first .btn-link, which is "Intro" at
         // 0:00 and wouldn't catch a chapter wired to the wrong start time).
         var sponsorButton = cut.FindAll("button.btn-link").Single(b => b.TextContent.Contains("Sponsor"));
+        sponsorButton.Click();
+
+        var invocation = JSInterop.VerifyInvoke("seekTo");
+        Assert.Equal(125d, invocation.Arguments[0]);
+    }
+
+    private static HttpResponseMessage TranscriptOk() =>
+        new(HttpStatusCode.OK) { Content = JsonContent.Create(TestTranscript) };
+
+    [Fact]
+    public void RendersTranscript_WhenEpisodeAdvertisesOneAndApiReturnsSegments()
+    {
+        ConfigureApi(RouteHandler(episode: EpisodeWithTranscript, onTranscript: _ => TranscriptOk()));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Transcript", cut.Markup);
+            Assert.Contains("Welcome to the show", cut.Markup);
+            Assert.Contains("Our sponsor today", cut.Markup);
+            Assert.Contains("2:05", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void DoesNotRenderTranscriptSection_WhenEpisodeHasNoTranscript()
+    {
+        ConfigureApi(RouteHandler());
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+        Assert.DoesNotContain("Transcript", cut.Markup);
+    }
+
+    [Fact]
+    public void DoesNotRenderTranscriptSection_WhenApiHasNoUsableTranscript()
+    {
+        ConfigureApi(RouteHandler(
+            episode: EpisodeWithTranscript,
+            onTranscript: _ => new HttpResponseMessage(HttpStatusCode.NotFound)));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+        Assert.DoesNotContain("<h2>Transcript</h2>", cut.Markup);
+    }
+
+    [Fact]
+    public void ShowsLoadFailureMessage_WhenTranscriptRequestErrors()
+    {
+        ConfigureApi(RouteHandler(
+            episode: EpisodeWithTranscript,
+            onTranscript: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Transcript", cut.Markup);
+            Assert.Contains("couldn", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void TranscriptSearch_FiltersToMatchingSegmentsHighlightsAndCountsThem()
+    {
+        ConfigureApi(RouteHandler(episode: EpisodeWithTranscript, onTranscript: _ => TranscriptOk()));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Welcome to the show", cut.Markup));
+
+        cut.Find("input[type=search]").Input("welcome");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("2 matches", cut.Markup);
+            Assert.Contains("<mark>Welcome</mark>", cut.Markup);
+            Assert.Contains("<mark>welcome</mark>", cut.Markup);
+            Assert.DoesNotContain("Our sponsor today", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void TranscriptSearch_ShowsNoMatchesMessage_WhenNothingMatches()
+    {
+        ConfigureApi(RouteHandler(episode: EpisodeWithTranscript, onTranscript: _ => TranscriptOk()));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Welcome to the show", cut.Markup));
+
+        cut.Find("input[type=search]").Input("zzz nothing zzz");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("No matching lines", cut.Markup);
+            Assert.Contains("0 matches", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void ClickingTranscriptSegment_SeeksAudioElementToStartTime()
+    {
+        ConfigureApi(RouteHandler(episode: EpisodeWithTranscript, onTranscript: _ => TranscriptOk()));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Our sponsor today", cut.Markup));
+
+        var sponsorButton = cut.FindAll("ol.list-unstyled button.btn-link")
+            .Single(b => b.TextContent.Contains("2:05"));
         sponsorButton.Click();
 
         var invocation = JSInterop.VerifyInvoke("seekTo");
