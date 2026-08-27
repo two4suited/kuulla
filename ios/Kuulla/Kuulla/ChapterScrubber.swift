@@ -31,8 +31,9 @@ struct ChapterScrubber: View {
                     ForEach(Array(chapters.enumerated()), id: \.offset) { _, chapter in
                         Rectangle()
                             .fill(.secondary)
-                            .frame(width: 2, height: 8)
-                            .offset(x: geometry.size.width * CGFloat(chapter.startTime / effectiveDuration))
+                            .frame(width: ChapterScrubber.tickWidth, height: 8)
+                            .offset(x: ChapterScrubber.tickOffset(
+                                startTime: chapter.startTime, duration: effectiveDuration, trackWidth: geometry.size.width))
                     }
                 }
             }
@@ -103,5 +104,19 @@ struct ChapterScrubber: View {
     // Slider/GeometryReader.
     static func activeChapterIndex(chapters: [EpisodeChapter], currentTime: TimeInterval) -> Int? {
         chapters.indices.last { chapters[$0].startTime <= currentTime }
+    }
+
+    static let tickWidth: CGFloat = 2
+
+    // Pulled out as a pure static function (mirroring activeChapterIndex above) so the tick's
+    // placement math is unit-testable without a real GeometryReader. Clamped to
+    // [0, trackWidth - tickWidth] rather than the raw fraction * trackWidth — an end-of-episode
+    // chapter (startTime == duration) would otherwise land its tick exactly at the track's
+    // trailing edge, rendering it fully off-screen, and a chapter with a startTime past duration
+    // (bad data, or duration temporarily 0) could push the offset arbitrarily far beyond the
+    // track altogether.
+    static func tickOffset(startTime: TimeInterval, duration: TimeInterval, trackWidth: CGFloat) -> CGFloat {
+        let rawOffset = trackWidth * CGFloat(startTime / duration)
+        return min(max(rawOffset, 0), trackWidth - tickWidth)
     }
 }

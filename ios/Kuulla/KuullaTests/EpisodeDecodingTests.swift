@@ -91,4 +91,20 @@ final class EpisodeDecodingTests: XCTestCase {
 
         XCTAssertThrowsError(try JSONDecoder().decode(EpisodeChapter.self, from: json))
     }
+
+    func testChapterWithNonNumericDayPrefixFailsToDecode() {
+        let json = """
+        { "startTime": "abc.00:00:00", "title": "Intro", "imageUrl": null, "url": null }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(EpisodeChapter.self, from: json))
+    }
+
+    func testChapterWithNegativeStartTimeFailsToDecode() {
+        let json = """
+        { "startTime": "-00:00:05", "title": "Intro", "imageUrl": null, "url": null }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(EpisodeChapter.self, from: json))
+    }
 }

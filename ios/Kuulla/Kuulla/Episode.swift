@@ -48,7 +48,13 @@ struct Episode: Decodable, Identifiable {
 
         var days: Double = 0
         if let dotIndex = text.firstIndex(of: "."), !text[..<dotIndex].contains(":") {
-            days = Double(text[..<dotIndex]) ?? 0
+            // A non-numeric day prefix (e.g. "abc.00:00:00") is malformed input, not "0 days" —
+            // `?? 0` here would silently accept it and parse the rest as if the prefix weren't
+            // there at all.
+            guard let parsedDays = Double(text[..<dotIndex]) else {
+                return nil
+            }
+            days = parsedDays
             text = String(text[text.index(after: dotIndex)...])
         }
 
@@ -85,8 +91,10 @@ struct EpisodeChapter: Decodable {
         let startTimeText = try container.decode(String.self, forKey: .startTime)
         // Fails the decode rather than defaulting to 0 — a chapter silently placed at "Intro at
         // 0:00" for a malformed timestamp would misplace its tick and could steal the
-        // active-chapter highlight from whatever's actually playing at 0:00.
-        guard let parsedStartTime = Episode.parseDuration(startTimeText) else {
+        // active-chapter highlight from whatever's actually playing at 0:00. A negative value is
+        // rejected too — unlike Episode.duration (where a leading "-" is meaningful), a chapter
+        // marker can't legitimately precede the start of the episode.
+        guard let parsedStartTime = Episode.parseDuration(startTimeText), parsedStartTime >= 0 else {
             throw DecodingError.dataCorruptedError(
                 forKey: .startTime, in: container, debugDescription: "Invalid TimeSpan value: \(startTimeText)")
         }
