@@ -319,6 +319,44 @@ public class PodcastFeedClientTests
     }
 
     [Fact]
+    public async Task FetchAsync_RejectsChaptersUrlThatRedirectsToAUrlWithUserinfo()
+    {
+        var itemXml = $"""
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:chapters url="{ChaptersUrl}" type="application/json+chapters" />
+            </item>
+            """;
+        const string redirectWithCredentials = "https://user:pass@cdn.example/chapters.json";
+        var redirectTargetRequested = false;
+
+        var sut = MakeSut(
+            uri => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) },
+            sendChaptersRequestAsync: (uri, _) =>
+            {
+                if (uri.AbsoluteUri == ChaptersUrl)
+                {
+                    var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+                    redirect.Headers.Location = new Uri(redirectWithCredentials);
+                    return Task.FromResult(redirect);
+                }
+
+                redirectTargetRequested = true;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"chapters":[{"startTime":0,"title":"Intro"}]}"""),
+                });
+            });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Null(episode.Chapters);
+        Assert.False(redirectTargetRequested);
+    }
+
+    [Fact]
     public async Task FetchAsync_FollowsChaptersRedirectToAPublicAddress()
     {
         var itemXml = $"""

@@ -242,9 +242,12 @@ public class PodcastFeedClient(
                     var validatedNextUrl = await ResolveFetchableChaptersUrlAsync(nextUrl.ToString(), cancellationToken);
                     if (validatedNextUrl is null)
                     {
+                        // nextUrl itself is logged (not validatedNextUrl, which is null here) —
+                        // sanitized rather than logged as-is, since one of the reasons validation
+                        // can fail is exactly that nextUrl carries userinfo (credentials).
                         logger.LogWarning(
                             "Redirect from podcast:chapters {ChaptersUrl} to {RedirectUrl} was rejected by the SSRF guard",
-                            chaptersUrl, nextUrl);
+                            chaptersUrl, SanitizeForLogging(nextUrl));
                         return null;
                     }
 
@@ -286,6 +289,12 @@ public class PodcastFeedClient(
     private static bool IsRedirect(HttpStatusCode statusCode) =>
         statusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther
             or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;
+
+    // Strips userinfo before a URL that hasn't (yet, or ever) passed the SSRF guard's validation
+    // reaches a log line — an untrusted redirect Location could otherwise leak credentials into
+    // logs even though ResolveFetchableChaptersUrlAsync itself rejects userinfo.
+    private static string SanitizeForLogging(Uri uri) =>
+        string.IsNullOrEmpty(uri.UserInfo) ? uri.ToString() : new UriBuilder(uri) { UserName = "", Password = "" }.Uri.ToString();
 
     private static bool TryParseChapter(JsonElement element, out EpisodeChapter chapter)
     {
