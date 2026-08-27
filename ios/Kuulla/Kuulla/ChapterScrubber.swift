@@ -9,7 +9,7 @@ struct ChapterScrubber: View {
     let chapters: [EpisodeChapter]
     let onSeek: (TimeInterval) -> Void
     // Called instead of onSeek when the tapped row is the currently-active chapter and it has a
-    // Url — seeking to a chapter you're already in is a no-op, so that tap is repurposed to open
+    // URL — seeking to a chapter you're already in is a no-op, so that tap is repurposed to open
     // its link (e.g. a sponsor/reference URL) instead. Defaults to a no-op for callers (like
     // previews/tests) that don't care about link handling.
     var onOpenLink: (URL) -> Void = { _ in }
