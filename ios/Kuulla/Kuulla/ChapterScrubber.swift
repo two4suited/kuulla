@@ -50,12 +50,21 @@ struct ChapterScrubber: View {
                 ),
                 in: 0...effectiveDuration,
                 onEditingChanged: { editing in
+                    if editing {
+                        // Without this, dragValue still holds whatever it was left at by the
+                        // previous drag (or 0, before any drag has happened) — the thumb would
+                        // visibly jump there the instant isDragging flips true, before the first
+                        // drag delta arrives to correct it.
+                        dragValue = min(max(currentTime, 0), effectiveDuration)
+                    }
                     isDragging = editing
                     if !editing {
                         onSeek(dragValue)
                     }
                 }
             )
+            .accessibilityLabel("Playback position")
+            .accessibilityValue(EpisodeFormatting.formatDuration(displayedTime))
 
             HStack {
                 Text(EpisodeFormatting.formatDuration(displayedTime))

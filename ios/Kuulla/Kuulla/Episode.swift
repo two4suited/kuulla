@@ -83,7 +83,14 @@ struct EpisodeChapter: Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let startTimeText = try container.decode(String.self, forKey: .startTime)
-        startTime = Episode.parseDuration(startTimeText) ?? 0
+        // Fails the decode rather than defaulting to 0 — a chapter silently placed at "Intro at
+        // 0:00" for a malformed timestamp would misplace its tick and could steal the
+        // active-chapter highlight from whatever's actually playing at 0:00.
+        guard let parsedStartTime = Episode.parseDuration(startTimeText) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .startTime, in: container, debugDescription: "Invalid TimeSpan value: \(startTimeText)")
+        }
+        startTime = parsedStartTime
         title = try container.decode(String.self, forKey: .title)
         imageUrl = try container.decodeIfPresent(String.self, forKey: .imageUrl)
         url = try container.decodeIfPresent(String.self, forKey: .url)
