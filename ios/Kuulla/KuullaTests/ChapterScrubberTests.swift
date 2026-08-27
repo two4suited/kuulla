@@ -35,4 +35,27 @@ final class ChapterScrubberTests: XCTestCase {
         XCTAssertEqual(ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: 60), 1)
         XCTAssertEqual(ChapterScrubber.activeChapterIndex(chapters: chapters, currentTime: 301), 2)
     }
+
+    func testTickOffsetScalesWithinTrack() {
+        XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 0, duration: 100, trackWidth: 200), 0)
+        XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 50, duration: 100, trackWidth: 200), 100)
+    }
+
+    func testTickOffsetClampsEndOfEpisodeChapterToStayOnScreen() {
+        // startTime == duration would otherwise land exactly at trackWidth, pushing the
+        // tickWidth-wide tick fully off the visible track.
+        let offset = ChapterScrubber.tickOffset(startTime: 100, duration: 100, trackWidth: 200)
+
+        XCTAssertEqual(offset, 200 - ChapterScrubber.tickWidth)
+    }
+
+    func testTickOffsetClampsStartTimeBeyondDuration() {
+        let offset = ChapterScrubber.tickOffset(startTime: 1000, duration: 100, trackWidth: 200)
+
+        XCTAssertEqual(offset, 200 - ChapterScrubber.tickWidth)
+    }
+
+    func testTickOffsetClampsNegativeStartTime() {
+        XCTAssertEqual(ChapterScrubber.tickOffset(startTime: -10, duration: 100, trackWidth: 200), 0)
+    }
 }
