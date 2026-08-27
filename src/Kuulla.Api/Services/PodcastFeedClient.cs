@@ -105,6 +105,14 @@ public class PodcastFeedClient(
             return null;
         }
 
+        // Reject userinfo (https://user:pass@host/...) outright — GetStreamAsync would send it as
+        // part of the request, and this URL comes from an untrusted feed, so a crafted one could
+        // otherwise leak credentials into the warning log below on a failed fetch.
+        if (!string.IsNullOrEmpty(parsed.UserInfo))
+        {
+            return null;
+        }
+
         // "localhost" resolves to loopback on essentially every system without a DNS query, so
         // check it directly rather than depending on the resolver (real or test-mocked) getting
         // it right.
@@ -130,10 +138,14 @@ public class PodcastFeedClient(
             }
         }
 
-        return addresses.Length > 0 && addresses.All(a => !IsPrivateOrLoopback(a)) ? parsed : null;
+        return addresses.Length > 0 && addresses.All(IsPubliclyRoutable) ? parsed : null;
     }
 
-    private static bool IsPrivateOrLoopback(IPAddress address)
+    // Named for what it returns true for (a fetchable public address), not what it excludes — the
+    // exclusion list has grown well past just "private or loopback" (multicast, TEST-NET,
+    // benchmarking, CGNAT, documentation ranges, ...) as the SSRF guard has been hardened, and a
+    // name matching only the original two cases stopped reflecting what this actually checks.
+    private static bool IsPubliclyRoutable(IPAddress address)
     {
         // An IPv4-mapped IPv6 address (::ffff:10.0.0.1) must be evaluated as its embedded IPv4
         // form — otherwise it skips the IPv4 range checks below entirely and only IsLoopback()
@@ -145,16 +157,16 @@ public class PodcastFeedClient(
 
         if (IPAddress.IsLoopback(address))
         {
-            return true;
+            return false;
         }
 
         if (IPAddress.Any.Equals(address) || IPAddress.IPv6Any.Equals(address) || address.IsIPv6Multicast)
         {
-            return true;
+            return false;
         }
 
         var bytes = address.GetAddressBytes();
-        return address.AddressFamily switch
+        var isNonPublic = address.AddressFamily switch
         {
             AddressFamily.InterNetwork =>
                 bytes[0] == 0 // "this network" (includes 0.0.0.0)
@@ -175,8 +187,10 @@ public class PodcastFeedClient(
             AddressFamily.InterNetworkV6 =>
                 address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || (bytes[0] & 0xFE) == 0xFC
                 || (bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0D && bytes[3] == 0xB8),
-            _ => false,
+            _ => true, // an unrecognized address family is treated as non-routable, not public
         };
+
+        return !isNonPublic;
     }
 
     // podcast:chapters points at an externally-hosted JSON document — fetched best-effort so a

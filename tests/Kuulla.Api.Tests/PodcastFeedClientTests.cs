@@ -245,6 +245,7 @@ public class PodcastFeedClientTests
     [InlineData("http://198.51.100.1/chapters.json")] // TEST-NET-2
     [InlineData("http://203.0.113.1/chapters.json")] // TEST-NET-3
     [InlineData("http://[2001:db8::1]/chapters.json")] // IPv6 documentation range
+    [InlineData("https://user:pass@feed.example/chapters.json")] // userinfo could leak into logs
     [InlineData("ftp://feed.example/chapters.json")]
     [InlineData("not-a-url")]
     public async Task FetchAsync_DoesNotFetchChaptersFromUnsafeUrl(string unsafeChaptersUrl)
