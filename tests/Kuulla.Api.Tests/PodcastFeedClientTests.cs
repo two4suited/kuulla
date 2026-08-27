@@ -217,6 +217,41 @@ public class PodcastFeedClientTests
         Assert.False(chaptersRequested);
     }
 
+    [Theory]
+    [InlineData("http://localhost/chapters.json")]
+    [InlineData("http://127.0.0.1/chapters.json")]
+    [InlineData("http://169.254.169.254/chapters.json")] // cloud metadata endpoint
+    [InlineData("http://10.0.0.5/chapters.json")]
+    [InlineData("http://192.168.1.1/chapters.json")]
+    [InlineData("ftp://feed.example/chapters.json")]
+    [InlineData("not-a-url")]
+    public async Task FetchAsync_DoesNotFetchChaptersFromUnsafeUrl(string unsafeChaptersUrl)
+    {
+        var itemXml = $"""
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:chapters url="{unsafeChaptersUrl}" type="application/json+chapters" />
+            </item>
+            """;
+        var chaptersRequested = false;
+        var sut = MakeSut(uri =>
+        {
+            if (uri.AbsoluteUri == unsafeChaptersUrl)
+            {
+                chaptersRequested = true;
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) };
+        });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Null(episode.Chapters);
+        Assert.False(chaptersRequested);
+    }
+
     [Fact]
     public async Task FetchAsync_LeavesChaptersNullWhenTagAbsent()
     {

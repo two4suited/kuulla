@@ -71,11 +71,64 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
         // Where(AudioUrl) regardless, so fetching its chapters would just be a wasted HTTP request
         // (and a spurious warning log on failure) for something that's discarded either way.
         var chaptersUrl = item.Element(PodcastNamespace + "chapters")?.Attribute("url")?.Value;
-        var chapters = !string.IsNullOrEmpty(chaptersUrl) && !string.IsNullOrEmpty(audioUrl)
-            ? await FetchChaptersAsync(chaptersUrl, cancellationToken)
+        var chapters = !string.IsNullOrEmpty(audioUrl) && IsFetchableChaptersUrl(chaptersUrl, out var chaptersUri)
+            ? await FetchChaptersAsync(chaptersUri, cancellationToken)
             : null;
 
         return new Episode(id, ShowId: string.Empty, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes, chapters);
+    }
+
+    // chaptersUrl comes straight from feed XML that a third party controls — reject anything that
+    // isn't an absolute http(s) URL pointed at a public host before this server fetches it, rather
+    // than relying on the request itself to fail for a bad scheme, and to cut down SSRF exposure
+    // to internal/loopback addresses.
+    private static bool IsFetchableChaptersUrl(string? chaptersUrl, out Uri uri)
+    {
+        uri = null!;
+        if (string.IsNullOrEmpty(chaptersUrl) || !Uri.TryCreate(chaptersUrl, UriKind.Absolute, out var parsed))
+        {
+            return false;
+        }
+
+        if (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
+        if (Uri.CheckHostName(parsed.Host) == UriHostNameType.IPv4 || Uri.CheckHostName(parsed.Host) == UriHostNameType.IPv6)
+        {
+            if (IPAddress.TryParse(parsed.Host, out var address) && IsPrivateOrLoopback(address))
+            {
+                return false;
+            }
+        }
+        else if (parsed.IsLoopback || string.Equals(parsed.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        uri = parsed;
+        return true;
+    }
+
+    private static bool IsPrivateOrLoopback(IPAddress address)
+    {
+        if (IPAddress.IsLoopback(address))
+        {
+            return true;
+        }
+
+        var bytes = address.GetAddressBytes();
+        return address.AddressFamily switch
+        {
+            System.Net.Sockets.AddressFamily.InterNetwork =>
+                bytes[0] == 10
+                || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
+                || (bytes[0] == 192 && bytes[1] == 168)
+                || (bytes[0] == 169 && bytes[1] == 254), // link-local
+            System.Net.Sockets.AddressFamily.InterNetworkV6 => address.IsIPv6LinkLocal || address.IsIPv6SiteLocal,
+            _ => false,
+        };
     }
 
     // podcast:chapters points at an externally-hosted JSON document — fetched best-effort so a
@@ -84,7 +137,7 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
     // { "chapters": [...] } object, but some feeds serve a bare top-level array instead — both
     // are accepted here. A single malformed chapter entry (e.g. a non-numeric startTime) is
     // skipped rather than discarding every chapter in the document.
-    private async Task<IReadOnlyList<EpisodeChapter>?> FetchChaptersAsync(string chaptersUrl, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<EpisodeChapter>?> FetchChaptersAsync(Uri chaptersUrl, CancellationToken cancellationToken)
     {
         try
         {
