@@ -241,6 +241,10 @@ public class PodcastFeedClientTests
     [InlineData("http://[ff02::1]/chapters.json")] // IPv6 multicast
     [InlineData("http://100.64.0.1/chapters.json")] // CGNAT (100.64.0.0/10)
     [InlineData("http://198.18.0.1/chapters.json")] // benchmarking (198.18.0.0/15)
+    [InlineData("http://192.0.2.1/chapters.json")] // TEST-NET-1
+    [InlineData("http://198.51.100.1/chapters.json")] // TEST-NET-2
+    [InlineData("http://203.0.113.1/chapters.json")] // TEST-NET-3
+    [InlineData("http://[2001:db8::1]/chapters.json")] // IPv6 documentation range
     [InlineData("ftp://feed.example/chapters.json")]
     [InlineData("not-a-url")]
     public async Task FetchAsync_DoesNotFetchChaptersFromUnsafeUrl(string unsafeChaptersUrl)

@@ -164,12 +164,17 @@ public class PodcastFeedClient(
                 || (bytes[0] == 169 && bytes[1] == 254) // link-local
                 || (bytes[0] == 100 && bytes[1] is >= 64 and <= 127) // CGNAT (100.64.0.0/10)
                 || (bytes[0] == 198 && bytes[1] is 18 or 19) // benchmarking (198.18.0.0/15)
+                || (bytes[0] == 192 && bytes[1] == 0 && bytes[2] == 2) // TEST-NET-1 (192.0.2.0/24)
+                || (bytes[0] == 198 && bytes[1] == 51 && bytes[2] == 100) // TEST-NET-2 (198.51.100.0/24)
+                || (bytes[0] == 203 && bytes[1] == 0 && bytes[2] == 113) // TEST-NET-3 (203.0.113.0/24)
                 || bytes[0] is >= 224 and <= 255, // multicast (224-239) + reserved Class E (240-255)
             // fc00::/7 (unique-local) covers both defined fc00::/8 and fd00::/8 blocks — checking
             // the top 7 bits directly rather than IsIPv6SiteLocal, which only recognizes the older,
-            // deprecated fec0::/10 site-local range and misses unique-local entirely.
+            // deprecated fec0::/10 site-local range and misses unique-local entirely. The explicit
+            // byte check is the IPv6 documentation range (2001:db8::/32).
             AddressFamily.InterNetworkV6 =>
-                address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || (bytes[0] & 0xFE) == 0xFC,
+                address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || (bytes[0] & 0xFE) == 0xFC
+                || (bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0D && bytes[3] == 0xB8),
             _ => false,
         };
     }
