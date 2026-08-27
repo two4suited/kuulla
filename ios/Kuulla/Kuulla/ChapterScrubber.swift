@@ -103,6 +103,11 @@ struct ChapterScrubber: View {
                             .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)
+                        // The tap action switches between seeking and opening a link depending on
+                        // whether this row is active + has a URL — VoiceOver only reads the title
+                        // and time otherwise, with no way to tell which action activating it will
+                        // take.
+                        .accessibilityHint(ChapterScrubber.tapAction(for: chapter, isActive: index == activeChapterIndex).accessibilityHint)
                     }
                 }
                 .padding(.top, 4)
@@ -144,6 +149,13 @@ struct ChapterScrubber: View {
     enum TapAction: Equatable {
         case seek(TimeInterval)
         case openLink(URL)
+
+        var accessibilityHint: String {
+            switch self {
+            case .seek: "Seeks to this chapter."
+            case .openLink: "Opens this chapter's link."
+            }
+        }
     }
 
     // Pulled out as a pure static function (mirroring activeChapterIndex above) so the

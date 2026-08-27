@@ -107,4 +107,11 @@ final class ChapterScrubberTests: XCTestCase {
 
         XCTAssertEqual(ChapterScrubber.tapAction(for: chapter, isActive: true), .seek(60))
     }
+
+    func testTapActionAccessibilityHintDistinguishesSeekFromOpenLink() {
+        XCTAssertEqual(ChapterScrubber.TapAction.seek(60).accessibilityHint, "Seeks to this chapter.")
+        XCTAssertEqual(
+            ChapterScrubber.TapAction.openLink(URL(string: "https://sponsor.example")!).accessibilityHint,
+            "Opens this chapter's link.")
+    }
 }
