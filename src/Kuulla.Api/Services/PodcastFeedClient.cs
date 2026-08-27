@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -13,7 +12,6 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
 {
     private static readonly XNamespace ItunesNamespace = "http://www.itunes.com/dtds/podcast-1.0.dtd";
     private static readonly XNamespace PodcastNamespace = "https://podcastindex.org/namespace/1.0";
-    private static readonly JsonSerializerOptions ChaptersJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)
     {
@@ -76,15 +74,35 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
 
     // podcast:chapters points at an externally-hosted JSON document — fetched best-effort so a
     // slow or broken chapters URL can't fail the whole feed parse (the episode itself is still
-    // perfectly usable without chapter markers).
+    // perfectly usable without chapter markers). The spec's documented shape is a wrapped
+    // { "chapters": [...] } object, but some feeds serve a bare top-level array instead — both
+    // are accepted here. A single malformed chapter entry (e.g. a non-numeric startTime) is
+    // skipped rather than discarding every chapter in the document.
     private async Task<IReadOnlyList<EpisodeChapter>?> FetchChaptersAsync(string chaptersUrl, CancellationToken cancellationToken)
     {
         try
         {
-            var document = await httpClient.GetFromJsonAsync<ChaptersDocument>(chaptersUrl, ChaptersJsonOptions, cancellationToken);
-            return document?.Chapters?
-                .Select(c => new EpisodeChapter(TimeSpan.FromSeconds(c.StartTime), c.Title ?? string.Empty, c.Img, c.Url))
-                .ToList();
+            using var stream = await httpClient.GetStreamAsync(chaptersUrl, cancellationToken);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            var chaptersElement = document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement
+                : document.RootElement.TryGetProperty("chapters", out var nested) ? nested : default;
+
+            if (chaptersElement.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            var chapters = new List<EpisodeChapter>();
+            foreach (var chapterElement in chaptersElement.EnumerateArray())
+            {
+                if (TryParseChapter(chapterElement, out var chapter))
+                {
+                    chapters.Add(chapter);
+                }
+            }
+
+            return chapters;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -93,9 +111,28 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
         }
     }
 
-    private record ChaptersDocument(List<ChapterEntry>? Chapters);
+    private static bool TryParseChapter(JsonElement element, out EpisodeChapter chapter)
+    {
+        chapter = null!;
+        if (!element.TryGetProperty("startTime", out var startTimeElement)
+            || !startTimeElement.TryGetDouble(out var startTimeSeconds))
+        {
+            return false;
+        }
 
-    private record ChapterEntry(double StartTime, string? Title, string? Img, string? Url);
+        var title = element.TryGetProperty("title", out var titleElement) && titleElement.ValueKind == JsonValueKind.String
+            ? titleElement.GetString()
+            : null;
+        var img = element.TryGetProperty("img", out var imgElement) && imgElement.ValueKind == JsonValueKind.String
+            ? imgElement.GetString()
+            : null;
+        var url = element.TryGetProperty("url", out var urlElement) && urlElement.ValueKind == JsonValueKind.String
+            ? urlElement.GetString()
+            : null;
+
+        chapter = new EpisodeChapter(TimeSpan.FromSeconds(startTimeSeconds), title ?? string.Empty, img, url);
+        return true;
+    }
 
     // itunes:duration is either plain seconds ("1800") or "HH:MM:SS" / "MM:SS".
     private static TimeSpan? ParseDuration(string? raw)
