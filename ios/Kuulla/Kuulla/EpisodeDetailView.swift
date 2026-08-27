@@ -280,7 +280,13 @@ struct EpisodeDetailView: View {
         }
         .sheet(isPresented: Binding(get: { chapterLinkURL != nil }, set: { if !$0 { chapterLinkURL = nil } })) {
             if let chapterLinkURL {
+                // SFSafariViewController's URL can't be changed after init, and
+                // updateUIViewController is a no-op — without .id, SwiftUI can reuse the same
+                // underlying controller across presentations and show a stale URL if the user
+                // opens a different chapter's link later. .id forces a fresh controller whenever
+                // the URL changes.
                 SafariView(url: chapterLinkURL)
+                    .id(chapterLinkURL)
             }
         }
         .task(id: episodeId) {
