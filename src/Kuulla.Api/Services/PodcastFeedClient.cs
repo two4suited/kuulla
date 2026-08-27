@@ -114,8 +114,15 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
     private static bool TryParseChapter(JsonElement element, out EpisodeChapter chapter)
     {
         chapter = null!;
+        // Finite-and-in-range check before TimeSpan.FromSeconds, rather than a try/catch around
+        // it — an out-of-range or non-finite value (NaN, an absurdly large number) would otherwise
+        // throw ArgumentException/OverflowException, and since that propagates out of this method
+        // it's the caller's foreach loop — not just this one entry — that would stop.
         if (!element.TryGetProperty("startTime", out var startTimeElement)
-            || !startTimeElement.TryGetDouble(out var startTimeSeconds))
+            || !startTimeElement.TryGetDouble(out var startTimeSeconds)
+            || !double.IsFinite(startTimeSeconds)
+            || startTimeSeconds < TimeSpan.MinValue.TotalSeconds
+            || startTimeSeconds > TimeSpan.MaxValue.TotalSeconds)
         {
             return false;
         }
