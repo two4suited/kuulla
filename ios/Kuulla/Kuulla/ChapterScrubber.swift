@@ -84,10 +84,11 @@ struct ChapterScrubber: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
                         Button {
-                            if index == activeChapterIndex, let url = chapter.url.flatMap(URL.init) {
+                            switch ChapterScrubber.tapAction(for: chapter, isActive: index == activeChapterIndex) {
+                            case .openLink(let url):
                                 onOpenLink(url)
-                            } else {
-                                onSeek(chapter.startTime)
+                            case .seek(let startTime):
+                                onSeek(startTime)
                             }
                         } label: {
                             HStack {
@@ -137,5 +138,19 @@ struct ChapterScrubber: View {
         // `trackWidth - tickWidth` negative and let a negative offset through.
         let maxOffset = max(trackWidth - tickWidth, 0)
         return min(max(rawOffset, 0), maxOffset)
+    }
+
+    enum TapAction: Equatable {
+        case seek(TimeInterval)
+        case openLink(URL)
+    }
+
+    // Pulled out as a pure static function (mirroring activeChapterIndex above) so the
+    // seek-vs-open-link decision is unit-testable without going through the SwiftUI Button action.
+    static func tapAction(for chapter: EpisodeChapter, isActive: Bool) -> TapAction {
+        if isActive, let urlString = chapter.url, let url = URL(string: urlString) {
+            return .openLink(url)
+        }
+        return .seek(chapter.startTime)
     }
 }
