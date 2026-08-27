@@ -83,4 +83,12 @@ final class EpisodeDecodingTests: XCTestCase {
         XCTAssertEqual(episode.chapters?[1].imageUrl, "https://example.com/art.jpg")
         XCTAssertEqual(episode.chapters?[1].url, "https://sponsor.example")
     }
+
+    func testChapterWithInvalidStartTimeFailsToDecode() {
+        let json = """
+        { "startTime": "not-a-timespan", "title": "Intro", "imageUrl": null, "url": null }
+        """.data(using: .utf8)!
+
+        XCTAssertThrowsError(try JSONDecoder().decode(EpisodeChapter.self, from: json))
+    }
 }
