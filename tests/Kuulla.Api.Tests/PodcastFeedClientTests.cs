@@ -234,6 +234,11 @@ public class PodcastFeedClientTests
     [InlineData("http://192.168.1.1/chapters.json")]
     [InlineData("http://[fd12:3456:789a::1]/chapters.json")] // IPv6 unique-local (fc00::/7)
     [InlineData("http://[::ffff:10.0.0.1]/chapters.json")] // IPv4-mapped IPv6
+    [InlineData("http://0.0.0.0/chapters.json")] // "this network"
+    [InlineData("http://224.0.0.1/chapters.json")] // IPv4 multicast
+    [InlineData("http://240.0.0.1/chapters.json")] // reserved Class E
+    [InlineData("http://[::]/chapters.json")] // IPv6 unspecified
+    [InlineData("http://[ff02::1]/chapters.json")] // IPv6 multicast
     [InlineData("ftp://feed.example/chapters.json")]
     [InlineData("not-a-url")]
     public async Task FetchAsync_DoesNotFetchChaptersFromUnsafeUrl(string unsafeChaptersUrl)

@@ -148,14 +148,21 @@ public class PodcastFeedClient(
             return true;
         }
 
+        if (IPAddress.Any.Equals(address) || IPAddress.IPv6Any.Equals(address) || address.IsIPv6Multicast)
+        {
+            return true;
+        }
+
         var bytes = address.GetAddressBytes();
         return address.AddressFamily switch
         {
             AddressFamily.InterNetwork =>
-                bytes[0] == 10
+                bytes[0] == 0 // "this network" (includes 0.0.0.0)
+                || bytes[0] == 10
                 || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
                 || (bytes[0] == 192 && bytes[1] == 168)
-                || (bytes[0] == 169 && bytes[1] == 254), // link-local
+                || (bytes[0] == 169 && bytes[1] == 254) // link-local
+                || bytes[0] is >= 224 and <= 255, // multicast (224-239) + reserved Class E (240-255)
             // fc00::/7 (unique-local) covers both defined fc00::/8 and fd00::/8 blocks — checking
             // the top 7 bits directly rather than IsIPv6SiteLocal, which only recognizes the older,
             // deprecated fec0::/10 site-local range and misses unique-local entirely.
