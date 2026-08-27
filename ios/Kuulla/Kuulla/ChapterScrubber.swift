@@ -117,6 +117,10 @@ struct ChapterScrubber: View {
     // track altogether.
     static func tickOffset(startTime: TimeInterval, duration: TimeInterval, trackWidth: CGFloat) -> CGFloat {
         let rawOffset = trackWidth * CGFloat(startTime / duration)
-        return min(max(rawOffset, 0), trackWidth - tickWidth)
+        // The upper bound itself is clamped to >= 0 — trackWidth can be 0 (or smaller than
+        // tickWidth) during initial layout/transitions, which would otherwise make
+        // `trackWidth - tickWidth` negative and let a negative offset through.
+        let maxOffset = max(trackWidth - tickWidth, 0)
+        return min(max(rawOffset, 0), maxOffset)
     }
 }

@@ -58,4 +58,11 @@ final class ChapterScrubberTests: XCTestCase {
     func testTickOffsetClampsNegativeStartTime() {
         XCTAssertEqual(ChapterScrubber.tickOffset(startTime: -10, duration: 100, trackWidth: 200), 0)
     }
+
+    func testTickOffsetDoesNotGoNegativeWhenTrackNarrowerThanTick() {
+        // trackWidth - tickWidth would be negative here without the extra max(..., 0) clamp on
+        // the upper bound itself.
+        XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 0, duration: 100, trackWidth: 1), 0)
+        XCTAssertEqual(ChapterScrubber.tickOffset(startTime: 50, duration: 100, trackWidth: 1), 0)
+    }
 }
