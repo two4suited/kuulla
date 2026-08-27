@@ -119,9 +119,10 @@ public class PodcastFeedClient(
             return null;
         }
 
-        // Reject userinfo (https://user:pass@host/...) outright — GetStreamAsync would send it as
-        // part of the request, and this URL comes from an untrusted feed, so a crafted one could
-        // otherwise leak credentials into the warning log below on a failed fetch.
+        // Reject userinfo (a URL of the form https://<user>:<pass>@host/...) outright —
+        // GetStreamAsync would send it as part of the request, and this URL comes from an
+        // untrusted feed, so a crafted one could otherwise leak credentials into the warning log
+        // below on a failed fetch.
         if (!string.IsNullOrEmpty(parsed.UserInfo))
         {
             return null;
