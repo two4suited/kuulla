@@ -61,6 +61,24 @@ public class PodcastCatalogClient(KuullaApiClient apiClient)
         return await response.Content.ReadFromJsonAsync<Episode>(JsonOptions, cancellationToken);
     }
 
+    // Timed transcript segments for an episode, or null when the episode has no transcript (the
+    // API returns 404 for "no podcast:transcript tag" and "referenced document unparseable" alike).
+    public async Task<TranscriptDocument?> GetEpisodeTranscriptAsync(
+        string showId, string episodeId, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.GetAsync(
+            $"api/shows/{Uri.EscapeDataString(showId)}/episodes/{Uri.EscapeDataString(episodeId)}/transcript",
+            cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<TranscriptDocument>(JsonOptions, cancellationToken);
+    }
+
     public async Task<DiscoveryOverview> GetDiscoveryOverviewAsync(CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();

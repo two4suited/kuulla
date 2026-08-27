@@ -79,13 +79,73 @@ else
                     {
                         <img src="@chapter.ImageUrl" alt="" width="40" height="40" class="rounded flex-shrink-0" style="object-fit: cover;" />
                     }
-                    <button type="button" class="btn btn-link text-start flex-grow-1 text-decoration-none p-0" @onclick="() => SeekToChapterAsync(chapter.StartTime)">
+                    <button type="button" class="btn btn-link text-start flex-grow-1 text-decoration-none p-0" @onclick="() => SeekToAsync(chapter.StartTime)">
                         @chapter.Title
                     </button>
                     <span class="text-muted small flex-shrink-0">@EpisodeFormatting.FormatDuration(chapter.StartTime)</span>
                 </li>
             }
         </ul>
+    }
+
+    @if (ShowTranscriptSection)
+    {
+        <h2>Transcript</h2>
+        @if (isTranscriptLoading)
+        {
+            <p class="text-muted">Loading transcript&hellip;</p>
+        }
+        else if (transcript is { Segments.Count: > 0 })
+        {
+            var filtered = FilteredSegments;
+
+            <input type="search" class="form-control mb-2" placeholder="Search transcript"
+                   @bind="transcriptSearch" @bind:event="oninput" aria-label="Search transcript" />
+
+            @if (!string.IsNullOrWhiteSpace(transcriptSearch))
+            {
+                <p class="text-muted small mb-2">
+                    @filtered.Count @(filtered.Count == 1 ? "match" : "matches")
+                </p>
+            }
+
+            @if (filtered.Count == 0)
+            {
+                <p class="text-muted mb-4">No matching lines.</p>
+            }
+            else
+            {
+                <ol class="list-unstyled mb-4">
+                    @foreach (var segment in filtered)
+                    {
+                        <li class="d-flex gap-2 mb-1">
+                            <button type="button"
+                                    class="btn btn-link p-0 text-decoration-none flex-shrink-0 font-monospace small align-self-start"
+                                    @onclick="() => SeekToAsync(segment.StartTime)">
+                                @EpisodeFormatting.FormatDuration(segment.StartTime)
+                            </button>
+                            <span>
+                                @foreach (var part in HighlightMatches(segment.Text, transcriptSearch))
+                                {
+                                    if (part.Highlight)
+                                    {
+                                        <mark>@part.Text</mark>
+                                    }
+                                    else
+                                    {
+                                        @part.Text
+                                    }
+                                }
+                            </span>
+                        </li>
+                    }
+                </ol>
+            }
+        }
+        else
+        {
+            <p class="text-muted mb-4">Transcript couldn&rsquo;t be loaded.</p>
+        }
     }
 
     @if (!string.IsNullOrEmpty(episode.Description))
@@ -122,6 +182,33 @@ else
     private string? stateError;
     private string? streamBlockedMessage;
 
+    private TranscriptDocument? transcript;
+    private bool isTranscriptLoading;
+    private bool transcriptLoadFailed;
+    private string transcriptSearch = "";
+
+    // Bumped on every OnParametersSetAsync so the fire-and-forget transcript load can tell whether
+    // its episode is still the one on screen before writing its result back.
+    private int _loadGeneration;
+
+    // Shown once the episode advertises a transcript AND we have something to render for it —
+    // segments, a spinner, or a load failure. A transcript tag whose document the API couldn't
+    // turn into segments (404, no error) just renders nothing rather than an empty section.
+    private bool ShowTranscriptSection =>
+        episode?.TranscriptUrl is not null
+        && (isTranscriptLoading || transcript is { Segments.Count: > 0 } || transcriptLoadFailed);
+
+    private IReadOnlyList<TranscriptSegment> FilteredSegments
+    {
+        get
+        {
+            var segments = transcript?.Segments ?? [];
+            return string.IsNullOrWhiteSpace(transcriptSearch)
+                ? segments
+                : segments.Where(s => s.Text.Contains(transcriptSearch, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+    }
+
     // Serializes PersistStateAsync calls so overlapping triggers (pause firing just before ended,
     // or a timeupdate racing the manual toggle) apply in invocation order rather than completion
     // order — otherwise a slower earlier call's response could land after and overwrite a later
@@ -140,12 +227,17 @@ else
     {
         await DisposeInteropAsync();
 
+        _loadGeneration++;
         episode = null;
         loadError = null;
         savedPositionSeconds = 0;
         isCompleted = false;
         isAutoPlayed = false;
         streamBlockedMessage = null;
+        transcript = null;
+        isTranscriptLoading = false;
+        transcriptLoadFailed = false;
+        transcriptSearch = "";
         isLoading = true;
         try
         {
@@ -180,6 +272,45 @@ else
         }
         catch (HttpRequestException)
         {
+        }
+
+        // Kicked off without awaiting so it never delays the episode's first paint — the API
+        // normalizes and caches the transcript, which can take a moment on a cold cache. The
+        // generation guard drops the result if the user navigated to another episode meanwhile.
+        if (episode.TranscriptUrl is not null)
+        {
+            isTranscriptLoading = true;
+            _ = LoadTranscriptAsync(ShowId, EpisodeId, _loadGeneration);
+        }
+    }
+
+    private async Task LoadTranscriptAsync(string showId, string episodeId, int generation)
+    {
+        try
+        {
+            var result = await CatalogClient.GetEpisodeTranscriptAsync(showId, episodeId);
+            if (generation == _loadGeneration)
+            {
+                transcript = result;
+            }
+        }
+        // Broad on purpose: this runs detached from the Blazor lifecycle, so any escape (a
+        // timeout's TaskCanceledException, a malformed-body JsonException, ...) would tear down the
+        // circuit rather than surface as a component error. The transcript is best-effort content.
+        catch (Exception)
+        {
+            if (generation == _loadGeneration)
+            {
+                transcriptLoadFailed = true;
+            }
+        }
+        finally
+        {
+            if (generation == _loadGeneration)
+            {
+                isTranscriptLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
 
@@ -292,8 +423,9 @@ else
 
     // No-ops (rather than erroring) if the JS interop watcher hasn't attached yet — OnAfterRenderAsync
     // only sets it up after the audio element exists, so a click racing that setup would otherwise
-    // throw a NullReferenceException instead of silently doing nothing.
-    private async Task SeekToChapterAsync(TimeSpan startTime)
+    // throw a NullReferenceException instead of silently doing nothing. Shared by the chapter list
+    // and the transcript segment list.
+    private async Task SeekToAsync(TimeSpan startTime)
     {
         if (_watcher is null)
         {
@@ -303,7 +435,44 @@ else
         await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("seekTo", startTime.TotalSeconds).AsTask());
     }
 
-    public async ValueTask DisposeAsync() => await DisposeInteropAsync();
+    // Splits a segment into alternating plain / matched runs so the view can wrap matches in
+    // <mark> — case-insensitive, matching FilteredSegments' Contains check. An empty query yields
+    // the whole string as a single non-highlighted run.
+    private static IEnumerable<(string Text, bool Highlight)> HighlightMatches(string text, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            yield return (text, false);
+            yield break;
+        }
+
+        var cursor = 0;
+        while (cursor < text.Length)
+        {
+            var matchIndex = text.IndexOf(query, cursor, StringComparison.OrdinalIgnoreCase);
+            if (matchIndex < 0)
+            {
+                yield return (text[cursor..], false);
+                yield break;
+            }
+
+            if (matchIndex > cursor)
+            {
+                yield return (text[cursor..matchIndex], false);
+            }
+
+            yield return (text.Substring(matchIndex, query.Length), true);
+            cursor = matchIndex + query.Length;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Also invalidates any in-flight LoadTranscriptAsync so its completion doesn't call
+        // StateHasChanged on a disposed component.
+        _loadGeneration++;
+        await DisposeInteropAsync();
+    }
 
     private async Task DisposeInteropAsync()
     {
