@@ -64,8 +64,11 @@ public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient>
         var guid = item.Element("guid")?.Value;
         var id = !string.IsNullOrEmpty(guid) ? Hash(guid) : Hash(audioUrl);
 
+        // Gated on audioUrl too — an item with no enclosure is filtered out by FetchAsync's
+        // Where(AudioUrl) regardless, so fetching its chapters would just be a wasted HTTP request
+        // (and a spurious warning log on failure) for something that's discarded either way.
         var chaptersUrl = item.Element(PodcastNamespace + "chapters")?.Attribute("url")?.Value;
-        var chapters = !string.IsNullOrEmpty(chaptersUrl)
+        var chapters = !string.IsNullOrEmpty(chaptersUrl) && !string.IsNullOrEmpty(audioUrl)
             ? await FetchChaptersAsync(chaptersUrl, cancellationToken)
             : null;
 

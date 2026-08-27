@@ -159,6 +159,33 @@ public class PodcastFeedClientTests
     }
 
     [Fact]
+    public async Task FetchAsync_DoesNotFetchChaptersForItemWithNoEnclosure()
+    {
+        var itemXml = $"""
+            <item>
+              <title>Not really an episode</title>
+              <podcast:chapters url="{ChaptersUrl}" type="application/json+chapters" />
+            </item>
+            """;
+        var chaptersRequested = false;
+        var sut = MakeSut(uri =>
+        {
+            if (uri.AbsoluteUri == ChaptersUrl)
+            {
+                chaptersRequested = true;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"chapters":[]}""") };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) };
+        });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        Assert.Empty(feed!.Episodes);
+        Assert.False(chaptersRequested);
+    }
+
+    [Fact]
     public async Task FetchAsync_LeavesChaptersNullWhenTagAbsent()
     {
         var itemXml = """
