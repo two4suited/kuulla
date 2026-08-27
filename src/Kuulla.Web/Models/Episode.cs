@@ -9,4 +9,11 @@ public record Episode(
     string AudioUrl,
     string? Description,
     int? BitrateKbps,
-    long? FileSizeBytes);
+    long? FileSizeBytes,
+    IReadOnlyList<EpisodeChapter>? Chapters = null);
+
+public record EpisodeChapter(
+    TimeSpan StartTime,
+    string Title,
+    string? ImageUrl,
+    string? Url);
