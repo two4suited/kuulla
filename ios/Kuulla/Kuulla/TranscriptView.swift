@@ -98,7 +98,10 @@ struct TranscriptView: View {
             onSeek(segments[index].startTime)
         } label: {
             TranscriptRow(
-                text: highlighted(segments[index].text),
+                text: segments[index].text,
+                // Only non-nil while searching, so the non-search path never builds an
+                // AttributedString (this view re-renders on every playback tick).
+                highlight: isSearching ? trimmedQuery : nil,
                 startTime: segments[index].startTime,
                 isActive: index == activePlaybackIndex || index == selectedMatchIndex)
         }
@@ -172,23 +175,13 @@ struct TranscriptView: View {
         }
     }
 
-    private func highlighted(_ text: String) -> AttributedString {
-        var attributed = AttributedString(text)
-        guard isSearching else { return attributed }
-
-        var searchStart = attributed.startIndex
-        while searchStart < attributed.endIndex,
-              let range = attributed[searchStart...].range(of: trimmedQuery, options: TranscriptSearch.options) {
-            attributed[range].backgroundColor = Color.yellow.opacity(0.4)
-            attributed[range].inlinePresentationIntent = .stronglyEmphasized
-            searchStart = range.upperBound
-        }
-        return attributed
-    }
 }
 
 private struct TranscriptRow: View {
-    let text: AttributedString
+    let text: String
+    // The trimmed search query when searching, nil otherwise. Only when non-nil is an
+    // AttributedString built to mark the matches.
+    let highlight: String?
     let startTime: TimeInterval
     let isActive: Bool
 
@@ -199,7 +192,7 @@ private struct TranscriptRow: View {
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 44, alignment: .leading)
 
-            Text(text)
+            lineText
                 .font(isActive ? .body.weight(.semibold) : .body)
                 .foregroundStyle(isActive ? Color.accentColor : .primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -210,5 +203,24 @@ private struct TranscriptRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Seeks to this point in the episode.")
+    }
+
+    private var lineText: Text {
+        if let highlight, !highlight.isEmpty {
+            return Text(Self.highlighted(text, query: highlight))
+        }
+        return Text(text)
+    }
+
+    private static func highlighted(_ text: String, query: String) -> AttributedString {
+        var attributed = AttributedString(text)
+        var searchStart = attributed.startIndex
+        while searchStart < attributed.endIndex,
+              let range = attributed[searchStart...].range(of: query, options: TranscriptSearch.options) {
+            attributed[range].backgroundColor = Color.yellow.opacity(0.4)
+            attributed[range].inlinePresentationIntent = .stronglyEmphasized
+            searchStart = range.upperBound
+        }
+        return attributed
     }
 }
