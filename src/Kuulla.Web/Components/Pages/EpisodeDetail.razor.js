@@ -87,6 +87,10 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     audioEl.addEventListener("play", onPlay);
 
     return {
+        // Called from a chapter list click — jumps playback to that chapter's start time.
+        seekTo(seconds) {
+            audioEl.currentTime = seconds;
+        },
         dispose() {
             audioEl.removeEventListener("loadedmetadata", onLoadedMetadata);
             audioEl.removeEventListener("timeupdate", onTimeUpdate);

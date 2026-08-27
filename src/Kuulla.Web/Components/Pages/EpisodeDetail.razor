@@ -68,6 +68,26 @@ else
         <p class="text-danger">@stateError</p>
     }
 
+    @if (episode.Chapters is { Count: > 0 } chapters)
+    {
+        <h2>Chapters</h2>
+        <ul class="list-group mb-4">
+            @foreach (var chapter in chapters)
+            {
+                <li class="list-group-item d-flex align-items-center gap-2">
+                    @if (!string.IsNullOrEmpty(chapter.ImageUrl))
+                    {
+                        <img src="@chapter.ImageUrl" alt="" width="40" height="40" class="rounded flex-shrink-0" style="object-fit: cover;" />
+                    }
+                    <button type="button" class="btn btn-link text-start flex-grow-1 text-decoration-none p-0" @onclick="() => SeekToChapterAsync(chapter.StartTime)">
+                        @chapter.Title
+                    </button>
+                    <span class="text-muted small flex-shrink-0">@EpisodeFormatting.FormatDuration(chapter.StartTime)</span>
+                </li>
+            }
+        </ul>
+    }
+
     @if (!string.IsNullOrEmpty(episode.Description))
     {
         <h2>Show notes</h2>
@@ -268,6 +288,19 @@ else
             _persistGate.Release();
             StateHasChanged();
         }
+    }
+
+    // No-ops (rather than erroring) if the JS interop watcher hasn't attached yet — OnAfterRenderAsync
+    // only sets it up after the audio element exists, so a click racing that setup would otherwise
+    // throw a NullReferenceException instead of silently doing nothing.
+    private async Task SeekToChapterAsync(TimeSpan startTime)
+    {
+        if (_watcher is null)
+        {
+            return;
+        }
+
+        await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("seekTo", startTime.TotalSeconds).AsTask());
     }
 
     public async ValueTask DisposeAsync() => await DisposeInteropAsync();
