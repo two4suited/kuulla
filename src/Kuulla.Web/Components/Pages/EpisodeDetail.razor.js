@@ -87,6 +87,19 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     audioEl.addEventListener("play", onPlay);
 
     return {
+        // Called from a chapter list click — jumps playback to that chapter's start time.
+        // Best-effort: setting currentTime can throw (e.g. metadata not loaded yet, a
+        // non-finite/negative value), and a chapter click isn't worth surfacing an interop error to
+        // the user over — clamp to what's known to be valid and swallow anything else that throws.
+        seekTo(seconds) {
+            try {
+                const duration = audioEl.duration;
+                const clamped = Number.isFinite(duration) ? Math.min(Math.max(seconds, 0), duration) : Math.max(seconds, 0);
+                audioEl.currentTime = clamped;
+            } catch (e) {
+                // Nothing to recover — the click simply doesn't seek.
+            }
+        },
         dispose() {
             audioEl.removeEventListener("loadedmetadata", onLoadedMetadata);
             audioEl.removeEventListener("timeupdate", onTimeUpdate);
