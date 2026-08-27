@@ -17,4 +17,9 @@ public record Episode(
     string? Description,
     int? BitrateKbps,
     long? FileSizeBytes,
-    IReadOnlyList<EpisodeChapter>? Chapters = null);
+    IReadOnlyList<EpisodeChapter>? Chapters = null,
+    // From Podcasting 2.0's <podcast:transcript>. TranscriptType is the tag's declared MIME type
+    // (e.g. "application/json", "application/x-subrip", "text/vtt") — kept so the transcript
+    // endpoint knows how to parse the document without sniffing.
+    string? TranscriptUrl = null,
+    string? TranscriptType = null);
