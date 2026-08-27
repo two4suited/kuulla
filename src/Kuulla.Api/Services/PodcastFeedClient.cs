@@ -1,15 +1,19 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Kuulla.Api.Models;
 
 namespace Kuulla.Api.Services;
 
-public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
+public class PodcastFeedClient(HttpClient httpClient, ILogger<PodcastFeedClient> logger) : IPodcastFeedClient
 {
     private static readonly XNamespace ItunesNamespace = "http://www.itunes.com/dtds/podcast-1.0.dtd";
+    private static readonly XNamespace PodcastNamespace = "https://podcastindex.org/namespace/1.0";
+    private static readonly JsonSerializerOptions ChaptersJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)
     {
@@ -25,15 +29,21 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
             channel.Element(ItunesNamespace + "summary")?.Value,
             channel.Element("description")?.Value));
 
-        var episodes = channel.Elements("item")
-            .Select(ParseEpisode)
+        var items = channel.Elements("item").ToList();
+        var parsedEpisodes = new Episode[items.Count];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, items.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
+            async (i, ct) => parsedEpisodes[i] = await ParseEpisodeAsync(items[i], ct));
+
+        var episodes = parsedEpisodes
             .Where(episode => !string.IsNullOrEmpty(episode.AudioUrl))
             .ToList();
 
         return new PodcastFeedContent(description, episodes);
     }
 
-    private static Episode ParseEpisode(XElement item)
+    private async Task<Episode> ParseEpisodeAsync(XElement item, CancellationToken cancellationToken)
     {
         var enclosure = item.Element("enclosure");
         var audioUrl = enclosure?.Attribute("url")?.Value ?? string.Empty;
@@ -56,8 +66,36 @@ public class PodcastFeedClient(HttpClient httpClient) : IPodcastFeedClient
         var guid = item.Element("guid")?.Value;
         var id = !string.IsNullOrEmpty(guid) ? Hash(guid) : Hash(audioUrl);
 
-        return new Episode(id, ShowId: string.Empty, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes);
+        var chaptersUrl = item.Element(PodcastNamespace + "chapters")?.Attribute("url")?.Value;
+        var chapters = !string.IsNullOrEmpty(chaptersUrl)
+            ? await FetchChaptersAsync(chaptersUrl, cancellationToken)
+            : null;
+
+        return new Episode(id, ShowId: string.Empty, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes, chapters);
     }
+
+    // podcast:chapters points at an externally-hosted JSON document — fetched best-effort so a
+    // slow or broken chapters URL can't fail the whole feed parse (the episode itself is still
+    // perfectly usable without chapter markers).
+    private async Task<IReadOnlyList<EpisodeChapter>?> FetchChaptersAsync(string chaptersUrl, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var document = await httpClient.GetFromJsonAsync<ChaptersDocument>(chaptersUrl, ChaptersJsonOptions, cancellationToken);
+            return document?.Chapters?
+                .Select(c => new EpisodeChapter(TimeSpan.FromSeconds(c.StartTime), c.Title ?? string.Empty, c.Img, c.Url))
+                .ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to fetch podcast:chapters from {ChaptersUrl}", chaptersUrl);
+            return null;
+        }
+    }
+
+    private record ChaptersDocument(List<ChapterEntry>? Chapters);
+
+    private record ChapterEntry(double StartTime, string? Title, string? Img, string? Url);
 
     // itunes:duration is either plain seconds ("1800") or "HH:MM:SS" / "MM:SS".
     private static TimeSpan? ParseDuration(string? raw)
