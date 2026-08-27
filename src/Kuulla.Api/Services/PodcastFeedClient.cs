@@ -38,16 +38,18 @@ public class PodcastFeedClient(
     // to first use — a caller that skips both sendChaptersRequestAsync and httpClientFactory (real
     // DI always supplies the latter; only a hand-built instance without either could hit this) gets
     // an immediate, self-explanatory error instead of a NullReferenceException on the first fetch.
+    // Parameter named distinctly from the primary constructor's httpClientFactory — nameof(httpClientFactory)
+    // in the message below must keep referring to the constructor parameter even if this one is renamed.
     private static Func<Uri, CancellationToken, Task<HttpResponseMessage>> MakeDefaultSendChaptersRequestAsync(
-        IHttpClientFactory? httpClientFactory)
+        IHttpClientFactory? factory)
     {
-        if (httpClientFactory is null)
+        if (factory is null)
         {
             throw new InvalidOperationException(
                 $"{nameof(PodcastFeedClient)} requires either {nameof(sendChaptersRequestAsync)} or {nameof(httpClientFactory)} to be provided.");
         }
 
-        return (uri, ct) => httpClientFactory.CreateClient("chapters").GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+        return (uri, ct) => factory.CreateClient("chapters").GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
     }
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)

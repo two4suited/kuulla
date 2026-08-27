@@ -34,7 +34,10 @@ public class PodcastFeedClientTests
     {
         var httpClient = new HttpClient(TestHttpMessageHandler.Routed(_ => new HttpResponseMessage(HttpStatusCode.OK)));
 
-        Assert.Throws<InvalidOperationException>(() => new PodcastFeedClient(httpClient, NullLogger<PodcastFeedClient>.Instance));
+        var ex = Assert.Throws<InvalidOperationException>(() => new PodcastFeedClient(httpClient, NullLogger<PodcastFeedClient>.Instance));
+
+        Assert.Contains("sendChaptersRequestAsync", ex.Message);
+        Assert.Contains("httpClientFactory", ex.Message);
     }
 
     private static string FeedXml(string itemXml) => $"""
