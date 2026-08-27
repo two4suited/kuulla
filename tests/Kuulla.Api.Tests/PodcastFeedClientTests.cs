@@ -29,6 +29,17 @@ public class PodcastFeedClientTests
             sendChaptersRequestAsync ?? ((uri, _) => Task.FromResult(route(uri))));
     }
 
+    [Fact]
+    public void Constructor_ThrowsWhenNeitherSendChaptersRequestAsyncNorHttpClientFactoryIsProvided()
+    {
+        var httpClient = new HttpClient(TestHttpMessageHandler.Routed(_ => new HttpResponseMessage(HttpStatusCode.OK)));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new PodcastFeedClient(httpClient, NullLogger<PodcastFeedClient>.Instance));
+
+        Assert.Contains("sendChaptersRequestAsync", ex.Message);
+        Assert.Contains("httpClientFactory", ex.Message);
+    }
+
     private static string FeedXml(string itemXml) => $"""
         <?xml version="1.0"?>
         <rss xmlns:podcast="https://podcastindex.org/namespace/1.0">
