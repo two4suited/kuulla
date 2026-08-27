@@ -16,12 +16,17 @@ public class PodcastFeedClientTests
 
     private static PodcastFeedClient MakeSut(
         Func<Uri, HttpResponseMessage> route,
-        Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null)
+        Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null,
+        Func<Uri, CancellationToken, Task<HttpResponseMessage>>? sendChaptersRequestAsync = null)
     {
         var httpClient = new HttpClient(TestHttpMessageHandler.Routed(route));
         return new PodcastFeedClient(
             httpClient, NullLogger<PodcastFeedClient>.Instance,
-            hostResolver ?? ((_, _) => Task.FromResult(new[] { PublicTestAddress })));
+            hostResolver ?? ((_, _) => Task.FromResult(new[] { PublicTestAddress })),
+            // Defaults to routing straight through the same `route` function used for the feed
+            // XML fetch above, so every existing chapters test (none of which exercise redirects)
+            // keeps working unchanged — a test that needs to simulate a redirect passes its own.
+            sendChaptersRequestAsync ?? ((uri, _) => Task.FromResult(route(uri))));
     }
 
     private static string FeedXml(string itemXml) => $"""
@@ -273,6 +278,80 @@ public class PodcastFeedClientTests
         var episode = Assert.Single(feed!.Episodes);
         Assert.Null(episode.Chapters);
         Assert.False(chaptersRequested);
+    }
+
+    [Fact]
+    public async Task FetchAsync_RejectsChaptersUrlThatRedirectsToAPrivateAddress()
+    {
+        var itemXml = $"""
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:chapters url="{ChaptersUrl}" type="application/json+chapters" />
+            </item>
+            """;
+        const string internalUrl = "http://10.0.0.5/chapters.json";
+        var internalRequested = false;
+
+        var sut = MakeSut(
+            uri => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) },
+            sendChaptersRequestAsync: (uri, _) =>
+            {
+                if (uri.AbsoluteUri == ChaptersUrl)
+                {
+                    var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+                    redirect.Headers.Location = new Uri(internalUrl);
+                    return Task.FromResult(redirect);
+                }
+
+                internalRequested = true;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"chapters":[{"startTime":0,"title":"Intro"}]}"""),
+                });
+            });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.Null(episode.Chapters);
+        Assert.False(internalRequested);
+    }
+
+    [Fact]
+    public async Task FetchAsync_FollowsChaptersRedirectToAPublicAddress()
+    {
+        var itemXml = $"""
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+              <podcast:chapters url="{ChaptersUrl}" type="application/json+chapters" />
+            </item>
+            """;
+        const string redirectedUrl = "https://cdn.example/chapters.json";
+
+        var sut = MakeSut(
+            uri => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) },
+            sendChaptersRequestAsync: (uri, _) =>
+            {
+                if (uri.AbsoluteUri == ChaptersUrl)
+                {
+                    var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+                    redirect.Headers.Location = new Uri(redirectedUrl);
+                    return Task.FromResult(redirect);
+                }
+
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"chapters":[{"startTime":0,"title":"Intro"}]}"""),
+                });
+            });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        var episode = Assert.Single(feed!.Episodes);
+        Assert.NotNull(episode.Chapters);
+        Assert.Equal("Intro", Assert.Single(episode.Chapters!).Title);
     }
 
     [Fact]

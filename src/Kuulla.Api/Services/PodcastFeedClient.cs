@@ -15,11 +15,21 @@ public class PodcastFeedClient(
     // Overridable purely for testing — production always resolves through real DNS. Tests supply
     // canned results instead so SSRF-guard behavior (e.g. "a hostname resolving to a private
     // address is rejected") is verifiable without depending on real DNS or a live network.
-    Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null) : IPodcastFeedClient
+    Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null,
+    // Overridable purely for testing, for the same reason as hostResolver above. Production sends
+    // through NoRedirectHttpClient (auto-redirect disabled) rather than the shared httpClient, so
+    // FetchChaptersAsync can see and re-validate every redirect hop itself instead of the runtime
+    // following one transparently to an address the SSRF guard never got to check.
+    Func<Uri, CancellationToken, Task<HttpResponseMessage>>? sendChaptersRequestAsync = null) : IPodcastFeedClient
 {
     private static readonly XNamespace ItunesNamespace = "http://www.itunes.com/dtds/podcast-1.0.dtd";
     private static readonly XNamespace PodcastNamespace = "https://podcastindex.org/namespace/1.0";
+    private static readonly HttpClient NoRedirectHttpClient = new(new SocketsHttpHandler { AllowAutoRedirect = false });
+    private const int MaxChaptersRedirects = 5;
+
     private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolveHostAsync = hostResolver ?? Dns.GetHostAddressesAsync;
+    private readonly Func<Uri, CancellationToken, Task<HttpResponseMessage>> _sendChaptersRequestAsync =
+        sendChaptersRequestAsync ?? ((uri, ct) => NoRedirectHttpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct));
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)
     {
@@ -199,31 +209,68 @@ public class PodcastFeedClient(
     // { "chapters": [...] } object, but some feeds serve a bare top-level array instead — both
     // are accepted here. A single malformed chapter entry (e.g. a non-numeric startTime) is
     // skipped rather than discarding every chapter in the document.
+    //
+    // Sent through _sendChaptersRequestAsync (auto-redirect disabled) rather than the shared
+    // httpClient, and every redirect hop is re-validated through ResolveFetchableChaptersUrlAsync
+    // before being followed — otherwise the already-validated initial URL could 302/307 to a
+    // private/loopback/link-local target and the runtime's own auto-redirect would follow it
+    // straight past the SSRF guard.
     private async Task<IReadOnlyList<EpisodeChapter>?> FetchChaptersAsync(Uri chaptersUrl, CancellationToken cancellationToken)
     {
+        var currentUrl = chaptersUrl;
         try
         {
-            using var stream = await httpClient.GetStreamAsync(chaptersUrl, cancellationToken);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            var chaptersElement = document.RootElement.ValueKind == JsonValueKind.Array
-                ? document.RootElement
-                : document.RootElement.TryGetProperty("chapters", out var nested) ? nested : default;
-
-            if (chaptersElement.ValueKind != JsonValueKind.Array)
+            for (var redirectCount = 0; ; redirectCount++)
             {
-                return null;
-            }
+                using var response = await _sendChaptersRequestAsync(currentUrl, cancellationToken);
 
-            var chapters = new List<EpisodeChapter>();
-            foreach (var chapterElement in chaptersElement.EnumerateArray())
-            {
-                if (TryParseChapter(chapterElement, out var chapter))
+                if (IsRedirect(response.StatusCode))
                 {
-                    chapters.Add(chapter);
-                }
-            }
+                    if (redirectCount >= MaxChaptersRedirects || response.Headers.Location is null)
+                    {
+                        logger.LogWarning("Too many redirects (or a redirect with no Location) fetching podcast:chapters from {ChaptersUrl}", chaptersUrl);
+                        return null;
+                    }
 
-            return chapters;
+                    var nextUrl = response.Headers.Location.IsAbsoluteUri
+                        ? response.Headers.Location
+                        : new Uri(currentUrl, response.Headers.Location);
+                    var validatedNextUrl = await ResolveFetchableChaptersUrlAsync(nextUrl.ToString(), cancellationToken);
+                    if (validatedNextUrl is null)
+                    {
+                        logger.LogWarning(
+                            "Redirect from podcast:chapters {ChaptersUrl} to {RedirectUrl} was rejected by the SSRF guard",
+                            chaptersUrl, nextUrl);
+                        return null;
+                    }
+
+                    currentUrl = validatedNextUrl;
+                    continue;
+                }
+
+                response.EnsureSuccessStatusCode();
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                var chaptersElement = document.RootElement.ValueKind == JsonValueKind.Array
+                    ? document.RootElement
+                    : document.RootElement.TryGetProperty("chapters", out var nested) ? nested : default;
+
+                if (chaptersElement.ValueKind != JsonValueKind.Array)
+                {
+                    return null;
+                }
+
+                var chapters = new List<EpisodeChapter>();
+                foreach (var chapterElement in chaptersElement.EnumerateArray())
+                {
+                    if (TryParseChapter(chapterElement, out var chapter))
+                    {
+                        chapters.Add(chapter);
+                    }
+                }
+
+                return chapters;
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -231,6 +278,10 @@ public class PodcastFeedClient(
             return null;
         }
     }
+
+    private static bool IsRedirect(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther
+            or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;
 
     private static bool TryParseChapter(JsonElement element, out EpisodeChapter chapter)
     {
