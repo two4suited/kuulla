@@ -161,8 +161,7 @@ struct EpisodeDetailView: View {
 
         HStack(alignment: .firstTextBaseline) {
             Text(episode.title)
-                .font(.title2)
-                .bold()
+                .font(.kuullaTitle(22, relativeTo: .title2))
             Spacer()
             StatusBadge(status: status)
         }
@@ -178,8 +177,8 @@ struct EpisodeDetailView: View {
                 Text(EpisodeFormatting.formatDuration(duration))
             }
         }
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
+        .font(.kuullaMono(12))
+        .foregroundStyle(KuullaColor.textMuted)
 
         if let audioURL {
             HStack {
@@ -201,7 +200,7 @@ struct EpisodeDetailView: View {
             if let streamBlockedMessage = audioPlayer.streamBlockedMessage, audioPlayer.streamBlockedURL == audioURL {
                 Text(streamBlockedMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(KuullaColor.danger)
             }
 
             // A newer position came in from another device while this one keeps playing (#242):
@@ -268,6 +267,9 @@ struct EpisodeDetailView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+        // Secondary actions stay neutral — lime is reserved for the one primary
+        // action (Play) per docs/brand.md §9.
+        .tint(KuullaColor.textMuted)
         // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
         // resolved from settings yet — cycling from an unresolved value here would
         // itself get overwritten the moment that fetch lands.
@@ -275,7 +277,7 @@ struct EpisodeDetailView: View {
         if let playbackSpeedSaveError {
             Text(playbackSpeedSaveError)
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(KuullaColor.danger)
         }
 
         Button {
@@ -285,11 +287,13 @@ struct EpisodeDetailView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+        .tint(KuullaColor.textMuted)
 
         Button(completedButtonTitle) {
             Task { await handleCompletedButtonTapped() }
         }
         .buttonStyle(.bordered)
+        .tint(KuullaColor.textMuted)
         .frame(maxWidth: .infinity)
 
         Button {
@@ -299,10 +303,11 @@ struct EpisodeDetailView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+        .tint(KuullaColor.textMuted)
 
         if let description = episode.description, !description.isEmpty {
             Text("Show notes")
-                .font(.headline)
+                .font(.kuullaTitle(17, relativeTo: .headline))
                 .padding(.top, 8)
             Text(description)
         } else {
@@ -319,7 +324,7 @@ struct EpisodeDetailView: View {
                     episodeActions(episode)
                 } else if let loadError {
                     Text(loadError)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(KuullaColor.danger)
                 } else if !isLoading {
                     Text("Episode not found.")
                         .foregroundStyle(.secondary)

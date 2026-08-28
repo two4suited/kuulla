@@ -8,18 +8,18 @@ struct ShowRow: View {
             AsyncImage(url: show.artworkUrl.flatMap(URL.init)) { image in
                 image.resizable().aspectRatio(contentMode: .fill)
             } placeholder: {
-                Color.secondary.opacity(0.2)
+                KuullaColor.surfaceRaised
             }
             .frame(width: 56, height: 56)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.md))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(show.title)
-                    .font(.body)
+                    .font(.kuullaBody(15, weight: .semibold))
                     .lineLimit(1)
                 Text(show.author)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.kuullaBody(13))
+                    .foregroundStyle(KuullaColor.textMuted)
                     .lineLimit(1)
             }
         }

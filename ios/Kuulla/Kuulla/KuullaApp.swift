@@ -39,6 +39,12 @@ struct KuullaApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                // Signal accent — every Button, Slider, Toggle, ProgressView and
+                // selected tab picks this up as Color.accentColor (docs/brand.md).
+                .tint(KuullaColor.signal)
+                // Signal is dark-first and the iOS app ships dark (docs/brand.md §1).
+                // The colour assets still carry a light variant for a future opt-in.
+                .preferredColorScheme(.dark)
                 .environment(\.episodeSyncEngine, episodeSyncEngine)
                 .environment(\.playlistSyncEngine, playlistSyncEngine)
                 .environment(\.settingsSyncEngine, settingsSyncEngine)

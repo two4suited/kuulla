@@ -28,6 +28,14 @@
 		A1000030 /* DeviceTokenClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030; };
 		A1000031 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000031; };
 		A1000040 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040; };
+		A1000050 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000050; };
+		A1000051 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000051; };
+		A1000060 /* Manrope.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000060; };
+		A1000061 /* SpaceGrotesk.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000061; };
+		A1000062 /* JetBrainsMono.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000062; };
+		A1000063 /* Manrope-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000063; };
+		A1000064 /* SpaceGrotesk-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000064; };
+		A1000065 /* JetBrainsMono-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000065; };
 		C1000001 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001; };
 		A1000018 /* SubscriptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
 		A1000019 /* UserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020; };
@@ -163,6 +171,14 @@
 		A2000031 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		A2000032 /* Kuulla.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuulla.entitlements; sourceTree = "<group>"; };
 		A2000040 /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
+		A2000050 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A2000051 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
+		A2000060 /* Manrope.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Manrope.ttf; sourceTree = "<group>"; };
+		A2000061 /* SpaceGrotesk.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/SpaceGrotesk.ttf; sourceTree = "<group>"; };
+		A2000062 /* JetBrainsMono.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/JetBrainsMono.ttf; sourceTree = "<group>"; };
+		A2000063 /* Manrope-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/Manrope-OFL.txt"; sourceTree = "<group>"; };
+		A2000064 /* SpaceGrotesk-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/SpaceGrotesk-OFL.txt"; sourceTree = "<group>"; };
+		A2000065 /* JetBrainsMono-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/JetBrainsMono-OFL.txt"; sourceTree = "<group>"; };
 		A2000019 /* SubscriptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionsView.swift; sourceTree = "<group>"; };
 		A2000020 /* UserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettings.swift; sourceTree = "<group>"; };
 		A2000021 /* ShowSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettings.swift; sourceTree = "<group>"; };
@@ -344,6 +360,14 @@
 				Z2000003 /* Transcript.swift */,
 				Z2000004 /* TranscriptView.swift */,
 				V2000001 /* SafariView.swift */,
+				A2000050 /* Theme.swift */,
+				A2000051 /* Typography.swift */,
+				A2000060 /* Manrope.ttf */,
+				A2000061 /* SpaceGrotesk.ttf */,
+				A2000062 /* JetBrainsMono.ttf */,
+				A2000063 /* Manrope-OFL.txt */,
+				A2000064 /* SpaceGrotesk-OFL.txt */,
+				A2000065 /* JetBrainsMono-OFL.txt */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 			);
@@ -526,6 +550,8 @@
 				A1000030,
 				A1000031,
 				A1000040,
+				A1000050,
+				A1000051,
 				C1000001,
 				A1000018,
 				A1000019,
@@ -642,6 +668,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000003,
+				A1000060,
+				A1000061,
+				A1000062,
+				A1000063,
+				A1000064,
+				A1000065,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

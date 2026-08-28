@@ -112,7 +112,7 @@ struct TranscriptView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("Transcript")
-                .font(.headline)
+                .font(.kuullaTitle(17, relativeTo: .headline))
 
             if isSearching {
                 Spacer()
@@ -123,8 +123,8 @@ struct TranscriptView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     Text("\(clampedOrdinal + 1) of \(matchIndices.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .font(.kuullaMono(12))
+                        .foregroundStyle(KuullaColor.textMuted)
 
                     Button { step(by: -1) } label: {
                         Image(systemName: "chevron.up")
@@ -161,7 +161,7 @@ struct TranscriptView: View {
             }
         }
         .padding(8)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(KuullaColor.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.sm))
     }
 
     // Advances the selected match by ±1 (wrapping), scrolls it into view (via onChange above) and
@@ -188,13 +188,13 @@ private struct TranscriptRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(EpisodeFormatting.formatDuration(startTime))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(.kuullaMono(12))
+                .foregroundStyle(KuullaColor.textMuted)
                 .frame(minWidth: 44, alignment: .leading)
 
             lineText
-                .font(isActive ? .body.weight(.semibold) : .body)
-                .foregroundStyle(isActive ? Color.accentColor : .primary)
+                .font(.kuullaBody(15, weight: isActive ? .semibold : .regular))
+                .foregroundStyle(isActive ? KuullaColor.signalInk : KuullaColor.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
         }
@@ -217,7 +217,7 @@ private struct TranscriptRow: View {
         var searchStart = attributed.startIndex
         while searchStart < attributed.endIndex,
               let range = attributed[searchStart...].range(of: query, options: TranscriptSearch.options) {
-            attributed[range].backgroundColor = Color.yellow.opacity(0.4)
+            attributed[range].backgroundColor = KuullaColor.signalSoft
             attributed[range].inlinePresentationIntent = .stronglyEmphasized
             searchStart = range.upperBound
         }
