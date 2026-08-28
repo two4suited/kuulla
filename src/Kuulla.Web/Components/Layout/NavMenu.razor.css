@@ -30,7 +30,6 @@
 .brand-mark {
     width: 1.5rem;
     height: 1.5rem;
-    fill: var(--k-accent);
     flex-shrink: 0;
 }
 

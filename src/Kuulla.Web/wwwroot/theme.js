@@ -36,7 +36,7 @@
         document.documentElement.setAttribute("data-bs-theme", theme);
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) {
-            meta.setAttribute("content", theme === "dark" ? "#171A21" : "#faf9f7");
+            meta.setAttribute("content", theme === "dark" ? "#050505" : "#f4f4f2");
         }
         var toggle = document.querySelector(".theme-toggle");
         if (toggle) {

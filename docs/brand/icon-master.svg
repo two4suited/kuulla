@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Kuulla "Signal" app icon — nodes on a waveform (the sync graph).
+       An asymmetric signal transient: spike, overshoot, settle.
+       Two nodes lit in lime, two bone. Flat, no bevel. See docs/brand.md §8. -->
+  <rect width="1024" height="1024" fill="#050505"/>
+  <polyline points="226,596 416,330 571,700 786,470"
+    fill="none" stroke="#333333" stroke-width="44"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="226" cy="596" r="64" fill="#f4f4f2"/>
+  <circle cx="571" cy="700" r="64" fill="#f4f4f2"/>
+  <circle cx="416" cy="330" r="78" fill="#c6f24e"/>
+  <circle cx="786" cy="470" r="78" fill="#c6f24e"/>
+</svg>
