@@ -5,6 +5,7 @@
 @inject SubscriptionClient SubscriptionClient
 @inject PlaylistClient PlaylistClient
 @inject EpisodeStateClient EpisodeStateClient
+@inject NavigationManager Navigation
 
 <PageTitle>Library</PageTitle>
 
@@ -95,8 +96,9 @@
         }
     </Authorized>
     <NotAuthorized>
-        <h1>Library</h1>
-        <p>You need to <a href="Account/Login">log in</a> to view your library.</p>
+        @* A logged-out visit to "/" is a marketing visit — show the landing page.
+           Also reachable directly at /welcome. *@
+        <Landing />
     </NotAuthorized>
 </AuthorizeView>
 
@@ -119,6 +121,10 @@
         var authState = await AuthenticationStateTask!;
         if (authState.User.Identity?.IsAuthenticated is not true)
         {
+            // Send logged-out visitors to the statically-rendered marketing page. The
+            // <NotAuthorized> branch below renders <Landing /> too, so there's no blank
+            // flash before this redirect lands.
+            Navigation.NavigateTo("welcome");
             return;
         }
 
