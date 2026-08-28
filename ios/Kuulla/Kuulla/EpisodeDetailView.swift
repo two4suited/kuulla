@@ -25,10 +25,11 @@ struct EpisodeDetailView: View {
     // Non-nil while the "resume from your other device" prompt (#241) is shown — set when
     // loadLocalState finds a synced position another device wrote past this device's own.
     @State private var resumePrompt: CrossDeviceResume.Prompt?
-    // Set once the user has answered the resume prompt for the currently-loaded episode, so a
-    // return-from-background re-check doesn't ask again about the same cross-device position.
-    // Reset in load() when a different episode opens.
-    @State private var resumePromptAnswered = false
+    // The synced record's updatedAt the user has already answered the resume prompt for, so a
+    // return-from-background re-check doesn't re-ask about that same cross-device position — but
+    // a genuinely newer write from another device (different updatedAt) still prompts. Reset in
+    // load() when a different episode opens.
+    @State private var answeredResumeUpdatedAt: Date?
     @State private var downloadStatus: DownloadStatus?
     // Fetched lazily (best-effort) once the episode is known to advertise a transcript; nil until
     // then, and stays nil if the episode has no transcript or the fetch fails.
@@ -315,13 +316,16 @@ struct EpisodeDetailView: View {
             await load()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            // Returning from background is one of the two moments #241 calls out for the
-            // resume prompt — another device may have moved this episode while we were away.
-            // KuullaApp's own scenePhase handler kicks off a sync on .active; re-checking here
-            // picks up whatever that pull lands.
+            // Returning from background is one of the two moments #241 calls out for the resume
+            // prompt — another device may have moved this episode while we were away. Await our
+            // own syncNow() rather than racing KuullaApp's detached one, so the re-check runs
+            // against the freshly pulled position instead of stale local state.
             guard newPhase == .active else { return }
-            loadLocalState()
-            evaluateResumePrompt()
+            Task {
+                await syncEngine?.syncNow()
+                loadLocalState()
+                evaluateResumePrompt()
+            }
         }
         .alert("Resume from your other device?", isPresented: Binding(
             get: { resumePrompt != nil },
@@ -344,7 +348,7 @@ struct EpisodeDetailView: View {
         episode = nil
         show = nil
         resumePrompt = nil
-        resumePromptAnswered = false
+        answeredResumeUpdatedAt = nil
         transcript = nil
         loadError = nil
         isLoading = true
@@ -433,7 +437,14 @@ struct EpisodeDetailView: View {
     // Resume/Not-now choice writes the local playback marker forward, which suppresses re-prompts
     // until a genuinely newer remote write arrives.
     private func evaluateResumePrompt() {
-        guard !resumePromptAnswered, episode != nil, let record = stateRecord else {
+        guard episode != nil, let record = stateRecord else {
+            resumePrompt = nil
+            return
+        }
+        // Already answered the prompt for this exact remote write — don't re-ask on a
+        // return-from-background re-check. A newer write from another device has a different
+        // updatedAt and still gets through.
+        if record.updatedAt == answeredResumeUpdatedAt {
             resumePrompt = nil
             return
         }
@@ -459,7 +470,9 @@ struct EpisodeDetailView: View {
     private func resolveResumePrompt(resume: Bool) async {
         guard let prompt = resumePrompt else { return }
         resumePrompt = nil
-        resumePromptAnswered = true
+        // Remember which remote write this answer was for, so a background round-trip doesn't
+        // re-prompt for the same one — but a newer write from another device still can.
+        answeredResumeUpdatedAt = stateRecord?.updatedAt
 
         if resume {
             await persist(positionSeconds: prompt.otherDevicePositionSeconds, completed: false)
