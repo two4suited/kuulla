@@ -31,6 +31,14 @@ struct EpisodeDetailView: View {
     // a genuinely newer write from another device (different updatedAt) still prompts. Reset in
     // load() when a different episode opens.
     @State private var answeredResumeUpdatedAt: Date?
+    // Non-nil while the mid-playback "now playing on another device" banner (#242) is shown.
+    @State private var handoffBanner: CrossDeviceHandoff.Banner?
+    // The synced UpdatedAt of the last remote write we've already surfaced via the handoff
+    // banner, so a later poll doesn't re-raise the banner for the exact same write.
+    @State private var lastSurfacedHandoffUpdatedAt: Date?
+    // Set when the user dismisses the handoff banner — suppresses it for the rest of this
+    // playback session (cleared when this device (re)starts the episode, or on load()).
+    @State private var handoffDismissed = false
     @State private var downloadStatus: DownloadStatus?
     // Fetched lazily (best-effort) once the episode is known to advertise a transcript; nil until
     // then, and stays nil if the episode has no transcript or the fetch fails.
@@ -194,6 +202,36 @@ struct EpisodeDetailView: View {
                 Text(streamBlockedMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+
+            // A newer position came in from another device while this one keeps playing (#242):
+            // offer the jump rather than yanking playback. Gated on this screen's episode being
+            // the one actively playing — it's a *playback* handoff, so it shouldn't linger once
+            // this device is paused.
+            if isPlaying(audioURL), let banner = handoffBanner {
+                HStack(spacing: 8) {
+                    Button {
+                        Task { await jumpToHandoff(banner) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .accessibilityHidden(true)
+                            Text("Now playing on another device — tap to jump to \(EpisodeFormatting.formatDuration(TimeInterval(banner.targetPositionSeconds)))")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        dismissHandoffBanner()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Dismiss")
+                }
+                .font(.caption)
             }
 
             // Same "is this screen's episode the one actually loaded" gate as
@@ -367,6 +405,9 @@ struct EpisodeDetailView: View {
         show = nil
         resumePrompt = nil
         answeredResumeUpdatedAt = nil
+        handoffBanner = nil
+        lastSurfacedHandoffUpdatedAt = nil
+        handoffDismissed = false
         transcript = nil
         loadError = nil
         isLoading = true
@@ -593,6 +634,9 @@ struct EpisodeDetailView: View {
     // togglePlayback so a transcript tap on an episode that isn't loaded yet can start it at the
     // tapped segment rather than at the saved resume position.
     private func startPlayback(url: URL, startPosition: TimeInterval) {
+        // A fresh session on this device: let the handoff banner (#242) surface again if another
+        // device takes over later, even if it was dismissed during the previous session.
+        handoffDismissed = false
         // Assigned only when actually starting playback for this URL (not merely on screen
         // appearance) — AudioPlayer has one completion-callback slot shared across the app, and
         // starting playback here always fully replaces whatever was playing before, so tying
@@ -683,9 +727,49 @@ struct EpisodeDetailView: View {
                 // before the next local write arrives.
                 try? await Task.sleep(for: .seconds(20))
                 guard !Task.isCancelled else { return }
+                // Check *before* persisting this tick's local position: persistProgress()
+                // overwrites the local record's positionSeconds with where this device is, which
+                // would mask a remote jump that the last sync pulled in (#242). By the previous
+                // tick's debounced push has round-tripped, so the record already reflects any
+                // newer position another device wrote.
+                await checkForHandoff()
                 await persistProgress(completed: false)
             }
         }
+    }
+
+    // If a newer position from another device has landed in the local store for the episode
+    // that's currently playing, raise the non-disruptive handoff banner (#242). Never seeks on
+    // its own — the user taps the banner for that.
+    private func checkForHandoff() async {
+        guard !handoffDismissed else { return }
+        guard let syncEngine, let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL else { return }
+        // Detached snapshot read through the engine's own context — the one server pulls are
+        // applied to; this view's @Environment context isn't guaranteed to see those writes yet.
+        guard let record = await syncEngine.currentState(episodeId: episodeId) else { return }
+        handoffBanner = CrossDeviceHandoff.banner(
+            syncedPositionSeconds: record.positionSeconds,
+            syncedUpdatedAt: record.updatedAt,
+            syncedDeviceId: record.deviceId,
+            completed: record.completed,
+            currentDeviceId: DeviceIdentity.current,
+            currentPlaybackPositionSeconds: Int(audioPlayer.currentTime),
+            lastSurfacedUpdatedAt: lastSurfacedHandoffUpdatedAt)
+    }
+
+    private func jumpToHandoff(_ banner: CrossDeviceHandoff.Banner) async {
+        lastSurfacedHandoffUpdatedAt = banner.sourceUpdatedAt
+        handoffBanner = nil
+        audioPlayer.seek(to: TimeInterval(banner.targetPositionSeconds))
+        // Claim the position for this device so the two converge and the banner doesn't
+        // immediately reappear for the same remote write.
+        await persist(positionSeconds: banner.targetPositionSeconds, completed: false)
+    }
+
+    private func dismissHandoffBanner() {
+        lastSurfacedHandoffUpdatedAt = handoffBanner?.sourceUpdatedAt
+        handoffBanner = nil
+        handoffDismissed = true
     }
 
     private func stopProgressTracking() {

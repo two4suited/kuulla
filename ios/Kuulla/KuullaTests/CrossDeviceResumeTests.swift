@@ -65,3 +65,55 @@ final class CrossDeviceResumeTests: XCTestCase {
         XCTAssertEqual(result, CrossDeviceResume.Prompt(otherDevicePositionSeconds: 60, localPositionSeconds: 600))
     }
 }
+
+final class CrossDeviceHandoffTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func banner(
+        syncedPositionSeconds: Int = 900,
+        syncedUpdatedAt: Date? = nil,
+        syncedDeviceId: String? = "other-device",
+        completed: Bool = false,
+        currentDeviceId: String = "this-device",
+        currentPlaybackPositionSeconds: Int = 300,
+        lastSurfacedUpdatedAt: Date? = nil
+    ) -> CrossDeviceHandoff.Banner? {
+        CrossDeviceHandoff.banner(
+            syncedPositionSeconds: syncedPositionSeconds,
+            syncedUpdatedAt: syncedUpdatedAt ?? now,
+            syncedDeviceId: syncedDeviceId,
+            completed: completed,
+            currentDeviceId: currentDeviceId,
+            currentPlaybackPositionSeconds: currentPlaybackPositionSeconds,
+            lastSurfacedUpdatedAt: lastSurfacedUpdatedAt)
+    }
+
+    func testBannerWhenAnotherDeviceJumpedAheadDuringPlayback() {
+        XCTAssertEqual(banner(), CrossDeviceHandoff.Banner(targetPositionSeconds: 900, sourceUpdatedAt: now))
+    }
+
+    func testNoBannerForOwnDevice() {
+        XCTAssertNil(banner(syncedDeviceId: "this-device"))
+    }
+
+    func testNoBannerWhenDeviceIdUnknown() {
+        XCTAssertNil(banner(syncedDeviceId: nil))
+    }
+
+    func testNoBannerWhenCompleted() {
+        XCTAssertNil(banner(completed: true))
+    }
+
+    func testNoBannerWhenWithinThreshold() {
+        XCTAssertNil(banner(syncedPositionSeconds: 310, currentPlaybackPositionSeconds: 300))
+    }
+
+    func testNoBannerWhenAlreadySurfacedForThisRemoteWrite() {
+        XCTAssertNil(banner(syncedUpdatedAt: now, lastSurfacedUpdatedAt: now))
+    }
+
+    func testBannerAgainForANewerRemoteWrite() {
+        let result = banner(syncedUpdatedAt: now.addingTimeInterval(30), lastSurfacedUpdatedAt: now)
+        XCTAssertEqual(result?.targetPositionSeconds, 900)
+    }
+}

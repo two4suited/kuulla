@@ -45,3 +45,43 @@ enum CrossDeviceResume {
             localPositionSeconds: lastLocalPositionSeconds)
     }
 }
+
+// Decides whether an in-progress playback session should surface the non-disruptive "now playing
+// on another device" banner (#242) — e.g. the user pressed play on another device mid-episode.
+// Never seeks on its own; the banner just offers the jump. Pure, same rationale as CrossDeviceResume.
+enum CrossDeviceHandoff {
+    struct Banner: Equatable {
+        // Where the other device is — what tapping the banner seeks to.
+        let targetPositionSeconds: Int
+        // The synced record's UpdatedAt that produced this banner, so the view can remember it
+        // was already surfaced and not re-raise the banner for the same remote write.
+        let sourceUpdatedAt: Date
+    }
+
+    // Same "close enough to be noise" floor as the resume prompt.
+    static let minimumDeltaSeconds = CrossDeviceResume.minimumDeltaSeconds
+
+    static func banner(
+        syncedPositionSeconds: Int,
+        syncedUpdatedAt: Date,
+        syncedDeviceId: String?,
+        completed: Bool,
+        currentDeviceId: String,
+        currentPlaybackPositionSeconds: Int,
+        lastSurfacedUpdatedAt: Date?
+    ) -> Banner? {
+        guard !completed else { return nil }
+
+        // Only when the last server write came from a different device — our own position pushes
+        // stamp this device's id, so a match means there's nothing to hand off.
+        guard let syncedDeviceId, syncedDeviceId != currentDeviceId else { return nil }
+
+        // Already showed (or dismissed) a banner for this remote write — don't nag on every poll.
+        if let lastSurfacedUpdatedAt, syncedUpdatedAt <= lastSurfacedUpdatedAt { return nil }
+
+        let delta = abs(syncedPositionSeconds - currentPlaybackPositionSeconds)
+        guard delta >= minimumDeltaSeconds else { return nil }
+
+        return Banner(targetPositionSeconds: syncedPositionSeconds, sourceUpdatedAt: syncedUpdatedAt)
+    }
+}
