@@ -158,10 +158,14 @@ Signal is sharp — a deliberate reduction from the previous system's `0.5–1.1
 
 | Token | Value | Use |
 |-------|-------|-----|
-| `--k-radius-sm` | `4px` | buttons, inputs, badges, chips |
+| `--k-radius-sm` | `4px` | inputs, badges, chips, segmented (grouped) buttons |
 | `--k-radius` | `6px` | cards, list groups, alerts |
-| `--k-radius-lg` | `10px` | modals, sheets, hero panels |
+| `--k-radius-lg` | `10px` | standalone buttons, modals, sheets, hero panels |
 | `--k-radius-pill` | `999px` | pills, the sync-fresh dot, avatars |
+
+Standalone buttons are softly rounded (`--k-radius-lg`) — like a normal media-player
+button, not blocky. The sharper radii stay on the surfaces around them (cards, inputs,
+chips); grouped/segmented buttons stay sharp so the segments read as one control.
 
 ---
 

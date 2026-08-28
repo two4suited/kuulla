@@ -16,9 +16,10 @@
 }
 
 .navbar-brand {
+    font-family: var(--k-font-display);
     font-size: 1.15rem;
-    font-weight: 800;
-    letter-spacing: -0.01em;
+    font-weight: 700;
+    letter-spacing: -0.015em;
     color: var(--k-text) !important;
     display: flex;
     align-items: center;

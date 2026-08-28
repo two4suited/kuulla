@@ -98,6 +98,33 @@ body {
     min-height: 100vh;
 }
 
+/* Native form controls (audio scrubber, checkboxes, date pickers) follow the
+   theme and take the lime accent. */
+:root, [data-bs-theme="light"] { color-scheme: light; }
+[data-bs-theme="dark"] { color-scheme: dark; }
+
+audio, input, .form-check-input {
+    accent-color: var(--k-accent);
+}
+
+audio {
+    width: 100%;
+    border-radius: var(--k-radius-sm);
+}
+
+/* Timestamps, durations, LUFS, IDs — anything from the audio or sync engine. */
+.font-monospace {
+    font-family: var(--k-font-mono) !important;
+    font-feature-settings: "tnum" 1;
+}
+
+.k-meta {
+    font-family: var(--k-font-mono);
+    font-size: 0.8125rem;
+    color: var(--k-text-muted);
+    font-feature-settings: "tnum" 1;
+}
+
 h1, h2, h3, h4, h5, h6 {
     font-family: var(--k-font-display);
     font-weight: 700;
@@ -161,17 +188,18 @@ h1:focus {
     border: 1px solid var(--k-border);
     border-radius: var(--k-radius);
     box-shadow: var(--k-shadow-sm);
-    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    /* Signal is precise, not bouncy — hover shifts the border, nothing moves. */
+    transition: border-color 0.13s ease-out, box-shadow 0.13s ease-out;
 }
 
-a .card:hover, .card.h-100:hover {
-    transform: translateY(-2px);
+a .card:hover, a.card:hover, .card.h-100:hover {
     box-shadow: var(--k-shadow);
     border-color: var(--k-accent);
 }
 
 .card-title {
     color: var(--k-text);
+    font-family: var(--k-font-display);
     font-weight: 700;
 }
 
@@ -184,7 +212,9 @@ a .card:hover, .card.h-100:hover {
 /* ---------------------------------------------------------------------- */
 
 .btn {
-    border-radius: var(--k-radius-sm);
+    /* Softly rounded like a normal media-player button — the sharp radii
+       stay on cards, inputs and chips. */
+    border-radius: var(--k-radius-lg);
     font-weight: 600;
     letter-spacing: 0.01em;
 }
@@ -314,9 +344,23 @@ a .card:hover, .card.h-100:hover {
     color: var(--k-text);
 }
 
+.list-group-item.active {
+    background-color: var(--k-accent-soft);
+    border-color: var(--k-accent-soft);
+    color: var(--k-accent-ink);
+}
+
 .list-group {
     border-radius: var(--k-radius);
     overflow: hidden;
+}
+
+/* Search-match highlight — lime-soft, not the browser's yellow. */
+mark {
+    background: var(--k-accent-soft);
+    color: var(--k-text);
+    border-radius: var(--k-radius-sm);
+    padding: 0 0.15em;
 }
 
 .table {
@@ -330,14 +374,14 @@ a .card:hover, .card.h-100:hover {
 /* ---------------------------------------------------------------------- */
 
 .form-control, .form-select {
-    background-color: var(--k-surface);
+    background-color: var(--k-surface-2);
     border-color: var(--k-border);
     color: var(--k-text);
     border-radius: var(--k-radius-sm);
 }
 
 .form-control:focus, .form-select:focus {
-    background-color: var(--k-surface);
+    background-color: var(--k-surface-2);
     color: var(--k-text);
     border-color: var(--k-accent);
     box-shadow: 0 0 0 0.2rem var(--k-accent-soft);
