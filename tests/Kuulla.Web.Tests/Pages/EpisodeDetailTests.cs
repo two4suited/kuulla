@@ -485,4 +485,65 @@ public class EpisodeDetailTests : WebTestContext
         var invocation = JSInterop.VerifyInvoke("seekTo");
         Assert.Equal(125d, invocation.Arguments[0]);
     }
+
+    // #243: with no localStorage record (Loose JSInterop returns null for readLocalPlayback), a
+    // synced in-progress position must have come from elsewhere — offer to resume from it.
+    [Fact]
+    public void ShowsResumeFromOtherDevicePrompt_WhenSyncedPositionCameFromElsewhere()
+    {
+        ConfigureApi(RouteHandler(onGetState: _ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(InProgressState) }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("on another device", cut.Markup);
+            Assert.Contains("5:00", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void NoResumePrompt_WhenEpisodeIsCompleted()
+    {
+        var completedState = InProgressState with { Completed = true };
+        ConfigureApi(RouteHandler(onGetState: _ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(completedState) }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Played", cut.Markup));
+        Assert.DoesNotContain("on another device", cut.Markup);
+    }
+
+    [Fact]
+    public void ResumeFromOtherDevice_PersistsThatPosition()
+    {
+        string? putBody = null;
+        ConfigureApi(RouteHandler(
+            onGetState: _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(InProgressState) },
+            onPutState: request =>
+            {
+                putBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(InProgressState) };
+            }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("on another device", cut.Markup));
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Resume").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(putBody);
+            using var body = JsonDocument.Parse(putBody!);
+            Assert.Equal(300, body.RootElement.GetProperty("positionSeconds").GetInt32());
+        });
+    }
 }

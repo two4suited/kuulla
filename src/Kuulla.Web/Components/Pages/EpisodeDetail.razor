@@ -47,6 +47,17 @@ else
         Your browser does not support the audio element.
     </audio>
 
+    @if (resumePrompt is not null)
+    {
+        <div class="alert alert-info d-flex flex-wrap align-items-center gap-2 py-2" role="alert">
+            <span class="me-auto">
+                You left off at @EpisodeFormatting.FormatDuration(TimeSpan.FromSeconds(resumePrompt.OtherDevicePositionSeconds)) on another device.
+            </span>
+            <button type="button" class="btn btn-sm btn-primary" @onclick="ResumeFromOtherDeviceAsync">Resume</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="DismissResumePromptAsync">Not now</button>
+        </div>
+    }
+
     @if (streamBlockedMessage is not null)
     {
         <p class="text-danger small mb-2">@streamBlockedMessage</p>
@@ -182,6 +193,12 @@ else
     private string? stateError;
     private string? streamBlockedMessage;
 
+    // The synced state as last fetched, kept so OnAfterRenderAsync can compare it against this
+    // browser's localStorage record for the cross-device resume prompt (#243).
+    private EpisodeState? episodeState;
+    // Non-null while the "resume from another device" prompt is shown.
+    private CrossDeviceResume.Prompt? resumePrompt;
+
     private TranscriptDocument? transcript;
     private bool isTranscriptLoading;
     private bool transcriptLoadFailed;
@@ -233,6 +250,8 @@ else
         savedPositionSeconds = 0;
         isCompleted = false;
         isAutoPlayed = false;
+        episodeState = null;
+        resumePrompt = null;
         streamBlockedMessage = null;
         transcript = null;
         isTranscriptLoading = false;
@@ -263,6 +282,7 @@ else
         try
         {
             var state = await EpisodeStateClient.GetStateAsync(EpisodeId);
+            episodeState = state;
             if (state is not null)
             {
                 savedPositionSeconds = state.PositionSeconds;
@@ -325,7 +345,89 @@ else
         // a bare "Components/..." path is parsed as a bare module specifier and fails to resolve.
         _module = await JS.InvokeAsync<IJSObjectReference>("import", $"./{Assets["Components/Pages/EpisodeDetail.razor.js"]}");
         _selfReference = DotNetObjectReference.Create(this);
-        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, savedPositionSeconds);
+
+        // Compare the synced state against this browser's own last-known playback (#243). If
+        // another device moved the episode on, attach at *this* browser's position (so "Not now"
+        // is a no-op) and offer the jump; otherwise attach at the synced position and record
+        // that we're now in sync with it.
+        var local = await _module.InvokeAsync<LocalPlayback?>("readLocalPlayback", EpisodeId);
+        resumePrompt = CrossDeviceResume.Evaluate(episodeState, local?.Pos, ParseLocalUpdatedAt(local?.At));
+
+        var attachPosition = resumePrompt?.LocalPositionSeconds ?? savedPositionSeconds;
+        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, attachPosition);
+
+        if (resumePrompt is null && episodeState is not null)
+        {
+            await WriteLocalPlaybackAsync(savedPositionSeconds, episodeState.UpdatedAt);
+        }
+
+        // OnAfterRenderAsync doesn't trigger a re-render on its own — nudge one so the resume
+        // banner (set just above) actually paints.
+        if (resumePrompt is not null)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private sealed record LocalPlayback(int Pos, string At);
+
+    private static DateTimeOffset? ParseLocalUpdatedAt(string? value) =>
+        DateTimeOffset.TryParse(value, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed
+            : null;
+
+    private async Task WriteLocalPlaybackAsync(int positionSeconds, DateTimeOffset syncedUpdatedAt)
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        await SafeInvokeAsync(() => _module.InvokeVoidAsync(
+            "writeLocalPlayback", EpisodeId, positionSeconds, syncedUpdatedAt.ToString("o")).AsTask());
+    }
+
+    private async Task ResumeFromOtherDeviceAsync()
+    {
+        if (resumePrompt is null)
+        {
+            return;
+        }
+
+        var target = resumePrompt.OtherDevicePositionSeconds;
+        resumePrompt = null;
+        savedPositionSeconds = target;
+
+        if (_watcher is not null)
+        {
+            await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("setInitialPosition", target).AsTask());
+        }
+
+        // Claim the position for this browser (last-write-wins, per docs/sync-conventions.md) so
+        // the devices converge and the prompt doesn't reappear on reload.
+        await PersistStateAsync(target, completed: false);
+    }
+
+    private async Task DismissResumePromptAsync()
+    {
+        var prompt = resumePrompt;
+        resumePrompt = null;
+        if (prompt is null)
+        {
+            return;
+        }
+
+        // "Not now" keeps this browser's own position. Persist it when there's genuine local
+        // progress so the two devices converge; on an episode never played here just record the
+        // remote UpdatedAt locally so the same write doesn't prompt again.
+        if (prompt.LocalPositionSeconds > 0)
+        {
+            await PersistStateAsync(prompt.LocalPositionSeconds, completed: false);
+        }
+        else if (episodeState is not null)
+        {
+            await WriteLocalPlaybackAsync(prompt.LocalPositionSeconds, episodeState.UpdatedAt);
+        }
     }
 
     [JSInvokable]
@@ -409,6 +511,10 @@ else
             savedPositionSeconds = updated.PositionSeconds;
             isCompleted = updated.Completed;
             isAutoPlayed = updated.AutoPlayed;
+            episodeState = updated;
+            // Keep this browser's cross-device baseline (#243) current: it just wrote this
+            // position and is in sync with the server UpdatedAt it got back.
+            await WriteLocalPlaybackAsync(updated.PositionSeconds, updated.UpdatedAt);
         }
         catch (HttpRequestException)
         {
