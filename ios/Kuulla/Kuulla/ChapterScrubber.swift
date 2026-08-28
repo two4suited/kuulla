@@ -104,7 +104,7 @@ struct ChapterScrubber: View {
                                     .font(.kuullaMono(12))
                                     .foregroundStyle(KuullaColor.textMuted)
                             }
-                            .foregroundStyle(index == activeChapterIndex ? KuullaColor.signal : KuullaColor.textPrimary)
+                            .foregroundStyle(index == activeChapterIndex ? KuullaColor.signalInk : KuullaColor.textPrimary)
                             .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)

@@ -194,7 +194,7 @@ private struct TranscriptRow: View {
 
             lineText
                 .font(.kuullaBody(15, weight: isActive ? .semibold : .regular))
-                .foregroundStyle(isActive ? KuullaColor.signal : KuullaColor.textPrimary)
+                .foregroundStyle(isActive ? KuullaColor.signalInk : KuullaColor.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .multilineTextAlignment(.leading)
         }
