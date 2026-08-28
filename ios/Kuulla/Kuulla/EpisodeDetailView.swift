@@ -324,6 +324,14 @@ struct EpisodeDetailView: View {
             Task {
                 await syncEngine?.syncNow()
                 loadLocalState()
+                // loadLocalState() reads through this view's @Environment(\.modelContext), which
+                // isn't guaranteed to observe the pull syncNow() just applied through the
+                // engine's own context — re-read stateRecord from that context so the resume
+                // check sees the freshly pulled position. (URL/download state stays from
+                // loadLocalState.)
+                if let refreshed = await syncEngine?.currentState(episodeId: episodeId) {
+                    stateRecord = refreshed
+                }
                 evaluateResumePrompt()
             }
         }

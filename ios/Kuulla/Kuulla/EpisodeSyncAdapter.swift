@@ -109,6 +109,25 @@ extension SyncEngine where Adapter == EpisodeSyncAdapter {
         }
         return restored
     }
+
+    // A detached snapshot of one episode's state read through the engine's own ModelContext —
+    // the one server pulls are applied to. A caller that just awaited syncNow() and then read
+    // back through its own @Environment(\.modelContext) instead can observe stale state (two
+    // ModelContext instances over the same store aren't guaranteed to see each other's saves
+    // immediately). Returns a plain copy, not the context-bound model, so it's safe to hold on
+    // the main actor. Nil when there's no local record for this episode.
+    func currentState(episodeId: String) async -> EpisodeStateRecord? {
+        await read { context in
+            let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
+            guard let existing = try? context.fetch(descriptor).first else { return nil }
+            return EpisodeStateRecord(
+                id: existing.id, showId: existing.showId, positionSeconds: existing.positionSeconds,
+                completed: existing.completed, updatedAt: existing.updatedAt, isDirty: existing.isDirty,
+                autoPlayed: existing.autoPlayed, archived: existing.archived, deviceId: existing.deviceId,
+                lastLocalPositionSeconds: existing.lastLocalPositionSeconds,
+                lastLocalPlaybackAt: existing.lastLocalPlaybackAt)
+        }
+    }
 }
 
 private struct EpisodeStateChangeDTO: Encodable {
