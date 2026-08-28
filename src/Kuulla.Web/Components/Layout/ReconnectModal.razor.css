@@ -92,7 +92,7 @@
 #components-reconnect-modal button {
     border: 0;
     background-color: var(--k-accent);
-    color: white;
+    color: var(--k-accent-contrast);
     padding: 4px 24px;
     border-radius: var(--k-radius-pill);
     font-weight: 600;

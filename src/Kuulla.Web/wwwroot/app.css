@@ -1,69 +1,86 @@
 /* ==========================================================================
-   Kuulla visual identity
-   A warm, editorial "audiophile dark" system: near-black surfaces, a single
-   coral accent, and a rounder, quieter take on Bootstrap's defaults. Ships
-   dark by default with a light counterpart; see theme.js for the toggle.
+   Kuulla visual identity — "Signal"
+   True-black, monospace-tagged, sync as the hero. Void surfaces, one lime
+   accent used only where "signal" is meaningful (now playing, sync-fresh
+   state, primary action), sharp corners, precise motion. Ships dark by
+   default with a light counterpart; see theme.js for the toggle.
+   Full system: docs/brand.md
    ========================================================================== */
 
 :root {
-    --k-accent: #ff5a36;
-    --k-accent-hover: #ff7452;
-    --k-accent-active: #e6491f;
-    --k-accent-soft: rgba(255, 90, 54, 0.14);
-    --k-accent-contrast: #1a0d08;
+    /* Accent — lime. A true signal colour, never decoration. See docs/brand.md. */
+    --k-accent: #c6f24e;
+    --k-accent-hover: #d4ff6b;
+    --k-accent-active: #a9d63c;
+    --k-accent-soft: rgba(150, 190, 50, 0.24);
+    --k-accent-contrast: #0a0a0a;
+    /* Accent used as text on the page background — lime fails AA on a light
+       ground, so this darkens in light mode while the fills above stay lime. */
+    --k-accent-ink: #4a6410;
+    --k-accent-ink-hover: #3a4f0c;
 
-    --k-success: #2fb380;
-    --k-success-soft: rgba(47, 179, 128, 0.16);
-    --k-danger: #e5484d;
-    --k-danger-soft: rgba(229, 72, 77, 0.14);
-    --k-info: #3aaed8;
-    --k-info-soft: rgba(58, 174, 216, 0.14);
-    --k-warning: #e8a33d;
-    --k-warning-soft: rgba(232, 163, 61, 0.16);
+    --k-success: #3aa66f;
+    --k-success-soft: rgba(58, 166, 111, 0.16);
+    --k-danger: #d83a3f;
+    --k-danger-soft: rgba(216, 58, 63, 0.14);
+    --k-info: #2f9fc4;
+    --k-info-soft: rgba(47, 159, 196, 0.14);
+    --k-warning: #c98a1f;
+    --k-warning-soft: rgba(201, 138, 31, 0.16);
 
-    --k-radius-sm: 0.5rem;
-    --k-radius: 0.75rem;
-    --k-radius-lg: 1.125rem;
+    /* Signal is sharp — a deliberate reduction from the old 0.5–1.125rem. */
+    --k-radius-sm: 4px;
+    --k-radius: 6px;
+    --k-radius-lg: 10px;
     --k-radius-pill: 999px;
 
     --k-font: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --k-font-display: "Space Grotesk", var(--k-font);
+    --k-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-    --k-shadow-sm: 0 1px 2px rgba(15, 17, 21, 0.08);
-    --k-shadow: 0 6px 20px -4px rgba(15, 17, 21, 0.14);
-    --k-shadow-lg: 0 16px 40px -8px rgba(15, 17, 21, 0.22);
+    --k-shadow-sm: 0 1px 2px rgba(5, 5, 5, 0.12);
+    --k-shadow: 0 6px 20px -4px rgba(5, 5, 5, 0.22);
+    --k-shadow-lg: 0 16px 40px -8px rgba(5, 5, 5, 0.34);
 }
 
-/* Light theme (default palette) */
+/* Light theme (default palette) — the Signal light counterpart. */
 :root,
 [data-bs-theme="light"] {
-    --k-bg: #faf9f7;
+    --k-bg: #f4f4f2;
     --k-surface: #ffffff;
-    --k-surface-2: #f3f1ed;
-    --k-surface-3: #eae7e1;
-    --k-border: #e4e1da;
-    --k-text: #1c1a17;
-    --k-text-muted: #6b6862;
-    --k-text-faint: #9a968d;
-    --k-shadow-color: rgba(28, 26, 23, 0.12);
+    --k-surface-2: #ececea;
+    --k-surface-3: #e2e2df;
+    --k-border: #d8d8d4;
+    --k-text: #0a0a0a;
+    --k-text-muted: #5a5f68;
+    --k-text-faint: #8a8f98;
+    --k-shadow-color: rgba(10, 10, 10, 0.12);
 }
 
-/* Dark theme */
+/* Dark theme — Signal, true black. */
 [data-bs-theme="dark"] {
-    --k-bg: #0f1115;
-    --k-surface: #171a21;
-    --k-surface-2: #1e222b;
-    --k-surface-3: #262b36;
-    --k-border: #2a2f3a;
-    --k-text: #edeef2;
-    --k-text-muted: #9aa0ac;
-    --k-text-faint: #6b7280;
-    --k-shadow-color: rgba(0, 0, 0, 0.45);
+    --k-bg: #050505;
+    --k-surface: #111111;
+    --k-surface-2: #181818;
+    --k-surface-3: #1f1f1f;
+    --k-border: #1c1c1c;
+    --k-text: #f4f4f2;
+    --k-text-muted: #8a8f98;
+    --k-text-faint: #5a5f68;
+    --k-shadow-color: rgba(0, 0, 0, 0.6);
 
-    --k-accent-soft: rgba(255, 90, 54, 0.18);
-    --k-success-soft: rgba(47, 179, 128, 0.2);
-    --k-danger-soft: rgba(229, 72, 77, 0.18);
-    --k-info-soft: rgba(58, 174, 216, 0.18);
-    --k-warning-soft: rgba(232, 163, 61, 0.2);
+    /* Lime reads cleanly as text on true black — no darkening needed here. */
+    --k-accent-ink: #c6f24e;
+    --k-accent-ink-hover: #d4ff6b;
+    --k-accent-soft: rgba(198, 242, 78, 0.14);
+    --k-success: #4ade80;
+    --k-success-soft: rgba(74, 222, 128, 0.18);
+    --k-danger: #f2555a;
+    --k-danger-soft: rgba(242, 85, 90, 0.18);
+    --k-info: #5ac8e8;
+    --k-info-soft: rgba(90, 200, 232, 0.18);
+    --k-warning: #e8b84a;
+    --k-warning-soft: rgba(232, 184, 74, 0.2);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -82,8 +99,9 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-    font-weight: 800;
-    letter-spacing: -0.01em;
+    font-family: var(--k-font-display);
+    font-weight: 700;
+    letter-spacing: -0.015em;
     color: var(--k-text);
 }
 
@@ -97,11 +115,11 @@ h1 {
 }
 
 a, .btn-link {
-    color: var(--k-accent);
+    color: var(--k-accent-ink);
 }
 
 a:hover, .btn-link:hover {
-    color: var(--k-accent-hover);
+    color: var(--k-accent-ink-hover);
 }
 
 .content {
@@ -172,13 +190,13 @@ a .card:hover, .card.h-100:hover {
 }
 
 .btn-primary {
-    color: #fff;
+    color: var(--k-accent-contrast);
     background-color: var(--k-accent);
     border-color: var(--k-accent);
 }
 
 .btn-primary:hover, .btn-primary:active {
-    color: #fff;
+    color: var(--k-accent-contrast);
     background-color: var(--k-accent-hover);
     border-color: var(--k-accent-hover);
 }
@@ -190,12 +208,12 @@ a .card:hover, .card.h-100:hover {
 }
 
 .btn-outline-primary {
-    color: var(--k-accent);
+    color: var(--k-accent-ink);
     border-color: var(--k-accent);
 }
 
 .btn-outline-primary:hover, .btn-outline-primary.active, .btn-outline-primary:active {
-    color: #fff;
+    color: var(--k-accent-contrast);
     background-color: var(--k-accent);
     border-color: var(--k-accent);
 }
@@ -254,6 +272,7 @@ a .card:hover, .card.h-100:hover {
 
 .badge.bg-primary {
     background-color: var(--k-accent) !important;
+    color: var(--k-accent-contrast) !important;
 }
 
 .text-bg-secondary {
@@ -356,7 +375,7 @@ a .card:hover, .card.h-100:hover {
 }
 
 .spinner-border {
-    color: var(--k-accent);
+    color: var(--k-accent-ink);
 }
 
 .text-danger {
