@@ -3,6 +3,20 @@ import UIKit
 
 private enum AppTab: Hashable {
     case library, search, discovery, subscriptions, playlists, settings
+
+#if DEBUG
+    init?(argument: String) {
+        switch argument.lowercased() {
+        case "library": self = .library
+        case "search": self = .search
+        case "discovery", "discover": self = .discovery
+        case "subscriptions": self = .subscriptions
+        case "playlists": self = .playlists
+        case "settings": self = .settings
+        default: return nil
+        }
+    }
+#endif
 }
 
 struct ContentView: View {
@@ -18,6 +32,33 @@ struct ContentView: View {
     @State private var tabPaths: [AppTab: NavigationPath] = [:]
 
     var body: some View {
+        content
+#if DEBUG
+            // Screenshot automation (docs/brand/appstore/): `-KuullaAutoTestSignIn` launches
+            // straight into the signed-in app via the dev test-token endpoint, and
+            // `-KuullaInitialTab <library|search|discovery|subscriptions|playlists|settings>`
+            // selects the opening tab — so store frames can be captured with `xcrun simctl`
+            // without driving the UI.
+            .task {
+                let args = ProcessInfo.processInfo.arguments
+                if args.contains("-KuullaAutoTestSignIn"), !authManager.isSignedIn {
+                    try? await authManager.signInAsTestUser()
+                }
+                if let i = args.firstIndex(of: "-KuullaInitialTab"), i + 1 < args.count,
+                   let tab = AppTab(argument: args[i + 1]) {
+                    selectedTab = tab
+                }
+                if let i = args.firstIndex(of: "-KuullaInitialEpisode"), i + 2 < args.count {
+                    deepLinkRouter.pendingRoute = .episode(showId: args[i + 1], episodeId: args[i + 2])
+                } else if let i = args.firstIndex(of: "-KuullaInitialShow"), i + 1 < args.count {
+                    deepLinkRouter.pendingRoute = .show(id: args[i + 1])
+                }
+            }
+#endif
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if authManager.isSignedIn {
             TabView(selection: $selectedTab) {
                 tab(.library) { LibraryView() }
