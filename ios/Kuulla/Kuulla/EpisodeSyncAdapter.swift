@@ -39,7 +39,8 @@ struct EpisodeSyncAdapter: SyncAdapter {
                 completed: $0.completed,
                 updatedAt: $0.updatedAt,
                 autoPlayed: $0.autoPlayed,
-                archived: $0.archived)
+                archived: $0.archived,
+                deviceId: $0.deviceId)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
@@ -62,6 +63,10 @@ struct EpisodeSyncAdapter: SyncAdapter {
             existing.updatedAt = record.updatedAt
             existing.autoPlayed = record.autoPlayed
             existing.archived = record.archived
+            existing.deviceId = record.deviceId
+            // lastLocalPositionSeconds / lastLocalPlaybackAt are deliberately left untouched —
+            // they track what *this* device played and must survive a pull that carries another
+            // device's newer position (#241).
             existing.isDirty = false
         } else {
             context.insert(record)
@@ -95,12 +100,33 @@ extension SyncEngine where Adapter == EpisodeSyncAdapter {
                 restored = EpisodeStateRecord(
                     id: existing.id, showId: existing.showId, positionSeconds: existing.positionSeconds,
                     completed: existing.completed, updatedAt: existing.updatedAt, isDirty: existing.isDirty,
-                    autoPlayed: existing.autoPlayed, archived: existing.archived)
+                    autoPlayed: existing.autoPlayed, archived: existing.archived, deviceId: existing.deviceId,
+                    lastLocalPositionSeconds: existing.lastLocalPositionSeconds,
+                    lastLocalPlaybackAt: existing.lastLocalPlaybackAt)
             }
         } catch {
             assertionFailure("Failed to restore auto-played episode \(episodeId): \(error)")
         }
         return restored
+    }
+
+    // A detached snapshot of one episode's state read through the engine's own ModelContext —
+    // the one server pulls are applied to. A caller that just awaited syncNow() and then read
+    // back through its own @Environment(\.modelContext) instead can observe stale state (two
+    // ModelContext instances over the same store aren't guaranteed to see each other's saves
+    // immediately). Returns a plain copy, not the context-bound model, so it's safe to hold on
+    // the main actor. Nil when there's no local record for this episode.
+    func currentState(episodeId: String) async -> EpisodeStateRecord? {
+        await read { context in
+            let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
+            guard let existing = try? context.fetch(descriptor).first else { return nil }
+            return EpisodeStateRecord(
+                id: existing.id, showId: existing.showId, positionSeconds: existing.positionSeconds,
+                completed: existing.completed, updatedAt: existing.updatedAt, isDirty: existing.isDirty,
+                autoPlayed: existing.autoPlayed, archived: existing.archived, deviceId: existing.deviceId,
+                lastLocalPositionSeconds: existing.lastLocalPositionSeconds,
+                lastLocalPlaybackAt: existing.lastLocalPlaybackAt)
+        }
     }
 }
 
@@ -134,9 +160,10 @@ private struct EpisodeStateDTO: Decodable {
     let updatedAt: Date
     let autoPlayed: Bool
     let archived: Bool
+    let deviceId: String?
 
     private enum CodingKeys: String, CodingKey {
-        case episodeId, showId, positionSeconds, completed, updatedAt, autoPlayed, archived
+        case episodeId, showId, positionSeconds, completed, updatedAt, autoPlayed, archived, deviceId
     }
 
     // Defaults to false when absent so a server response that predates #100's/#187's field
@@ -150,5 +177,6 @@ private struct EpisodeStateDTO: Decodable {
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         autoPlayed = try container.decodeIfPresent(Bool.self, forKey: .autoPlayed) ?? false
         archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
     }
 }

@@ -20,6 +20,18 @@ final class EpisodeStateRecord: Syncable {
     // The `= false` default (not just the initializer's) lets SwiftData lightweight-migrate
     // existing on-device stores that predate this field.
     var archived: Bool = false
+    // The device that last wrote this position server-side (EpisodeState.DeviceId), populated
+    // from sync pulls — nil for records that predate this field or were only ever written
+    // locally before a sync round-trip. The cross-device resume prompt (#241) uses it to tell
+    // "another device moved this" from "this device did". Property-level default for lightweight
+    // migration, same rationale as `archived`.
+    var deviceId: String? = nil
+    // The position (and wall-clock time) this device itself last played to. Updated only on this
+    // device's own local playback writes and never overwritten by a sync pull, so the resume
+    // prompt (#241) can still fall back to this device's own position when the user declines a
+    // handoff from another device.
+    var lastLocalPositionSeconds: Int = 0
+    var lastLocalPlaybackAt: Date = Date.distantPast
 
     init(
         id: String,
@@ -29,7 +41,10 @@ final class EpisodeStateRecord: Syncable {
         updatedAt: Date,
         isDirty: Bool = false,
         autoPlayed: Bool = false,
-        archived: Bool = false
+        archived: Bool = false,
+        deviceId: String? = nil,
+        lastLocalPositionSeconds: Int = 0,
+        lastLocalPlaybackAt: Date = .distantPast
     ) {
         self.id = id
         self.showId = showId
@@ -39,5 +54,8 @@ final class EpisodeStateRecord: Syncable {
         self.isDirty = isDirty
         self.autoPlayed = autoPlayed
         self.archived = archived
+        self.deviceId = deviceId
+        self.lastLocalPositionSeconds = lastLocalPositionSeconds
+        self.lastLocalPlaybackAt = lastLocalPlaybackAt
     }
 }

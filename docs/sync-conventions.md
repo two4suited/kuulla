@@ -16,7 +16,10 @@ Every syncable document gets two fields in addition to its own data:
   the client. Drives last-write-wins: an incoming write is accepted only if its
   `updatedAt` is newer than the stored record's.
 - **`deviceId`** — the origin of the last write. Not used for conflict resolution,
-  only for debugging/telemetry (e.g. "why did my phone's edit get discarded").
+  only for debugging/telemetry (e.g. "why did my phone's edit get discarded") and,
+  on `EpisodeState`, for the cross-device playback-handoff UI (#241–#244): a client
+  compares the synced `deviceId` against its own to decide whether to offer
+  "resume from your other device". It still never influences last-write-wins.
 
 ## Per-user collection summary
 

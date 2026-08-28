@@ -13,6 +13,7 @@ struct EpisodeDetailView: View {
 
     @Environment(\.episodeSyncEngine) private var syncEngine
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var episode: Episode?
     @State private var show: Show?
@@ -21,6 +22,15 @@ struct EpisodeDetailView: View {
     @State private var audioPlayer = AudioPlayer.shared
 
     @State private var stateRecord: EpisodeStateRecord?
+    // Non-nil while the "resume from your other device" prompt (#241) is shown — set when
+    // evaluateResumePrompt finds a synced position another device wrote that differs enough from
+    // this device's own (ahead or behind).
+    @State private var resumePrompt: CrossDeviceResume.Prompt?
+    // The synced record's updatedAt the user has already answered the resume prompt for, so a
+    // return-from-background re-check doesn't re-ask about that same cross-device position — but
+    // a genuinely newer write from another device (different updatedAt) still prompts. Reset in
+    // load() when a different episode opens.
+    @State private var answeredResumeUpdatedAt: Date?
     @State private var downloadStatus: DownloadStatus?
     // Fetched lazily (best-effort) once the episode is known to advertise a transcript; nil until
     // then, and stays nil if the episode has no transcript or the fetch fails.
@@ -306,6 +316,46 @@ struct EpisodeDetailView: View {
         .task(id: episodeId) {
             await load()
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Returning from background is one of the two moments #241 calls out for the resume
+            // prompt — another device may have moved this episode while we were away. Await our
+            // own syncNow() rather than racing KuullaApp's detached one, so the re-check runs
+            // against the freshly pulled position instead of stale local state.
+            guard newPhase == .active else { return }
+            Task {
+                // Only need local state to be *fresh*, not to push anything — so don't force an
+                // extra round when KuullaApp's own .active sync is already in flight.
+                await syncEngine?.syncNow(requestFollowUpIfSyncing: false)
+                loadLocalState()
+                // loadLocalState() reads through this view's @Environment(\.modelContext), which
+                // isn't guaranteed to observe the pull syncNow() just applied through the
+                // engine's own context — re-read stateRecord from that context so the resume
+                // check sees the freshly pulled position. (URL/download state stays from
+                // loadLocalState.)
+                if let refreshed = await syncEngine?.currentState(episodeId: episodeId) {
+                    stateRecord = refreshed
+                }
+                evaluateResumePrompt()
+            }
+        }
+        .alert(
+            "Resume from your other device?",
+            isPresented: Binding(get: { resumePrompt != nil }, set: { if !$0 { resumePrompt = nil } }),
+            presenting: resumePrompt
+        ) { prompt in
+            // `prompt` is captured by value here, so the choice still applies even though
+            // dismissing the alert clears `resumePrompt` before this async work runs.
+            Button("Resume") {
+                let sourceUpdatedAt = stateRecord?.updatedAt
+                Task { await resolveResumePrompt(prompt, sourceUpdatedAt: sourceUpdatedAt, resume: true) }
+            }
+            Button("Not now", role: .cancel) {
+                let sourceUpdatedAt = stateRecord?.updatedAt
+                Task { await resolveResumePrompt(prompt, sourceUpdatedAt: sourceUpdatedAt, resume: false) }
+            }
+        } message: { prompt in
+            Text("You left off at \(EpisodeFormatting.formatDuration(TimeInterval(prompt.otherDevicePositionSeconds))) on another device.")
+        }
         .onDisappear {
             progressTrackingTask?.cancel()
             progressTrackingTask = nil
@@ -315,6 +365,8 @@ struct EpisodeDetailView: View {
     private func load() async {
         episode = nil
         show = nil
+        resumePrompt = nil
+        answeredResumeUpdatedAt = nil
         transcript = nil
         loadError = nil
         isLoading = true
@@ -355,6 +407,10 @@ struct EpisodeDetailView: View {
         }
         isLoading = false
 
+        // After the episode and its local state are both resolved: offer to pick up from a
+        // position another device synced for this episode — ahead of or behind this one (#241).
+        evaluateResumePrompt()
+
         // After isLoading flips — the transcript is supplementary and the API may take a moment to
         // normalize/cache it on a cold hit, so it shouldn't hold up rendering the rest of the
         // screen. .task(id: episodeId) cancels this if the user navigates away first.
@@ -391,6 +447,61 @@ struct EpisodeDetailView: View {
             return
         }
         resolvedAudioURL = episode.flatMap(resolvedPlaybackURL(for:))
+    }
+
+    // Shows the cross-device resume prompt (#241) when this episode's synced position was last
+    // written by a different device, more recently than this device last played and far enough
+    // from this device's own position to matter — whether that's further ahead or rewound behind.
+    // Never interrupts a session already running for this episode, and re-evaluating is cheap and
+    // idempotent — answering the prompt records the remote write's updatedAt, which suppresses
+    // re-prompts until a genuinely newer one arrives.
+    private func evaluateResumePrompt() {
+        guard episode != nil, let record = stateRecord else {
+            resumePrompt = nil
+            return
+        }
+        // Already answered the prompt for this exact remote write — don't re-ask on a
+        // return-from-background re-check. A newer write from another device has a different
+        // updatedAt and still gets through.
+        if record.updatedAt == answeredResumeUpdatedAt {
+            resumePrompt = nil
+            return
+        }
+        if let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
+            resumePrompt = nil
+            return
+        }
+        resumePrompt = CrossDeviceResume.prompt(
+            syncedPositionSeconds: record.positionSeconds,
+            syncedUpdatedAt: record.updatedAt,
+            syncedDeviceId: record.deviceId,
+            completed: record.completed,
+            currentDeviceId: DeviceIdentity.current,
+            lastLocalPositionSeconds: record.lastLocalPositionSeconds,
+            lastLocalPlaybackAt: record.lastLocalPlaybackAt)
+    }
+
+    // "Resume" adopts the other device's position and starts playback there. "Not now" keeps
+    // this device's own last position — persisted (LWW, per docs/sync-conventions.md) so the
+    // two devices converge, but only when this device actually has local progress to keep;
+    // declining on an episode this device has never played leaves the synced position untouched
+    // rather than pushing a zero that would wipe the other device's progress.
+    private func resolveResumePrompt(
+        _ prompt: CrossDeviceResume.Prompt, sourceUpdatedAt: Date?, resume: Bool
+    ) async {
+        resumePrompt = nil
+        // Remember which remote write this answer was for, so a background round-trip doesn't
+        // re-prompt for the same one — but a newer write from another device still can.
+        answeredResumeUpdatedAt = sourceUpdatedAt
+
+        if resume {
+            await persist(positionSeconds: prompt.otherDevicePositionSeconds, completed: false)
+            if let audioURL = resolvedAudioURL {
+                startPlayback(url: audioURL, startPosition: TimeInterval(prompt.otherDevicePositionSeconds))
+            }
+        } else if prompt.localPositionSeconds > 0 {
+            await persist(positionSeconds: prompt.localPositionSeconds, completed: false)
+        }
     }
 
     // Best-effort: these are playback niceties, not core functionality, so a failure here
@@ -638,11 +749,16 @@ struct EpisodeDetailView: View {
                     // completed toggle) — restoreAutoPlayed() is the only path that clears the
                     // flag on an auto-played episode, so any write reaching here always resets it.
                     existing.autoPlayed = false
+                    // This device is the writer, so record where *it* played to — the cross-device
+                    // resume prompt (#241) compares against this to detect another device moving on.
+                    existing.lastLocalPositionSeconds = positionSeconds
+                    existing.lastLocalPlaybackAt = updatedAt
                     existing.isDirty = true
                 } else {
                     context.insert(EpisodeStateRecord(
                         id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                        completed: completed, updatedAt: updatedAt, isDirty: true))
+                        completed: completed, updatedAt: updatedAt, isDirty: true,
+                        lastLocalPositionSeconds: positionSeconds, lastLocalPlaybackAt: updatedAt))
                 }
             }
         } catch {
@@ -655,7 +771,9 @@ struct EpisodeDetailView: View {
         // that's a different ModelContext instance than the one syncEngine.write just saved
         // through, and isn't guaranteed to observe the write synchronously.
         stateRecord = EpisodeStateRecord(
-            id: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed, updatedAt: updatedAt)
+            id: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed, updatedAt: updatedAt,
+            deviceId: stateRecord?.deviceId,
+            lastLocalPositionSeconds: positionSeconds, lastLocalPlaybackAt: updatedAt)
 
         // persist() is only ever reached via a manual write path in *this view* (the completed
         // toggle, or the onDidFinishPlaying callback for a natural finish) — it's never called
