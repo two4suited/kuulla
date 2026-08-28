@@ -25,6 +25,10 @@ struct EpisodeDetailView: View {
     // Non-nil while the "resume from your other device" prompt (#241) is shown — set when
     // loadLocalState finds a synced position another device wrote past this device's own.
     @State private var resumePrompt: CrossDeviceResume.Prompt?
+    // Set once the user has answered the resume prompt for the currently-loaded episode, so a
+    // return-from-background re-check doesn't ask again about the same cross-device position.
+    // Reset in load() when a different episode opens.
+    @State private var resumePromptAnswered = false
     @State private var downloadStatus: DownloadStatus?
     // Fetched lazily (best-effort) once the episode is known to advertise a transcript; nil until
     // then, and stays nil if the episode has no transcript or the fetch fails.
@@ -339,6 +343,8 @@ struct EpisodeDetailView: View {
     private func load() async {
         episode = nil
         show = nil
+        resumePrompt = nil
+        resumePromptAnswered = false
         transcript = nil
         loadError = nil
         isLoading = true
@@ -427,7 +433,7 @@ struct EpisodeDetailView: View {
     // Resume/Not-now choice writes the local playback marker forward, which suppresses re-prompts
     // until a genuinely newer remote write arrives.
     private func evaluateResumePrompt() {
-        guard episode != nil, let record = stateRecord else {
+        guard !resumePromptAnswered, episode != nil, let record = stateRecord else {
             resumePrompt = nil
             return
         }
@@ -445,16 +451,23 @@ struct EpisodeDetailView: View {
             lastLocalPlaybackAt: record.lastLocalPlaybackAt)
     }
 
-    // "Resume" starts this episode at the other device's position; "Not now" keeps this device's
-    // own last position. Either way the choice is persisted (LWW, per docs/sync-conventions.md)
-    // so the two devices converge and the prompt doesn't reappear on the next open.
+    // "Resume" adopts the other device's position and starts playback there. "Not now" keeps
+    // this device's own last position — persisted (LWW, per docs/sync-conventions.md) so the
+    // two devices converge, but only when this device actually has local progress to keep;
+    // declining on an episode this device has never played leaves the synced position untouched
+    // rather than pushing a zero that would wipe the other device's progress.
     private func resolveResumePrompt(resume: Bool) async {
         guard let prompt = resumePrompt else { return }
         resumePrompt = nil
-        let position = resume ? prompt.otherDevicePositionSeconds : prompt.localPositionSeconds
-        await persist(positionSeconds: position, completed: false)
-        if resume, let audioURL = resolvedAudioURL {
-            startPlayback(url: audioURL, startPosition: TimeInterval(position))
+        resumePromptAnswered = true
+
+        if resume {
+            await persist(positionSeconds: prompt.otherDevicePositionSeconds, completed: false)
+            if let audioURL = resolvedAudioURL {
+                startPlayback(url: audioURL, startPosition: TimeInterval(prompt.otherDevicePositionSeconds))
+            }
+        } else if prompt.localPositionSeconds > 0 {
+            await persist(positionSeconds: prompt.localPositionSeconds, completed: false)
         }
     }
 
