@@ -192,7 +192,7 @@ h1:focus {
     transition: border-color 0.13s ease-out, box-shadow 0.13s ease-out;
 }
 
-a .card:hover, .card.h-100:hover {
+a .card:hover, a.card:hover, .card.h-100:hover {
     box-shadow: var(--k-shadow);
     border-color: var(--k-accent);
 }
@@ -357,7 +357,7 @@ a .card:hover, .card.h-100:hover {
 mark {
     background: var(--k-accent-soft);
     color: var(--k-text);
-    border-radius: 3px;
+    border-radius: var(--k-radius-sm);
     padding: 0 0.15em;
 }
 
