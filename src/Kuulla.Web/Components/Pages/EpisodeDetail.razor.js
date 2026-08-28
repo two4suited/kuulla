@@ -25,6 +25,45 @@ function isStreamBlocked() {
     return connection.type !== "wifi";
 }
 
+// This browser's last-known playback position for an episode, plus the server UpdatedAt it was
+// last in sync with — the Web side of the cross-device resume prompt (#243). Stored per (user,
+// episode) so opening one on this browser can tell "another device moved this" from "I did",
+// and so a second account signed into the same browser profile can't read or clobber the first
+// account's progress. Best-effort: a private window or disabled storage just means the prompt
+// never fires here.
+const LOCAL_PLAYBACK_PREFIX = "kuulla.ep.playback.";
+
+function localPlaybackKey(userId, episodeId) {
+    return LOCAL_PLAYBACK_PREFIX + encodeURIComponent(userId) + "." + encodeURIComponent(episodeId);
+}
+
+export function readLocalPlayback(userId, episodeId) {
+    try {
+        const raw = localStorage.getItem(localPlaybackKey(userId, episodeId));
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw);
+        // `pos` must be a non-negative integer — anything else (a decimal from a hand-edited
+        // entry, NaN, a string) would throw when Blazor deserializes it into `int Pos`, so treat
+        // a malformed entry as "no record" rather than letting it break rendering.
+        if (!Number.isInteger(parsed.pos) || parsed.pos < 0 || typeof parsed.at !== "string") {
+            return null;
+        }
+        return { pos: parsed.pos, at: parsed.at };
+    } catch (e) {
+        return null;
+    }
+}
+
+export function writeLocalPlayback(userId, episodeId, pos, at) {
+    try {
+        localStorage.setItem(localPlaybackKey(userId, episodeId), JSON.stringify({ pos, at }));
+    } catch (e) {
+        // No-op — storage unavailable just disables the cross-device prompt on this browser.
+    }
+}
+
 export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     let lastReported = 0;
     // The browser fires 'pause' immediately before 'ended' when playback finishes naturally —
@@ -87,6 +126,16 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     audioEl.addEventListener("play", onPlay);
 
     return {
+        // Changes the position the next (or in-progress) playback resumes from — used when the
+        // cross-device resume prompt (#243) is answered before or during playback. Seeks
+        // immediately if metadata is already loaded; otherwise onLoadedMetadata will apply it.
+        setInitialPosition(seconds) {
+            initialPositionSeconds = seconds;
+            lastReported = seconds;
+            if (audioEl.readyState >= 1 /* HAVE_METADATA */) {
+                this.seekTo(seconds);
+            }
+        },
         // Called from a chapter list click — jumps playback to that chapter's start time.
         // Best-effort: setting currentTime can throw (e.g. metadata not loaded yet, a
         // non-finite/negative value), and a chapter click isn't worth surfacing an interop error to
