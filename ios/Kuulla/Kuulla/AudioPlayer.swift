@@ -90,14 +90,28 @@ final class AudioPlayer {
     // remember what was last actually playing.
     private(set) var playbackSpeed: Float = 1.0
 
-    // Non-nil exactly while a saved-position seek from play() is outstanding for this player.
-    // isPlaying is set true optimistically before the seek lands (so the UI shows "Playing"
-    // immediately), so this is the only reliable way to tell "audio hasn't actually started yet"
-    // apart from "audio is paused" — both otherwise look like isPlaying == false/true respectively
-    // from the outside. Cleared on the seek's completion, on pause() (so a completion that fires
-    // after a pause can't resume playback out from under the user), and implicitly superseded by
-    // play() starting a new session.
+    // Non-nil exactly while a saved-position seek (from play(), or a skip/scrub issued before
+    // that one landed) is outstanding for this player. isPlaying is set true optimistically
+    // before the seek lands (so the UI shows "Playing" immediately), so this is the only reliable
+    // way to tell "audio hasn't actually started yet" apart from "audio is paused" — both
+    // otherwise look like isPlaying == false/true respectively from the outside. Cleared on the
+    // governing seek's completion, on pause() (so a completion that fires after a pause can't
+    // resume playback out from under the user), and reset by play() starting a new session.
     private var pendingSeekPlayer: AVPlayer?
+
+    // Monotonically increasing; stamps each "governing" seek — the saved-position seek play()
+    // issues, plus any skip/scrub that supersedes one still in flight. AVPlayer fires a
+    // cancelled seek's completion too (with finished == false), so a fast skip landing during
+    // play()'s resume-seek would otherwise start playback at the cancelled seek's target. Only
+    // the completion whose captured generation still matches the current one — and that lands
+    // with finished == true — is allowed to start playback; every earlier, superseded seek's
+    // completion is ignored. See issueGoverningSeek / completeGoverningSeek.
+    private var pendingSeekGeneration = 0
+
+    // Test-only window onto the generation counter (mirrors currentPlayerRate) so a test can
+    // capture "the generation as of this seek" and later drive completeGoverningSeek directly —
+    // AVPlayer's seek completion can't be triggered deterministically against a fake asset.
+    var currentSeekGeneration: Int { pendingSeekGeneration }
 
     // Retained for the object's lifetime — startObserving's closure only captures `onUpdate`, not
     // the observer itself, so an unretained NWPathMonitorAdapter would deinit right after this
@@ -150,6 +164,12 @@ final class AudioPlayer {
 
         removeObservers()
 
+        // A previous session's saved-position seek (if any) is now moot — drop it and bump the
+        // generation so its still-in-flight completion, whenever it lands, can't apply a rate to
+        // this new session's player.
+        pendingSeekPlayer = nil
+        pendingSeekGeneration += 1
+
         let item = AVPlayerItem(url: url)
         // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
         // without the chipmunk effect a naive rate change would produce.
@@ -196,31 +216,12 @@ final class AudioPlayer {
         currentTime = effectiveStartPosition
 
         // AVPlayer.seek(to:) is asynchronous — calling play() immediately after would let playback
-        // start audibly at 0s and then jump once the seek lands. Deferring play() to the seek's
-        // completion handler makes resume-from-position actually start at that position.
+        // start audibly at 0s and then jump once the seek lands. Deferring the rate-apply to the
+        // seek's completion handler makes resume-from-position actually start at that position.
         // Setting .rate rather than calling .play() starts playback at the configured speed
         // directly, instead of starting at 1.0 and then jumping.
         if effectiveStartPosition > 0 {
-            pendingSeekPlayer = newPlayer
-            // AVPlayer's seek completion handler isn't guaranteed to run on the main queue, but
-            // every property touched here is otherwise only ever read/written on main — dispatch
-            // explicitly rather than relying on incidental timing.
-            //
-            // Reads self.playbackSpeed at completion time (not the value captured from this
-            // call's parameter) so a setPlaybackSpeed() during the pending seek isn't silently
-            // overwritten once it lands. Both identity checks guard against this completion
-            // firing after the state has moved on: player !== newPlayer means a later play() call
-            // replaced it; pendingSeekPlayer !== newPlayer means pause() (or a later play())
-            // already cancelled this specific pending seek — in particular, a pause() that lands
-            // while the seek is still in flight must not have this completion resume playback out
-            // from under it.
-            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600)) { [weak self, weak newPlayer] _ in
-                DispatchQueue.main.async {
-                    guard let self, let newPlayer, self.player === newPlayer, self.pendingSeekPlayer === newPlayer else { return }
-                    self.pendingSeekPlayer = nil
-                    newPlayer.rate = self.playbackSpeed
-                }
-            }
+            issueGoverningSeek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600))
         } else {
             newPlayer.rate = playbackSpeed
         }
@@ -272,9 +273,53 @@ final class AudioPlayer {
 
     func seek(to time: TimeInterval) {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
-        player?.seek(to: cmTime)
         currentTime = time
+        if pendingSeekPlayer != nil {
+            // play()'s saved-position seek hasn't landed yet. Issue this one as the new governing
+            // seek so playback starts from *this* target once it actually lands — and so the
+            // earlier seek's cancelled completion (finished == false, now-stale generation) can't
+            // start playback at the superseded position.
+            issueGoverningSeek(to: cmTime)
+        } else {
+            player?.seek(to: cmTime)
+        }
         updateNowPlayingInfo()
+    }
+
+    // Issues a seek whose completion is the one allowed to start playback (apply playbackSpeed,
+    // clear pendingSeekPlayer). Bumps the generation so that if another governing seek is issued
+    // before this one lands, only the latest one's completion — landing with finished == true —
+    // starts playback; earlier, cancelled seeks' completions are ignored.
+    private func issueGoverningSeek(to cmTime: CMTime) {
+        guard let seekPlayer = player else { return }
+        pendingSeekPlayer = seekPlayer
+        pendingSeekGeneration += 1
+        let generation = pendingSeekGeneration
+        // AVPlayer's seek completion handler isn't guaranteed to run on the main queue, but every
+        // property completeGoverningSeek touches is otherwise only ever read/written on main —
+        // dispatch explicitly rather than relying on incidental timing.
+        seekPlayer.seek(to: cmTime) { [weak self] finished in
+            DispatchQueue.main.async { self?.completeGoverningSeek(generation: generation, finished: finished) }
+        }
+    }
+
+    // The body of a governing seek's completion handler, pulled out as an internal test seam
+    // (mirroring tickSleepTimer / fireOnDidFinishPlayingUnlessSleepTimerStopsHere) — AVPlayer's
+    // seek completion can't be driven deterministically against a fake asset in a unit test.
+    //
+    // `finished` is AVPlayer's "this seek ran to completion" flag, false when a newer seek
+    // cancelled it. A cancelled seek still fires its completion, so without this check a fast
+    // skip/scrub landing during play()'s initial resume-seek would start playback at the
+    // cancelled seek's target. `generation` guards the same race from the other side: once a
+    // later governing seek has been issued, only that later one may start playback. Reads
+    // self.playbackSpeed at completion time so a setPlaybackSpeed() during the pending seek isn't
+    // silently overwritten once this lands.
+    func completeGoverningSeek(generation: Int, finished: Bool) {
+        guard finished, generation == pendingSeekGeneration,
+              let seekPlayer = pendingSeekPlayer, seekPlayer === player
+        else { return }
+        pendingSeekPlayer = nil
+        seekPlayer.rate = playbackSpeed
     }
 
     // Changes the rate of the current playback session. No-ops the underlying player when

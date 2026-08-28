@@ -242,6 +242,70 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.currentPlayerRate, 0)
     }
 
+    // MARK: - Pending-position seek vs. a fast skip/scrub (#315)
+
+    // The initial resume-seek's completion must only start playback when it actually lands
+    // (finished == true) — a cancelled seek fires its completion too (finished == false), and
+    // acting on it would start audio at a stale target.
+    func testGoverningSeekCompletionAppliesRateOnlyWhenFinished() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 120, playbackSpeed: 1.5)
+        let generation = player.currentSeekGeneration
+
+        player.completeGoverningSeek(generation: generation, finished: false)
+        XCTAssertEqual(player.currentPlayerRate, 0)
+        XCTAssertTrue(player.isPlaying)
+
+        player.completeGoverningSeek(generation: generation, finished: true)
+        XCTAssertEqual(player.currentPlayerRate, 1.5)
+    }
+
+    // A skip fired while the resume-seek is still pending supersedes it: the earlier seek's
+    // completion — even one that reports finished == true — must not start playback, because its
+    // generation is now stale. Only the skip's own seek governs playback start.
+    func testGoverningSeekCompletionIgnoresStaleGenerationFromASupersededSeek() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 120, playbackSpeed: 1.5)
+        let staleGeneration = player.currentSeekGeneration
+
+        _ = player.handleSkipForwardCommand(interval: 30)
+        XCTAssertEqual(player.currentTime, 150)
+
+        player.completeGoverningSeek(generation: staleGeneration, finished: true)
+        XCTAssertEqual(player.currentPlayerRate, 0)
+        XCTAssertTrue(player.isPlaying)
+
+        player.completeGoverningSeek(generation: player.currentSeekGeneration, finished: true)
+        XCTAssertEqual(player.currentPlayerRate, 1.5)
+    }
+
+    // End to end: skipping during the pending resume-seek keeps playback deferred (rate 0) until
+    // the superseding seek lands, rather than audibly starting at the old position.
+    func testSkipDuringPendingSeekKeepsPlaybackDeferredUntilTheNewSeekLands() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 120)
+
+        _ = player.handleSkipBackwardCommand(interval: 15)
+
+        XCTAssertEqual(player.currentTime, 105)
+        XCTAssertEqual(player.currentPlayerRate, 0)
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    // A pause landing during the pending seek clears it — a governing-seek completion that fires
+    // afterwards must not resume playback out from under the user.
+    func testGoverningSeekCompletionIsIgnoredAfterPauseDuringPendingSeek() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, startPosition: 120)
+        let generation = player.currentSeekGeneration
+        player.pause()
+
+        player.completeGoverningSeek(generation: generation, finished: true)
+
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.currentPlayerRate, 0)
+    }
+
     // MARK: - Stream over Wi-Fi only (#271)
 
     private func withWifiOnlyStreaming(_ enabled: Bool, _ body: () async throws -> Void) async rethrows {
