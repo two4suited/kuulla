@@ -417,9 +417,11 @@ else
             return;
         }
 
-        // "Not now" keeps this browser's own position. Persist it when there's genuine local
-        // progress so the two devices converge; on an episode never played here just record the
-        // remote UpdatedAt locally so the same write doesn't prompt again.
+        // "Not now" keeps this browser's own position (the audio watcher is already attached
+        // there). Persist it when there's genuine local progress so the two devices converge;
+        // on an episode never played here just record the remote UpdatedAt locally so the same
+        // write doesn't prompt again.
+        savedPositionSeconds = prompt.LocalPositionSeconds;
         if (prompt.LocalPositionSeconds > 0)
         {
             await PersistStateAsync(prompt.LocalPositionSeconds, completed: false);
