@@ -107,10 +107,10 @@ struct ContentView: View {
     private var signInPrompt: some View {
         VStack(spacing: 16) {
             Text("Kuulla")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+                .font(.kuullaTitle(34, relativeTo: .largeTitle))
 
             Button("Sign in with Google", action: signIn)
+                .buttonStyle(.borderedProminent)
 
 #if DEBUG
             Button("Sign in as test user (local only)", action: signInAsTestUser)
@@ -119,8 +119,8 @@ struct ContentView: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.kuullaBody(13))
+                    .foregroundStyle(KuullaColor.danger)
             }
         }
     }

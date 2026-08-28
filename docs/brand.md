@@ -258,7 +258,9 @@ Fonts on iOS: bundle Space Grotesk, Manrope, JetBrains Mono; expose `.kuullaTitl
 
 - **Web:** `src/Kuulla.Web/wwwroot/app.css` `:root` / `[data-bs-theme="…"]` blocks.
   Fonts loaded in `src/Kuulla.Web/Components/App.razor`.
-- **iOS:** colour asset catalog + `Theme.swift` / `Typography.swift`
-  ([#347](https://github.com/sheridan-apps/kuulla/issues/347), not yet created).
+- **iOS:** `Assets.xcassets/Colors/*.colorset` (Any/Dark) + `Theme.swift`
+  (`KuullaColor`, `Radius`, `Space`) + `Typography.swift` (`Font.kuulla*`). Fonts
+  in `ios/Kuulla/Kuulla/Fonts/`, registered via `Info.plist` `UIAppFonts`. The
+  app is pinned to dark (`.preferredColorScheme(.dark)` in `KuullaApp`).
 - **Marketing site:** reuses `app.css` tokens
   ([#348](https://github.com/sheridan-apps/kuulla/issues/348)).

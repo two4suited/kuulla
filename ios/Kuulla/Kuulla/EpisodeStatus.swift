@@ -39,10 +39,10 @@ enum EpisodeStatus: Equatable {
 
     var tintColor: Color {
         switch self {
-        case .new: .blue
-        case .inProgress: .orange
-        case .played: .green
-        case .autoPlayed: .gray
+        case .new: KuullaColor.info
+        case .inProgress: KuullaColor.warning
+        case .played: KuullaColor.success
+        case .autoPlayed: KuullaColor.textMuted
         }
     }
 }
@@ -78,7 +78,7 @@ struct StatusBadge: View {
 
     var body: some View {
         Text(status.label)
-            .font(.caption2)
+            .font(.kuullaBody(11, weight: .semibold))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(status.tintColor.opacity(0.15))

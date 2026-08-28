@@ -78,8 +78,8 @@ struct ChapterScrubber: View {
                 Spacer()
                 Text(EpisodeFormatting.formatDuration(duration))
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(.kuullaMono(12))
+            .foregroundStyle(KuullaColor.textMuted)
 
             if !chapters.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
@@ -98,12 +98,13 @@ struct ChapterScrubber: View {
                         } label: {
                             HStack {
                                 Text(chapter.title)
+                                    .font(.kuullaBody(15, weight: index == activeChapterIndex ? .semibold : .regular))
                                 Spacer()
                                 Text(EpisodeFormatting.formatDuration(chapter.startTime))
-                                    .foregroundStyle(.secondary)
+                                    .font(.kuullaMono(12))
+                                    .foregroundStyle(KuullaColor.textMuted)
                             }
-                            .font(index == activeChapterIndex ? .subheadline.bold() : .subheadline)
-                            .foregroundStyle(index == activeChapterIndex ? Color.accentColor : .primary)
+                            .foregroundStyle(index == activeChapterIndex ? KuullaColor.signal : KuullaColor.textPrimary)
                             .padding(.vertical, 6)
                         }
                         .buttonStyle(.plain)
