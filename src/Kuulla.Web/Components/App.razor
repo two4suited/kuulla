@@ -4,13 +4,13 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#171A21" />
+    <meta name="theme-color" content="#050505" />
     <base href="/" />
     <ResourcePreloader />
     <script>
         // Inlined so the theme attribute lands before first paint (avoids a flash of the wrong
         // theme); theme.js (loaded below) re-applies this and adds the toggle.
-        (function(){var t=null;try{t=localStorage.getItem("kuulla-theme");}catch(e){}if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}document.documentElement.setAttribute("data-bs-theme",t);var m=document.querySelector('meta[name="theme-color"]');if(m){m.setAttribute("content",t==="dark"?"#171A21":"#faf9f7");}})();
+        (function(){var t=null;try{t=localStorage.getItem("kuulla-theme");}catch(e){}if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}document.documentElement.setAttribute("data-bs-theme",t);var m=document.querySelector('meta[name="theme-color"]');if(m){m.setAttribute("content",t==="dark"?"#050505":"#f4f4f2");}})();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,6 +21,7 @@
     <ImportMap />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="alternate icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <HeadOutlet />
 </head>
 

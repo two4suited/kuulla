@@ -185,8 +185,13 @@ Fast and precise. No bounce, no overshoot.
   denotes the currently-playing item).
 - The **sync-graph motif** — nodes on a waveform polyline, the shape of the app icon
   ([#345](https://github.com/sheridan-apps/kuulla/issues/345)) — is the recurring brand
-  mark. Use it for empty states, loading states, and the marketing site. Do **not** use it
-  as functional UI chrome (nav, buttons).
+  mark. Use it for empty states, loading states, and the marketing site (functional UI
+  chrome like buttons stays plain).
+- **Icon sources:** `docs/brand/icon-master.svg` (4-node signal transient, 1024,
+  App Store / iOS / apple-touch), `docs/brand/icon-small.svg` (3-node reduction, used for
+  `favicon.svg`/`favicon.png` and the nav wordmark mark), `docs/brand/icon-tinted.svg`
+  (grayscale, iOS 18 tinted appearance). Regenerate the PNGs from these — never hand-edit
+  a raster.
 
 ---
 

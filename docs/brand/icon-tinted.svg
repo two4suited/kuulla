@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- iOS 18 "tinted" appearance: grayscale mask, luminance drives the system tint.
+       The two lit nodes go full white so they stay the emphasis under any hue. -->
+  <rect width="1024" height="1024" fill="#000000"/>
+  <polyline points="226,596 416,330 571,700 786,470"
+    fill="none" stroke="#333333" stroke-width="44"
+    stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="226" cy="596" r="64" fill="#c8c8c8"/>
+  <circle cx="571" cy="700" r="64" fill="#c8c8c8"/>
+  <circle cx="416" cy="330" r="78" fill="#ffffff"/>
+  <circle cx="786" cy="470" r="78" fill="#ffffff"/>
+</svg>

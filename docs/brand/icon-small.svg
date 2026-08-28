@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- Small-size variant: 3 nodes only — the 5-node master muddies below ~48px.
+       Used for favicon.svg / favicon.png. See docs/brand.md §8. -->
   <rect width="32" height="32" rx="7" fill="#050505"/>
   <polyline points="8,21 16,10 24,23" fill="none" stroke="#4a4a4a" stroke-width="3"
     stroke-linecap="round" stroke-linejoin="round"/>
