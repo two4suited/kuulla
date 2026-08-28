@@ -322,7 +322,9 @@ struct EpisodeDetailView: View {
             // against the freshly pulled position instead of stale local state.
             guard newPhase == .active else { return }
             Task {
-                await syncEngine?.syncNow()
+                // Only need local state to be *fresh*, not to push anything — so don't force an
+                // extra round when KuullaApp's own .active sync is already in flight.
+                await syncEngine?.syncNow(requestFollowUpIfSyncing: false)
                 loadLocalState()
                 // loadLocalState() reads through this view's @Environment(\.modelContext), which
                 // isn't guaranteed to observe the pull syncNow() just applied through the
@@ -335,16 +337,23 @@ struct EpisodeDetailView: View {
                 evaluateResumePrompt()
             }
         }
-        .alert("Resume from your other device?", isPresented: Binding(
-            get: { resumePrompt != nil },
-            set: { if !$0 { resumePrompt = nil } }
-        )) {
-            Button("Resume") { Task { await resolveResumePrompt(resume: true) } }
-            Button("Not now", role: .cancel) { Task { await resolveResumePrompt(resume: false) } }
-        } message: {
-            if let resumePrompt {
-                Text("You left off at \(EpisodeFormatting.formatDuration(TimeInterval(resumePrompt.otherDevicePositionSeconds))) on another device.")
+        .alert(
+            "Resume from your other device?",
+            isPresented: Binding(get: { resumePrompt != nil }, set: { if !$0 { resumePrompt = nil } }),
+            presenting: resumePrompt
+        ) { prompt in
+            // `prompt` is captured by value here, so the choice still applies even though
+            // dismissing the alert clears `resumePrompt` before this async work runs.
+            Button("Resume") {
+                let sourceUpdatedAt = stateRecord?.updatedAt
+                Task { await resolveResumePrompt(prompt, sourceUpdatedAt: sourceUpdatedAt, resume: true) }
             }
+            Button("Not now", role: .cancel) {
+                let sourceUpdatedAt = stateRecord?.updatedAt
+                Task { await resolveResumePrompt(prompt, sourceUpdatedAt: sourceUpdatedAt, resume: false) }
+            }
+        } message: { prompt in
+            Text("You left off at \(EpisodeFormatting.formatDuration(TimeInterval(prompt.otherDevicePositionSeconds))) on another device.")
         }
         .onDisappear {
             progressTrackingTask?.cancel()
@@ -475,12 +484,13 @@ struct EpisodeDetailView: View {
     // two devices converge, but only when this device actually has local progress to keep;
     // declining on an episode this device has never played leaves the synced position untouched
     // rather than pushing a zero that would wipe the other device's progress.
-    private func resolveResumePrompt(resume: Bool) async {
-        guard let prompt = resumePrompt else { return }
+    private func resolveResumePrompt(
+        _ prompt: CrossDeviceResume.Prompt, sourceUpdatedAt: Date?, resume: Bool
+    ) async {
         resumePrompt = nil
         // Remember which remote write this answer was for, so a background round-trip doesn't
         // re-prompt for the same one — but a newer write from another device still can.
-        answeredResumeUpdatedAt = stateRecord?.updatedAt
+        answeredResumeUpdatedAt = sourceUpdatedAt
 
         if resume {
             await persist(positionSeconds: prompt.otherDevicePositionSeconds, completed: false)

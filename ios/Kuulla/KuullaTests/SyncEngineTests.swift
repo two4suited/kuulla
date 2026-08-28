@@ -377,6 +377,43 @@ final class SyncEngineTests: MockedApiTestCase {
         XCTAssertEqual(stored.id, "ep9")
         XCTAssertEqual(stored.deviceId, "other")
     }
+
+    // #241: the foreground read-back path passes requestFollowUpIfSyncing: false — it should
+    // await the in-flight run without forcing a second POST.
+    func testSyncNowWithoutFollowUpAwaitsButDoesNotAddARound() async throws {
+        let container = try makeContainer()
+
+        let requestReceived = DispatchSemaphore(value: 0)
+        let releaseResponse = DispatchSemaphore(value: 0)
+        let json = """
+        {"serverChanges":[],"syncedAt":"2026-08-18T10:00:00Z","hash":"h1"}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in
+            requestReceived.signal()
+            _ = releaseResponse.wait(timeout: .now() + 5)
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let engine = SyncEngine(
+            modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1", debounceInterval: .seconds(3600))
+
+        let first = Task { await engine.syncNow() }
+        guard requestReceived.wait(timeout: .now() + 5) == .success else {
+            XCTFail("first push was never issued")
+            releaseResponse.signal()
+            return
+        }
+
+        let second = Task { await engine.syncNow(requestFollowUpIfSyncing: false) }
+        try await Task.sleep(for: .milliseconds(50))
+        releaseResponse.signal()
+        await first.value
+        await second.value
+
+        // Just the one POST — the read-back caller didn't queue a redundant follow-up round.
+        XCTAssertEqual(MockURLProtocol.requestedURLs.count, 1)
+    }
 }
 
 // Minimal thread-safe bool for tests (Foundation's os_unfair_lock via NSLock).
