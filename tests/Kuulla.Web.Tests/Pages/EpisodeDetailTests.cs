@@ -520,6 +520,54 @@ public class EpisodeDetailTests : WebTestContext
         Assert.DoesNotContain("on another device", cut.Markup);
     }
 
+    // #244: while playing, a poll that finds a newer position from a non-web device raises the
+    // "now playing on another device" banner.
+    [Fact]
+    public void ShowsMidPlaybackHandoffBanner_WhenAnotherDeviceTakesOver()
+    {
+        // First GET (on load) is this browser's own position; a later GET (the poll) finds a
+        // phone that jumped far ahead.
+        var webState = new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "web");
+        var phoneState = new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 1500, false, DateTimeOffset.UtcNow.AddMinutes(1), "phone-1");
+        var getCount = 0;
+        ConfigureApi(RouteHandler(onGetState: _ =>
+        {
+            var state = Interlocked.Increment(ref getCount) == 1 ? webState : phoneState;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(state) };
+        }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+
+        cut.InvokeAsync(() => cut.Instance.CheckForHandoffAsync());
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Now playing on another device", cut.Markup);
+            Assert.Contains("25:00", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void MidPlaybackHandoffBanner_NotRaised_WhenLastWriteWasWeb()
+    {
+        var webState = new EpisodeState(
+            "ep-1", "user-1", "ep-1", "show-1", 1500, false, DateTimeOffset.UtcNow, "web");
+        ConfigureApi(RouteHandler(onGetState: _ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(webState) }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+
+        cut.InvokeAsync(() => cut.Instance.CheckForHandoffAsync());
+
+        cut.WaitForAssertion(() => Assert.DoesNotContain("Now playing on another device", cut.Markup));
+    }
+
     [Fact]
     public void ResumeFromOtherDevice_PersistsThatPosition()
     {

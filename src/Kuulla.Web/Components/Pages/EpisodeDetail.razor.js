@@ -90,6 +90,8 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     };
 
     const onPause = () => {
+        // #244: stop polling for a cross-device takeover once this browser isn't playing.
+        dotNetRef.invokeMethodAsync("OnPlaybackStateChanged", false);
         if (hasEnded) {
             return;
         }
@@ -98,6 +100,7 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
 
     const onEnded = () => {
         hasEnded = true;
+        dotNetRef.invokeMethodAsync("OnPlaybackStateChanged", false);
         dotNetRef.invokeMethodAsync("OnPlaybackEnded", Math.floor(audioEl.duration || audioEl.currentTime));
     };
 
@@ -117,6 +120,8 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
         }
 
         dotNetRef.invokeMethodAsync("OnStreamAllowed");
+        // #244: start polling for a newer position written by another device while this plays.
+        dotNetRef.invokeMethodAsync("OnPlaybackStateChanged", true);
     };
 
     audioEl.addEventListener("loadedmetadata", onLoadedMetadata);
