@@ -1,0 +1,322 @@
+/* Public marketing page — Signal, locked dark (docs/brand.md §1). Tokens come from
+   app.css; a few landing-only sizes are local. */
+
+.landing {
+    --l-max: 1080px;
+    position: fixed;
+    inset: 0;
+    overflow-y: auto;
+    background: var(--k-bg);
+    color: var(--k-text);
+    font-family: var(--k-font);
+    -webkit-font-smoothing: antialiased;
+}
+
+.landing main {
+    max-width: var(--l-max);
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+.landing h1,
+.landing h2 {
+    font-family: var(--k-font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--k-text);
+    margin: 0;
+}
+
+.l-eyebrow {
+    font-family: var(--k-font-mono);
+    font-size: 0.8125rem;
+    letter-spacing: 0.06em;
+    color: var(--k-accent);
+    margin: 0 0 14px;
+}
+
+/* ---- header ---- */
+.l-header {
+    max-width: var(--l-max);
+    margin: 0 auto;
+    padding: 22px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.l-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-family: var(--k-font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    letter-spacing: -0.015em;
+    color: var(--k-text);
+    text-decoration: none;
+}
+
+.l-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* LoginDisplay renders Bootstrap nav-link / btn-link markup — tone it to the header. */
+.l-header-actions ::deep .nav-link,
+.l-header-actions ::deep .btn-link {
+    color: var(--k-text-muted);
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-decoration: none;
+}
+
+.l-header-actions ::deep .nav-link:hover,
+.l-header-actions ::deep .btn-link:hover {
+    color: var(--k-text);
+}
+
+.l-header-actions ::deep form {
+    display: inline;
+}
+
+/* ---- hero ---- */
+.l-hero {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 48px;
+    align-items: center;
+    padding: 64px 0 88px;
+}
+
+.l-hero h1 {
+    font-size: clamp(2.6rem, 6vw, 4rem);
+    line-height: 1.04;
+    text-wrap: balance;
+}
+
+.l-sub {
+    margin: 22px 0 0;
+    max-width: 42ch;
+    font-size: 1.075rem;
+    line-height: 1.6;
+    color: var(--k-text-muted);
+}
+
+.l-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 32px;
+}
+
+.l-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 12px 24px;
+    border-radius: var(--k-radius-lg);
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-decoration: none;
+    transition: transform 0.13s ease-out, background-color 0.13s ease-out;
+}
+
+.l-btn:active {
+    transform: translateY(1px);
+}
+
+.l-btn-primary {
+    background: var(--k-accent);
+    color: var(--k-accent-contrast);
+}
+
+.l-btn-primary:hover {
+    background: var(--k-accent-hover);
+}
+
+.l-btn-ghost {
+    border: 1px solid var(--k-border);
+    color: var(--k-text);
+}
+
+.l-btn-ghost:hover {
+    border-color: var(--k-accent);
+    color: var(--k-accent-ink);
+}
+
+.l-cta-note {
+    margin: 16px 0 0;
+    font-family: var(--k-font-mono);
+    font-size: 0.78rem;
+    color: var(--k-text-faint);
+}
+
+/* ---- hero art: the sync graph, with the two lit nodes "syncing" on a loop ---- */
+.l-hero-art {
+    display: flex;
+    justify-content: center;
+}
+
+.l-graph {
+    width: min(100%, 380px);
+    height: auto;
+}
+
+.l-node {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: l-pulse 2.4s ease-in-out infinite;
+}
+
+.l-node-b {
+    animation-delay: 1.2s;
+}
+
+.l-graph-sync {
+    stroke-dasharray: 6 10;
+    animation: l-flow 1.6s linear infinite;
+}
+
+@keyframes l-pulse {
+    0%, 100% { opacity: 0.55; transform: scale(0.9); }
+    50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes l-flow {
+    to { stroke-dashoffset: -32; }
+}
+
+/* ---- value props ---- */
+.l-props {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    padding: 24px 0 72px;
+    border-top: 1px solid var(--k-border);
+}
+
+.l-prop {
+    background: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: var(--k-radius);
+    padding: 24px;
+}
+
+.l-prop h2 {
+    font-size: 1.15rem;
+    margin-bottom: 10px;
+}
+
+.l-prop p {
+    margin: 0;
+    color: var(--k-text-muted);
+    font-size: 0.95rem;
+    line-height: 1.55;
+}
+
+/* ---- screenshot ---- */
+.l-shot {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 56px;
+    align-items: center;
+    padding: 72px 0;
+    border-top: 1px solid var(--k-border);
+}
+
+.l-phone {
+    justify-self: center;
+    width: 260px;
+    border: 1px solid var(--k-border);
+    border-radius: 30px;
+    padding: 10px;
+    background: var(--k-surface);
+}
+
+.l-phone img {
+    display: block;
+    width: 100%;
+    border-radius: 22px;
+}
+
+.l-shot-copy h2 {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    margin-bottom: 14px;
+}
+
+.l-shot-copy p {
+    margin: 0;
+    max-width: 46ch;
+    color: var(--k-text-muted);
+    line-height: 1.6;
+}
+
+/* ---- footer ---- */
+.l-footer {
+    max-width: var(--l-max);
+    margin: 0 auto;
+    padding: 28px 24px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--k-border);
+    color: var(--k-text-faint);
+    font-size: 0.85rem;
+}
+
+.l-footer nav {
+    display: flex;
+    gap: 20px;
+}
+
+.l-footer a {
+    color: var(--k-text-muted);
+    text-decoration: none;
+}
+
+.l-footer a:hover {
+    color: var(--k-accent-ink);
+}
+
+/* ---- responsive ---- */
+@media (max-width: 820px) {
+    .l-hero {
+        grid-template-columns: 1fr;
+        gap: 16px;
+        padding: 40px 0 56px;
+    }
+
+    .l-hero-art {
+        order: -1;
+    }
+
+    .l-graph {
+        width: 220px;
+    }
+
+    .l-props {
+        grid-template-columns: 1fr;
+    }
+
+    .l-shot {
+        grid-template-columns: 1fr;
+        gap: 28px;
+        text-align: center;
+    }
+
+    .l-shot-copy p {
+        margin: 0 auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .l-node,
+    .l-graph-sync {
+        animation: none;
+    }
+
+    .l-node {
+        opacity: 1;
+    }
+}

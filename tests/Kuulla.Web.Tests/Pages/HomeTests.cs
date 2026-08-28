@@ -2,6 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using Kuulla.Web.Components.Pages;
 using Kuulla.Web.Models;
+using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Moq;
 
 namespace Kuulla.Web.Tests.Pages;
 
@@ -127,12 +131,18 @@ public class HomeTests : WebTestContext
     }
 
     [Fact]
-    public void ShowsSignInPrompt_WhenNotAuthenticated()
+    public void ShowsLandingPage_WhenNotAuthenticated()
     {
         ConfigureApi(RouteHandler());
+        // The landing page's header renders <LoginDisplay />, which reads IHostEnvironment.
+        var environment = new Mock<IHostEnvironment>();
+        environment.SetupGet(e => e.EnvironmentName).Returns(Environments.Production);
+        Services.AddSingleton(environment.Object);
 
         var cut = RenderComponent<Home>();
 
-        cut.WaitForAssertion(() => Assert.Contains("log in", cut.Markup));
+        // A logged-out visit to "/" shows the marketing landing page and redirects to /welcome.
+        cut.WaitForAssertion(() => Assert.Contains("Pause here.", cut.Markup));
+        Assert.EndsWith("/welcome", Services.GetRequiredService<NavigationManager>().Uri);
     }
 }

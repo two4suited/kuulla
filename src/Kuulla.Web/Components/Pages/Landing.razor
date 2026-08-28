@@ -1,0 +1,106 @@
+@page "/welcome"
+@layout EmptyLayout
+
+@*
+    Public marketing page. Rendered two ways, both anonymous:
+      - directly at /welcome (stable marketing URL), and
+      - by Home.razor's <NotAuthorized> branch, so a logged-out visit to "/" lands here.
+    Static SSR — no @rendermode. Served by the existing Kuulla.Web app; no new infra.
+    Deliberately locked to the Signal dark palette (docs/brand.md §1); the theme toggle
+    doesn't apply here.
+*@
+
+<PageTitle>Kuulla — Podcasts, edited like radio.</PageTitle>
+
+<HeadContent>
+    <meta name="description" content="A podcast player built for audio quality and instant cross-device sync. Pause on your phone, resume on your laptop — in under a second." />
+    <meta property="og:title" content="Kuulla — Pause here. Resume there." />
+    <meta property="og:description" content="A podcast player built for audio quality and instant cross-device sync." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="img/og-card.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="img/og-card.png" />
+</HeadContent>
+
+<div class="landing" data-bs-theme="dark">
+    <header class="l-header">
+        <a class="l-brand" href="welcome">
+            <svg viewBox="0 0 32 32" fill="none" aria-hidden="true" width="26" height="26">
+                <polyline points="8,21 16,10 24,23" fill="none" stroke="#5a5f68" stroke-width="3"
+                          stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="8" cy="21" r="4" fill="#f4f4f2" />
+                <circle cx="24" cy="23" r="4" fill="#f4f4f2" />
+                <circle cx="16" cy="10" r="4.6" fill="#c6f24e" />
+            </svg>
+            Kuulla
+        </a>
+        <div class="l-header-actions">
+            <LoginDisplay />
+        </div>
+    </header>
+
+    <main>
+        <section class="l-hero">
+            <div class="l-hero-copy">
+                <p class="l-eyebrow">Podcasts, edited like radio.</p>
+                <h1>Pause here.<br />Resume there.</h1>
+                <p class="l-sub">
+                    Position, queue, and downloads reconcile in under a second — phone,
+                    laptop, car. No “which device was I on?”
+                </p>
+                <div class="l-cta">
+                    <a class="l-btn l-btn-primary" href="Account/Login?returnUrl=%2F">Open web player</a>
+                    <a class="l-btn l-btn-ghost" href="https://apps.apple.com/app/kuulla" aria-label="Get the iOS app (coming soon)">Get the app</a>
+                </div>
+                <p class="l-cta-note">iOS app in TestFlight · web player works today</p>
+            </div>
+
+            <div class="l-hero-art" aria-hidden="true">
+                <svg viewBox="0 0 400 400" class="l-graph">
+                    <polyline points="70,250 150,120 230,300 330,180" fill="none" stroke="#333" stroke-width="14"
+                              stroke-linecap="round" stroke-linejoin="round" />
+                    <line x1="150" y1="120" x2="330" y2="180" class="l-graph-sync" stroke="#c6f24e" stroke-width="3" stroke-linecap="round" />
+                    <circle cx="70" cy="250" r="17" fill="#f4f4f2" />
+                    <circle cx="230" cy="300" r="17" fill="#f4f4f2" />
+                    <circle cx="150" cy="120" r="21" fill="#c6f24e" class="l-node l-node-a" />
+                    <circle cx="330" cy="180" r="21" fill="#c6f24e" class="l-node l-node-b" />
+                </svg>
+            </div>
+        </section>
+
+        <section class="l-props">
+            <div class="l-prop">
+                <h2>Audio quality first</h2>
+                <p>High-bitrate streams, loudness-normalized so every show sits at the same level. No bandwidth-saving compromises.</p>
+            </div>
+            <div class="l-prop">
+                <h2>Sync that keeps up</h2>
+                <p>Sub-second, conflict-free. Start an episode in the kitchen, finish it in the car — it just picks up.</p>
+            </div>
+            <div class="l-prop">
+                <h2>Native everywhere</h2>
+                <p>A real iOS app with background audio and CarPlay, and a full web player that shares the same account.</p>
+            </div>
+        </section>
+
+        <section class="l-shot">
+            <div class="l-phone">
+                <img src="img/ss-ios-episode.png" alt="Kuulla on iOS — an episode with playback controls, a monospace timestamp, and an “In Progress” marker" loading="lazy" />
+            </div>
+            <div class="l-shot-copy">
+                <p class="l-eyebrow">On the phone</p>
+                <h2>Every timestamp, in the open</h2>
+                <p>Elapsed time, chapter marks, and “synced 2s ago” are shown, not hidden. You always know where you are and which device wrote it last.</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="l-footer">
+        <span>Kuulla</span>
+        <nav>
+            <a href="Account/Login?returnUrl=%2F">Web player</a>
+            <a href="https://github.com/sheridan-apps/kuulla">GitHub</a>
+            <a href="mailto:hello@kuulla.app">Contact</a>
+        </nav>
+    </footer>
+</div>
