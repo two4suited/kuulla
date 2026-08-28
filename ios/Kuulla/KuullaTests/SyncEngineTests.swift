@@ -106,6 +106,52 @@ final class SyncEngineTests: MockedApiTestCase {
         XCTAssertTrue(stored.autoPlayed)
     }
 
+    func testSyncNowAppliesDeviceIdFromServerChanges() async throws {
+        let container = try makeContainer()
+
+        stubSync(
+            serverChanges: """
+            [{"episodeId":"ep2","showId":"show2","positionSeconds":99,"completed":false,"updatedAt":"2026-08-18T09:00:00Z","deviceId":"other-device"}]
+            """,
+            hash: "h2")
+        let engine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+
+        await engine.syncNow()
+
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
+        XCTAssertEqual(stored.deviceId, "other-device")
+    }
+
+    func testApplyingNewerServerChangePreservesLocalPlaybackMarker() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        // This device played to 120s, then a different device moved on to 600s.
+        context.insert(EpisodeStateRecord(
+            id: "ep1", showId: "show1", positionSeconds: 120, completed: false,
+            updatedAt: Date(timeIntervalSince1970: 1_000), isDirty: false,
+            lastLocalPositionSeconds: 120, lastLocalPlaybackAt: Date(timeIntervalSince1970: 1_000)))
+        try context.save()
+
+        stubSync(
+            serverChanges: """
+            [{"episodeId":"ep1","showId":"show1","positionSeconds":600,"completed":false,"updatedAt":"2026-08-18T09:00:00Z","deviceId":"other-device"}]
+            """,
+            hash: "h2")
+        let engine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+
+        await engine.syncNow()
+
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
+        XCTAssertEqual(stored.positionSeconds, 600)
+        XCTAssertEqual(stored.deviceId, "other-device")
+        // The local-only marker is what the resume prompt (#241) falls back to on "Not now" — a
+        // pull carrying another device's position must not overwrite it.
+        XCTAssertEqual(stored.lastLocalPositionSeconds, 120)
+        XCTAssertEqual(stored.lastLocalPlaybackAt, Date(timeIntervalSince1970: 1_000))
+    }
+
     func testRestoreAutoPlayedClearsFlagsAndMarksDirty() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)

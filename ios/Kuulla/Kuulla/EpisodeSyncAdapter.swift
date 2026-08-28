@@ -39,7 +39,8 @@ struct EpisodeSyncAdapter: SyncAdapter {
                 completed: $0.completed,
                 updatedAt: $0.updatedAt,
                 autoPlayed: $0.autoPlayed,
-                archived: $0.archived)
+                archived: $0.archived,
+                deviceId: $0.deviceId)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
@@ -62,6 +63,10 @@ struct EpisodeSyncAdapter: SyncAdapter {
             existing.updatedAt = record.updatedAt
             existing.autoPlayed = record.autoPlayed
             existing.archived = record.archived
+            existing.deviceId = record.deviceId
+            // lastLocalPositionSeconds / lastLocalPlaybackAt are deliberately left untouched —
+            // they track what *this* device played and must survive a pull that carries another
+            // device's newer position (#241).
             existing.isDirty = false
         } else {
             context.insert(record)
@@ -95,7 +100,9 @@ extension SyncEngine where Adapter == EpisodeSyncAdapter {
                 restored = EpisodeStateRecord(
                     id: existing.id, showId: existing.showId, positionSeconds: existing.positionSeconds,
                     completed: existing.completed, updatedAt: existing.updatedAt, isDirty: existing.isDirty,
-                    autoPlayed: existing.autoPlayed, archived: existing.archived)
+                    autoPlayed: existing.autoPlayed, archived: existing.archived, deviceId: existing.deviceId,
+                    lastLocalPositionSeconds: existing.lastLocalPositionSeconds,
+                    lastLocalPlaybackAt: existing.lastLocalPlaybackAt)
             }
         } catch {
             assertionFailure("Failed to restore auto-played episode \(episodeId): \(error)")
@@ -134,9 +141,10 @@ private struct EpisodeStateDTO: Decodable {
     let updatedAt: Date
     let autoPlayed: Bool
     let archived: Bool
+    let deviceId: String?
 
     private enum CodingKeys: String, CodingKey {
-        case episodeId, showId, positionSeconds, completed, updatedAt, autoPlayed, archived
+        case episodeId, showId, positionSeconds, completed, updatedAt, autoPlayed, archived, deviceId
     }
 
     // Defaults to false when absent so a server response that predates #100's/#187's field
@@ -150,5 +158,6 @@ private struct EpisodeStateDTO: Decodable {
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         autoPlayed = try container.decodeIfPresent(Bool.self, forKey: .autoPlayed) ?? false
         archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
     }
 }

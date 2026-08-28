@@ -13,6 +13,7 @@ struct EpisodeDetailView: View {
 
     @Environment(\.episodeSyncEngine) private var syncEngine
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var episode: Episode?
     @State private var show: Show?
@@ -21,6 +22,9 @@ struct EpisodeDetailView: View {
     @State private var audioPlayer = AudioPlayer.shared
 
     @State private var stateRecord: EpisodeStateRecord?
+    // Non-nil while the "resume from your other device" prompt (#241) is shown — set when
+    // loadLocalState finds a synced position another device wrote past this device's own.
+    @State private var resumePrompt: CrossDeviceResume.Prompt?
     @State private var downloadStatus: DownloadStatus?
     // Fetched lazily (best-effort) once the episode is known to advertise a transcript; nil until
     // then, and stays nil if the episode has no transcript or the fetch fails.
@@ -306,6 +310,26 @@ struct EpisodeDetailView: View {
         .task(id: episodeId) {
             await load()
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Returning from background is one of the two moments #241 calls out for the
+            // resume prompt — another device may have moved this episode while we were away.
+            // KuullaApp's own scenePhase handler kicks off a sync on .active; re-checking here
+            // picks up whatever that pull lands.
+            guard newPhase == .active else { return }
+            loadLocalState()
+            evaluateResumePrompt()
+        }
+        .alert("Resume from your other device?", isPresented: Binding(
+            get: { resumePrompt != nil },
+            set: { if !$0 { resumePrompt = nil } }
+        )) {
+            Button("Resume") { Task { await resolveResumePrompt(resume: true) } }
+            Button("Not now", role: .cancel) { Task { await resolveResumePrompt(resume: false) } }
+        } message: {
+            if let resumePrompt {
+                Text("You left off at \(EpisodeFormatting.formatDuration(TimeInterval(resumePrompt.otherDevicePositionSeconds))) on another device.")
+            }
+        }
         .onDisappear {
             progressTrackingTask?.cancel()
             progressTrackingTask = nil
@@ -355,6 +379,10 @@ struct EpisodeDetailView: View {
         }
         isLoading = false
 
+        // After the episode and its local state are both resolved: offer to pick up from a
+        // position another device synced past this one (#241).
+        evaluateResumePrompt()
+
         // After isLoading flips — the transcript is supplementary and the API may take a moment to
         // normalize/cache it on a cold hit, so it shouldn't hold up rendering the rest of the
         // screen. .task(id: episodeId) cancels this if the user navigates away first.
@@ -391,6 +419,43 @@ struct EpisodeDetailView: View {
             return
         }
         resolvedAudioURL = episode.flatMap(resolvedPlaybackURL(for:))
+    }
+
+    // Shows the cross-device resume prompt (#241) when this episode's synced position was last
+    // written by a different device, past what this device itself played. Never interrupts a
+    // session already running for this episode, and re-evaluating is cheap and idempotent — a
+    // Resume/Not-now choice writes the local playback marker forward, which suppresses re-prompts
+    // until a genuinely newer remote write arrives.
+    private func evaluateResumePrompt() {
+        guard episode != nil, let record = stateRecord else {
+            resumePrompt = nil
+            return
+        }
+        if let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
+            resumePrompt = nil
+            return
+        }
+        resumePrompt = CrossDeviceResume.prompt(
+            syncedPositionSeconds: record.positionSeconds,
+            syncedUpdatedAt: record.updatedAt,
+            syncedDeviceId: record.deviceId,
+            completed: record.completed,
+            currentDeviceId: DeviceIdentity.current,
+            lastLocalPositionSeconds: record.lastLocalPositionSeconds,
+            lastLocalPlaybackAt: record.lastLocalPlaybackAt)
+    }
+
+    // "Resume" starts this episode at the other device's position; "Not now" keeps this device's
+    // own last position. Either way the choice is persisted (LWW, per docs/sync-conventions.md)
+    // so the two devices converge and the prompt doesn't reappear on the next open.
+    private func resolveResumePrompt(resume: Bool) async {
+        guard let prompt = resumePrompt else { return }
+        resumePrompt = nil
+        let position = resume ? prompt.otherDevicePositionSeconds : prompt.localPositionSeconds
+        await persist(positionSeconds: position, completed: false)
+        if resume, let audioURL = resolvedAudioURL {
+            startPlayback(url: audioURL, startPosition: TimeInterval(position))
+        }
     }
 
     // Best-effort: these are playback niceties, not core functionality, so a failure here
@@ -638,11 +703,16 @@ struct EpisodeDetailView: View {
                     // completed toggle) — restoreAutoPlayed() is the only path that clears the
                     // flag on an auto-played episode, so any write reaching here always resets it.
                     existing.autoPlayed = false
+                    // This device is the writer, so record where *it* played to — the cross-device
+                    // resume prompt (#241) compares against this to detect another device moving on.
+                    existing.lastLocalPositionSeconds = positionSeconds
+                    existing.lastLocalPlaybackAt = updatedAt
                     existing.isDirty = true
                 } else {
                     context.insert(EpisodeStateRecord(
                         id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                        completed: completed, updatedAt: updatedAt, isDirty: true))
+                        completed: completed, updatedAt: updatedAt, isDirty: true,
+                        lastLocalPositionSeconds: positionSeconds, lastLocalPlaybackAt: updatedAt))
                 }
             }
         } catch {
@@ -655,7 +725,9 @@ struct EpisodeDetailView: View {
         // that's a different ModelContext instance than the one syncEngine.write just saved
         // through, and isn't guaranteed to observe the write synchronously.
         stateRecord = EpisodeStateRecord(
-            id: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed, updatedAt: updatedAt)
+            id: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed, updatedAt: updatedAt,
+            deviceId: stateRecord?.deviceId,
+            lastLocalPositionSeconds: positionSeconds, lastLocalPlaybackAt: updatedAt)
 
         // persist() is only ever reached via a manual write path in *this view* (the completed
         // toggle, or the onDidFinishPlaying callback for a natural finish) — it's never called

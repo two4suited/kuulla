@@ -46,6 +46,8 @@
 		F1000003 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000003; };
 		F1000004 /* EpisodeStateRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000004; };
 		F1000005 /* EpisodeSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000005; };
+		F1000006 /* CrossDeviceResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000006; };
+		F1000007 /* CrossDeviceResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000007; };
 		P1000001 /* DownloadedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000001; };
 		P1000003 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000003; };
 		G1000001 /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000001; };
@@ -179,6 +181,8 @@
 		F2000003 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
 		F2000004 /* EpisodeStateRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStateRecord.swift; sourceTree = "<group>"; };
 		F2000005 /* EpisodeSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSyncAdapter.swift; sourceTree = "<group>"; };
+		F2000006 /* CrossDeviceResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossDeviceResume.swift; sourceTree = "<group>"; };
+		F2000007 /* CrossDeviceResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossDeviceResumeTests.swift; sourceTree = "<group>"; };
 		P2000001 /* DownloadedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecord.swift; sourceTree = "<group>"; };
 		P2000003 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		G2000001 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
@@ -307,6 +311,7 @@
 				F2000003 /* SyncEngine.swift */,
 				F2000004 /* EpisodeStateRecord.swift */,
 				F2000005 /* EpisodeSyncAdapter.swift */,
+				F2000006 /* CrossDeviceResume.swift */,
 				P2000001 /* DownloadedEpisodeRecord.swift */,
 				P2000003 /* DownloadManager.swift */,
 				P2000006 /* DownloadsView.swift */,
@@ -372,6 +377,7 @@
 				D2000009 /* AuthManagerTests.swift */,
 				D2000010 /* SettingsClientTests.swift */,
 				D2000011 /* SyncEngineTests.swift */,
+				F2000007 /* CrossDeviceResumeTests.swift */,
 				H2000001 /* EpisodeStatusTests.swift */,
 				H2000002 /* CarPlaySceneDelegateTests.swift */,
 				J2000008 /* PlaylistSyncAdapterTests.swift */,
@@ -539,6 +545,7 @@
 				F1000003,
 				F1000004,
 				F1000005,
+				F1000006,
 				P1000001,
 				P1000003,
 				P1000006,
@@ -593,6 +600,7 @@
 				D1000009,
 				D1000010,
 				D1000011,
+				F1000007,
 				H1000001,
 				H1000002,
 				J1000008,
