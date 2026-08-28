@@ -23,7 +23,8 @@ struct EpisodeDetailView: View {
 
     @State private var stateRecord: EpisodeStateRecord?
     // Non-nil while the "resume from your other device" prompt (#241) is shown — set when
-    // loadLocalState finds a synced position another device wrote past this device's own.
+    // evaluateResumePrompt finds a synced position another device wrote that differs enough from
+    // this device's own (ahead or behind).
     @State private var resumePrompt: CrossDeviceResume.Prompt?
     // The synced record's updatedAt the user has already answered the resume prompt for, so a
     // return-from-background re-check doesn't re-ask about that same cross-device position — but
@@ -407,7 +408,7 @@ struct EpisodeDetailView: View {
         isLoading = false
 
         // After the episode and its local state are both resolved: offer to pick up from a
-        // position another device synced past this one (#241).
+        // position another device synced for this episode — ahead of or behind this one (#241).
         evaluateResumePrompt()
 
         // After isLoading flips — the transcript is supplementary and the API may take a moment to
@@ -449,10 +450,11 @@ struct EpisodeDetailView: View {
     }
 
     // Shows the cross-device resume prompt (#241) when this episode's synced position was last
-    // written by a different device, past what this device itself played. Never interrupts a
-    // session already running for this episode, and re-evaluating is cheap and idempotent — a
-    // Resume/Not-now choice writes the local playback marker forward, which suppresses re-prompts
-    // until a genuinely newer remote write arrives.
+    // written by a different device, more recently than this device last played and far enough
+    // from this device's own position to matter — whether that's further ahead or rewound behind.
+    // Never interrupts a session already running for this episode, and re-evaluating is cheap and
+    // idempotent — answering the prompt records the remote write's updatedAt, which suppresses
+    // re-prompts until a genuinely newer one arrives.
     private func evaluateResumePrompt() {
         guard episode != nil, let record = stateRecord else {
             resumePrompt = nil
