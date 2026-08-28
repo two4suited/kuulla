@@ -44,10 +44,13 @@ export function readLocalPlayback(userId, episodeId) {
             return null;
         }
         const parsed = JSON.parse(raw);
-        if (typeof parsed.pos !== "number" || typeof parsed.at !== "string") {
+        // `pos` must be a non-negative integer — anything else (a decimal from a hand-edited
+        // entry, NaN, a string) would throw when Blazor deserializes it into `int Pos`, so treat
+        // a malformed entry as "no record" rather than letting it break rendering.
+        if (!Number.isInteger(parsed.pos) || parsed.pos < 0 || typeof parsed.at !== "string") {
             return null;
         }
-        return parsed;
+        return { pos: parsed.pos, at: parsed.at };
     } catch (e) {
         return null;
     }
