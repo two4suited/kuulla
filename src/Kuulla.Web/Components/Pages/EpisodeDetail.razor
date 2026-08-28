@@ -349,16 +349,20 @@ else
         // Compare the synced state against this browser's own last-known playback (#243). If
         // another device moved the episode on, attach at *this* browser's position (so "Not now"
         // is a no-op) and offer the jump; otherwise attach at the synced position and record
-        // that we're now in sync with it.
-        var local = await _module.InvokeAsync<LocalPlayback?>("readLocalPlayback", EpisodeId);
-        resumePrompt = CrossDeviceResume.Evaluate(episodeState, local?.Pos, ParseLocalUpdatedAt(local?.At));
+        // that we're now in sync with it. Scoped to episodeState.UserId so a shared browser
+        // profile keeps accounts' positions apart; skipped entirely when there's no state.
+        if (episodeState is not null)
+        {
+            var local = await _module.InvokeAsync<LocalPlayback?>("readLocalPlayback", episodeState.UserId, EpisodeId);
+            resumePrompt = CrossDeviceResume.Evaluate(episodeState, local?.Pos, ParseLocalUpdatedAt(local?.At));
+        }
 
         var attachPosition = resumePrompt?.LocalPositionSeconds ?? savedPositionSeconds;
         _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, attachPosition);
 
         if (resumePrompt is null && episodeState is not null)
         {
-            await WriteLocalPlaybackAsync(savedPositionSeconds, episodeState.UpdatedAt);
+            await WriteLocalPlaybackAsync(episodeState.UserId, savedPositionSeconds, episodeState.UpdatedAt);
         }
 
         // OnAfterRenderAsync doesn't trigger a re-render on its own — nudge one so the resume
@@ -376,7 +380,7 @@ else
             ? parsed
             : null;
 
-    private async Task WriteLocalPlaybackAsync(int positionSeconds, DateTimeOffset syncedUpdatedAt)
+    private async Task WriteLocalPlaybackAsync(string userId, int positionSeconds, DateTimeOffset syncedUpdatedAt)
     {
         if (_module is null)
         {
@@ -384,7 +388,7 @@ else
         }
 
         await SafeInvokeAsync(() => _module.InvokeVoidAsync(
-            "writeLocalPlayback", EpisodeId, positionSeconds, syncedUpdatedAt.ToString("o")).AsTask());
+            "writeLocalPlayback", userId, EpisodeId, positionSeconds, syncedUpdatedAt.ToString("o")).AsTask());
     }
 
     private async Task ResumeFromOtherDeviceAsync()
@@ -428,7 +432,7 @@ else
         }
         else if (episodeState is not null)
         {
-            await WriteLocalPlaybackAsync(prompt.LocalPositionSeconds, episodeState.UpdatedAt);
+            await WriteLocalPlaybackAsync(episodeState.UserId, prompt.LocalPositionSeconds, episodeState.UpdatedAt);
         }
     }
 
@@ -516,7 +520,7 @@ else
             episodeState = updated;
             // Keep this browser's cross-device baseline (#243) current: it just wrote this
             // position and is in sync with the server UpdatedAt it got back.
-            await WriteLocalPlaybackAsync(updated.PositionSeconds, updated.UpdatedAt);
+            await WriteLocalPlaybackAsync(updated.UserId, updated.PositionSeconds, updated.UpdatedAt);
         }
         catch (HttpRequestException)
         {

@@ -26,14 +26,20 @@ function isStreamBlocked() {
 }
 
 // This browser's last-known playback position for an episode, plus the server UpdatedAt it was
-// last in sync with — the Web side of the cross-device resume prompt (#243). Stored per episode
-// so opening one on this browser can tell "another device moved this" from "I did". Best-effort:
-// a private window or disabled storage just means the prompt never fires here.
+// last in sync with — the Web side of the cross-device resume prompt (#243). Stored per (user,
+// episode) so opening one on this browser can tell "another device moved this" from "I did",
+// and so a second account signed into the same browser profile can't read or clobber the first
+// account's progress. Best-effort: a private window or disabled storage just means the prompt
+// never fires here.
 const LOCAL_PLAYBACK_PREFIX = "kuulla.ep.playback.";
 
-export function readLocalPlayback(episodeId) {
+function localPlaybackKey(userId, episodeId) {
+    return LOCAL_PLAYBACK_PREFIX + encodeURIComponent(userId) + "." + encodeURIComponent(episodeId);
+}
+
+export function readLocalPlayback(userId, episodeId) {
     try {
-        const raw = localStorage.getItem(LOCAL_PLAYBACK_PREFIX + episodeId);
+        const raw = localStorage.getItem(localPlaybackKey(userId, episodeId));
         if (!raw) {
             return null;
         }
@@ -47,9 +53,9 @@ export function readLocalPlayback(episodeId) {
     }
 }
 
-export function writeLocalPlayback(episodeId, pos, at) {
+export function writeLocalPlayback(userId, episodeId, pos, at) {
     try {
-        localStorage.setItem(LOCAL_PLAYBACK_PREFIX + episodeId, JSON.stringify({ pos, at }));
+        localStorage.setItem(localPlaybackKey(userId, episodeId), JSON.stringify({ pos, at }));
     } catch (e) {
         // No-op — storage unavailable just disables the cross-device prompt on this browser.
     }
