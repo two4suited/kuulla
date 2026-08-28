@@ -47,3 +47,40 @@ public static class CrossDeviceResume
             : null;
     }
 }
+
+// Decides whether an in-progress playback session should surface the "now playing on another
+// device" banner (#244) — the Web mirror of iOS's CrossDeviceHandoff. Never seeks on its own.
+public static class CrossDeviceHandoff
+{
+    public const int MinimumDeltaSeconds = CrossDeviceResume.MinimumDeltaSeconds;
+
+    // TargetPositionSeconds is where tapping the banner seeks to; SourceUpdatedAt is the stored
+    // state's UpdatedAt that produced it, so the same remote write isn't surfaced twice.
+    public record Banner(int TargetPositionSeconds, DateTimeOffset SourceUpdatedAt);
+
+    public static Banner? Evaluate(
+        EpisodeState? state, int currentPlaybackPositionSeconds, DateTimeOffset? lastSurfacedUpdatedAt)
+    {
+        if (state is null || state.Completed)
+        {
+            return null;
+        }
+
+        // Only when the last write came from something other than a web client — our own
+        // position pushes all report DeviceId == "web".
+        if (state.DeviceId is null || state.DeviceId == EpisodeStateClient.WebDeviceId)
+        {
+            return null;
+        }
+
+        // Already surfaced (or dismissed) a banner for this remote write.
+        if (lastSurfacedUpdatedAt is not null && state.UpdatedAt <= lastSurfacedUpdatedAt.Value)
+        {
+            return null;
+        }
+
+        return Math.Abs(state.PositionSeconds - currentPlaybackPositionSeconds) >= MinimumDeltaSeconds
+            ? new Banner(state.PositionSeconds, state.UpdatedAt)
+            : null;
+    }
+}

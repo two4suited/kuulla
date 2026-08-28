@@ -8,7 +8,10 @@ namespace Kuulla.Web.Services;
 
 public class EpisodeStateClient(KuullaApiClient apiClient)
 {
-    private const string DeviceId = "web";
+    // Every web client reports the same origin id (there's no per-browser identity today), so a
+    // stored EpisodeState whose DeviceId isn't this value was last written by something other
+    // than a browser. Public so the cross-device handoff check (#244) can compare against it.
+    public const string WebDeviceId = "web";
 
     // Mirrors SubscriptionService.NewEpisodesPerShow on the API — the new-episodes endpoint
     // this caps how many episodes it returns per show, so an unplayed count sitting at this
@@ -91,7 +94,7 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
         string episodeId, string showId, int positionSeconds, bool completed, CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
-        var body = new { ShowId = showId, PositionSeconds = positionSeconds, Completed = completed, DeviceId };
+        var body = new { ShowId = showId, PositionSeconds = positionSeconds, Completed = completed, DeviceId = WebDeviceId };
         var response = await client.PutAsJsonAsync(
             $"api/episodes/{Uri.EscapeDataString(episodeId)}/state", body, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -104,7 +107,7 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
         var client = await apiClient.CreateClientAsync();
         var body = new
         {
-            DeviceId,
+            DeviceId = WebDeviceId,
             LastSyncedAt = lastSyncedAt,
             LocalHash = localHash,
             Changes = Array.Empty<object>(),

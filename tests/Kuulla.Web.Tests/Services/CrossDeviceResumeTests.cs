@@ -74,3 +74,57 @@ public class CrossDeviceResumeTests
         Assert.Equal(new CrossDeviceResume.Prompt(60, 600), prompt);
     }
 }
+
+public class CrossDeviceHandoffTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 8, 27, 12, 0, 0, TimeSpan.Zero);
+
+    private static EpisodeState State(
+        int positionSeconds = 900, bool completed = false, DateTimeOffset? updatedAt = null, string? deviceId = "phone-1") =>
+        new("ep-1", "user-1", "ep-1", "show-1", positionSeconds, completed, updatedAt ?? Now, deviceId);
+
+    [Fact]
+    public void Evaluate_ReturnsBanner_WhenAnotherDeviceJumpedAheadDuringPlayback()
+    {
+        var banner = CrossDeviceHandoff.Evaluate(State(), currentPlaybackPositionSeconds: 300, lastSurfacedUpdatedAt: null);
+        Assert.Equal(new CrossDeviceHandoff.Banner(900, Now), banner);
+    }
+
+    [Fact]
+    public void Evaluate_ReturnsNull_WhenLastWriteWasFromTheWeb()
+    {
+        Assert.Null(CrossDeviceHandoff.Evaluate(State(deviceId: EpisodeStateClient.WebDeviceId), 300, null));
+    }
+
+    [Fact]
+    public void Evaluate_ReturnsNull_WhenDeviceIdUnknown()
+    {
+        Assert.Null(CrossDeviceHandoff.Evaluate(State(deviceId: null), 300, null));
+    }
+
+    [Fact]
+    public void Evaluate_ReturnsNull_WhenCompleted()
+    {
+        Assert.Null(CrossDeviceHandoff.Evaluate(State(completed: true), 300, null));
+    }
+
+    [Fact]
+    public void Evaluate_ReturnsNull_WhenWithinThreshold()
+    {
+        Assert.Null(CrossDeviceHandoff.Evaluate(State(positionSeconds: 310), 300, null));
+    }
+
+    [Fact]
+    public void Evaluate_ReturnsNull_WhenAlreadySurfacedForThisRemoteWrite()
+    {
+        Assert.Null(CrossDeviceHandoff.Evaluate(State(updatedAt: Now), 300, lastSurfacedUpdatedAt: Now));
+    }
+
+    [Fact]
+    public void Evaluate_ReturnsBanner_ForANewerRemoteWrite()
+    {
+        var banner = CrossDeviceHandoff.Evaluate(
+            State(updatedAt: Now.AddMinutes(1)), 300, lastSurfacedUpdatedAt: Now);
+        Assert.Equal(900, banner?.TargetPositionSeconds);
+    }
+}

@@ -90,6 +90,8 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
     };
 
     const onPause = () => {
+        // #244: stop polling for a cross-device takeover once this browser isn't playing.
+        dotNetRef.invokeMethodAsync("OnPlaybackStateChanged", false);
         if (hasEnded) {
             return;
         }
@@ -98,6 +100,7 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
 
     const onEnded = () => {
         hasEnded = true;
+        dotNetRef.invokeMethodAsync("OnPlaybackStateChanged", false);
         dotNetRef.invokeMethodAsync("OnPlaybackEnded", Math.floor(audioEl.duration || audioEl.currentTime));
     };
 
@@ -117,6 +120,8 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
         }
 
         dotNetRef.invokeMethodAsync("OnStreamAllowed");
+        // #244: start polling for a newer position written by another device while this plays.
+        dotNetRef.invokeMethodAsync("OnPlaybackStateChanged", true);
     };
 
     audioEl.addEventListener("loadedmetadata", onLoadedMetadata);
@@ -135,6 +140,13 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
             if (audioEl.readyState >= 1 /* HAVE_METADATA */) {
                 this.seekTo(seconds);
             }
+        },
+        // The live element time, floored — used by the #244 handoff poll so its "where this
+        // browser is" comparison isn't stale between 15s progress ticks. NaN before metadata
+        // loads becomes 0.
+        getCurrentPositionSeconds() {
+            const t = audioEl.currentTime;
+            return Number.isFinite(t) ? Math.floor(t) : 0;
         },
         // Called from a chapter list click — jumps playback to that chapter's start time.
         // Best-effort: setting currentTime can throw (e.g. metadata not loaded yet, a

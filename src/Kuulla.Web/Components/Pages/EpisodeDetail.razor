@@ -58,6 +58,17 @@ else
         </div>
     }
 
+    @if (handoffBanner is not null)
+    {
+        <div class="alert alert-secondary d-flex flex-wrap align-items-center gap-2 py-2" role="status">
+            <span class="me-auto">
+                Now playing on another device &mdash; jump to @EpisodeFormatting.FormatDuration(TimeSpan.FromSeconds(handoffBanner.TargetPositionSeconds))?
+            </span>
+            <button type="button" class="btn btn-sm btn-primary" @onclick="JumpToHandoffAsync">Jump here</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" aria-label="Dismiss" @onclick="DismissHandoffBanner">&times;</button>
+        </div>
+    }
+
     @if (streamBlockedMessage is not null)
     {
         <p class="text-danger small mb-2">@streamBlockedMessage</p>
@@ -199,6 +210,16 @@ else
     // Non-null while the "resume from another device" prompt is shown.
     private CrossDeviceResume.Prompt? resumePrompt;
 
+    // Non-null while the mid-playback "now playing on another device" banner (#244) is shown.
+    private CrossDeviceHandoff.Banner? handoffBanner;
+    // The stored UpdatedAt of the last remote write already surfaced via the handoff banner.
+    private DateTimeOffset? lastSurfacedHandoffUpdatedAt;
+    // Set when the user dismisses the handoff banner — suppresses it for the rest of this
+    // viewing; reset only when a different episode loads (OnParametersSetAsync).
+    private bool handoffDismissed;
+    // Drives the poll-while-playing loop (#244); cancelled on pause, navigation, and dispose.
+    private CancellationTokenSource? _handoffPollCts;
+
     private TranscriptDocument? transcript;
     private bool isTranscriptLoading;
     private bool transcriptLoadFailed;
@@ -252,6 +273,9 @@ else
         isAutoPlayed = false;
         episodeState = null;
         resumePrompt = null;
+        handoffBanner = null;
+        lastSurfacedHandoffUpdatedAt = null;
+        handoffDismissed = false;
         streamBlockedMessage = null;
         transcript = null;
         isTranscriptLoading = false;
@@ -448,6 +472,149 @@ else
         await PersistStateAsync(durationSeconds, completed: true);
     }
 
+    // #244: the JS watcher reports play/pause so the handoff poll only runs while this browser is
+    // actually playing.
+    [JSInvokable]
+    public Task OnPlaybackStateChanged(bool playing)
+    {
+        if (playing)
+        {
+            StartHandoffPoll();
+        }
+        else
+        {
+            StopHandoffPoll();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void StartHandoffPoll()
+    {
+        if (_handoffPollCts is not null)
+        {
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _handoffPollCts = cts;
+        _ = HandoffPollLoopAsync(cts.Token);
+    }
+
+    private void StopHandoffPoll()
+    {
+        _handoffPollCts?.Cancel();
+        _handoffPollCts?.Dispose();
+        _handoffPollCts = null;
+    }
+
+    // Re-fetches the synced state every ~20s while playing and, if a different device has moved
+    // it far enough from where this browser is, raises the non-disruptive handoff banner (#244).
+    private async Task HandoffPollLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), cancellationToken);
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    await CheckForHandoffAsync(cancellationToken);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    // One poll iteration — public so bunit can exercise it without waiting on the loop's timer.
+    public async Task CheckForHandoffAsync(CancellationToken cancellationToken = default)
+    {
+        if (handoffDismissed || episode is null)
+        {
+            return;
+        }
+
+        EpisodeState? state;
+        try
+        {
+            state = await EpisodeStateClient.GetStateAsync(EpisodeId, cancellationToken);
+        }
+        // Broad on purpose: this runs from a detached loop, so anything that escapes (a timeout's
+        // TaskCanceledException, a malformed-body JsonException, a cancellation, ...) would tear
+        // down the circuit. A failed poll just means no banner this round; the loop's own
+        // while-condition handles stopping on cancellation.
+        catch (Exception)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        // Compare against the live element time, not savedPositionSeconds (only refreshed on the
+        // 15s progress tick / pause) — that lag matters right at the 15s threshold.
+        var currentPosition = await GetLivePlaybackPositionAsync() ?? savedPositionSeconds;
+        var banner = CrossDeviceHandoff.Evaluate(state, currentPosition, lastSurfacedHandoffUpdatedAt);
+
+        // Records compare by value — only re-render when the banner actually changed (raised,
+        // cleared, or retargeted), so a steady banner doesn't churn a render every poll.
+        if (!Equals(banner, handoffBanner))
+        {
+            handoffBanner = banner;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<int?> GetLivePlaybackPositionAsync()
+    {
+        if (_watcher is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _watcher.InvokeAsync<int>("getCurrentPositionSeconds");
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task JumpToHandoffAsync()
+    {
+        var banner = handoffBanner;
+        if (banner is null)
+        {
+            return;
+        }
+
+        lastSurfacedHandoffUpdatedAt = banner.SourceUpdatedAt;
+        handoffBanner = null;
+        savedPositionSeconds = banner.TargetPositionSeconds;
+
+        if (_watcher is not null)
+        {
+            await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("seekTo", banner.TargetPositionSeconds).AsTask());
+        }
+
+        // Claim the position for this browser (LWW) so the two converge and the banner doesn't
+        // immediately reappear for the same remote write.
+        await PersistStateAsync(banner.TargetPositionSeconds, completed: false);
+    }
+
+    private void DismissHandoffBanner()
+    {
+        lastSurfacedHandoffUpdatedAt = handoffBanner?.SourceUpdatedAt;
+        handoffBanner = null;
+        handoffDismissed = true;
+    }
+
     // Fired by EpisodeDetail.razor.js's isStreamBlocked() gate (#273) when "Stream over Wi-Fi
     // only" is on and the Network Information API reports a non-Wi-Fi connection — mirrors iOS's
     // AudioPlayer.streamBlockedMessage (#271).
@@ -588,6 +755,8 @@ else
 
     private async Task DisposeInteropAsync()
     {
+        StopHandoffPoll();
+
         if (_watcher is not null)
         {
             await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("dispose").AsTask());
