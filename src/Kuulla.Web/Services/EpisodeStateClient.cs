@@ -8,9 +8,9 @@ namespace Kuulla.Web.Services;
 
 public class EpisodeStateClient(KuullaApiClient apiClient)
 {
-    // Every web client reports the same origin id (there's no per-browser identity today) — so
-    // "the last write came from somewhere other than the web" is `DeviceId != WebDeviceId`.
-    // Public so the cross-device handoff check (#244) can compare against it.
+    // Every web client reports the same origin id (there's no per-browser identity today), so a
+    // stored EpisodeState whose DeviceId isn't this value was last written by something other
+    // than a browser. Public so the cross-device handoff check (#244) can compare against it.
     public const string WebDeviceId = "web";
 
     // Mirrors SubscriptionService.NewEpisodesPerShow on the API — the new-episodes endpoint

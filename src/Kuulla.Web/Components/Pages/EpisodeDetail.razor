@@ -214,7 +214,8 @@ else
     private CrossDeviceHandoff.Banner? handoffBanner;
     // The stored UpdatedAt of the last remote write already surfaced via the handoff banner.
     private DateTimeOffset? lastSurfacedHandoffUpdatedAt;
-    // Set when the user dismisses the handoff banner — suppresses it until playback (re)starts.
+    // Set when the user dismisses the handoff banner — suppresses it for the rest of this
+    // viewing; reset only when a different episode loads (OnParametersSetAsync).
     private bool handoffDismissed;
     // Drives the poll-while-playing loop (#244); cancelled on pause, navigation, and dispose.
     private CancellationTokenSource? _handoffPollCts;
@@ -554,11 +555,34 @@ else
             return;
         }
 
-        var banner = CrossDeviceHandoff.Evaluate(state, savedPositionSeconds, lastSurfacedHandoffUpdatedAt);
-        if (banner is not null || handoffBanner is not null)
+        // Compare against the live element time, not savedPositionSeconds (only refreshed on the
+        // 15s progress tick / pause) — that lag matters right at the 15s threshold.
+        var currentPosition = await GetLivePlaybackPositionAsync() ?? savedPositionSeconds;
+        var banner = CrossDeviceHandoff.Evaluate(state, currentPosition, lastSurfacedHandoffUpdatedAt);
+
+        // Records compare by value — only re-render when the banner actually changed (raised,
+        // cleared, or retargeted), so a steady banner doesn't churn a render every poll.
+        if (!Equals(banner, handoffBanner))
         {
             handoffBanner = banner;
             await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<int?> GetLivePlaybackPositionAsync()
+    {
+        if (_watcher is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _watcher.InvokeAsync<int>("getCurrentPositionSeconds");
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

@@ -141,6 +141,13 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
                 this.seekTo(seconds);
             }
         },
+        // The live element time, floored — used by the #244 handoff poll so its "where this
+        // browser is" comparison isn't stale between 15s progress ticks. NaN before metadata
+        // loads becomes 0.
+        getCurrentPositionSeconds() {
+            const t = audioEl.currentTime;
+            return Number.isFinite(t) ? Math.floor(t) : 0;
+        },
         // Called from a chapter list click — jumps playback to that chapter's start time.
         // Best-effort: setting currentTime can throw (e.g. metadata not loaded yet, a
         // non-finite/negative value), and a chapter click isn't worth surfacing an interop error to
