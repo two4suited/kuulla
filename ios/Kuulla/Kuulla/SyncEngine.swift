@@ -56,6 +56,11 @@ actor SyncEngine<Adapter: SyncAdapter> {
 
     private var debounceTask: Task<Void, Never>?
     private var isSyncing = false
+    // Callers that reached syncNow() while a sync was already in flight, parked here until that
+    // run (and any follow-up round it does for their newly-dirty state) completes — so `await
+    // syncNow()` always returns after a real pull, not just after scheduling one. EpisodeDetailView's
+    // foreground resume re-check (#241) relies on this to evaluate against freshly pulled state.
+    private var syncWaiters: [CheckedContinuation<Void, Never>] = []
     // Set when a sync is requested while one is already running, so the newly-dirty state isn't
     // lost — the in-flight sync's snapshot of dirty records may already be stale by then.
     private var syncPending = false
@@ -99,17 +104,34 @@ actor SyncEngine<Adapter: SyncAdapter> {
     }
 
     // Runs sync immediately, bypassing the debounce. Use for launch, foreground resume, and
-    // BGAppRefreshTask triggers.
+    // BGAppRefreshTask triggers. Awaiting this always returns after a sync has actually
+    // completed — if one was already in flight, this awaits that run (and marks a follow-up
+    // round so the caller's newly-dirty state isn't lost) rather than returning early.
     func syncNow() async {
         debounceTask?.cancel()
         debounceTask = nil
 
         guard !isSyncing else {
+            // A run is already going. Ask it to do a follow-up round for anything dirty since it
+            // snapshotted, and park until it (and that round) finishes so this await reflects a
+            // completed pull. The first caller still runs the loop inline, so its cancellation
+            // (e.g. a BGAppRefreshTask expiring) still propagates into performSync.
             syncPending = true
+            await withCheckedContinuation { syncWaiters.append($0) }
             return
         }
         isSyncing = true
-        defer { isSyncing = false }
+        // Runs on the actor with no await between clearing isSyncing and draining — so any caller
+        // that saw isSyncing == true is guaranteed to be parked in syncWaiters, not racing a
+        // fresh run — and in a defer so a stray throw can't strand parked callers forever.
+        defer {
+            isSyncing = false
+            let waiters = syncWaiters
+            syncWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
 
         repeat {
             syncPending = false

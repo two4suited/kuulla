@@ -320,4 +320,69 @@ final class SyncEngineTests: MockedApiTestCase {
         XCTAssertEqual(stored.positionSeconds, 55)
         XCTAssertTrue(stored.isDirty, "the write made during the in-flight push must survive, not get clobbered by the earlier snapshot's isDirty=false")
     }
+
+    // #241: a second syncNow() that arrives while one is in flight must not return until the
+    // in-flight run has actually completed — the foreground resume re-check awaits it and then
+    // reads back the pulled state.
+    func testSecondSyncNowAwaitsTheInFlightRun() async throws {
+        let container = try makeContainer()
+
+        let requestReceived = DispatchSemaphore(value: 0)
+        let releaseResponse = DispatchSemaphore(value: 0)
+        let json = """
+        {"serverChanges":[{"episodeId":"ep9","showId":"show9","positionSeconds":42,"completed":false,"updatedAt":"2026-08-18T10:00:00Z","deviceId":"other"}],"syncedAt":"2026-08-18T10:00:00Z","hash":"h9"}
+        """.data(using: .utf8)!
+        let firstCall = ManagedAtomicFlag()
+        MockURLProtocol.stubHandler = { _ in
+            // Only the first push blocks (to hold the run "in flight"); the follow-up round the
+            // second caller triggers returns immediately so the test isn't paced by a timeout.
+            if !firstCall.value {
+                firstCall.set()
+                requestReceived.signal()
+                _ = releaseResponse.wait(timeout: .now() + 5)
+            }
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let engine = SyncEngine(
+            modelContainer: container, adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1", debounceInterval: .seconds(3600))
+
+        let first = Task { await engine.syncNow() }
+        guard requestReceived.wait(timeout: .now() + 5) == .success else {
+            XCTFail("first push was never issued")
+            releaseResponse.signal()
+            return
+        }
+
+        // Second caller arrives mid-flight.
+        let secondFinished = ManagedAtomicFlag()
+        let second = Task {
+            await engine.syncNow()
+            secondFinished.set()
+        }
+
+        // Give the second call a moment to reach syncNow() and park.
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(secondFinished.value, "second syncNow() returned before the in-flight run completed")
+
+        releaseResponse.signal()
+        await first.value
+        await second.value
+        XCTAssertTrue(secondFinished.value)
+
+        // And the pulled server change is visible once syncNow() has returned.
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
+        XCTAssertEqual(stored.id, "ep9")
+        XCTAssertEqual(stored.deviceId, "other")
+    }
+}
+
+// Minimal thread-safe bool for tests (Foundation's os_unfair_lock via NSLock).
+final class ManagedAtomicFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = false
+    var value: Bool { lock.withLock { _value } }
+    func set() { lock.withLock { _value = true } }
 }
