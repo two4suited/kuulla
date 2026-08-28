@@ -30,7 +30,7 @@ else
         <span class="badge @StatusBadgeClass">@StatusLabel</span>
     </div>
 
-    <div class="text-muted mb-3">
+    <div class="k-meta mb-3">
         @if (episode.PublishedAt is { } publishedAt)
         {
             @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
@@ -104,7 +104,7 @@ else
                     <button type="button" class="btn btn-link text-start flex-grow-1 text-decoration-none p-0" @onclick="() => SeekToAsync(chapter.StartTime)">
                         @chapter.Title
                     </button>
-                    <span class="text-muted small flex-shrink-0">@EpisodeFormatting.FormatDuration(chapter.StartTime)</span>
+                    <span class="text-muted small font-monospace flex-shrink-0">@EpisodeFormatting.FormatDuration(chapter.StartTime)</span>
                 </li>
             }
         </ul>
