@@ -42,7 +42,14 @@ struct ContentView: View {
             .task {
                 let args = ProcessInfo.processInfo.arguments
                 if args.contains("-KuullaAutoTestSignIn"), !authManager.isSignedIn {
-                    try? await authManager.signInAsTestUser()
+                    do {
+                        try await authManager.signInAsTestUser()
+                    } catch {
+                        // Surface it — a headless capture run that silently stays on the
+                        // sign-in screen is hard to diagnose (usually the local API / Aspire
+                        // stack isn't up).
+                        errorMessage = "Screenshot auto sign-in failed: \(error)"
+                    }
                 }
                 if let i = args.firstIndex(of: "-KuullaInitialTab"), i + 1 < args.count,
                    let tab = AppTab(argument: args[i + 1]) {

@@ -1,11 +1,15 @@
 // Composites the App Store caption bands over the raw simulator captures.
-//   npm i sharp   (once, anywhere)
-//   node docs/brand/appstore/compose-screenshots.mjs
+//   cd <any dir> && npm i sharp
+//   node <path-to-repo>/docs/brand/appstore/compose-screenshots.mjs
 // Reads docs/brand/appstore/screenshots/raw/*.png, writes screenshots/6.9/*.png.
-import sharp from "sharp";
 import { readFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { createRequire } from "node:module";
+
+// Resolve `sharp` from the *current working directory* so the script can live in the
+// repo while sharp is installed in a throwaway dir.
+const sharp = createRequire(resolve(process.cwd(), "noop.js"))("sharp");
 
 const AS = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(AS, "../../..");
@@ -50,7 +54,15 @@ function bandSvg(lines) {
 }
 
 for (const f of FRAMES) {
-  const shot = await sharp(`${RAW}/${f.raw}`).resize(W, H, { fit: "cover", position: "bottom" }).toBuffer();
+  const src = sharp(`${RAW}/${f.raw}`);
+  const meta = await src.metadata();
+  if (meta.width !== W || meta.height !== H) {
+    throw new Error(
+      `${f.raw} is ${meta.width}x${meta.height}, expected ${W}x${H} — ` +
+        `capture on a 6.9" device (iPhone 17 Pro Max). Not resizing.`
+    );
+  }
+  const shot = await src.toBuffer();
   await sharp({ create: { width: W, height: H, channels: 3, background: "#050505" } })
     .composite([
       { input: shot, top: 0, left: 0 },

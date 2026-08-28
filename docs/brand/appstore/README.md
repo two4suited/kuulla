@@ -53,11 +53,14 @@ Launch arguments (all `#if DEBUG`, ignored in Release):
 | `-KuullaInitialShow <showId>` | deep-links to a show detail on launch |
 | `-KuullaInitialEpisode <showId> <episodeId>` | deep-links to an episode detail on launch |
 
-Then composite the caption bands:
+Then composite the caption bands (needs the `sharp` package — `npm i sharp` in any
+scratch dir, or globally):
 
 ```sh
 node docs/brand/appstore/compose-screenshots.mjs
 ```
+
+It fails fast if a raw capture isn't exactly 1320×2868 rather than silently rescaling.
 
 ## Notes
 
