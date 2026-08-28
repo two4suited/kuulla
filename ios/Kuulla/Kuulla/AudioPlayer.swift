@@ -94,7 +94,7 @@ final class AudioPlayer {
     // that one landed) is outstanding for this player. isPlaying is set true optimistically
     // before the seek lands (so the UI shows "Playing" immediately), so this is the only reliable
     // way to tell "audio hasn't actually started yet" apart from "audio is paused" — both
-    // otherwise look like isPlaying == false/true respectively from the outside. Cleared on the
+    // otherwise look like isPlaying == true/false respectively from the outside. Cleared on the
     // governing seek's completion, on pause() (so a completion that fires after a pause can't
     // resume playback out from under the user), and reset by play() starting a new session.
     private var pendingSeekPlayer: AVPlayer?
