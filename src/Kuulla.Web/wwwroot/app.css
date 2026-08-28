@@ -212,7 +212,9 @@ a .card:hover, a.card:hover, .card.h-100:hover {
 /* ---------------------------------------------------------------------- */
 
 .btn {
-    border-radius: var(--k-radius-sm);
+    /* Softly rounded like a normal media-player button — the sharp radii
+       stay on cards, inputs and chips. */
+    border-radius: var(--k-radius-lg);
     font-weight: 600;
     letter-spacing: 0.01em;
 }
