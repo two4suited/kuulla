@@ -1,0 +1,45 @@
+# Controls how `gh release create --generate-notes` groups merged PRs in release notes
+# (see .github/workflows/release.yml). Labels come from actions/labeler (#411) plus any
+# applied by hand; a PR whose labels match no category falls through to "Other". Categories
+# are matched top to bottom — the first match wins — so keep the catch-all last.
+
+changelog:
+  exclude:
+    labels:
+      - dependencies
+      - duplicate
+      - invalid
+      - wontfix
+      - question
+    authors:
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: Features
+      labels:
+        - enhancement
+        - feature
+    - title: Fixes
+      labels:
+        - bug
+        - fix
+    - title: iOS
+      labels:
+        - ios
+    - title: Web
+      labels:
+        - web
+    - title: Infra / Deploy
+      labels:
+        - infra
+        - ci
+        - deployment
+    - title: Docs
+      labels:
+        - documentation
+    - title: Accessibility
+      labels:
+        - accessibility
+    - title: Other
+      labels:
+        - "*"
