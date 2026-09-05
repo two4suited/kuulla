@@ -89,16 +89,20 @@ var apnsPrivateKey = builder.AddParameter("apns-private-key", value: "", secret:
 // unset apns-private-key must not be wired up as a secret at all rather than as an empty one.
 var apnsConfigured = !string.IsNullOrWhiteSpace(await apnsPrivateKey.Resource.GetValueAsync(default));
 
+// The public origin Front Door serves the API on. Used both as the API's own FrontDoor__PublicUrl
+// (Kuulla.ServiceDefaults rewrites Request.Host to it) and as the base address the web app's
+// server-side HttpClient targets, so a domain change only has one edit site here.
+const string apiPublicUrl = "https://api.kuulla.us";
+
 var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithExternalHttpEndpoints()
     // Front Door's health probe (below) targets this instead of the default "/" so a cold-started
     // replica (#361) doesn't get probed on an arbitrary route.
     .WithHttpProbe(ProbeType.Liveness, "/health")
     .WithEnvironment("FrontDoor__Id", frontDoorId)
-    // The public origin Front Door serves this app on. Kuulla.ServiceDefaults rewrites
-    // Request.Host to this so absolute URLs aren't built from ACA's raw *.azurecontainerapps.io
-    // hostname (ACA clobbers X-Forwarded-Host, so it can't be recovered from a header).
-    .WithEnvironment("FrontDoor__PublicUrl", "https://api.kuulla.us")
+    // ACA clobbers X-Forwarded-Host, so the raw *.azurecontainerapps.io hostname can't be
+    // recovered from a header — hand the app its public origin directly.
+    .WithEnvironment("FrontDoor__PublicUrl", apiPublicUrl)
     .WithReference(insights)
     .WithReference(cosmos)
     .WithReference(users)
@@ -144,6 +148,12 @@ var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .WithEnvironment("FrontDoor__PublicUrl", "https://app.kuulla.us")
     .WithReference(insights)
     .WithReference(api)
+    // The web app's server-side HttpClient can't use Aspire service discovery to reach the API
+    // once the Front Door ID restriction is active on it (#393): those calls land on ACA ingress
+    // directly, carry no X-Azure-FDID header, and get 403'd. Hand the web app the API's public
+    // Front Door origin so its requests are forwarded with the header like any other. Empty in
+    // Run mode -> Web falls back to the "https+http://api" service-discovery address.
+    .WithEnvironment("Api__PublicUrl", builder.ExecutionContext.IsPublishMode ? apiPublicUrl : "")
     .WithEnvironment("Authentication__Google__ClientId", googleClientId)
     .WithEnvironment("Authentication__Google__ClientSecret", googleClientSecret)
     .WaitFor(api)
