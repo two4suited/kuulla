@@ -16,4 +16,16 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
+  <!-- Embeds the current git commit SHA into AssemblyInformationalVersion so the deployed
+       web app can display which version is running (see MainLayout.razor). -->
+  <Target Name="SetSourceRevisionId" BeforeTargets="GenerateAssemblyInfo" Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse --short HEAD" ConsoleToMsBuild="true" IgnoreExitCode="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />
+      <Output TaskParameter="ExitCode" PropertyName="GitExitCode" />
+    </Exec>
+    <PropertyGroup Condition="'$(GitExitCode)' != '0'">
+      <SourceRevisionId>unknown</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
+
 </Project>

@@ -10,6 +10,13 @@ main {
     flex: 1;
 }
 
+.app-footer {
+    padding: 0.75rem 1.5rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--k-text-faint);
+}
+
 #blazor-error-ui {
     background: var(--k-warning-soft);
     color: var(--k-text);
