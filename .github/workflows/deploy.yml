@@ -2,9 +2,10 @@ name: Deploy to Azure
 
 # Deploys Kuulla to Azure Container Apps via `aspire deploy`. Runs on every push to `main`
 # (i.e. after a PR has already passed pr.yml's required checks and been merged) and can also be
-# triggered manually. The `production` GitHub Environment below is where the actual gate lives —
-# configure required reviewers on it so this doesn't provision/update cloud resources unattended
-# (see issue #365).
+# triggered manually. Build/test is not repeated here — pr.yml already gates merges to main, and
+# `aspire deploy` builds the containers itself. The `production` GitHub Environment below is
+# where the actual gate lives — configure required reviewers on it so this doesn't provision/
+# update cloud resources unattended (see issue #365).
 
 on:
   workflow_dispatch:
@@ -16,34 +17,8 @@ permissions:
   contents: read
 
 jobs:
-  # Self-contained build/test gate rather than trusting that main's history already passed CI —
-  # cheap insurance, and it also gives the deploy job something concrete it "needs".
-  build-test:
-    name: Build and test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Restore
-        run: dotnet restore Kuulla.sln
-
-      - name: Build (Release)
-        run: dotnet build Kuulla.sln --no-restore --configuration Release
-
-      - name: Test API (Debug)
-        run: dotnet test tests/Kuulla.Api.Tests/Kuulla.Api.Tests.csproj --configuration Debug
-
-      - name: Test Web
-        run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
-
   deploy:
     name: aspire deploy
-    needs: build-test
     runs-on: ubuntu-latest
     environment:
       name: production
