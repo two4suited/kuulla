@@ -11,6 +11,9 @@ struct LibraryView: View {
     @State private var sortOrder: SubscriptionSortOrder = .title
     @State private var sortSaveTask: Task<Void, Never>?
     @State private var sortSaveError: String?
+    @State private var manualOrder: [String] = []
+    @State private var manualSaveTask: Task<Void, Never>?
+    @State private var manualSaveError: String?
 
     @AppStorage(ShowIconSize.storageKey) private var iconSizeRaw = ShowIconSize.default.rawValue
 
@@ -61,8 +64,7 @@ struct LibraryView: View {
     private var sortMenu: some View {
         Menu {
             Picker("Sort shows", selection: sortOrderBinding) {
-                // Manual mode arrives with #438 PR 2 — omitted from the picker until then.
-                ForEach(SubscriptionSortOrder.allCases.filter { $0 != .manual }) { option in
+                ForEach(SubscriptionSortOrder.allCases) { option in
                     Text(option.label).tag(option)
                 }
             }
@@ -80,8 +82,9 @@ struct LibraryView: View {
                 let previous = sortOrder
                 guard newValue != previous else { return }
                 sortOrder = newValue
-                subscriptions = sortedSubscriptions(subscriptions, by: newValue)
+                subscriptions = sortedSubscriptions(subscriptions, by: newValue, manualOrder: manualOrder)
                 sortSaveError = nil
+                manualSaveError = nil
                 persistSortOrder(newValue, revertingTo: previous)
             })
     }
@@ -89,7 +92,29 @@ struct LibraryView: View {
     private func loadSortOrder() async {
         guard let settings = try? await settingsClient.getSettings(), !Task.isCancelled else { return }
         sortOrder = settings.subscriptionSortOrder
-        subscriptions = sortedSubscriptions(subscriptions, by: sortOrder)
+        manualOrder = settings.subscriptionManualOrder
+        subscriptions = sortedSubscriptions(subscriptions, by: sortOrder, manualOrder: manualOrder)
+    }
+
+    // Reorder within the manual list: apply the move locally, then persist the full showId
+    // array (last-write-wins on the whole array, per #438). Rolls back on failure.
+    private func moveSubscription(from offsets: IndexSet, to destination: Int) {
+        subscriptions.move(fromOffsets: offsets, toOffset: destination)
+        let previous = manualOrder
+        let newOrder = subscriptions.map(\.showId)
+        manualOrder = newOrder
+        manualSaveError = nil
+        manualSaveTask?.cancel()
+        manualSaveTask = Task {
+            do {
+                _ = try await settingsClient.updateSubscriptionManualOrder(newOrder)
+            } catch {
+                guard !Task.isCancelled else { return }
+                manualOrder = previous
+                subscriptions = sortedSubscriptions(subscriptions, by: .manual, manualOrder: previous)
+                manualSaveError = "Couldn't save the new order. Please try again."
+            }
+        }
     }
 
     // Cancels an in-flight save when a new choice comes in so the last pick wins, mirroring
@@ -104,7 +129,7 @@ struct LibraryView: View {
             } catch {
                 guard !Task.isCancelled else { return }
                 sortOrder = previous
-                subscriptions = sortedSubscriptions(subscriptions, by: previous)
+                subscriptions = sortedSubscriptions(subscriptions, by: previous, manualOrder: manualOrder)
                 sortSaveError = "Couldn't save your sort choice. Please try again."
             }
         }
@@ -167,6 +192,12 @@ struct LibraryView: View {
                     .foregroundStyle(.red)
                     .padding(.horizontal)
             }
+            if let manualSaveError {
+                Text(manualSaveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+            }
 
             if isLoadingShows {
                 ProgressView()
@@ -179,6 +210,8 @@ struct LibraryView: View {
                 Text("You haven't subscribed to any shows yet.")
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
+            } else if sortOrder == .manual {
+                manualReorderList
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(subscriptions) { subscription in
@@ -193,13 +226,37 @@ struct LibraryView: View {
         }
     }
 
+    // A non-scrolling List embedded in the page's outer ScrollView, held in edit mode so the
+    // reorder grips are always visible — drag to rearrange, changes persist per move.
+    private var manualReorderList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Drag to reorder. Your arrangement syncs across devices.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+
+            List {
+                ForEach(subscriptions) { subscription in
+                    SubscriptionManualReorderRow(
+                        subscription: subscription, unplayedCount: unplayedCounts[subscription.showId])
+                }
+                .onMove(perform: moveSubscription)
+            }
+            .listStyle(.plain)
+            .scrollDisabled(true)
+            .environment(\.editMode, .constant(.active))
+            .frame(height: max(1, CGFloat(subscriptions.count)) * 64)
+        }
+    }
+
     private func loadShows() async {
         guard !isLoadingShows else { return }
         isLoadingShows = true
         showsErrorMessage = nil
 
         do {
-            let results = sortedSubscriptions(try await subscriptionClient.getSubscriptions(), by: sortOrder)
+            let results = sortedSubscriptions(
+                try await subscriptionClient.getSubscriptions(), by: sortOrder, manualOrder: manualOrder)
             if !Task.isCancelled {
                 subscriptions = results
             }

@@ -27,12 +27,39 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
         XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, base.sleepTimerDefaultDurationMinutes)
         XCTAssertEqual(updated.subscriptionSortOrder, base.subscriptionSortOrder)
+        XCTAssertEqual(updated.subscriptionManualOrder, base.subscriptionManualOrder)
     }
 
     func testWithSetsSubscriptionSortOrder() {
         let updated = base.with(subscriptionSortOrder: .recentlyAdded)
 
         XCTAssertEqual(updated.subscriptionSortOrder, .recentlyAdded)
+    }
+
+    func testWithSetsSubscriptionManualOrder() {
+        let updated = base.with(subscriptionManualOrder: ["show-b", "show-a"])
+
+        XCTAssertEqual(updated.subscriptionManualOrder, ["show-b", "show-a"])
+    }
+
+    func testDecodingResponseMissingSubscriptionManualOrderDefaultsToEmpty() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertEqual(decoded.subscriptionManualOrder, [])
+    }
+
+    func testDecodingSubscriptionManualOrderFromWireArray() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0,"subscriptionManualOrder":["x","y","z"]}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertEqual(decoded.subscriptionManualOrder, ["x", "y", "z"])
     }
 
     func testDecodingResponseMissingSubscriptionSortOrderDefaultsToTitle() throws {

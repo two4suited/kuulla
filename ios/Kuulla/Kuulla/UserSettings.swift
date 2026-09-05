@@ -23,6 +23,11 @@ struct UserSettings: Codable, Hashable {
     // .title (see decoder below) when absent — the historical Library default — so an API
     // response that predates this field decodes cleanly.
     let subscriptionSortOrder: SubscriptionSortOrder
+    // The user's hand-ordered subscription list for .manual sort (#438) — an ordered array of
+    // showId, edited wholesale on every drag. Empty (see decoder) when unused or absent from an
+    // older response; consumers treat empty as "no manual order". No-longer-subscribed ids are
+    // ignored on read; newly-subscribed shows not yet listed fall to the end by title.
+    let subscriptionManualOrder: [String]
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -34,6 +39,7 @@ struct UserSettings: Codable, Hashable {
         autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7, autoDownloadNewEpisodes: Bool = false,
         smartSpeed: Bool = false, notificationsEnabled: Bool = true, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
+        subscriptionManualOrder: [String] = [],
         updatedAt: Date = .distantPast
     ) {
         self.userId = userId
@@ -50,13 +56,14 @@ struct UserSettings: Codable, Hashable {
         self.notificationsEnabled = notificationsEnabled
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
+        self.subscriptionManualOrder = subscriptionManualOrder
         self.updatedAt = updatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
-        case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, updatedAt
+        case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -90,6 +97,8 @@ struct UserSettings: Codable, Hashable {
         // autoArchiveRule above.
         subscriptionSortOrder = try container.decodeIfPresent(
             SubscriptionSortOrder.self, forKey: .subscriptionSortOrder) ?? .title
+        // Absent (older response) or explicit null both decode to [] — "no manual order".
+        subscriptionManualOrder = try container.decodeIfPresent([String].self, forKey: .subscriptionManualOrder) ?? []
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -117,7 +126,8 @@ struct UserSettings: Codable, Hashable {
         // every other field's own nil-means-unset case doesn't need to here, since this feature
         // never needs that distinction.
         sleepTimerDefaultDurationMinutes: Int? = nil,
-        subscriptionSortOrder: SubscriptionSortOrder? = nil
+        subscriptionSortOrder: SubscriptionSortOrder? = nil,
+        subscriptionManualOrder: [String]? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -132,6 +142,7 @@ struct UserSettings: Codable, Hashable {
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes ?? self.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder ?? self.subscriptionSortOrder,
+            subscriptionManualOrder: subscriptionManualOrder ?? self.subscriptionManualOrder,
             updatedAt: updatedAt)
     }
 }

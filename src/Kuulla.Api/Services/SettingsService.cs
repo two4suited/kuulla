@@ -147,6 +147,14 @@ public class SettingsService(
                 // UserSettingsChange.SubscriptionSortOrder) — keep the stored choice rather than
                 // resetting it to Title.
                 change.SubscriptionSortOrder ?? stored?.SubscriptionSortOrder ?? SubscriptionSortOrder.Title,
+                // Keep the stored arrangement unless the change carries a non-empty one. A null
+                // (older client) or empty list is treated as "no opinion" rather than a
+                // deliberate clear — the iOS change DTO can only ever send [] or a populated
+                // array (never null), and no UI produces a deliberate clear, so honoring []
+                // here would let one device wipe another device's saved order.
+                change.SubscriptionManualOrder is { Count: > 0 }
+                    ? change.SubscriptionManualOrder
+                    : stored?.SubscriptionManualOrder,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -166,6 +174,11 @@ public class SettingsService(
         string userId, SubscriptionSortOrder subscriptionSortOrder, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(
             userId, current => current with { SubscriptionSortOrder = subscriptionSortOrder }, cancellationToken);
+
+    public Task<UserSettings> UpdateSubscriptionManualOrderAsync(
+        string userId, IReadOnlyList<string> subscriptionManualOrder, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { SubscriptionManualOrder = subscriptionManualOrder }, cancellationToken);
 
     public async Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken)
     {

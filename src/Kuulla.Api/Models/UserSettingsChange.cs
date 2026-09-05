@@ -35,4 +35,8 @@ public record UserSettingsChange(
     // value (Title) — silently resetting the user's real sort choice. Null means "this client
     // doesn't know about this setting yet", so SettingsService.SyncAsync keeps the stored value.
     SubscriptionSortOrder? SubscriptionSortOrder,
+    // Nullable, same rationale as SubscriptionSortOrder above. SettingsService.SyncAsync treats
+    // null AND empty here as "keep whatever's stored" — it only accepts a non-empty list — so a
+    // device that has no local arrangement can't wipe one saved from another device.
+    IReadOnlyList<string>? SubscriptionManualOrder,
     DateTimeOffset UpdatedAt);

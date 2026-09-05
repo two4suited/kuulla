@@ -21,6 +21,12 @@ struct SettingsClient {
             body: UpdateSubscriptionSortOrderRequest(subscriptionSortOrder: value))
     }
 
+    func updateSubscriptionManualOrder(_ showIds: [String]) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "subscription-manual-order"],
+            body: UpdateSubscriptionManualOrderRequest(showIds: showIds))
+    }
+
     func getShowSettings(showId: String) async throws -> ShowSettings {
         try await apiClient.get(["api", "settings", "shows", showId])
     }
@@ -116,6 +122,10 @@ private struct UpdateSettingsRequest: Encodable {
 
 private struct UpdateSubscriptionSortOrderRequest: Encodable {
     let subscriptionSortOrder: SubscriptionSortOrder
+}
+
+private struct UpdateSubscriptionManualOrderRequest: Encodable {
+    let showIds: [String]
 }
 
 private struct UpdateShowSettingsRequest: Encodable {

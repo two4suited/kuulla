@@ -193,6 +193,37 @@ public class SettingsFlowTests(AppHostFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task SubscriptionManualOrder_GetThenUpdate_RoundTripsThroughRealCosmos()
+    {
+        using var client = fixture.CreateApiClient();
+        await AuthenticateAsync(client, userId: $"manual-order-user-{Guid.NewGuid():N}");
+
+        var defaultSettings = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
+        Assert.True(defaultSettings?.SubscriptionManualOrder is null or { Count: 0 });
+
+        var updateResponse = await client.PutAsJsonAsync(
+            "/api/settings/subscription-manual-order", new { ShowIds = new[] { "show-b", "show-a", "show-c" } });
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<UserSettingsResponse>();
+        Assert.Equal(new[] { "show-b", "show-a", "show-c" }, updated?.SubscriptionManualOrder);
+
+        var reread = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
+        Assert.Equal(new[] { "show-b", "show-a", "show-c" }, reread?.SubscriptionManualOrder);
+    }
+
+    [Fact]
+    public async Task SubscriptionManualOrder_Update_WithDuplicates_ReturnsBadRequest()
+    {
+        using var client = fixture.CreateApiClient();
+        await AuthenticateAsync(client);
+
+        var updateResponse = await client.PutAsJsonAsync(
+            "/api/settings/subscription-manual-order", new { ShowIds = new[] { "show-a", "show-a" } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+    }
+
     // Mints a local test token via /dev/test-token and attaches it to the client so subsequent
     // requests hit authenticated endpoints. userId defaults to /dev/test-token's own fixed
     // "local-test-user" subject — every test in this file that reads/writes the *global*
@@ -214,7 +245,7 @@ public class SettingsFlowTests(AppHostFixture fixture)
 
     private sealed record UserSettingsResponse(
         string UserId, int UnlistenedEpisodeCount, int Version, bool NotificationsEnabled, int? SleepTimerDefaultDurationMinutes,
-        int SubscriptionSortOrder);
+        int SubscriptionSortOrder, IReadOnlyList<string>? SubscriptionManualOrder);
 
     private sealed record ShowSettingsResponse(string UserId, string ShowId, int? UnlistenedEpisodeCount, int Version, bool? NotificationsEnabled);
 }

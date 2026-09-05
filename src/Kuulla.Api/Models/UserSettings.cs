@@ -69,6 +69,14 @@ public record UserSettings(
     // as Title — the Library's historical default — with no DefaultValueHandling needed (unlike
     // NotificationsEnabled, whose non-zero default does need it).
     SubscriptionSortOrder SubscriptionSortOrder = SubscriptionSortOrder.Title,
+    // The user's hand-ordered subscription list for SubscriptionSortOrder.Manual (#438) — an
+    // ordered array of ShowId, the same wholesale-edited shape as
+    // DynamicPlaylistConfig.PriorityList (one user drags in one screen, so last-write-wins on
+    // the whole array is enough; no per-item rank strings). Null/absent on a document that
+    // predates the field, and whenever the user has never used Manual mode; consumers treat
+    // null and empty identically. Show ids no longer subscribed to are ignored on read; newly
+    // subscribed shows not yet in the array fall to the end (by title).
+    IReadOnlyList<string>? SubscriptionManualOrder = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {

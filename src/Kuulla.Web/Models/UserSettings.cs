@@ -14,6 +14,7 @@ public record UserSettings(
     bool SmartSpeed = false,
     int? SleepTimerDefaultDurationMinutes = null,
     SubscriptionSortOrder SubscriptionSortOrder = SubscriptionSortOrder.Title,
+    IReadOnlyList<string>? SubscriptionManualOrder = null,
     DateTimeOffset UpdatedAt = default,
     string? DeviceId = null);
 

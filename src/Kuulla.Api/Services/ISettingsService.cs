@@ -20,6 +20,9 @@ public interface ISettingsService
     Task<UserSettings> UpdateSubscriptionSortOrderAsync(
         string userId, SubscriptionSortOrder subscriptionSortOrder, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateSubscriptionManualOrderAsync(
+        string userId, IReadOnlyList<string> subscriptionManualOrder, CancellationToken cancellationToken);
+
     Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken);
 
     Task<ShowSettings> UpdateShowUnlistenedEpisodeCountAsync(

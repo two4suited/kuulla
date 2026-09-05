@@ -23,12 +23,19 @@ public class SubscriptionsTests : WebTestContext
         Func<HttpRequestMessage, HttpResponseMessage>? onGetInProgress = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onDelete = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onGetSettings = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? onPutSortOrder = null) => new(request =>
+        Func<HttpRequestMessage, HttpResponseMessage>? onPutSortOrder = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onPutManualOrder = null) => new(request =>
     {
         if (request.RequestUri!.AbsolutePath == "/api/settings/subscription-sort-order" && request.Method == HttpMethod.Put)
         {
             return onPutSortOrder?.Invoke(request) ??
                 new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { subscriptionSortOrder = 0, version = 2 }) };
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/settings/subscription-manual-order" && request.Method == HttpMethod.Put)
+        {
+            return onPutManualOrder?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { subscriptionSortOrder = 3, version = 2 }) };
         }
 
         if (request.RequestUri.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
@@ -174,6 +181,66 @@ public class SubscriptionsTests : WebTestContext
         cut.Find("select.form-select").Change("LatestEpisode");
 
         cut.WaitForAssertion(() => Assert.Contains("1", putBody ?? ""));
+    }
+
+    [Fact]
+    public void ShowsDragHint_WhenManualSortActive()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onGetSettings: _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new { subscriptionSortOrder = 3, version = 1 }),
+        }));
+
+        var cut = RenderComponent<Subscriptions>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Drag a show to reorder", cut.Markup));
+    }
+
+    [Fact]
+    public void PersistsManualOrder_WhenShowDraggedToNewPosition()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var subs = new List<Subscription>
+        {
+            new("s1", "s1", "Alpha", "A", null, DateTimeOffset.UtcNow),
+            new("s2", "s2", "Bravo", "B", null, DateTimeOffset.UtcNow),
+            new("s3", "s3", "Charlie", "C", null, DateTimeOffset.UtcNow),
+        };
+        string? putBody = null;
+        ConfigureApi(RouteHandler(
+            onGetSubscriptions: _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(subs) },
+            onGetSettings: _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { subscriptionSortOrder = 3, version = 1 }),
+            },
+            onPutManualOrder: request =>
+            {
+                putBody = request.Content!.ReadAsStringAsync().Result;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { subscriptionSortOrder = 3, version = 2 }),
+                };
+            }));
+
+        var cut = RenderComponent<Subscriptions>();
+        cut.WaitForAssertion(() => Assert.Equal(3, cut.FindAll(".col").Count));
+
+        // Drag "Charlie" (index 2) onto "Alpha" (index 0). Re-find between the two events —
+        // ondragstart mutates state and re-renders, invalidating the earlier element handles.
+        cut.InvokeAsync(() =>
+            cut.FindAll(".col").ToArray()[2].TriggerEvent("ondragstart", new Microsoft.AspNetCore.Components.Web.DragEventArgs()));
+        cut.InvokeAsync(() =>
+            cut.FindAll(".col").ToArray()[0].TriggerEvent("ondrop", new Microsoft.AspNetCore.Components.Web.DragEventArgs()));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.NotNull(putBody);
+            var s3 = putBody!.IndexOf("s3", StringComparison.Ordinal);
+            var s1 = putBody.IndexOf("s1", StringComparison.Ordinal);
+            var s2 = putBody.IndexOf("s2", StringComparison.Ordinal);
+            Assert.True(s3 >= 0 && s3 < s1 && s1 < s2, $"expected order s3,s1,s2 in: {putBody}");
+        });
     }
 
     [Fact]

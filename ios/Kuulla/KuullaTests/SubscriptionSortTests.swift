@@ -19,10 +19,34 @@ final class SubscriptionSortTests: XCTestCase {
         XCTAssertEqual(sorted.map(\.showId), ["2", "3", "1"])
     }
 
-    func testManualFallsBackToTitleUntilPr2() {
+    func testManualWithNoSavedOrderFallsBackToTitle() {
         let subs = [sub("1", title: "zebra"), sub("2", title: "Apple")]
 
         XCTAssertEqual(sortedSubscriptions(subs, by: .manual).map(\.showId), ["2", "1"])
+    }
+
+    func testManualOrdersBySavedArrangement() {
+        let subs = [sub("a", title: "Apple"), sub("b", title: "Banana"), sub("c", title: "Cherry")]
+
+        XCTAssertEqual(
+            sortedSubscriptions(subs, by: .manual, manualOrder: ["c", "a", "b"]).map(\.showId),
+            ["c", "a", "b"])
+    }
+
+    func testManualShowsNotInSavedOrderFallToEndByTitle() {
+        let subs = [sub("a", title: "zeta"), sub("b", title: "alpha"), sub("c", title: "Cherry")]
+
+        XCTAssertEqual(
+            sortedSubscriptions(subs, by: .manual, manualOrder: ["c"]).map(\.showId),
+            ["c", "b", "a"])
+    }
+
+    func testManualIgnoresUnsubscribedIdsInSavedOrder() {
+        let subs = [sub("a", title: "Apple"), sub("b", title: "Banana")]
+
+        XCTAssertEqual(
+            sortedSubscriptions(subs, by: .manual, manualOrder: ["ghost", "b", "a"]).map(\.showId),
+            ["b", "a"])
     }
 
     func testRecentlyAddedOrdersNewestFirst() {

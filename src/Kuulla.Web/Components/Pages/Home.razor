@@ -66,10 +66,19 @@
                         <option value="@SubscriptionSortOrder.Title">Title (A–Z)</option>
                         <option value="@SubscriptionSortOrder.LatestEpisode">Latest episode</option>
                         <option value="@SubscriptionSortOrder.RecentlyAdded">Recently added</option>
+                        <option value="@SubscriptionSortOrder.Manual">Manual</option>
                     </select>
                 </label>
             }
         </div>
+        @if (sortOrder == SubscriptionSortOrder.Manual && !isLoadingShows && showsLoadError is null && subscriptions.Count > 0)
+        {
+            <p class="text-muted small mb-2"><span aria-hidden="true">⠿</span> Drag a show to reorder. Your arrangement syncs across devices.</p>
+        }
+        @if (manualOrderError is not null)
+        {
+            <p class="text-danger small">@manualOrderError</p>
+        }
         @if (isLoadingShows)
         {
             <p>Loading&hellip;</p>
@@ -88,11 +97,21 @@
             {
                 <p class="text-danger small">@sortOrderError</p>
             }
+            var ordered = SubscriptionSorting.Sort(subscriptions, sortOrder, manualOrder);
+            var isManual = sortOrder == SubscriptionSortOrder.Manual;
             <div class="row row-cols-2 row-cols-md-4 g-4">
-                @foreach (var subscription in SubscriptionSorting.Sort(subscriptions, sortOrder))
+                @for (var i = 0; i < ordered.Count; i++)
                 {
-                    <div class="col">
-                        <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none text-body">
+                    var index = i;
+                    var subscription = ordered[index];
+                    <div class="col" style="@(isManual ? "cursor: move;" : null)"
+                         draggable="@(isManual ? "true" : null)"
+                         @ondragstart="@(() => dragSourceIndex = index)"
+                         @ondragend="@(() => dragSourceIndex = null)"
+                         @ondragover:preventDefault="isManual"
+                         @ondrop="@(() => OnManualDropAsync(index))">
+                        <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none text-body"
+                           draggable="false" @onclick:preventDefault="isManual">
                             <div class="card h-100 position-relative">
                                 <div class="position-absolute top-0 end-0 m-2 d-flex flex-column align-items-end gap-1">
                                     @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount))
@@ -141,6 +160,9 @@
     private SubscriptionSortOrder sortOrder = SubscriptionSortOrder.Title;
     private bool isSavingSortOrder;
     private string? sortOrderError;
+    private List<string> manualOrder = [];
+    private int? dragSourceIndex;
+    private string? manualOrderError;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -168,10 +190,42 @@
         {
             var settings = await SettingsClient.GetSettingsAsync();
             sortOrder = settings.SubscriptionSortOrder;
+            manualOrder = settings.SubscriptionManualOrder?.ToList() ?? [];
         }
         catch (HttpRequestException)
         {
             // Non-fatal — the grid still renders in the default Title order.
+        }
+    }
+
+    private async Task OnManualDropAsync(int targetIndex)
+    {
+        var source = dragSourceIndex;
+        dragSourceIndex = null;
+        if (source is not { } from)
+        {
+            return;
+        }
+
+        // Rebuild the full ordered show-id list from the current visual order with the drag
+        // applied, then send it wholesale (last-write-wins on the whole array, per #438).
+        var ordered = SubscriptionSorting.Sort(subscriptions, sortOrder, manualOrder);
+        if (SubscriptionSorting.ApplyManualMove(ordered, from, targetIndex) is not { } newOrder)
+        {
+            return;
+        }
+
+        var previous = manualOrder;
+        manualOrder = newOrder.ToList();
+        manualOrderError = null;
+        try
+        {
+            await SettingsClient.UpdateSubscriptionManualOrderAsync(manualOrder);
+        }
+        catch (HttpRequestException)
+        {
+            manualOrder = previous;
+            manualOrderError = "Couldn't save the new order. Please try again.";
         }
     }
 
