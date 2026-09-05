@@ -92,6 +92,30 @@ public class EpisodeStateService(
         return results;
     }
 
+    public async Task<IReadOnlyList<string>> GetInProgressShowIdsAsync(string userId, CancellationToken cancellationToken)
+    {
+        var showIds = new HashSet<string>(StringComparer.Ordinal);
+        var queryDefinition = new QueryDefinition(
+            "SELECT DISTINCT VALUE c.ShowId FROM c WHERE c.Completed = false AND c.PositionSeconds > 0");
+        using var iterator = episodeStatesContainer.GetItemQueryIterator<string>(
+            queryDefinition,
+            requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
+
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            foreach (var showId in page)
+            {
+                if (!string.IsNullOrEmpty(showId))
+                {
+                    showIds.Add(showId);
+                }
+            }
+        }
+
+        return showIds.ToList();
+    }
+
     // Used only by the auto-archive enforcement job (#187). Callers pass the already-fetched
     // EpisodeState records (e.g. from GetShowStatesAsync) rather than IDs so this doesn't re-read
     // each one via a point read on top of the caller's own query.

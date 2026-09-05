@@ -61,6 +61,22 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
         return counts;
     }
 
+    // Shows the user has an in-progress episode for — drives the "in progress" badge on the
+    // Library and Subscriptions grids, alongside the unplayed-count badge.
+    public async Task<IReadOnlySet<string>> GetInProgressShowIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.GetAsync("api/episodes/in-progress-shows", cancellationToken);
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            return new HashSet<string>();
+        }
+
+        response.EnsureSuccessStatusCode();
+        var results = await response.Content.ReadFromJsonAsync<List<string>>(JsonOptions, cancellationToken);
+        return results is null ? new HashSet<string>() : new HashSet<string>(results);
+    }
+
     public async Task<EpisodeState?> GetStateAsync(string episodeId, CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();

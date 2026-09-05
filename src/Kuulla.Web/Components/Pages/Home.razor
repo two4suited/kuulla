@@ -75,12 +75,20 @@
                     <div class="col">
                         <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none text-body">
                             <div class="card h-100 position-relative">
-                                @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount))
-                                {
-                                    <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2">
-                                        @(unplayedCount.HitCap ? $"{unplayedCount.Count}+" : unplayedCount.Count)
-                                    </span>
-                                }
+                                <div class="position-absolute top-0 end-0 m-2 d-flex flex-column align-items-end gap-1">
+                                    @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount))
+                                    {
+                                        <span class="badge bg-primary rounded-pill">
+                                            @(unplayedCount.HitCap ? $"{unplayedCount.Count}+" : unplayedCount.Count)
+                                        </span>
+                                    }
+                                    @if (inProgressShowIds.Contains(subscription.ShowId))
+                                    {
+                                        <span class="badge bg-info" title="You have an episode in progress">
+                                            <span aria-hidden="true">◐</span> In progress
+                                        </span>
+                                    }
+                                </div>
                                 @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
                                 {
                                     <img src="@subscription.ShowArtworkUrl" alt="@subscription.ShowTitle" class="card-img-top" />
@@ -106,6 +114,7 @@
     private readonly List<Subscription> subscriptions = [];
     private readonly List<Playlist> playlists = [];
     private readonly Dictionary<string, UnplayedCount> unplayedCounts = [];
+    private IReadOnlySet<string> inProgressShowIds = new HashSet<string>();
     private bool isLoadingShows;
     private bool isLoadingPlaylists;
     private string? showsLoadError;
@@ -158,6 +167,8 @@
                 {
                     unplayedCounts[showId] = count;
                 }
+
+                inProgressShowIds = await EpisodeStateClient.GetInProgressShowIdsAsync();
             }
             catch (HttpRequestException)
             {
