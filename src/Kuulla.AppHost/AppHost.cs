@@ -1,11 +1,15 @@
 #pragma warning disable ASPIRECOSMOSDB001 // RunAsPreviewEmulator is experimental.
 #pragma warning disable ASPIREPROBES001 // WithHttpProbe is experimental.
+#pragma warning disable ASPIRECOMPUTE002 // IComputeEnvironmentResource.GetHostAddressExpression is experimental.
+#pragma warning disable AZPROVISION001 // CdnProfile.FromExisting is for evaluation purposes only.
 
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
+using Azure.Core;
 using Azure.Provisioning;
 using Azure.Provisioning.AppContainers;
 using Azure.Provisioning.Cdn;
+using Azure.Provisioning.Expressions;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -29,7 +33,7 @@ static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app)
 // Azure Container Apps environment for `aspire deploy`/`aspire publish` (Consumption plan).
 // Single compute environment, so every compute resource below deploys here without needing
 // explicit .WithComputeEnvironment(...) calls.
-builder.AddAzureContainerAppEnvironment("aca");
+var aca = builder.AddAzureContainerAppEnvironment("aca");
 
 var cosmos = builder.AddAzureCosmosDB("cosmos")
     .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
@@ -130,30 +134,92 @@ var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .PublishAsAzureContainerApp(ScaleToZero);
 
 // Azure Front Door (issue #367): routes api.kuulla.us -> api and app.kuulla.us -> web through the
-// existing shared Front Door profile (Standard SKU, Terraform-managed, resource group
-// "azure-shared") rather than provisioning a new one — PublishAsExisting only takes effect for
-// `aspire deploy`/`aspire publish`, so this is a no-op locally same as the ACA resources above.
-// AddAzureFrontDoor is a brand-new preview API (Aspire.Hosting.Azure.FrontDoor) with a minimal
-// surface today: WithOrigin gives each backend its own *.azurefd.net endpoint/origin
-// group/route, and health probe path comes from the WithHttpProbe annotations above. It has no
-// custom-domain API yet, so those are added by hand below via ConfigureInfrastructure.
-var frontDoor = builder.AddAzureFrontDoor("frontdoor")
-    .PublishAsExisting("azure-shared", "azure-shared")
-    .WithOrigin(api)
-    .WithOrigin(web);
-
-frontDoor.ConfigureInfrastructure(infra =>
+// existing shared Front Door profile ("azure-shared", Standard SKU, Terraform-managed, resource
+// group "azure-shared") rather than provisioning a new one.
+//
+// This is hand-built via the low-level AddAzureInfrastructure + PublishAsExisting rather than the
+// (brand-new preview) AddAzureFrontDoor integration: confirmed against a real deploy that
+// AddAzureFrontDoor's own code always creates a *new* CdnProfile regardless of
+// PublishAsExisting/AsExisting — unlike e.g. the App Service integration, it never checks
+// resource.IsExisting() before declaring the profile. PublishAsExisting below still does its job
+// of scoping this whole module's deployment to the azure-shared resource group (confirmed by that
+// same deploy — the stray profile landed in the right resource group, just as a new profile
+// instead of a reference to the real one); CdnProfile.FromExisting is what actually references
+// the real "azure-shared" profile instead of declaring a second one.
+//
+// PublishAsExisting only takes effect for `aspire deploy`/`aspire publish`, so in Run mode this
+// whole resource is inert, same as the ACA resources above.
+var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
 {
-    var profile = infra.GetProvisionableResources().OfType<CdnProfile>().Single();
+    var profile = CdnProfile.FromExisting("azureShared");
+    profile.Name = "azure-shared";
+    infra.Add(profile);
 
-    AddCustomDomain(infra, profile, api.Resource.Name, "api.kuulla.us");
-    AddCustomDomain(infra, profile, web.Resource.Name, "app.kuulla.us");
+    AddOrigin(infra, profile, aca.Resource, api.Resource, api.GetEndpoint("http"), "api.kuulla.us");
+    AddOrigin(infra, profile, aca.Resource, web.Resource, web.GetEndpoint("http"), "app.kuulla.us");
 
-    static void AddCustomDomain(AzureResourceInfrastructure infra, CdnProfile profile, string originName, string hostName)
+    static void AddOrigin(
+        AzureResourceInfrastructure infra,
+        CdnProfile profile,
+        IComputeEnvironmentResource computeEnv,
+        IResource originResource,
+        EndpointReference endpointReference,
+        string hostName)
     {
-        var originBicepId = Infrastructure.NormalizeBicepIdentifier(originName);
-        var route = infra.GetProvisionableResources().OfType<FrontDoorRoute>()
-            .Single(r => r.BicepIdentifier == $"{originBicepId}Route");
+        var originBicepId = Infrastructure.NormalizeBicepIdentifier(originResource.Name);
+
+        var hostExpression = computeEnv.GetHostAddressExpression(endpointReference);
+        var hostParam = hostExpression.AsProvisioningParameter(infra, $"{originBicepId}_host");
+
+        var endpoint = new FrontDoorEndpoint($"{originBicepId}Endpoint")
+        {
+            Parent = profile,
+            Location = new AzureLocation("Global")
+        };
+        infra.Add(endpoint);
+
+        var originGroup = new FrontDoorOriginGroup($"{originBicepId}OriginGroup")
+        {
+            Parent = profile,
+            // Points at the unconditional /health endpoint both apps expose instead of the "/"
+            // default, tolerant of the scale-to-zero cold-start window (#361).
+            HealthProbeSettings = new HealthProbeSettings
+            {
+                ProbeProtocol = HealthProbeProtocol.Https,
+                ProbePath = "/health"
+            },
+            // Required by ARM even with a single origin per group.
+            LoadBalancingSettings = new LoadBalancingSettings
+            {
+                SampleSize = 4,
+                SuccessfulSamplesRequired = 3,
+                AdditionalLatencyInMilliseconds = 50
+            }
+        };
+        infra.Add(originGroup);
+
+        var origin = new FrontDoorOrigin($"{originBicepId}Origin")
+        {
+            Parent = originGroup,
+            HostName = hostParam,
+            OriginHostHeader = hostParam
+        };
+        infra.Add(origin);
+
+        var route = new FrontDoorRoute($"{originBicepId}Route")
+        {
+            Parent = endpoint,
+            OriginGroupId = originGroup.Id,
+            PatternsToMatch = ["/*"],
+            ForwardingProtocol = ForwardingProtocol.HttpsOnly,
+            LinkToDefaultDomain = LinkToDefaultDomain.Enabled,
+            HttpsRedirect = HttpsRedirect.Enabled
+        };
+        // Route must wait for origin to be created — without this, ARM deploys the route in
+        // parallel and fails because the origin group has no origins yet (OriginGroupId above
+        // isn't enough for ARM to infer the dependency transitively).
+        route.DependsOn.Add(origin);
+        infra.Add(route);
 
         var domain = new FrontDoorCustomDomain($"{originBicepId}Domain")
         {
@@ -170,6 +236,11 @@ frontDoor.ConfigureInfrastructure(infra =>
 
         route.CustomDomains.Add(new FrontDoorActivatedResourceInfo { Id = domain.Id });
 
+        infra.Add(new ProvisioningOutput($"{originBicepId}_endpointUrl", typeof(string))
+        {
+            Value = BicepFunction.Interpolate($"https://{endpoint.HostName}")
+        });
+
         // Cloudflare needs this as a TXT record on the domain (e.g. _dnsauth.api.kuulla.us) before
         // Front Door will validate it — read it from the deploy output after `aspire deploy`.
         infra.Add(new ProvisioningOutput($"{originBicepId}_domainValidationToken", typeof(string))
@@ -177,7 +248,8 @@ frontDoor.ConfigureInfrastructure(infra =>
             Value = domain.ValidationProperties.ValidationToken
         });
     }
-});
+})
+.PublishAsExisting("azure-shared", "azure-shared");
 
 // Builds and launches the app in the iOS Simulator with the API's Aspire-resolved
 // endpoint injected, so it doesn't need a manually-set KUULLA_API_BASE_URL (see #50, #51).
