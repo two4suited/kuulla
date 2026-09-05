@@ -3,22 +3,15 @@ using Kuulla.Api.Models;
 using Kuulla.Api.Services.Sync;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Services;
 
 public class PlaylistService(
     [FromKeyedServices("playlists")] Container playlistsContainer,
     IEpisodeService episodeService,
-    IShowService showService,
-    IConnectionMultiplexer redis) : IPlaylistService
+    IShowService showService) : IPlaylistService
 {
-    private readonly SyncSummaryCache<Playlist> _syncSummaryCache = new(redis, "playlists");
-
-    // Lazy for the same CS0236 reason as EpisodeStateService.Reconciler — a primary-constructor
-    // field initializer can't reference _syncSummaryCache before the constructor body runs.
-    private SyncReconciler<Playlist, PlaylistChange>? _reconciler;
-    private SyncReconciler<Playlist, PlaylistChange> Reconciler => _reconciler ??= new(_syncSummaryCache);
+    private readonly SyncReconciler<Playlist, PlaylistChange> _reconciler = new();
 
     public Task<IReadOnlyList<Playlist>> GetPlaylistsAsync(string userId, CancellationToken cancellationToken) =>
         QueryAllAsync(userId, cancellationToken);
@@ -29,7 +22,6 @@ public class PlaylistService(
             Guid.NewGuid().ToString(), userId, name, PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
 
         await UpsertAsync(playlist, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return playlist;
     }
 
@@ -43,7 +35,6 @@ public class PlaylistService(
         var items = await ComputeDynamicItemsAsync(config, cancellationToken);
         var populated = playlist with { Items = items };
         await UpsertAsync(populated, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return populated;
     }
 
@@ -59,7 +50,6 @@ public class PlaylistService(
         var items = await ComputeDynamicItemsAsync(config, cancellationToken);
         var updated = playlist with { DynamicConfig = config, Items = items, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return updated;
     }
 
@@ -74,7 +64,6 @@ public class PlaylistService(
         var items = await ComputeDynamicItemsAsync(playlist.DynamicConfig, cancellationToken);
         var updated = playlist with { Items = items, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return updated;
     }
 
@@ -156,7 +145,6 @@ public class PlaylistService(
 
         var updated = playlist with { Name = name, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return updated;
     }
 
@@ -176,7 +164,6 @@ public class PlaylistService(
         // propagated to other devices via POST /api/sync/playlists. That's a pre-existing gap in
         // the shared framework (EpisodeState has no delete operation to have surfaced it before
         // now), not something this issue's scope covers fixing.
-        await RecomputeSummaryAsync(userId, cancellationToken);
     }
 
     public async Task<Playlist?> AddItemAsync(
@@ -205,7 +192,6 @@ public class PlaylistService(
 
         var updated = playlist with { Items = items, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return updated;
     }
 
@@ -225,7 +211,6 @@ public class PlaylistService(
         var items = playlist.Items.Where(item => item.EpisodeId != episodeId).ToList();
         var updated = playlist with { Items = items, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return updated;
     }
 
@@ -276,7 +261,6 @@ public class PlaylistService(
 
         var updated = playlist with { Items = items, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
-        await RecomputeSummaryAsync(userId, cancellationToken);
         return updated;
     }
 
@@ -288,7 +272,7 @@ public class PlaylistService(
         IReadOnlyList<PlaylistChange> changes,
         CancellationToken cancellationToken)
     {
-        var result = await Reconciler.ReconcileAsync(
+        var result = await _reconciler.ReconcileAsync(
             userId,
             lastSyncedAt,
             localHash,
@@ -347,11 +331,5 @@ public class PlaylistService(
     {
         await playlistsContainer.UpsertItemAsync(
             playlist, new PartitionKey(playlist.UserId), cancellationToken: cancellationToken);
-    }
-
-    private async Task RecomputeSummaryAsync(string userId, CancellationToken cancellationToken)
-    {
-        var all = await QueryAllAsync(userId, cancellationToken);
-        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<Playlist>.Compute(all), cancellationToken);
     }
 }

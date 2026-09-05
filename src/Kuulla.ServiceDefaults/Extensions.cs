@@ -164,7 +164,7 @@ public static class Extensions
         // Adding health checks endpoints to applications in non-development environments has security implications.
         // See https://aka.ms/aspire/healthchecks for details before enabling these endpoints in non-development environments.
         // NOTE: api and web each map their own always-200 GET /health in Program.cs (independent of any
-        // downstream Cosmos/Redis health check, so the liveness probe doesn't fail during Redis scale-to-zero) —
+        // downstream Cosmos health check, so the liveness probe stays green through a cold start) —
         // that's what ACA's liveness probe and Front Door's origin probe target. Mapping MapHealthChecks on the
         // same "/health" route here would be an ambiguous-route conflict, so this stays Development-only.
         if (app.Environment.IsDevelopment())

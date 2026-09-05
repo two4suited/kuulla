@@ -1,29 +1,12 @@
-using System.Security.Cryptography;
 using System.Text;
 using Kuulla.Api.Models;
-using Newtonsoft.Json;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Services;
 
 public class TranscriptService(
     PublicResourceFetcher resourceFetcher,
-    IConnectionMultiplexer redis,
     ILogger<TranscriptService> logger) : ITranscriptService
 {
-    // Transcripts are immutable once a feed publishes them, so this can be long — a week is well
-    // clear of any reasonable "I fixed the parser, re-fetch" window without being effectively
-    // permanent.
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromDays(7);
-
-    // A "no usable transcript" outcome (unreachable, rejected by the SSRF guard, or nothing
-    // parseable) is cached too, but only briefly. This endpoint is unauthenticated, so without a
-    // negative entry an anonymous caller could make every request re-drive an outbound fetch to
-    // the feed-supplied URL; a short TTL blunts that while still letting a parser fix or a feed
-    // that later serves a valid document recover within the hour.
-    private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromMinutes(15);
-    private static readonly TranscriptDocument NegativeCacheEntry = new(null, []);
-
     // A hostile or misconfigured server could stream an unbounded body; 16 MiB is far more than
     // any real episode transcript (a 3-hour word-level JSON transcript is ~1-2 MiB) while still
     // bounding memory.
@@ -37,33 +20,7 @@ public class TranscriptService(
             return null;
         }
 
-        var db = redis.GetDatabase();
-        var cacheKey = $"transcript:v1:{Hash(transcriptUrl)}";
-
-        var cached = await db.StringGetAsync(cacheKey);
-        if (cached.HasValue)
-        {
-            try
-            {
-                var document = JsonConvert.DeserializeObject<TranscriptDocument>(cached!);
-                if (document is not null)
-                {
-                    // An empty segment list is the negative-cache marker (see NegativeCacheEntry).
-                    return document.Segments.Count > 0 ? document : null;
-                }
-            }
-            catch (JsonException ex)
-            {
-                logger.LogWarning(ex, "Discarding unreadable cached transcript for {CacheKey}", cacheKey);
-            }
-        }
-
-        var result = await FetchAndParseAsync(transcriptUrl, transcriptType, cancellationToken);
-        await db.StringSetAsync(
-            cacheKey,
-            JsonConvert.SerializeObject(result ?? NegativeCacheEntry),
-            result is not null ? CacheTtl : NegativeCacheTtl);
-        return result;
+        return await FetchAndParseAsync(transcriptUrl, transcriptType, cancellationToken);
     }
 
     private async Task<TranscriptDocument?> FetchAndParseAsync(
@@ -142,11 +99,5 @@ public class TranscriptService(
         }
 
         return Encoding.UTF8.GetString(limited.GetBuffer(), 0, (int)limited.Length);
-    }
-
-    private static string Hash(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }

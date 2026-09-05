@@ -3,20 +3,13 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Kuulla.Api.Models;
 using Kuulla.Api.Services.Sync;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Services;
 
 public class SettingsService(
-    [FromKeyedServices("settings")] Container settingsContainer,
-    IConnectionMultiplexer redis) : ISettingsService
+    [FromKeyedServices("settings")] Container settingsContainer) : ISettingsService
 {
-    private readonly SyncSummaryCache<UserSettings> _syncSummaryCache = new(redis, "settings");
-
-    // Field initializer can't reference _syncSummaryCache (CS0236), so the reconciler is built
-    // lazily on first use instead, matching EpisodeStateService's workaround.
-    private SyncReconciler<UserSettings, UserSettingsChange>? _reconciler;
-    private SyncReconciler<UserSettings, UserSettingsChange> Reconciler => _reconciler ??= new(_syncSummaryCache);
+    private readonly SyncReconciler<UserSettings, UserSettingsChange> _reconciler = new();
 
     public async Task<UserSettings> GetSettingsAsync(string userId, CancellationToken cancellationToken)
     {
@@ -45,13 +38,6 @@ public class SettingsService(
         var stored = await ReadStoredSettingsAsync(userId, cancellationToken);
         return stored is { } settings ? [settings] : [];
     }
-
-    // Takes the just-written document directly rather than re-reading it from Cosmos — every
-    // caller already has it from the UpsertItemAsync response, and a settings collection is
-    // always exactly this one document, so there's nothing a re-read would learn that the
-    // caller doesn't already know.
-    private Task RecomputeSyncSummaryAsync(string userId, UserSettings current, CancellationToken cancellationToken) =>
-        _syncSummaryCache.SetAsync(userId, SyncSummaryCache<UserSettings>.Compute([current]), cancellationToken);
 
     private async Task<(UserSettings Settings, string? ETag)> ReadCurrentSettingsWithETagAsync(
         string userId, CancellationToken cancellationToken)
@@ -105,7 +91,6 @@ public class SettingsService(
                     ? await settingsContainer.CreateItemAsync(updated, new PartitionKey(userId), cancellationToken: cancellationToken)
                     : await settingsContainer.UpsertItemAsync(
                         updated, new PartitionKey(userId), new ItemRequestOptions { IfMatchEtag = etag }, cancellationToken);
-                await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
                 return response.Resource;
             }
             catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
@@ -131,7 +116,7 @@ public class SettingsService(
         IReadOnlyList<UserSettingsChange> changes,
         CancellationToken cancellationToken)
     {
-        var result = await Reconciler.ReconcileAsync(
+        var result = await _reconciler.ReconcileAsync(
             userId,
             lastSyncedAt,
             localHash,
@@ -429,7 +414,6 @@ public class SettingsService(
 
         var response = await settingsContainer.UpsertItemAsync(
             updated, new PartitionKey(userId), cancellationToken: cancellationToken);
-        await RecomputeSyncSummaryAsync(userId, response.Resource, cancellationToken);
         return response.Resource;
     }
 

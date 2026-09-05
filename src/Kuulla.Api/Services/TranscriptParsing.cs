@@ -14,8 +14,8 @@ public enum TranscriptFormat
 }
 
 // Pure, side-effect-free normalization of the three transcript source formats into
-// TranscriptSegment lists. Kept separate from TranscriptService (which does the fetching and
-// caching) so the format handling is unit-testable without any HTTP or Redis.
+// TranscriptSegment lists. Kept separate from TranscriptService (which does the fetching) so
+// the format handling is unit-testable without any HTTP.
 public static partial class TranscriptParsing
 {
     // Splits on a blank line (optionally containing whitespace), tolerating both \n and \r\n.

@@ -4,8 +4,6 @@ using System.Threading;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Kuulla.Api.Models;
-using Kuulla.Api.Services.Sync;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Services;
 
@@ -22,11 +20,8 @@ public class EpisodeService(
     IEpisodeStateService episodeStateService,
     IDeviceTokenService deviceTokenService,
     INotificationService notificationService,
-    IConnectionMultiplexer redis,
     ILogger<EpisodeService> logger) : IEpisodeService
 {
-    private readonly SyncSummaryCache<Playlist> _playlistSummaryCache = new(redis, "playlists");
-
     // Excludes an episode from push notifications if its PublishedAt is older than this, even
     // though it's newly *inserted* into Cosmos — insertedEpisodes conflates "genuinely just
     // published" with "backfilled into the cache for the first time" (e.g. a user subscribing to
@@ -344,11 +339,6 @@ public class EpisodeService(
                     new PartitionKey(userId),
                     new ItemRequestOptions { IfMatchEtag = response.ETag },
                     cancellationToken);
-
-                // This write bypasses PlaylistService's own RecomputeSummaryAsync call, so drop
-                // any stale cached sync summary (see SyncSummaryCache.InvalidateAsync) the same
-                // way /dev/seed-playlists does for the same reason.
-                await _playlistSummaryCache.InvalidateAsync(userId, cancellationToken);
                 return;
             }
             catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.PreconditionFailed)

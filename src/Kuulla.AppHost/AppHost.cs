@@ -14,13 +14,11 @@ using Azure.Provisioning.Expressions;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Scale-to-zero on the Consumption plan (issues #361, #363): min replicas 0 for api, web, and redis.
+// Scale-to-zero on the Consumption plan (issues #361, #363): min replicas 0 for api and web.
 // Aspire sets Template.Scale.MinReplicas = 1 by default; overriding it here is the only way to
 // get to zero since there's no dedicated builder method for it yet. No custom Rules are added —
 // leaving Rules empty means ACA falls back to its default HTTP concurrent-requests scale rule,
 // which is what wakes a cold instance on the first inbound request via WithExternalHttpEndpoints.
-// redis has no HTTP ingress, so its scale rule falls back to ACA's default TCP-connections rule
-// instead — an inbound connection from api wakes it the same way.
 // CooldownPeriod is the number of seconds KEDA waits after the last active trigger before
 // scaling down to MinReplicas; ACA defaults it to 300s (5 minutes), so it's raised here to keep
 // containers warm for 30 minutes of inactivity instead.
@@ -103,21 +101,6 @@ var episodeStates = cosmos.AddContainer("episodestates", partitionKeyPath: "/Use
 var playlists = cosmos.AddContainer("playlists", partitionKeyPath: "/UserId");
 var deviceTokens = cosmos.AddContainer("devicetokens", partitionKeyPath: "/UserId");
 
-// Redis runs with `redis-server --requirepass` in publish mode. Left to itself, Aspire's
-// AddRedis synthesizes the password parameter and regenerates it on every `aspire deploy`;
-// because updating a Container Apps *secret* value doesn't roll the consuming revision, a warm
-// `redis` replica keeps enforcing the password it booted with while a freshly deployed `api`
-// revision connects with the new one — a steady NOAUTH / AuthenticationFailure stream.
-// Pin it to an explicit parameter so it's stable across deploys: supplied from the
-// REDIS_PASSWORD GitHub Actions secret in CI (see deploy.yml), and a throwaway fixed value for
-// local `aspire run` / AppHost tests, where Redis is only reachable inside the Aspire network.
-var redisPassword = builder.ExecutionContext.IsPublishMode
-    ? builder.AddParameter("redis-password", secret: true)
-    : builder.AddParameter("redis-password", value: "localdev", secret: true);
-
-var redis = builder.AddRedis("redis", port: null, password: redisPassword)
-    .PublishAsAzureContainerApp(ScaleToZero);
-
 // Google OAuth credentials for "Login with Google" (milestone #1, issues #5-#8).
 // Values come from Parameters:<name> in the AppHost's user secrets locally —
 // see the `dotnet user-secrets set` commands below once the GCP OAuth app exists.
@@ -177,7 +160,6 @@ var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(episodeStates)
     .WithReference(playlists)
     .WithReference(deviceTokens)
-    .WithReference(redis)
     .WithEnvironment("Google__ClientId", googleClientId)
     .WithEnvironment("Google__IosClientId", googleIosClientId);
 
@@ -206,7 +188,6 @@ var api = apiBuilder
     .WaitFor(episodeStates)
     .WaitFor(playlists)
     .WaitFor(deviceTokens)
-    .WaitFor(redis)
     .PublishAsAzureContainerApp(ScaleToZero);
 
 var web = builder.AddProject<Projects.Kuulla_Web>("web")

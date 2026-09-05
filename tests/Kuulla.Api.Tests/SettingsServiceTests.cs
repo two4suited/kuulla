@@ -1,10 +1,8 @@
 using Kuulla.Api.Models;
 using Kuulla.Api.Services;
-using Kuulla.Api.Services.Sync;
 using Microsoft.Azure.Cosmos;
 using Moq;
 using Newtonsoft.Json;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -13,18 +11,11 @@ public class SettingsServiceTests
     private const string UserId = "user-1";
 
     private readonly Mock<Container> _settingsContainer = new();
-    private readonly Mock<IConnectionMultiplexer> _redis = new();
-    private readonly Mock<IDatabase> _database = new();
     private readonly SettingsService _sut;
 
     public SettingsServiceTests()
     {
-        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
-        _sut = new SettingsService(_settingsContainer.Object, _redis.Object);
-
-        // No cached sync summaries pre-populated by default — every test that cares opts in
-        // explicitly, so a miss (empty RedisValue) is the baseline.
-        _database.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
+        _sut = new SettingsService(_settingsContainer.Object);
     }
 
     [Fact]
@@ -772,16 +763,20 @@ public class SettingsServiceTests
     [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
     {
-        var summary = new SyncSummary("abc123", DateTimeOffset.UtcNow);
-        _database
-            .Setup(d => d.StringGetAsync($"sync:settings:{UserId}", It.IsAny<CommandFlags>()))
-            .ReturnsAsync(JsonConvert.SerializeObject(summary));
+        var stored = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddDays(-2));
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        var currentHash = SyncSummary.FromRecords<UserSettings>([stored]).Hash;
 
-        var result = await _sut.SyncAsync(UserId, "device-a", DateTimeOffset.UtcNow.AddDays(-1), "abc123", [], CancellationToken.None);
+        var result = await _sut.SyncAsync(
+            UserId, "device-a", DateTimeOffset.UtcNow.AddDays(-1), currentHash, [], CancellationToken.None);
 
         Assert.Empty(result.ServerChanges);
-        Assert.Equal("abc123", result.Hash);
-        _settingsContainer.Verify(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default), Times.Never);
+        Assert.Equal(currentHash, result.Hash);
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default),
+            Times.Never);
     }
 
     [Fact]

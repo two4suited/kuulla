@@ -1,3 +1,5 @@
+using Kuulla.Api.Models;
+
 namespace Kuulla.Api.Services.Sync;
 
 // Generic form of the always-push/always-return-delta reconciliation routine designed in #32/#33
@@ -8,7 +10,7 @@ namespace Kuulla.Api.Services.Sync;
 // TState is the domain's stored record shape (must be ISyncableRecord so the summary hash can be
 // computed). TChange is the shape of an incoming client-pushed change, which may differ from
 // TState (e.g. it won't carry a server-stamped updatedAt/deviceId).
-public class SyncReconciler<TState, TChange>(SyncSummaryCache<TState> summaryCache)
+public class SyncReconciler<TState, TChange>
     where TState : class, ISyncableRecord
 {
     public async Task<SyncReconciliationResult<TState>> ReconcileAsync(
@@ -28,7 +30,7 @@ public class SyncReconciler<TState, TChange>(SyncSummaryCache<TState> summaryCac
         // matches the server's — skip the reconciliation query entirely.
         if (changes.Count == 0)
         {
-            var summary = await summaryCache.GetOrComputeAsync(userId, queryAllAsync, cancellationToken);
+            var summary = SyncSummary.FromRecords(await queryAllAsync(cancellationToken));
             if (summary.Hash == localHash)
             {
                 return new SyncReconciliationResult<TState>([], DateTimeOffset.UtcNow, summary.Hash);
@@ -63,9 +65,7 @@ public class SyncReconciler<TState, TChange>(SyncSummaryCache<TState> summaryCac
             .Where(s => s.UpdatedAt > lastSyncedAt && !acceptedIds.Contains(s.Id))
             .ToList();
 
-        var newSummary = SyncSummaryCache<TState>.Compute(allStates);
-        await summaryCache.SetAsync(userId, newSummary, cancellationToken);
-
+        var newSummary = SyncSummary.FromRecords(allStates);
         return new SyncReconciliationResult<TState>(serverChanges, DateTimeOffset.UtcNow, newSummary.Hash);
     }
 }
