@@ -145,6 +145,29 @@ public class SubscriptionServiceTests
     }
 
     [Fact]
+    public async Task GetNewEpisodesAsync_CarriesShowTitleAndArtworkFromSubscription()
+    {
+        var subscription = new Subscription(
+            ShowId, UserId, ShowId, "The Daily Show", "Author", "https://art.example/show.jpg", DateTimeOffset.UtcNow);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<Subscription>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<Subscription>([subscription]));
+
+        var episode = MakeEpisode("unseen", ShowId, DateTimeOffset.UtcNow);
+        _episodeService
+            .Setup(s => s.GetEpisodesAsync(ShowId, null, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EpisodePage([episode], null));
+        _episodeStateService
+            .Setup(s => s.GetStateAsync(UserId, "unseen", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((EpisodeState?)null);
+
+        var results = await _sut.GetNewEpisodesAsync(UserId, CancellationToken.None);
+
+        Assert.Equal("The Daily Show", results[0].ShowTitle);
+        Assert.Equal("https://art.example/show.jpg", results[0].ShowArtworkUrl);
+    }
+
+    [Fact]
     public async Task GetNewEpisodesAsync_IncludesAutoPlayedEpisodesWithFlagSet()
     {
         var subscription = new Subscription(ShowId, UserId, ShowId, "Show 1", "Author", null, DateTimeOffset.UtcNow);

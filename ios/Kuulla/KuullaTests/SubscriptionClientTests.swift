@@ -55,7 +55,7 @@ final class SubscriptionClientTests: MockedApiTestCase {
 
     func testGetNewEpisodesDecodesResponse() async throws {
         let json = """
-        [{"episode":{"id":"ep1","showId":"s1","title":"Episode One","publishedAt":"2024-01-15T10:30:00+00:00","duration":"00:45:00","audioUrl":"https://audio","description":null,"bitrateKbps":null,"fileSizeBytes":null},"autoPlayed":false}]
+        [{"episode":{"id":"ep1","showId":"s1","title":"Episode One","publishedAt":"2024-01-15T10:30:00+00:00","duration":"00:45:00","audioUrl":"https://audio","description":null,"bitrateKbps":null,"fileSizeBytes":null},"autoPlayed":false,"showTitle":"The Daily Show","showArtworkUrl":"https://art/s1.jpg"}]
         """.data(using: .utf8)!
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
 
@@ -63,8 +63,22 @@ final class SubscriptionClientTests: MockedApiTestCase {
 
         XCTAssertEqual(episodes.map(\.episode.id), ["ep1"])
         XCTAssertEqual(episodes.map(\.autoPlayed), [false])
+        XCTAssertEqual(episodes.map(\.showTitle), ["The Daily Show"])
+        XCTAssertEqual(episodes.map(\.showArtworkUrl), ["https://art/s1.jpg"])
         let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
         XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/subscriptions/episodes"))
+    }
+
+    func testGetNewEpisodesToleratesMissingShowIdentity() async throws {
+        let json = """
+        [{"episode":{"id":"ep1","showId":"s1","title":"Episode One","publishedAt":null,"duration":null,"audioUrl":"https://audio","description":null,"bitrateKbps":null,"fileSizeBytes":null},"autoPlayed":false}]
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let episodes = try await client.getNewEpisodes()
+
+        XCTAssertEqual(episodes.map(\.showTitle), [""])
+        XCTAssertNil(episodes[0].showArtworkUrl)
     }
 
     func testGetNewEpisodesReturnsEmptyOn401() async throws {

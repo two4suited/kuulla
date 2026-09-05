@@ -112,7 +112,9 @@ public class SubscriptionService(
                 return (episode, isUnseen, autoPlayed: state?.AutoPlayed ?? false);
             }));
 
-            return unseenChecks.Where(x => x.isUnseen).Select(x => new NewEpisode(x.episode, x.autoPlayed)).ToList();
+            return unseenChecks.Where(x => x.isUnseen)
+                .Select(x => new NewEpisode(x.episode, x.autoPlayed, subscription.ShowTitle, subscription.ShowArtworkUrl))
+                .ToList();
         }));
 
         return perShow
