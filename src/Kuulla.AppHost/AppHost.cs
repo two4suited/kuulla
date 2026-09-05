@@ -5,12 +5,14 @@ using Azure.Provisioning.AppContainers;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Scale-to-zero on the Consumption plan (issue #361): min replicas 0 for both api and web.
+// Scale-to-zero on the Consumption plan (issues #361, #363): min replicas 0 for api, web, and redis.
 // Aspire sets Template.Scale.MinReplicas = 1 by default; overriding it here is the only way to
 // get to zero since there's no dedicated builder method for it yet. No custom Rules are added —
 // leaving Rules empty means ACA falls back to its default HTTP concurrent-requests scale rule,
 // which is what wakes a cold instance on the first inbound request via WithExternalHttpEndpoints.
-// This only takes effect in publish/deploy mode; PublishAsAzureContainerApp is a no-op locally.
+// redis has no HTTP ingress, so its scale rule falls back to ACA's default TCP-connections rule
+// instead — an inbound connection from api wakes it the same way. This only takes effect in
+// publish/deploy mode; PublishAsAzureContainerApp is a no-op locally.
 static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app) => app.Template.Scale.MinReplicas = 0;
 
 // Azure Container Apps environment for `aspire deploy`/`aspire publish` (Consumption plan).
@@ -31,7 +33,8 @@ var episodeStates = cosmos.AddContainer("episodestates", partitionKeyPath: "/Use
 var playlists = cosmos.AddContainer("playlists", partitionKeyPath: "/UserId");
 var deviceTokens = cosmos.AddContainer("devicetokens", partitionKeyPath: "/UserId");
 
-var redis = builder.AddRedis("redis");
+var redis = builder.AddRedis("redis")
+    .PublishAsAzureContainerApp(ScaleToZero);
 
 // Google OAuth credentials for "Login with Google" (milestone #1, issues #5-#8).
 // Values come from Parameters:<name> in the AppHost's user secrets locally —
