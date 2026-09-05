@@ -43,6 +43,25 @@ final class EpisodeListFilterTests: XCTestCase {
         XCTAssertEqual(Set(result.map(\.id)), ["e1"])
     }
 
+    func testUnfinishedFilterIncludesNewAndInProgressButExcludesAutoPlayedAndPlayed() {
+        let episodes = ["e1", "e2", "e3", "e4"].map { makeEpisode(id: $0, publishedAt: "2024-01-01T00:00:00Z") }
+        let statuses: [String: EpisodeStatus] = [
+            "e1": .new, "e2": .autoPlayed, "e3": .inProgress, "e4": .played,
+        ]
+
+        let result = EpisodeListFilter.apply(episodes: episodes, statuses: statuses, filter: .unfinished, sort: .newestFirst)
+
+        XCTAssertEqual(Set(result.map(\.id)), ["e1", "e3"])
+    }
+
+    func testEpisodeWithNoStatusIsIncludedInUnfinishedFilter() {
+        let episodes = [makeEpisode(id: "e1", publishedAt: "2024-01-01T00:00:00Z")]
+
+        let result = EpisodeListFilter.apply(episodes: episodes, statuses: [:], filter: .unfinished, sort: .newestFirst)
+
+        XCTAssertEqual(result.map(\.id), ["e1"])
+    }
+
     func testInProgressFilterIncludesOnlyInProgressEpisodes() {
         let episodes = ["e1", "e2"].map { makeEpisode(id: $0, publishedAt: "2024-01-01T00:00:00Z") }
         let statuses: [String: EpisodeStatus] = ["e1": .inProgress, "e2": .played]

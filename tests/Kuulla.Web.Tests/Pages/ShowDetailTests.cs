@@ -520,7 +520,7 @@ public class ShowDetailTests : WebTestContext
     }
 
     [Fact]
-    public void UnplayedFilter_IsActiveByDefault_AndHidesInProgressAndPlayedEpisodes()
+    public void UnfinishedFilter_IsActiveByDefault_AndShowsUnplayedAndInProgressEpisodes()
     {
         AuthContext.SetAuthorized("user-1");
         var inProgressState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 300, false, DateTimeOffset.UtcNow, "web");
@@ -531,20 +531,39 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         cut.WaitForAssertion(() =>
         {
-            Assert.DoesNotContain("Monday Edition", cut.Markup);
-            Assert.Contains("Sunday Edition", cut.Markup);
-        });
-        Assert.Contains("active", cut.FindAll(".btn-group button")
-            .Single(b => b.TextContent.Trim() == "Unplayed").ClassList);
-
-        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
-        cut.WaitForAssertion(() =>
-        {
+            // Monday is in progress, Sunday is unplayed — both belong in the default view.
             Assert.Contains("Monday Edition", cut.Markup);
             Assert.Contains("Sunday Edition", cut.Markup);
         });
+        Assert.Contains("active", cut.FindAll(".btn-group button")
+            .Single(b => b.TextContent.Trim() == "Unfinished").ClassList);
 
         cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "Unplayed").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("Monday Edition", cut.Markup);
+            Assert.Contains("Sunday Edition", cut.Markup);
+        });
+
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "In Progress").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Monday Edition", cut.Markup);
+            Assert.DoesNotContain("Sunday Edition", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void UnfinishedFilter_HidesPlayedEpisodes()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var playedState = new EpisodeState("s1", "user-1", "ep-1", "show-1", 1200, true, DateTimeOffset.UtcNow, "web", AutoPlayed: false);
+        ConfigureApi(CreateHandlerWithEpisodes(
+            [TestEpisode, OlderEpisode],
+            new Dictionary<string, EpisodeState> { ["ep-1"] = playedState }));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
         cut.WaitForAssertion(() =>
         {
             Assert.DoesNotContain("Monday Edition", cut.Markup);
@@ -553,7 +572,7 @@ public class ShowDetailTests : WebTestContext
     }
 
     [Fact]
-    public void UnplayedFilter_HidesAutoPlayedEpisodes()
+    public void DefaultView_HidesAutoPlayedEpisodes()
     {
         AuthContext.SetAuthorized("user-1");
         var autoPlayedState = new EpisodeState("ep-1", "user-1", "ep-1", "show-1", 0, true, DateTimeOffset.UtcNow, null, AutoPlayed: true);
