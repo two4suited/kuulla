@@ -1,0 +1,23 @@
+name: Label PRs
+
+# Applies path-based labels (.github/labeler.yml) to every PR so release notes categorize
+# themselves — see .github/release.yml and docs/release-runbook.md. pull_request_target runs
+# with a write token from the base repo; this workflow checks out no PR code and only calls
+# actions/labeler, so there is nothing for an untrusted branch to influence.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    name: Apply path labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          sync-labels: false
