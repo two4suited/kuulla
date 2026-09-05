@@ -147,6 +147,10 @@ public class SettingsService(
                 // UserSettingsChange.SubscriptionSortOrder) — keep the stored choice rather than
                 // resetting it to Title.
                 change.SubscriptionSortOrder ?? stored?.SubscriptionSortOrder ?? SubscriptionSortOrder.Title,
+                // Null means the pushing client doesn't send this field yet (see
+                // UserSettingsChange.SubscriptionManualOrder) — keep the stored arrangement. An
+                // explicit empty list from the client is honored (the user cleared it).
+                change.SubscriptionManualOrder ?? stored?.SubscriptionManualOrder,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -166,6 +170,11 @@ public class SettingsService(
         string userId, SubscriptionSortOrder subscriptionSortOrder, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(
             userId, current => current with { SubscriptionSortOrder = subscriptionSortOrder }, cancellationToken);
+
+    public Task<UserSettings> UpdateSubscriptionManualOrderAsync(
+        string userId, IReadOnlyList<string> subscriptionManualOrder, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { SubscriptionManualOrder = subscriptionManualOrder }, cancellationToken);
 
     public async Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken)
     {

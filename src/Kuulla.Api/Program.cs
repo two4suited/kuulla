@@ -1176,6 +1176,27 @@ settings.MapPut("/subscription-sort-order", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/subscription-manual-order", async (
+    UpdateSubscriptionManualOrderRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.ShowIds is null || request.ShowIds.Any(string.IsNullOrWhiteSpace))
+    {
+        return Results.BadRequest(new { error = "'showIds' must be a list of non-empty show ids." });
+    }
+
+    if (request.ShowIds.Distinct(StringComparer.Ordinal).Count() != request.ShowIds.Count)
+    {
+        return Results.BadRequest(new { error = "'showIds' must not contain duplicates." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateSubscriptionManualOrderAsync(userId, request.ShowIds, ct);
+    return Results.Ok(result);
+});
+
 settings.MapGet("/shows/{showId}", async (
     string showId,
     ClaimsPrincipal user,

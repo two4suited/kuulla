@@ -34,6 +34,9 @@ final class UserSettingsRecord: Syncable {
     // SwiftData attribute with no default fails lightweight migration for any store predating
     // this field. .title matches the API's own default for #438.
     var subscriptionSortOrder: SubscriptionSortOrder = SubscriptionSortOrder.title
+    // Inline default required for the same lightweight-migration reason as the fields above.
+    // `[String]` persists fine as a SwiftData attribute (stored as a value type). #438 manual sort.
+    var subscriptionManualOrder: [String] = [String]()
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -44,6 +47,7 @@ final class UserSettingsRecord: Syncable {
         autoDeleteRule: AutoDeleteRule, autoDeleteAfterDays: Int, autoDownloadNewEpisodes: Bool,
         smartSpeed: Bool, notificationsEnabled: Bool, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
+        subscriptionManualOrder: [String] = [],
         version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
@@ -59,6 +63,7 @@ final class UserSettingsRecord: Syncable {
         self.notificationsEnabled = notificationsEnabled
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
+        self.subscriptionManualOrder = subscriptionManualOrder
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -73,6 +78,7 @@ final class UserSettingsRecord: Syncable {
             smartSpeed: settings.smartSpeed, notificationsEnabled: settings.notificationsEnabled,
             sleepTimerDefaultDurationMinutes: settings.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: settings.subscriptionSortOrder,
+            subscriptionManualOrder: settings.subscriptionManualOrder,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -91,6 +97,7 @@ final class UserSettingsRecord: Syncable {
         notificationsEnabled = settings.notificationsEnabled
         sleepTimerDefaultDurationMinutes = settings.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = settings.subscriptionSortOrder
+        subscriptionManualOrder = settings.subscriptionManualOrder
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -112,6 +119,7 @@ final class UserSettingsRecord: Syncable {
         notificationsEnabled = other.notificationsEnabled
         sleepTimerDefaultDurationMinutes = other.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = other.subscriptionSortOrder
+        subscriptionManualOrder = other.subscriptionManualOrder
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -128,6 +136,7 @@ final class UserSettingsRecord: Syncable {
             autoDeleteRule: autoDeleteRule, autoDeleteAfterDays: autoDeleteAfterDays, autoDownloadNewEpisodes: autoDownloadNewEpisodes,
             smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
-            subscriptionSortOrder: subscriptionSortOrder, updatedAt: updatedAt)
+            subscriptionSortOrder: subscriptionSortOrder,
+            subscriptionManualOrder: subscriptionManualOrder, updatedAt: updatedAt)
     }
 }

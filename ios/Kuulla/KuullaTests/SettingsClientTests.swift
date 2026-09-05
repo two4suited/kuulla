@@ -60,6 +60,28 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertEqual(bodyJSON["subscriptionSortOrder"] as? Int, SubscriptionSortOrder.latestEpisode.rawValue)
     }
 
+    func testUpdateSubscriptionManualOrderSendsPutWithShowIdArray() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"subscriptionSortOrder":3,"subscriptionManualOrder":["b","a"]}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateSubscriptionManualOrder(["b", "a"])
+
+        XCTAssertEqual(updated.subscriptionManualOrder, ["b", "a"])
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/subscription-manual-order"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["showIds"] as? [String], ["b", "a"])
+    }
+
     func testGetShowSettingsDecodesNullOverrideAsNil() async throws {
         let json = """
         {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1}

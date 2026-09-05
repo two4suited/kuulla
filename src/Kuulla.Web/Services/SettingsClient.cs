@@ -40,6 +40,16 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<UserSettings> UpdateSubscriptionManualOrderAsync(
+        IReadOnlyList<string> showIds, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/subscription-manual-order", new { ShowIds = showIds }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<ShowSettings> GetShowSettingsAsync(string showId, CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
