@@ -212,7 +212,10 @@ var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
             OriginGroupId = originGroup.Id,
             PatternsToMatch = ["/*"],
             ForwardingProtocol = ForwardingProtocol.HttpsOnly,
-            LinkToDefaultDomain = LinkToDefaultDomain.Enabled,
+            // Disabled so the route only answers on the custom domain (api.kuulla.us /
+            // app.kuulla.us) — Enabled also serves the endpoint's auto-generated
+            // *.z01.azurefd.net default domain, which shouldn't be a reachable public entry point.
+            LinkToDefaultDomain = LinkToDefaultDomain.Disabled,
             HttpsRedirect = HttpsRedirect.Enabled
         };
         // Route must wait for origin to be created — without this, ARM deploys the route in
