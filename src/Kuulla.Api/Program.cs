@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,7 +22,6 @@ builder.AddKeyedAzureCosmosContainer("settings");
 builder.AddKeyedAzureCosmosContainer("episodestates");
 builder.AddKeyedAzureCosmosContainer("playlists");
 builder.AddKeyedAzureCosmosContainer("devicetokens");
-builder.AddRedisClient("redis");
 
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IShowService, ShowService>();
@@ -393,7 +391,6 @@ if (app.Environment.IsDevelopment())
         HttpContext context,
         List<Playlist> playlists,
         [FromKeyedServices("playlists")] Container playlistsContainer,
-        IConnectionMultiplexer redis,
         CancellationToken ct) =>
     {
         if (!IsLoopbackCaller(context))
@@ -405,15 +402,6 @@ if (app.Environment.IsDevelopment())
         {
             await playlistsContainer.UpsertItemAsync(
                 playlist, new PartitionKey(playlist.UserId), cancellationToken: ct);
-        }
-
-        // Writing straight to Cosmos bypasses PlaylistService's own RecomputeSummaryAsync call,
-        // so drop any stale cached sync summary (see SyncSummaryCache.InvalidateAsync) rather
-        // than let /api/sync/playlists miss these seeded playlists for up to its 30-day TTL.
-        var playlistSummaryCache = new SyncSummaryCache<Playlist>(redis, "playlists");
-        foreach (var userId in playlists.Select(p => p.UserId).Distinct())
-        {
-            await playlistSummaryCache.InvalidateAsync(userId, ct);
         }
 
         return Results.Ok(playlists);
@@ -468,7 +456,6 @@ if (app.Environment.IsDevelopment())
         HttpContext context,
         List<EpisodeState> episodeStates,
         [FromKeyedServices("episodestates")] Container episodeStatesContainer,
-        IConnectionMultiplexer redis,
         CancellationToken ct) =>
     {
         if (!IsLoopbackCaller(context))
@@ -480,14 +467,6 @@ if (app.Environment.IsDevelopment())
         {
             await episodeStatesContainer.UpsertItemAsync(
                 episodeState, new PartitionKey(episodeState.UserId), cancellationToken: ct);
-        }
-
-        // Same rationale as /dev/seed-playlists above: drop any stale cached sync summary so
-        // /api/sync/episodes can't miss these seeded states for up to its 30-day TTL.
-        var episodeStateSummaryCache = new SyncSummaryCache<EpisodeState>(redis, "episodes");
-        foreach (var userId in episodeStates.Select(s => s.UserId).Distinct())
-        {
-            await episodeStateSummaryCache.InvalidateAsync(userId, ct);
         }
 
         return Results.Ok(episodeStates);

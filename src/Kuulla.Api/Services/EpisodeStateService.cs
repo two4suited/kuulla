@@ -3,54 +3,20 @@ using Kuulla.Api.Models;
 using Kuulla.Api.Services.Sync;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
-using Newtonsoft.Json;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Services;
 
 public class EpisodeStateService(
-    [FromKeyedServices("episodestates")] Container episodeStatesContainer,
-    IConnectionMultiplexer redis) : IEpisodeStateService
+    [FromKeyedServices("episodestates")] Container episodeStatesContainer) : IEpisodeStateService
 {
-    // Hot playback-position cache: a client polls/pushes position far more often than it runs a
-    // full sync, so this cache exists to keep that read/write path off Cosmos. Cosmos remains the
-    // source of truth (and what the sync summary hash is computed from), so a cache miss or
-    // eviction is harmless — GetStateAsync falls back to Cosmos and repopulates it.
-    private const string HotStateKeyPrefix = "episodestate:";
-    private static readonly TimeSpan HotStateTtl = TimeSpan.FromHours(24);
+    private readonly SyncReconciler<EpisodeState, EpisodeStateChange> _reconciler = new();
 
-    private readonly SyncSummaryCache<EpisodeState> _syncSummaryCache = new(redis, "episodes");
-
-    // A field initializer can't reference _syncSummaryCache (CS0236: no referencing other
-    // instance fields before the constructor body runs), so the reconciler is built lazily on
-    // first use instead — that keeps this class on a primary constructor while still sharing the
-    // one _syncSummaryCache instance rather than standing up a second, separately-configured one.
-    private SyncReconciler<EpisodeState, EpisodeStateChange>? _reconciler;
-    private SyncReconciler<EpisodeState, EpisodeStateChange> Reconciler => _reconciler ??= new(_syncSummaryCache);
-
-    private static string HotStateKey(string userId, string episodeId) => $"{HotStateKeyPrefix}{userId}:{episodeId}";
-
-    public async Task<EpisodeState?> GetStateAsync(string userId, string episodeId, CancellationToken cancellationToken)
-    {
-        var db = redis.GetDatabase();
-        var cached = await db.StringGetAsync(HotStateKey(userId, episodeId));
-        if (cached.HasValue)
-        {
-            return JsonConvert.DeserializeObject<EpisodeState>((string)cached!);
-        }
-
-        var state = await ReadStateAsync(userId, episodeId, cancellationToken);
-        if (state is not null)
-        {
-            await CacheHotStateAsync(state, cancellationToken);
-        }
-
-        return state;
-    }
+    public Task<EpisodeState?> GetStateAsync(string userId, string episodeId, CancellationToken cancellationToken) =>
+        ReadStateAsync(userId, episodeId, cancellationToken);
 
     // Lets a page render N episodes' state with one HTTP round trip instead of N (e.g. ShowDetail's
-    // auto-played indicator) — still one GetStateAsync per id under the hood (each still benefits
-    // from the hot Redis cache), just fanned out in parallel behind a single request.
+    // auto-played indicator) — one point read per id under the hood, fanned out in parallel behind
+    // a single request.
     public async Task<IReadOnlyDictionary<string, EpisodeState>> GetStatesAsync(
         string userId, IReadOnlyList<string> episodeIds, CancellationToken cancellationToken)
     {
@@ -85,9 +51,6 @@ public class EpisodeStateService(
             PlayedAt: playedAt, Archived: archived);
 
         await UpsertStateAsync(state, cancellationToken);
-        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
-        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
-
         return state;
     }
 
@@ -95,17 +58,9 @@ public class EpisodeStateService(
     // UpdateStateAsync so a manual "mark as played" (always AutoPlayed = false) can never be
     // confused with an automatic one, and so the enforcement job doesn't need to thread a
     // positionSeconds/completed pair through that a user-driven update path requires.
-    // Batched (one call per enforcement run, not per episode) so the sync summary is recomputed
-    // once instead of once per marked episode — a back catalog with hundreds of episodes beyond
-    // the limit would otherwise trigger hundreds of redundant QueryAllStatesAsync/cache-set calls.
     public async Task MarkAutoPlayedAsync(
         string userId, IReadOnlyList<(string EpisodeId, string ShowId)> episodes, CancellationToken cancellationToken)
     {
-        if (episodes.Count == 0)
-        {
-            return;
-        }
-
         foreach (var (episodeId, showId) in episodes)
         {
             var state = new EpisodeState(
@@ -113,9 +68,6 @@ public class EpisodeStateService(
                 DeviceId: null, AutoPlayed: true, PlayedAt: DateTimeOffset.UtcNow);
             await UpsertStateAsync(state, cancellationToken);
         }
-
-        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
-        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
     }
 
     // Used only by the auto-archive enforcement job (#187) — reads every state for a show
@@ -140,19 +92,12 @@ public class EpisodeStateService(
         return results;
     }
 
-    // Used only by the auto-archive enforcement job (#187). Batched (one call per enforcement
-    // run, not per episode) for the same reason as MarkAutoPlayedAsync above. Callers pass the
-    // already-fetched EpisodeState records (e.g. from GetShowStatesAsync) rather than IDs so this
-    // doesn't re-read each one via a point read on top of the caller's own query.
+    // Used only by the auto-archive enforcement job (#187). Callers pass the already-fetched
+    // EpisodeState records (e.g. from GetShowStatesAsync) rather than IDs so this doesn't re-read
+    // each one via a point read on top of the caller's own query.
     public async Task SetArchivedAsync(
         string userId, IReadOnlyList<EpisodeState> states, bool archived, CancellationToken cancellationToken)
     {
-        if (states.Count == 0)
-        {
-            return;
-        }
-
-        var changed = false;
         foreach (var existing in states)
         {
             if (existing.Archived == archived)
@@ -162,16 +107,7 @@ public class EpisodeStateService(
 
             var updated = existing with { Archived = archived, UpdatedAt = DateTimeOffset.UtcNow };
             await UpsertStateAsync(updated, cancellationToken);
-            changed = true;
         }
-
-        if (!changed)
-        {
-            return;
-        }
-
-        var allStates = await QueryAllStatesAsync(userId, cancellationToken);
-        await _syncSummaryCache.SetAsync(userId, SyncSummaryCache<EpisodeState>.Compute(allStates), cancellationToken);
     }
 
     public async Task<SyncEpisodesResult> SyncAsync(
@@ -182,7 +118,7 @@ public class EpisodeStateService(
         IReadOnlyList<EpisodeStateChange> changes,
         CancellationToken cancellationToken)
     {
-        var result = await Reconciler.ReconcileAsync(
+        var result = await _reconciler.ReconcileAsync(
             userId,
             lastSyncedAt,
             localHash,
@@ -248,17 +184,7 @@ public class EpisodeStateService(
         return results;
     }
 
-    private async Task UpsertStateAsync(EpisodeState state, CancellationToken cancellationToken)
-    {
-        await episodeStatesContainer.UpsertItemAsync(
+    private Task UpsertStateAsync(EpisodeState state, CancellationToken cancellationToken) =>
+        episodeStatesContainer.UpsertItemAsync(
             state, new PartitionKey(state.UserId), cancellationToken: cancellationToken);
-        await CacheHotStateAsync(state, cancellationToken);
-    }
-
-    private async Task CacheHotStateAsync(EpisodeState state, CancellationToken cancellationToken)
-    {
-        var db = redis.GetDatabase();
-        await db.StringSetAsync(
-            HotStateKey(state.UserId, state.EpisodeId), JsonConvert.SerializeObject(state), HotStateTtl);
-    }
 }

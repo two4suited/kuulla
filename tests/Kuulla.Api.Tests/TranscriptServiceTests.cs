@@ -1,10 +1,6 @@
 using System.Net;
-using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
-using Newtonsoft.Json;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -13,16 +9,7 @@ public class TranscriptServiceTests
     private const string TranscriptUrl = "https://feed.example/ep1-transcript.json";
     private static readonly IPAddress PublicTestAddress = IPAddress.Parse("93.184.216.34");
 
-    private readonly Mock<IConnectionMultiplexer> _redis = new();
-    private readonly Mock<IDatabase> _database = new();
-
-    public TranscriptServiceTests()
-    {
-        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
-        _database.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
-    }
-
-    private TranscriptService MakeSut(
+    private static TranscriptService MakeSut(
         Func<Uri, CancellationToken, Task<HttpResponseMessage>> send,
         Func<string, CancellationToken, Task<IPAddress[]>>? hostResolver = null)
     {
@@ -30,7 +17,7 @@ public class TranscriptServiceTests
             NullLogger<PublicResourceFetcher>.Instance,
             hostResolver ?? ((_, _) => Task.FromResult(new[] { PublicTestAddress })),
             send);
-        return new TranscriptService(fetcher, _redis.Object, NullLogger<TranscriptService>.Instance);
+        return new TranscriptService(fetcher, NullLogger<TranscriptService>.Instance);
     }
 
     private static HttpResponseMessage Ok(string body, string? contentType = null)
@@ -45,7 +32,7 @@ public class TranscriptServiceTests
     }
 
     [Fact]
-    public async Task GetTranscriptAsync_FetchesParsesAndCaches()
+    public async Task GetTranscriptAsync_FetchesAndParses()
     {
         const string json = """{ "segments": [ { "startTime": 0, "endTime": 1.5, "body": "hi" } ] }""";
         var sut = MakeSut((_, _) => Task.FromResult(Ok(json)));
@@ -57,26 +44,6 @@ public class TranscriptServiceTests
         Assert.Equal(TimeSpan.FromSeconds(1.5), segment.EndTime);
         Assert.Equal("hi", segment.Text);
         Assert.Equal("application/json", document.SourceType);
-
-        var set = Assert.Single(_database.Invocations, i => i.Method.Name == nameof(IDatabaseAsync.StringSetAsync));
-        Assert.StartsWith("transcript:v1:", (string)(RedisKey)set.Arguments[0]!);
-        Assert.Equal((Expiration)TimeSpan.FromDays(7), (Expiration)set.Arguments[2]!);
-    }
-
-    [Fact]
-    public async Task GetTranscriptAsync_ReturnsCachedDocumentWithoutFetching()
-    {
-        var cached = new TranscriptDocument("text/vtt", [new TranscriptSegment(TimeSpan.FromSeconds(3), null, "cached")]);
-        _database
-            .Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .ReturnsAsync(new RedisValue(JsonConvert.SerializeObject(cached)));
-        var fetched = false;
-        var sut = MakeSut((_, _) => { fetched = true; return Task.FromResult(Ok("{}")); });
-
-        var document = await sut.GetTranscriptAsync(TranscriptUrl, "text/vtt", CancellationToken.None);
-
-        Assert.Equal("cached", Assert.Single(document!.Segments).Text);
-        Assert.False(fetched);
     }
 
     [Fact]
@@ -91,29 +58,13 @@ public class TranscriptServiceTests
     }
 
     [Fact]
-    public async Task GetTranscriptAsync_NegativeCachesBrieflyWhenNoSegmentsParsed()
+    public async Task GetTranscriptAsync_ReturnsNullWhenNoSegmentsParsed()
     {
         var sut = MakeSut((_, _) => Task.FromResult(Ok("nothing parseable here")));
 
         var document = await sut.GetTranscriptAsync(TranscriptUrl, "text/plain", CancellationToken.None);
 
         Assert.Null(document);
-        var set = Assert.Single(_database.Invocations, i => i.Method.Name == nameof(IDatabaseAsync.StringSetAsync));
-        Assert.Equal((Expiration)TimeSpan.FromMinutes(15), (Expiration)set.Arguments[2]!);
-    }
-
-    [Fact]
-    public async Task GetTranscriptAsync_TreatsCachedEmptyDocumentAsNoTranscript()
-    {
-        var negative = new TranscriptDocument(null, []);
-        _database
-            .Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .ReturnsAsync(new RedisValue(JsonConvert.SerializeObject(negative)));
-        var fetched = false;
-        var sut = MakeSut((_, _) => { fetched = true; return Task.FromResult(Ok("{}")); });
-
-        Assert.Null(await sut.GetTranscriptAsync(TranscriptUrl, null, CancellationToken.None));
-        Assert.False(fetched);
     }
 
     [Fact]

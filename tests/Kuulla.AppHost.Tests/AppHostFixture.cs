@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Kuulla.AppHost.Tests;
 
-// Spins up the real AppHost (API + Web + CosmosDB emulator + Redis) once per test collection so
+// Spins up the real AppHost (API + Web + CosmosDB emulator) once per test collection so
 // tests exercise the actual wiring instead of mocks. Slow to start (pulls/boots the Cosmos
 // emulator container) but shared across every test in the collection — the HTTP-level flow tests
 // and the Playwright browser E2E tests both take a dependency on this one fixture, so the

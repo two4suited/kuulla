@@ -40,7 +40,7 @@ The following can't be verified from a local dev environment and need to be meas
 the actual deployed `production` environment (see
 [.github/workflows/deploy.yml](../.github/workflows/deploy.yml)):
 
-- End-to-end cold-start latency for `api` (ACA cold start + CosmosDB/Redis connection warmup)
+- End-to-end cold-start latency for `api` (ACA cold start + CosmosDB connection warmup)
   after an idle period, and whether it's acceptable for iOS sync requests.
 - Cold-start latency for `web`, relevant once Front Door (#367) is routing traffic to it.
 - Confirming ACA's default HTTP scale rule actually triggers a scale-up promptly on real
@@ -88,7 +88,7 @@ so `web`'s traffic doesn't skew the thresholds:
 
 - **`kuulla-api-elevated-error-rate`** — more than 5 failed requests in a 5-minute window.
 - **`kuulla-api-cold-start-latency-spike`** — average request duration over 5s in a 5-minute
-  window (a cold start pays container start + Cosmos/Redis connection warmup on the first
+  window (a cold start pays container start + Cosmos connection warmup on the first
   request, so this is the practical signal for #361's tradeoff going bad).
 
 ### Pulling logs directly from ACA

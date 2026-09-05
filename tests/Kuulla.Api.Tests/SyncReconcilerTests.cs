@@ -1,8 +1,5 @@
 using Kuulla.Api.Models;
 using Kuulla.Api.Services.Sync;
-using Moq;
-using Newtonsoft.Json;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -17,19 +14,8 @@ public class SyncReconcilerTests
 
     private record TestChange(string Id, string Value, DateTimeOffset UpdatedAt);
 
-    private readonly Mock<IConnectionMultiplexer> _redis = new();
-    private readonly Mock<IDatabase> _database = new();
     private readonly Dictionary<string, TestRecord> _store = new();
-    private readonly SyncSummaryCache<TestRecord> _summaryCache;
-    private readonly SyncReconciler<TestRecord, TestChange> _sut;
-
-    public SyncReconcilerTests()
-    {
-        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
-        _database.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
-        _summaryCache = new SyncSummaryCache<TestRecord>(_redis.Object, "widgets");
-        _sut = new SyncReconciler<TestRecord, TestChange>(_summaryCache);
-    }
+    private readonly SyncReconciler<TestRecord, TestChange> _sut = new();
 
     private Task<SyncReconciliationResult<TestRecord>> ReconcileAsync(
         DateTimeOffset lastSyncedAt, string localHash, IReadOnlyList<TestChange> changes) =>
@@ -77,17 +63,15 @@ public class SyncReconcilerTests
     }
 
     [Fact]
-    public async Task ReconcileAsync_FastPathSkipsQueryWhenHashMatchesAndNoChanges()
+    public async Task ReconcileAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
     {
-        var summary = new SyncSummary("matching-hash", DateTimeOffset.UtcNow);
-        _database
-            .Setup(d => d.StringGetAsync("sync:widgets:user-1", It.IsAny<CommandFlags>()))
-            .ReturnsAsync(JsonConvert.SerializeObject(summary));
+        _store["w-1"] = new TestRecord("w-1", "x", DateTimeOffset.UtcNow.AddDays(-2));
+        var currentHash = SyncSummary.FromRecords(_store.Values.ToList()).Hash;
 
-        var result = await ReconcileAsync(DateTimeOffset.UtcNow.AddDays(-1), "matching-hash", []);
+        var result = await ReconcileAsync(DateTimeOffset.UtcNow.AddDays(-1), currentHash, []);
 
         Assert.Empty(result.ServerChanges);
-        Assert.Equal("matching-hash", result.Hash);
+        Assert.Equal(currentHash, result.Hash);
     }
 
     [Fact]
@@ -102,23 +86,23 @@ public class SyncReconcilerTests
     }
 
     [Fact]
-    public void Compute_IsOrderIndependentAndStableAcrossEquivalentInput()
+    public void FromRecords_IsOrderIndependentAndStableAcrossEquivalentInput()
     {
         var updatedAt = DateTimeOffset.UtcNow;
         var a = new TestRecord("w-1", "x", updatedAt);
         var b = new TestRecord("w-2", "y", updatedAt.AddSeconds(1));
 
-        var first = SyncSummaryCache<TestRecord>.Compute([a, b]);
-        var second = SyncSummaryCache<TestRecord>.Compute([b, a]);
+        var first = SyncSummary.FromRecords<TestRecord>([a, b]);
+        var second = SyncSummary.FromRecords<TestRecord>([b, a]);
 
         Assert.Equal(first.Hash, second.Hash);
         Assert.Equal(b.UpdatedAt, first.UpdatedAt);
     }
 
     [Fact]
-    public void Compute_ReturnsEmptyHashSentinelForNoRecords()
+    public void FromRecords_ReturnsEmptyHashSentinelForNoRecords()
     {
-        var summary = SyncSummaryCache<TestRecord>.Compute([]);
+        var summary = SyncSummary.FromRecords<TestRecord>([]);
 
         Assert.Equal(DateTimeOffset.MinValue, summary.UpdatedAt);
     }

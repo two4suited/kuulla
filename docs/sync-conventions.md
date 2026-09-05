@@ -23,8 +23,8 @@ Every syncable document gets two fields in addition to its own data:
 
 ## Per-user collection summary
 
-Every syncable collection gets a summary cached in Redis, keyed
-`sync:{domain}:{userId}`:
+Every syncable collection has a per-user summary, computed on demand from Cosmos
+(there is no cache — it's cheap enough to recompute each sync):
 
 ```
 { "hash": "<sha256>", "updatedAt": "<max updatedAt in the collection>" }
@@ -34,17 +34,16 @@ Every syncable collection gets a summary cached in Redis, keyed
   that user's records in the collection. Lets a client compare its last-known hash
   against the server's in one round trip instead of pulling every record.
 - **`updatedAt`** — the max `updatedAt` across the user's records in the collection.
-- Invalidated and recomputed on write. Cost is per-user, not global — a write by one
-  user never touches another user's cached summary.
+- Recomputed from a single-partition `SELECT * FROM c` on each sync. Cost is per-user,
+  not global.
 
 ## Adding a new syncable container
 
 1. Add `updatedAt` (server-set, every write) and `deviceId` to the document shape.
 2. Set `updatedAt` on create and on every subsequent write; never trust a
    client-supplied value for it.
-3. If/when the container needs a sync endpoint, cache its per-user summary at
-   `sync:{domain}:{userId}` using the hash/updatedAt shape above rather than
-   inventing a new one.
+3. If/when the container needs a sync endpoint, expose its per-user summary using the
+   hash/updatedAt shape above rather than inventing a new one.
 
 This doc only covers the shape of the metadata. The reconciliation protocol (how a
 client and server exchange changes using this metadata) was designed once, in #33,
@@ -54,15 +53,14 @@ and extracted into reusable infrastructure in #84 — see below.
 
 - `EpisodeState` (`src/Kuulla.Api/Models/EpisodeState.cs`) — the reference
   implementation of this convention and the reconciliation protocol below, built
-  for #32/#33 and rebased onto the generic framework (#84). Summary cached at
-  `sync:episodes:{userId}`.
+  for #32/#33 and rebased onto the generic framework (#84).
 - `User` (`src/Kuulla.Api/Models/User.cs`) — retrofitted with `updatedAt`/`deviceId`
   ahead of any user-profile sync work, so it won't need a migration later. No sync
   behavior exists for `User` yet.
 - `UserSettings` (`src/Kuulla.Api/Models/UserSettings.cs`) — #40/#41's settings sync,
   the first single-record-per-user domain (as opposed to a per-user collection like
   episodes/playlists): `queryAllAsync` returns a 0-or-1-item list and `changes` is
-  capped at one entry per sync call. Summary cached at `sync:settings:{userId}`.
+  capped at one entry per sync call.
   `ShowSettings` (per-show overrides, same container) implements `ISyncableRecord` and
   has `updatedAt` stamped on every write, but isn't wired into the reconciler yet —
   only the global `UserSettings` document syncs across devices so far. `deviceId` is
@@ -78,19 +76,17 @@ and delta logic:
 - **`ISyncableRecord`** — the interface a domain's stored record must implement
   (`Id`, `UpdatedAt`). Point this at whatever the record's server-stamped id/
   timestamp fields are.
-- **`SyncSummaryCache<T>`** (`SyncSummaryCache.cs`) — wraps the
-  `sync:{domain}:{userId}` → `{ hash, updatedAt }` Redis cache described above.
-  Construct one per domain with `new SyncSummaryCache<TRecord>(redis, "domain-name")`.
-  `Compute()` is the shared hash algorithm (SHA-256 over sorted
-  `"{recordId}:{updatedAt}"` pairs); `GetOrComputeAsync()` is cache-or-recompute for
-  the fast path.
+- **`SyncSummary.FromRecords<T>()`** (`Models/SyncSummary.cs`) — the shared hash
+  algorithm (SHA-256 over sorted `"{recordId}:{updatedAt}"` pairs) plus the max
+  `updatedAt`, computed from a list of `ISyncableRecord`s. No caching — the caller
+  recomputes it from Cosmos whenever a sync needs it.
 - **`SyncReconciler<TState, TChange>`** (`SyncReconciler.cs`) — the merge routine.
-  Given a `SyncSummaryCache<TState>` and, per call, delegates for reading/upserting/
-  querying-all a user's records plus how to read an incoming change's id/updatedAt
-  and turn it into an accepted `TState`, `ReconcileAsync` runs the full protocol:
+  Given, per call, delegates for reading/upserting/querying-all a user's records plus
+  how to read an incoming change's id/updatedAt and turn it into an accepted
+  `TState`, `ReconcileAsync` runs the full protocol:
 
-  1. Fast path: if `changes` is empty and `localHash` matches the cached/computed
-     summary hash, return `serverChanges: []` without touching storage.
+  1. Fast path: if `changes` is empty and `localHash` matches the summary hash
+     computed from a fresh query-all, return `serverChanges: []` without any writes.
   2. For each incoming change, apply last-write-wins: accept it (via
      `buildAcceptedState`, which should stamp `updatedAt`/`deviceId` server-side)
      only if its `updatedAt` is newer than the stored record's; otherwise the stored
@@ -98,14 +94,12 @@ and delta logic:
   3. Compute the delta: every record with `updatedAt > lastSyncedAt` that the client
      doesn't already hold the winning version of (excluding what step 2 just
      accepted from that client).
-  4. Recompute and cache the new summary, and return
-     `{ ServerChanges, SyncedAt, Hash }`.
+  4. Recompute the summary hash and return `{ ServerChanges, SyncedAt, Hash }`.
 
 A new domain (e.g. #41 settings sync) implements this by:
 
 1. Making its stored record implement `ISyncableRecord`.
-2. Constructing `new SyncSummaryCache<TRecord>(redis, "domain-name")` and
-   `new SyncReconciler<TRecord, TChange>(summaryCache)`.
+2. Constructing `new SyncReconciler<TRecord, TChange>()`.
 3. Calling `ReconcileAsync` from its own sync endpoint/service method, supplying the
    read/upsert/query-all delegates for its own storage (Cosmos container, partition
    key, etc.) and a domain-specific request/result DTO shape at the API boundary if

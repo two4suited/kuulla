@@ -2,8 +2,6 @@ using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Microsoft.Azure.Cosmos;
 using Moq;
-using Newtonsoft.Json;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -13,40 +11,18 @@ public class EpisodeStateServiceTests
     private const string ShowId = "show-1";
 
     private readonly Mock<Container> _episodeStatesContainer = new();
-    private readonly Mock<IConnectionMultiplexer> _redis = new();
-    private readonly Mock<IDatabase> _database = new();
     private readonly EpisodeStateService _sut;
 
     public EpisodeStateServiceTests()
     {
-        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
-        _sut = new EpisodeStateService(_episodeStatesContainer.Object, _redis.Object);
-
-        // No hot cache entries or sync summaries pre-populated by default — every test below
-        // opts in to a cache hit explicitly, so a miss (empty RedisValue) is the baseline.
-        _database.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
+        _sut = new EpisodeStateService(_episodeStatesContainer.Object);
     }
 
     private static EpisodeState MakeState(string episodeId, DateTimeOffset updatedAt, int position = 0, bool completed = false) =>
         new(episodeId, UserId, episodeId, ShowId, position, completed, updatedAt);
 
     [Fact]
-    public async Task GetStateAsync_ReturnsHotCacheHitWithoutQueryingCosmos()
-    {
-        var cached = MakeState("ep-1", DateTimeOffset.UtcNow, position: 42);
-        _database
-            .Setup(d => d.StringGetAsync($"episodestate:{UserId}:ep-1", It.IsAny<CommandFlags>()))
-            .ReturnsAsync(JsonConvert.SerializeObject(cached));
-
-        var result = await _sut.GetStateAsync(UserId, "ep-1", CancellationToken.None);
-
-        Assert.Equal(cached, result);
-        _episodeStatesContainer.Verify(
-            c => c.ReadItemAsync<EpisodeState>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetStateAsync_FallsBackToCosmosOnCacheMissAndPopulatesCache()
+    public async Task GetStateAsync_ReadsFromCosmos()
     {
         var stored = MakeState("ep-1", DateTimeOffset.UtcNow, position: 42);
         _episodeStatesContainer
@@ -56,10 +32,6 @@ public class EpisodeStateServiceTests
         var result = await _sut.GetStateAsync(UserId, "ep-1", CancellationToken.None);
 
         Assert.Equal(stored, result);
-        _database.Verify(
-            d => d.StringSetAsync(
-                $"episodestate:{UserId}:ep-1", It.IsAny<RedisValue>(), It.IsAny<Expiration>(), It.IsAny<ValueCondition>(), It.IsAny<CommandFlags>()),
-            Times.Once);
     }
 
     [Fact]
@@ -77,7 +49,6 @@ public class EpisodeStateServiceTests
     [Fact]
     public async Task UpdateStateAsync_UpsertsWithServerStampedTimestamp()
     {
-        SetupEmptyStatesQuery();
         _episodeStatesContainer
             .Setup(c => c.ReadItemAsync<EpisodeState>("ep-1", It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
@@ -102,7 +73,6 @@ public class EpisodeStateServiceTests
     [Fact]
     public async Task UpdateStateAsync_PreservesPlayedAtWhenAlreadyPlayed()
     {
-        SetupEmptyStatesQuery();
         var playedAt = DateTimeOffset.UtcNow.AddDays(-3);
         var existing = MakeState("ep-1", DateTimeOffset.UtcNow.AddDays(-3), position: 500, completed: true) with { PlayedAt = playedAt };
         _episodeStatesContainer
@@ -120,7 +90,6 @@ public class EpisodeStateServiceTests
     [Fact]
     public async Task UpdateStateAsync_ClearsPlayedAtAndArchivedWhenMarkedUnplayed()
     {
-        SetupEmptyStatesQuery();
         var existing = MakeState("ep-1", DateTimeOffset.UtcNow.AddDays(-3), position: 500, completed: true)
             with
         { PlayedAt = DateTimeOffset.UtcNow.AddDays(-3), Archived = true };
@@ -158,7 +127,6 @@ public class EpisodeStateServiceTests
             .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
             .Callback<EpisodeState, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted.Add(s))
             .ReturnsAsync((EpisodeState s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
-        SetupEmptyStatesQuery();
 
         await _sut.SetArchivedAsync(UserId, [alreadyArchived, notArchived], archived: true, CancellationToken.None);
 
@@ -181,7 +149,6 @@ public class EpisodeStateServiceTests
     [Fact]
     public async Task MarkAutoPlayedAsync_UpsertsCompletedStateWithAutoPlayedFlagForEachEpisode()
     {
-        SetupEmptyStatesQuery();
         var upserted = new List<EpisodeState>();
         _episodeStatesContainer
             .Setup(c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default))
@@ -212,17 +179,17 @@ public class EpisodeStateServiceTests
     [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
     {
-        var summary = new SyncSummary("abc123", DateTimeOffset.UtcNow);
-        _database
-            .Setup(d => d.StringGetAsync($"sync:episodes:{UserId}", It.IsAny<CommandFlags>()))
-            .ReturnsAsync(JsonConvert.SerializeObject(summary));
+        var stored = MakeState("ep-1", DateTimeOffset.UtcNow.AddDays(-2), position: 10);
+        SetupStatesQuery([stored]);
+        var currentHash = SyncSummary.FromRecords<EpisodeState>([stored]).Hash;
 
-        var result = await _sut.SyncAsync(UserId, "device-a", DateTimeOffset.UtcNow.AddDays(-1), "abc123", [], CancellationToken.None);
+        var result = await _sut.SyncAsync(
+            UserId, "device-a", DateTimeOffset.UtcNow.AddDays(-1), currentHash, [], CancellationToken.None);
 
         Assert.Empty(result.ServerChanges);
-        Assert.Equal("abc123", result.Hash);
+        Assert.Equal(currentHash, result.Hash);
         _episodeStatesContainer.Verify(
-            c => c.GetItemQueryIterator<EpisodeState>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()), Times.Never);
+            c => c.UpsertItemAsync(It.IsAny<EpisodeState>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
 
     [Fact]

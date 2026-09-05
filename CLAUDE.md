@@ -58,11 +58,10 @@ xcodebuild build -project Kuulla.xcodeproj -scheme Kuulla -destination 'platform
 
 The AppHost (`src/Kuulla.AppHost/AppHost.cs`) is the entry point for local development. It wires up:
 - **CosmosDB** (runs as emulator locally) → referenced by API as `"kuulladb"`
-- **Redis** (container) → referenced by API as `"redis"`
-- **API** (`src/Kuulla.Api`) → depends on CosmosDB + Redis
+- **API** (`src/Kuulla.Api`) → depends on CosmosDB
 - **Web** (`src/Kuulla.Web`) → depends on API via Aspire service discovery (`https+http://api`)
 
-The dependency chain is: Web → API → (CosmosDB, Redis). Aspire handles startup ordering with `WaitFor`.
+The dependency chain is: Web → API → CosmosDB. Aspire handles startup ordering with `WaitFor`.
 
 ### Service Defaults
 

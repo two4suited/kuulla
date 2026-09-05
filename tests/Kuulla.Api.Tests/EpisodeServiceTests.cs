@@ -3,7 +3,6 @@ using Kuulla.Api.Services;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -21,19 +20,10 @@ public class EpisodeServiceTests
     private readonly Mock<IEpisodeStateService> _episodeStateService = new();
     private readonly Mock<IDeviceTokenService> _deviceTokenService = new();
     private readonly Mock<INotificationService> _notificationService = new();
-    private readonly Mock<IConnectionMultiplexer> _redis = new();
-    private readonly Mock<IDatabase> _database = new();
     private readonly EpisodeService _sut;
 
     public EpisodeServiceTests()
     {
-        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
-        // Explicit rather than relying on Moq's default-Task-result behavior for unconfigured
-        // Task<bool> members — makes the sync-summary-cache invalidation path's dependency
-        // obvious rather than incidental.
-        _database
-            .Setup(d => d.KeyDeleteAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
-            .ReturnsAsync(true);
         _sut = new EpisodeService(
             _episodesContainer.Object,
             _subscriptionsContainer.Object,
@@ -44,7 +34,6 @@ public class EpisodeServiceTests
             _episodeStateService.Object,
             _deviceTokenService.Object,
             _notificationService.Object,
-            _redis.Object,
             NullLogger<EpisodeService>.Instance);
 
         // No subscribers by default so the backfill tests (which trigger CacheEpisodesAsync)

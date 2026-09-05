@@ -52,12 +52,9 @@ user's `ShowSettings` rows needs a cross-partition query
 (`WHERE c.type = 'ShowSettings' AND c.userId = @userId`) to enumerate them, not a
 single-partition read.
 
-Beyond Cosmos, the API also caches per-user data in Redis: `EpisodeStateService`
-writes a 24-hour hot-state cache per episode (`episodestate:{userId}:{episodeId}`,
-`HotStateTtl`), and `SyncSummaryCache<T>` keeps a 30-day sync-hash cache per domain
-(`sync:{domain}:{userId}`, one instance each for `episodes`/`playlists`/`settings`,
-already exposing an `InvalidateAsync(userId, ct)` method used today by the
-`/dev/seed-*` endpoints).
+Cosmos is the only per-user store — there is no cache tier. Sync summaries and every
+other derived value are recomputed from Cosmos on demand, so a deletion that clears
+the Cosmos rows leaves nothing else behind.
 
 iOS's local SwiftData store (`KuullaApp.swift`'s `ModelContainer`, backing
 `UserSettingsRecord`/`EpisodeStateRecord`/`Playlist`/`SyncCursor`/
@@ -138,33 +135,24 @@ auth layer actively rejects that identity going forward.
   can't be a single Cosmos transaction, the tombstone write happens *first* — it's
   the one step that must land before anything else, since it's what stops further
   writes to the account being deleted. Every subsequent step (deleting
-  `subscriptions`/`episodestates`/`playlists`/`devicetokens`/`settings`, and the
-  Redis invalidation below) is a delete of something keyed by that `UserId`, which
-  is naturally idempotent — deleting an already-deleted document is a no-op, not an
-  error. `DELETE /api/account` is therefore safe to call again if a previous
-  attempt only got partway through: retrying re-runs every step, and anything
-  already deleted is skipped rather than failing. The endpoint's response only
-  reports success once every step (including Redis) has completed; a client that
-  gets an error or times out treats the deletion as **incomplete**, not done, and
-  should retry rather than assuming partial progress means the account is gone.
+  `subscriptions`/`episodestates`/`playlists`/`devicetokens`/`settings`) is a delete
+  of something keyed by that `UserId`, which is naturally idempotent — deleting an
+  already-deleted document is a no-op, not an error. `DELETE /api/account` is
+  therefore safe to call again if a previous attempt only got partway through:
+  retrying re-runs every step, and anything already deleted is skipped rather than
+  failing. The endpoint's response only reports success once every step has
+  completed; a client that gets an error or times out treats the deletion as
+  **incomplete**, not done, and should retry rather than assuming partial progress
+  means the account is gone.
 - **Cosmos scope**: `subscriptions`, `episodestates`, `playlists`, `devicetokens`
   (each a single-partition delete-by-`UserId` query), plus `settings`'s
   `UserSettings` document (single-partition, by `UserId`) and every `ShowSettings`
   row for that user (the cross-partition-then-per-id delete described in "Existing
   state" — each `ShowSettings` row has its own partition key, so this can't be a
   single-partition operation the way the others are).
-- **Redis scope** — real data, not just a performance cache to ignore: the 30-day
-  `SyncSummaryCache` entries for the `episodes`/`playlists`/`settings` domains are
-  invalidated via each cache's existing `InvalidateAsync(userId, ct)` method (no new
-  code needed there). The 24-hour `episodestate:{userId}:{episodeId}` hot-state keys
-  have no existing per-user bulk-delete, since they're one key per episode with no
-  per-user index of which episodes are cached — deletion scans for and deletes every
-  key matching `episodestate:{userId}:*` (a `SCAN MATCH`, not `KEYS`, to avoid
-  blocking Redis on a large keyspace). Skipping this step would leave a deleted
-  user's playback state readable for up to 24 hours after "deletion" completes
-  everywhere else — the tombstone check blocks *that user's own* further requests,
-  but doesn't erase what's still sitting in the cache, which is what an account
-  deletion needs to actually do.
+- **No cache tier to purge**: there is no Redis (or other) cache holding per-user
+  data — sync summaries and every other derived value are recomputed from Cosmos on
+  demand — so clearing the Cosmos rows above is the whole server-side deletion.
 - **iOS local data**: the delete flow finishes with the same local-store clear
   "Sign Out" now performs (see above), not a separate implementation — deleting the
   account without also purging local SwiftData records would leave the exact same
@@ -212,10 +200,8 @@ GET    /api/account/export   → JSON bundle of the signed-in user's
 DELETE /api/account          → idempotent, retry-safe: tombstones the users document first
                                 (DeletedAt set, checked by OnTokenValidated going forward),
                                 then deletes Cosmos rows across
-                                settings/subscriptions/episodestates/playlists/devicetokens,
-                                then invalidates the episodes/playlists/settings
-                                SyncSummaryCache entries and the episodestate:{userId}:*
-                                hot-state keys in Redis;
+                                settings/subscriptions/episodestates/playlists/devicetokens
+                                (no cache tier to purge);
                                 the client then runs the same local-store clear as
                                 "Sign Out" and signs out
 ```

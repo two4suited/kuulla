@@ -36,13 +36,11 @@ graph TD
     iOS -->|REST| API["API (.NET)"]
 
     API --> Cosmos[("Cosmos DB")]
-    API --> Redis[("Redis")]
     API --> Feeds["Podcast feed / directory clients"]
 
     subgraph Aspire["Aspire AppHost (local dev)"]
         API
         Cosmos
-        Redis
     end
 ```
 

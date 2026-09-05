@@ -2,7 +2,6 @@ using Kuulla.Api.Models;
 using Kuulla.Api.Services;
 using Microsoft.Azure.Cosmos;
 using Moq;
-using StackExchange.Redis;
 
 namespace Kuulla.Api.Tests;
 
@@ -15,14 +14,11 @@ public class PlaylistServiceTests
     private readonly Mock<Container> _playlistsContainer = new();
     private readonly Mock<IEpisodeService> _episodeService = new();
     private readonly Mock<IShowService> _showService = new();
-    private readonly Mock<IConnectionMultiplexer> _redis = new();
-    private readonly Mock<IDatabase> _database = new();
     private readonly PlaylistService _sut;
 
     public PlaylistServiceTests()
     {
-        _redis.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_database.Object);
-        _sut = new PlaylistService(_playlistsContainer.Object, _episodeService.Object, _showService.Object, _redis.Object);
+        _sut = new PlaylistService(_playlistsContainer.Object, _episodeService.Object, _showService.Object);
     }
 
     private static Playlist MakePlaylist(
@@ -377,7 +373,6 @@ public class PlaylistServiceTests
     [Fact]
     public async Task SyncAsync_AcceptsChangeNewerThanStoredAndExcludesItFromDelta()
     {
-        _database.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
         _playlistsContainer
             .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
@@ -398,7 +393,6 @@ public class PlaylistServiceTests
     [Fact]
     public async Task SyncAsync_DiscardsChangeOlderThanStoredAndReturnsStoredAsDelta()
     {
-        _database.Setup(d => d.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>())).ReturnsAsync(RedisValue.Null);
         var stored = MakePlaylist(name: "Server Name", updatedAt: DateTimeOffset.UtcNow);
         _playlistsContainer
             .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
