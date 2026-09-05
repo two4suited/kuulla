@@ -1,0 +1,36 @@
+# Path-based PR labels for actions/labeler (see .github/workflows/labeler.yml). These feed the
+# release-notes grouping in .github/release.yml. "feature" vs "bug" is not path-derivable and is
+# applied by hand on the PR — see docs/release-runbook.md.
+
+ios:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'ios/**'
+
+web:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/Kuulla.Web/**'
+          - 'tests/Kuulla.Web.Tests/**'
+          - 'tests/Kuulla.Web.E2E/**'
+
+api:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/Kuulla.Api/**'
+          - 'tests/Kuulla.Api.Tests/**'
+
+infra:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/Kuulla.AppHost/**'
+          - 'src/Kuulla.ServiceDefaults/**'
+          - 'tests/Kuulla.AppHost.Tests/**'
+          - '.github/workflows/**'
+          - 'scripts/**'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - '**/*.md'
