@@ -89,10 +89,15 @@ var apnsPrivateKey = builder.AddParameter("apns-private-key", value: "", secret:
 // unset apns-private-key must not be wired up as a secret at all rather than as an empty one.
 var apnsConfigured = !string.IsNullOrWhiteSpace(await apnsPrivateKey.Resource.GetValueAsync(default));
 
-// The public origin Front Door serves the API on. Used both as the API's own FrontDoor__PublicUrl
-// (Kuulla.ServiceDefaults rewrites Request.Host to it) and as the base address the web app's
-// server-side HttpClient targets, so a domain change only has one edit site here.
-const string apiPublicUrl = "https://api.kuulla.us";
+// Public hostnames Front Door serves each app on, and the https origins built from them. Each
+// value has more than one use site that must agree — apiPublicUrl is both the API's own
+// FrontDoor__PublicUrl (Kuulla.ServiceDefaults rewrites Request.Host to it) and the base address
+// the web app's server-side HttpClient targets; the bare hosts are also the FrontDoorCustomDomain
+// names wired per origin in the "frontdoor" infrastructure below — so a domain change is one edit.
+const string apiPublicHost = "api.kuulla.us";
+const string webPublicHost = "app.kuulla.us";
+const string apiPublicUrl = "https://" + apiPublicHost;
+const string webPublicUrl = "https://" + webPublicHost;
 
 var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithExternalHttpEndpoints()
@@ -145,7 +150,7 @@ var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .WithEnvironment("FrontDoor__Id", frontDoorId)
     // See the api resource above — same rewrite, so Google OAuth's redirect_uri is built from
     // app.kuulla.us rather than ACA's raw hostname (which fails redirect_uri_mismatch).
-    .WithEnvironment("FrontDoor__PublicUrl", "https://app.kuulla.us")
+    .WithEnvironment("FrontDoor__PublicUrl", webPublicUrl)
     .WithReference(insights)
     .WithReference(api)
     // The web app's server-side HttpClient can't use Aspire service discovery to reach the API
@@ -181,8 +186,8 @@ var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
     profile.Name = "azure-shared";
     infra.Add(profile);
 
-    AddOrigin(infra, profile, aca.Resource, api.Resource, api.GetEndpoint("http"), "api.kuulla.us");
-    AddOrigin(infra, profile, aca.Resource, web.Resource, web.GetEndpoint("http"), "app.kuulla.us");
+    AddOrigin(infra, profile, aca.Resource, api.Resource, api.GetEndpoint("http"), apiPublicHost);
+    AddOrigin(infra, profile, aca.Resource, web.Resource, web.GetEndpoint("http"), webPublicHost);
 
     static void AddOrigin(
         AzureResourceInfrastructure infra,
