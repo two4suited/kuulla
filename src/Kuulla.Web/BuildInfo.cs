@@ -1,30 +1,40 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace Kuulla.Web;
 
 /// <summary>
-/// Build identity for the running web app. The git commit SHA is embedded into
-/// <see cref="AssemblyInformationalVersionAttribute"/> at build time (see Kuulla.Web.csproj).
+/// Build identity for the running web app. On a release build (from a CalVer tag) the
+/// <see cref="AssemblyInformationalVersionAttribute"/> is <c>YYYY.M.N+&lt;sha&gt;</c>; otherwise it is
+/// <c>&lt;default version&gt;+&lt;sha&gt;</c> and the release segment shows as <c>dev</c>. Both segments are
+/// embedded at build time — see Kuulla.Web.csproj.
 /// </summary>
-public static class BuildInfo
+public static partial class BuildInfo
 {
     /// <summary>
-    /// Short display version, e.g. <c>v1a2b3c4</c>, or <c>dev</c> for a local build with no SHA.
+    /// Display version: the CalVer release plus the short commit, e.g. <c>2026.9.0+a1b2c3d</c>, or
+    /// <c>dev+a1b2c3d</c> for a local / main build, or <c>dev</c> when no commit is available.
     /// </summary>
-    public static string Version { get; } = ResolveVersion();
+    public static string Version { get; } = FormatVersion(
+        typeof(BuildInfo).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
 
-    private static string ResolveVersion()
+    internal static string FormatVersion(string? informationalVersion)
     {
-        var informationalVersion = typeof(BuildInfo).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
+        // InformationalVersion is "<version>+<sha>" (see Kuulla.Web.csproj). On a release build
+        // <version> is the CalVer tag; otherwise it is the SDK default and we substitute "dev".
+        var parts = informationalVersion?.Split('+', 2) ?? [];
+        var version = parts.Length > 0 ? parts[0] : null;
+        var revision = parts.Length > 1 ? parts[1] : null;
 
-        var sha = informationalVersion?.Split('+') is [_, var revision, ..] ? revision : informationalVersion;
-        if (string.IsNullOrEmpty(sha))
+        var release = !string.IsNullOrEmpty(version) && CalVerPattern().IsMatch(version) ? version : "dev";
+        if (string.IsNullOrEmpty(revision))
         {
-            return "dev";
+            return release;
         }
 
-        return $"v{sha[..Math.Min(sha.Length, 7)]}";
+        return $"{release}+{revision[..Math.Min(revision.Length, 7)]}";
     }
+
+    [GeneratedRegex(@"^\d{4}\.\d{1,2}\.\d+$")]
+    private static partial Regex CalVerPattern();
 }

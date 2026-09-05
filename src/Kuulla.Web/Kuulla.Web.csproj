@@ -5,6 +5,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Kuulla.Web.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.ServiceDiscovery" Version="10.9.0" />
   </ItemGroup>
@@ -16,8 +20,17 @@
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
-  <!-- Embeds the current git commit SHA into AssemblyInformationalVersion so the deployed
-       web app can display which version is running (see MainLayout.razor). -->
+  <!-- Release builds (release.yml / deploy.yml) run from a CalVer tag: GitHub sets
+       GITHUB_REF_TYPE=tag and GITHUB_REF_NAME=vYYYY.M.N. Strip the leading "v" and use it as the
+       assembly Version, so the deployed app can report the release it came from. Local, main, and
+       PR builds have no tag and keep the SDK default version; BuildInfo shows "dev" there. -->
+  <PropertyGroup Condition="'$(GITHUB_REF_TYPE)' == 'tag' and $(GITHUB_REF_NAME.StartsWith('v'))">
+    <Version>$(GITHUB_REF_NAME.Substring(1))</Version>
+  </PropertyGroup>
+
+  <!-- Embeds the current git commit SHA into AssemblyInformationalVersion (as the "+<sha>" build-
+       metadata segment) so the deployed web app can display which commit is running alongside the
+       release version (see MainLayout.razor, BuildInfo.cs). -->
   <Target Name="SetSourceRevisionId" BeforeTargets="GenerateAssemblyInfo" Condition="'$(SourceRevisionId)' == ''">
     <Exec Command="git rev-parse --short HEAD" ConsoleToMsBuild="true" IgnoreExitCode="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />
