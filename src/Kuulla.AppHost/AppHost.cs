@@ -10,6 +10,7 @@ using Azure.Provisioning;
 using Azure.Provisioning.AppContainers;
 using Azure.Provisioning.Cdn;
 using Azure.Provisioning.Expressions;
+using Azure.Provisioning.Resources;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -215,6 +216,39 @@ var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
         };
         infra.Add(origin);
 
+        // ACA's own ingress overwrites the standard X-Forwarded-Host with whatever Host it
+        // receives — which, per OriginHostHeader above, is ACA's own raw hostname, not the
+        // public one the browser used. So the public hostname has to ride in on a header ACA
+        // has no reason to touch; this rule stamps it on every request before it reaches the
+        // origin. Kuulla.ServiceDefaults reads it back via ForwardedHostHeaderName. Needed for
+        // anything that builds an absolute URL from Request.Host — notably Google OAuth's
+        // callback/redirect_uri, which otherwise gets built from the raw *.azurecontainerapps.io
+        // host and fails redirect_uri_mismatch against what's registered with Google.
+        var ruleSet = new FrontDoorRuleSet($"{originBicepId}RuleSet")
+        {
+            Parent = profile
+        };
+        infra.Add(ruleSet);
+
+        var originalHostRule = new FrontDoorRule($"{originBicepId}OriginalHostRule")
+        {
+            Parent = ruleSet,
+            Order = 1,
+            Actions =
+            [
+                new DeliveryRuleRequestHeaderAction
+                {
+                    Properties = new HeaderActionProperties
+                    {
+                        HeaderAction = HeaderAction.Overwrite,
+                        HeaderName = "X-Original-Host",
+                        Value = hostName
+                    }
+                }
+            ]
+        };
+        infra.Add(originalHostRule);
+
         var route = new FrontDoorRoute($"{originBicepId}Route")
         {
             Parent = endpoint,
@@ -225,7 +259,8 @@ var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
             // app.kuulla.us) — Enabled also serves the endpoint's auto-generated
             // *.z01.azurefd.net default domain, which shouldn't be a reachable public entry point.
             LinkToDefaultDomain = LinkToDefaultDomain.Disabled,
-            HttpsRedirect = HttpsRedirect.Enabled
+            HttpsRedirect = HttpsRedirect.Enabled,
+            RuleSets = [new WritableSubResource { Id = ruleSet.Id }]
         };
         // Route must wait for origin to be created — without this, ARM deploys the route in
         // parallel and fails because the origin group has no origins yet (OriginGroupId above
