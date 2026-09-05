@@ -38,9 +38,14 @@ var aca = builder.AddAzureContainerAppEnvironment("aca");
 // Production telemetry backend (issue #366): ServiceDefaults' OTel wiring already exports to
 // the Aspire dashboard locally via OTLP; WithReference below sets APPLICATIONINSIGHTS_CONNECTION_STRING
 // on api/web so Azure.Monitor.OpenTelemetry.AspNetCore additionally exports there once deployed.
-// Only provisions when actually deployed (`aspire deploy`/`aspire publish`) — in Run mode the
-// connection string stays unset and telemetry keeps flowing to the local dashboard as usual.
-var insights = builder.AddAzureApplicationInsights("insights");
+// Publish-mode only: in Run mode the connection string stays unset and telemetry keeps flowing
+// to the local dashboard as usual. It's also skipped entirely (rather than added-but-unresolved)
+// so the AppHost integration tests, which boot this model via DistributedApplicationTestingBuilder
+// with no Azure provisioner, don't fail "api"/"web" startup trying to resolve the bicep output
+// for a resource that can't be provisioned locally.
+var insights = builder.ExecutionContext.IsPublishMode
+    ? builder.AddAzureApplicationInsights("insights")
+    : null;
 
 var cosmos = builder.AddAzureCosmosDB("cosmos")
     .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
@@ -120,7 +125,6 @@ var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     // ACA clobbers X-Forwarded-Host, so the raw *.azurecontainerapps.io hostname can't be
     // recovered from a header — hand the app its public origin directly.
     .WithEnvironment("FrontDoor__PublicUrl", apiPublicUrl)
-    .WithReference(insights)
     .WithReference(cosmos)
     .WithReference(users)
     .WithReference(shows)
@@ -133,6 +137,12 @@ var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(redis)
     .WithEnvironment("Google__ClientId", googleClientId)
     .WithEnvironment("Google__IosClientId", googleIosClientId);
+
+// Publish-mode only (see the `insights` declaration) — null in Run/test mode.
+if (insights is not null)
+{
+    apiBuilder.WithReference(insights);
+}
 
 if (apnsConfigured)
 {
@@ -163,7 +173,6 @@ var web = builder.AddProject<Projects.Kuulla_Web>("web")
     // See the api resource above — same rewrite, so Google OAuth's redirect_uri is built from
     // app.kuulla.us rather than ACA's raw hostname (which fails redirect_uri_mismatch).
     .WithEnvironment("FrontDoor__PublicUrl", webPublicUrl)
-    .WithReference(insights)
     .WithReference(api)
     // The web app's server-side HttpClient can't use Aspire service discovery to reach the API
     // once the Front Door ID restriction is active on it (#393): those calls land on ACA ingress
@@ -175,6 +184,12 @@ var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .WithEnvironment("Authentication__Google__ClientSecret", googleClientSecret)
     .WaitFor(api)
     .PublishAsAzureContainerApp(ScaleToZero);
+
+// Publish-mode only (see the `insights` declaration) — null in Run/test mode.
+if (insights is not null)
+{
+    web.WithReference(insights);
+}
 
 // Azure Front Door (issue #367): routes api.kuulla.us -> api and app.kuulla.us -> web through the
 // existing shared Front Door profile ("azure-shared", Standard SKU, Terraform-managed, resource

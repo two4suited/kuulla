@@ -88,11 +88,11 @@ jobs:
       # its "corrupted frame" TLS failure to a real, fixable bug (microsoft/aspire#15620 — the
       # emulator serves plain HTTP without a trusted dev cert, but Aspire's readiness probe still
       # expects HTTPS), the emulator container's own startup time is separately slow and highly
-      # variable on this runner — one CI run had it healthy in ~2 minutes, another exhausted the
-      # fixture's full 3-attempt/5-minute-each retry budget (~17 minutes) and still timed out.
-      # That makes it unsuitable as a PR gate regardless of the TLS fix. Its Playwright browser
-      # E2E tests share the same AppHost collection fixture, so they're in the same boat and run
-      # from the same manual workflow. All of it runs reliably locally via `dotnet test`.
+      # variable on this runner — one CI run had it healthy in ~2 minutes, another never got
+      # there before the fixture's retry budget ran out. That makes it unsuitable as a PR gate
+      # regardless of the TLS fix. Its Playwright browser E2E tests share the same AppHost
+      # collection fixture, so they're in the same boat and run from the same manual workflow.
+      # Locally the whole suite runs green in ~1 minute via `dotnet test`.
 
   build-ios:
     name: Build iOS
