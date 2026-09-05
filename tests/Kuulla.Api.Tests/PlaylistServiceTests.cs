@@ -13,12 +13,20 @@ public class PlaylistServiceTests
 
     private readonly Mock<Container> _playlistsContainer = new();
     private readonly Mock<IEpisodeService> _episodeService = new();
+    private readonly Mock<IEpisodeStateService> _episodeStateService = new();
     private readonly Mock<IShowService> _showService = new();
     private readonly PlaylistService _sut;
 
     public PlaylistServiceTests()
     {
-        _sut = new PlaylistService(_playlistsContainer.Object, _episodeService.Object, _showService.Object);
+        // Default: no episode has any saved state, so nothing is filtered as "played" — individual
+        // tests override this to exercise the unplayed-only filter.
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[]);
+
+        _sut = new PlaylistService(
+            _playlistsContainer.Object, _episodeService.Object, _episodeStateService.Object, _showService.Object);
     }
 
     private static Playlist MakePlaylist(
@@ -129,6 +137,61 @@ public class PlaylistServiceTests
         Assert.Equal(["b-new", "b-old", "a-new", "a-old"], result.Items.Select(i => i.EpisodeId));
         Assert.NotNull(created);
     }
+
+    [Fact]
+    public async Task CreateDynamicPlaylistAsync_ExcludesCompletedAndAutoPlayedEpisodes()
+    {
+        var config = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: null, PriorityList: [ShowId]);
+
+        var epoch = DateTimeOffset.UnixEpoch;
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("unplayed", ShowId, epoch.AddDays(3)),
+                MakeEpisode("completed", ShowId, epoch.AddDays(2)),
+                MakeEpisode("auto-played", ShowId, epoch.AddDays(1))]);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[
+                MakeState("completed", completed: true),
+                MakeState("auto-played", autoPlayed: true)]);
+        SetUpEmptyQuery();
+
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+
+        Assert.Equal(["unplayed"], result.Items.Select(i => i.EpisodeId));
+    }
+
+    [Fact]
+    public async Task CreateDynamicPlaylistAsync_KeepsInProgressEpisodes()
+    {
+        var config = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: null, PriorityList: [ShowId]);
+
+        var epoch = DateTimeOffset.UnixEpoch;
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("in-progress", ShowId, epoch.AddDays(2)),
+                MakeEpisode("fresh", ShowId, epoch.AddDays(1))]);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[MakeState("in-progress", positionSeconds: 300)]);
+        SetUpEmptyQuery();
+
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+
+        Assert.Equal(["in-progress", "fresh"], result.Items.Select(i => i.EpisodeId));
+    }
+
+    private static EpisodeState MakeState(
+        string episodeId, bool completed = false, bool autoPlayed = false, int positionSeconds = 0) =>
+        new(episodeId, UserId, episodeId, ShowId, positionSeconds, completed, DateTimeOffset.UtcNow, AutoPlayed: autoPlayed);
 
     [Fact]
     public async Task UpdateDynamicPlaylistConfigAsync_ReturnsNullWhenPlaylistIsNotDynamic()
