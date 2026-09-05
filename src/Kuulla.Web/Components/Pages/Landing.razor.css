@@ -279,6 +279,11 @@
     color: var(--k-accent-ink);
 }
 
+.l-version {
+    font-family: var(--k-font-mono);
+    color: var(--k-text-faint);
+}
+
 /* ---- responsive ---- */
 @media (max-width: 820px) {
     .l-hero {

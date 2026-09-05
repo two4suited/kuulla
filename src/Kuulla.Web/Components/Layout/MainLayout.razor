@@ -1,5 +1,4 @@
 @inherits LayoutComponentBase
-@using System.Reflection
 
 <div class="page">
     <NavMenu />
@@ -10,7 +9,7 @@
         </article>
     </main>
 
-    <footer class="app-footer">@buildVersion</footer>
+    <footer class="app-footer">@BuildInfo.Version</footer>
 </div>
 
 <div id="blazor-error-ui" data-nosnippet>
@@ -18,22 +17,3 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
-
-@code {
-    private static readonly string buildVersion = ResolvebuildVersion();
-
-    private static string ResolvebuildVersion()
-    {
-        var informationalVersion = typeof(MainLayout).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-
-        var sha = informationalVersion?.Split('+') is [_, var revision, ..] ? revision : informationalVersion;
-        if (string.IsNullOrEmpty(sha))
-        {
-            return "dev";
-        }
-
-        return $"v{sha[..Math.Min(sha.Length, 7)]}";
-    }
-}
