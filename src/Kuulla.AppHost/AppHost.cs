@@ -50,7 +50,11 @@ var apnsTeamId = builder.AddParameter("apns-team-id", value: "", secret: false);
 var apnsBundleId = builder.AddParameter("apns-bundle-id", value: "", secret: false);
 var apnsPrivateKey = builder.AddParameter("apns-private-key", value: "", secret: true);
 
-var api = builder.AddProject<Projects.Kuulla_Api>("api")
+// Container Apps rejects a secret resource with no value and no Key Vault reference, so an
+// unset apns-private-key must not be wired up as a secret at all rather than as an empty one.
+var apnsConfigured = !string.IsNullOrWhiteSpace(await apnsPrivateKey.Resource.GetValueAsync(default));
+
+var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithExternalHttpEndpoints()
     .WithReference(cosmos)
     .WithReference(users)
@@ -63,11 +67,18 @@ var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithReference(deviceTokens)
     .WithReference(redis)
     .WithEnvironment("Google__ClientId", googleClientId)
-    .WithEnvironment("Google__IosClientId", googleIosClientId)
-    .WithEnvironment("Apns__KeyId", apnsKeyId)
-    .WithEnvironment("Apns__TeamId", apnsTeamId)
-    .WithEnvironment("Apns__BundleId", apnsBundleId)
-    .WithEnvironment("Apns__PrivateKey", apnsPrivateKey)
+    .WithEnvironment("Google__IosClientId", googleIosClientId);
+
+if (apnsConfigured)
+{
+    apiBuilder
+        .WithEnvironment("Apns__KeyId", apnsKeyId)
+        .WithEnvironment("Apns__TeamId", apnsTeamId)
+        .WithEnvironment("Apns__BundleId", apnsBundleId)
+        .WithEnvironment("Apns__PrivateKey", apnsPrivateKey);
+}
+
+var api = apiBuilder
     .WaitFor(cosmos)
     .WaitFor(users)
     .WaitFor(shows)
