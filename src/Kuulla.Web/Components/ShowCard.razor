@@ -3,7 +3,7 @@
 <a href="@($"shows/{Show.Id}")" class="text-decoration-none text-body">
     @if (!string.IsNullOrEmpty(Show.ArtworkUrl))
     {
-        <img src="@Show.ArtworkUrl" alt="@Show.Title" class="rounded" style="width: 50%; height: auto;" />
+        <img src="@Show.ArtworkUrl" alt="@Show.Title" class="img-fluid rounded" />
     }
     <h5 class="mt-2 mb-0">@Show.Title</h5>
     <p class="text-muted small">@Show.Author</p>
