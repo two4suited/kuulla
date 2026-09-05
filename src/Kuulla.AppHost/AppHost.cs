@@ -2,6 +2,11 @@
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Azure Container Apps environment for `aspire deploy`/`aspire publish` (Consumption plan).
+// Single compute environment, so every compute resource below deploys here without needing
+// explicit .WithComputeEnvironment(...) calls.
+builder.AddAzureContainerAppEnvironment("aca");
+
 var cosmos = builder.AddAzureCosmosDB("cosmos")
     .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
     .AddCosmosDatabase("kuulladb");
