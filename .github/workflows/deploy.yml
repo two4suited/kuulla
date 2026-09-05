@@ -1,19 +1,29 @@
 name: Deploy to Azure
 
-# Deploys Kuulla to Azure Container Apps via `aspire deploy`. Runs on every push to `main`
-# (i.e. after a PR has already passed pr.yml's required checks and been merged) and can also be
-# triggered manually. Build/test is not repeated here — pr.yml already gates merges to main, and
-# `aspire deploy` builds the containers itself. The deployment-steps preview (`--list-steps`) also
-# isn't here — it runs in pr.yml on any change under src/Kuulla.AppHost/**, so the planned steps
-# are reviewable before merge rather than only in the post-merge deploy log. The `production`
-# GitHub Environment below is
+# Deploys Kuulla to Azure Container Apps via `aspire deploy`. Merges to `main` no longer deploy —
+# `main` is a staging line. Production is deployed by pushing a CalVer tag `vYYYY.M.N`
+# (`scripts/new-release.sh`); this workflow ships the exact commit that tag points at. release.yml
+# keys off the same tag push to publish the GitHub Release — the two run in parallel and don't
+# depend on each other (deploying with the release notes still pending is fine; a failed notes
+# job must not block the deploy). We trigger on the tag push rather than `on: release: published`
+# to keep that independence.
+#
+# Build/test is not repeated here — pr.yml already gated the commit before it reached `main`, and
+# `aspire deploy` builds the containers itself. The deployment-steps preview (`--list-steps`) runs
+# in pr.yml on any change under src/Kuulla.AppHost/**, so the planned steps are reviewable before
+# merge rather than only in the post-merge deploy log. The `production` GitHub Environment below is
 # where the actual gate lives — configure required reviewers on it so this doesn't provision/
 # update cloud resources unattended (see issue #365).
+#
+# Rollback / re-deploy: `workflow_dispatch` this workflow with the ref set to the desired tag
+# (e.g. an older `vYYYY.M.N`); checkout below resolves `github.ref`, so it ships that tag's commit.
+# After any deploy, confirm the live footer version matches the tag — a green run does not prove
+# the new ACA revision took traffic (see the "ACA revision not promoted" gotcha, #404).
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    tags: ['v*']
 
 permissions:
   id-token: write
@@ -34,7 +44,11 @@ jobs:
       DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
       DOTNET_NOLOGO: true
     steps:
+      # For a tag push (and for a workflow_dispatch run selecting a tag), github.ref is that tag,
+      # so aspire deploy ships the tagged commit rather than the branch tip.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
