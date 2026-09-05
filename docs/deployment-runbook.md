@@ -4,6 +4,10 @@ Operational notes for the Azure Container Apps (ACA) deployment that aren't obvi
 AppHost code alone. See [Kuulla.AppHost/AppHost.cs](../src/Kuulla.AppHost/AppHost.cs) for the
 source of truth on what's actually configured.
 
+For *how a deploy is triggered* — the CalVer tag flow, release notes, rollback — see the
+[release runbook](release-runbook.md). This page is about how the deployment behaves once it's
+running.
+
 ## Scale-to-zero (issue #361)
 
 Both `api` and `web` run on the ACA Consumption plan with `Template.Scale.MinReplicas = 0`,

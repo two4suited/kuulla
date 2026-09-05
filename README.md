@@ -135,7 +135,14 @@ library), start the `seed-dev-data` resource from the Aspire dashboard once `api
 
 ## Deployment
 
-Hosted on Azure. Infrastructure and deployment details TBD.
+Hosted on Azure Container Apps. Merges to `main` do not deploy; a release is cut by pushing a
+CalVer tag (`vYYYY.M.N`) with `scripts/new-release.sh`, which publishes a GitHub Release and
+deploys the tagged commit.
+
+- [Release runbook](docs/release-runbook.md) — versioning scheme, cutting a release, release
+  notes, hotfixes, rollback.
+- [Deployment runbook](docs/deployment-runbook.md) — how the ACA deployment behaves
+  (scale-to-zero, telemetry, known gaps).
 
 ## License
 
