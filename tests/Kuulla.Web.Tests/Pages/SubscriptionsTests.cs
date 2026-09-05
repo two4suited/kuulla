@@ -14,7 +14,7 @@ public class SubscriptionsTests : WebTestContext
 
     private static readonly List<NewEpisode> NewEpisodes =
     [
-        new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: false),
+        new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: false, ShowTitle: "The Daily", ShowArtworkUrl: "https://art/show-1.jpg"),
     ];
 
     private static TestHttpMessageHandler RouteHandler(

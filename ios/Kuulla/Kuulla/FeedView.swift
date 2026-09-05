@@ -5,7 +5,10 @@ struct FeedView: View {
     @Environment(\.episodeSyncEngine) private var syncEngine
     @Environment(\.modelContext) private var modelContext
 
-    @State private var episodes: [Episode] = []
+    @State private var feedItems: [NewEpisode] = []
+    // Most of this view works in terms of the bare Episode; feedItems additionally carries the
+    // per-row show identity (#441) that FeedEpisodeRow renders.
+    private var episodes: [Episode] { feedItems.map(\.episode) }
     @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
     @State private var downloadStatusByEpisodeId: [String: DownloadStatus] = [:]
     @State private var isLoading = false
@@ -33,10 +36,11 @@ struct FeedView: View {
                 Text("You're all caught up — no new episodes from your subscriptions.")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(episodes) { episode in
+                ForEach(feedItems, id: \.episode.id) { item in
+                    let episode = item.episode
                     NavigationLink(value: CatalogRoute.episode(showId: episode.showId, episodeId: episode.id)) {
                         FeedEpisodeRow(
-                            episode: episode,
+                            item: item,
                             status: statusByEpisodeId[episode.id] ?? .new,
                             downloadStatus: downloadStatusByEpisodeId[episode.id],
                             onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
@@ -75,10 +79,9 @@ struct FeedView: View {
             // Web). A restore path for those still exists via ShowDetailView's status filter chips.
             let results = try await subscriptionClient.getNewEpisodes()
                 .filter { !$0.autoPlayed }
-                .map(\.episode)
-                .sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
+                .sorted { ($0.episode.publishedAt ?? .distantPast) > ($1.episode.publishedAt ?? .distantPast) }
             guard !Task.isCancelled else { return }
-            episodes = results
+            feedItems = results
             refreshStatuses()
             await triggerAutoDownloads()
         } catch {
@@ -187,19 +190,30 @@ struct FeedView: View {
 }
 
 private struct FeedEpisodeRow: View {
-    let episode: Episode
+    let item: NewEpisode
     let status: EpisodeStatus
     let downloadStatus: DownloadStatus?
     let onRestore: () -> Void
     let onDownloadDidFinish: () -> Void
 
+    private var episode: Episode { item.episode }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
+            ShowArtworkThumbnail(url: item.showArtworkUrl.flatMap(URL.init))
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(episode.title)
                     .font(.body)
                     .lineLimit(2)
                     .foregroundStyle(.primary)
+
+                if !item.showTitle.isEmpty {
+                    Text(item.showTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
 
                 HStack(spacing: 4) {
                     if let publishedAt = episode.publishedAt {
@@ -224,6 +238,27 @@ private struct FeedEpisodeRow: View {
             }
         }
         .padding()
+    }
+}
+
+// Small square show-artwork thumbnail for a feed row. Mirrors LibraryView.ShowTile's AsyncImage
+// treatment; a missing or still-loading URL falls back to a tinted placeholder rather than a
+// broken image (#441).
+private struct ShowArtworkThumbnail: View {
+    let url: URL?
+
+    var body: some View {
+        AsyncImage(url: url) { image in
+            image.resizable().aspectRatio(contentMode: .fill)
+        } placeholder: {
+            ZStack {
+                Color.secondary.opacity(0.2)
+                Image(systemName: "mic")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

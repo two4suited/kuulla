@@ -17,7 +17,11 @@ public class NewEpisodesTests : WebTestContext
 
     private static readonly List<NewEpisode> NewEpisodes =
     [
-        new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: false),
+        new(
+            new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024),
+            AutoPlayed: false,
+            ShowTitle: "The Daily Show",
+            ShowArtworkUrl: "https://art/show-1.jpg"),
     ];
 
     private static readonly SyncEpisodesResponseStub EmptySync = new([], DateTimeOffset.UtcNow, "hash-1");
@@ -59,6 +63,46 @@ public class NewEpisodesTests : WebTestContext
         var cut = RenderComponent<NewEpisodes>();
 
         cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+    }
+
+    [Fact]
+    public void RendersShowTitleAndArtwork_ForEachEpisode()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler());
+
+        var cut = RenderComponent<NewEpisodes>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("The Daily Show", cut.Markup);
+            Assert.Contains("https://art/show-1.jpg", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void RendersArtworkPlaceholder_WhenShowArtworkUrlMissing()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onGetEpisodes: _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new List<NewEpisode>
+            {
+                new(
+                    new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024),
+                    AutoPlayed: false,
+                    ShowTitle: "The Daily Show",
+                    ShowArtworkUrl: null),
+            }),
+        }));
+
+        var cut = RenderComponent<NewEpisodes>();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Monday Edition", cut.Markup);
+            Assert.DoesNotContain("<img", cut.Markup);
+        });
     }
 
     [Fact]
@@ -160,7 +204,11 @@ public class NewEpisodesTests : WebTestContext
         AuthContext.SetAuthorized("user-1");
         var autoPlayed = new List<NewEpisode>
         {
-            new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: true),
+            new(
+                new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024),
+                AutoPlayed: true,
+                ShowTitle: "The Daily Show",
+                ShowArtworkUrl: "https://art/show-1.jpg"),
         };
         ConfigureApi(RouteHandler(onGetEpisodes: _ =>
             new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(autoPlayed) }));

@@ -43,28 +43,46 @@
                     var episode = newEpisode.Episode;
                     <div class="col">
                         <div class="card h-100">
-                            <div class="card-body">
-                                <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="text-decoration-none">
-                                    <h6 class="card-title">@episode.Title</h6>
+                            <div class="card-body d-flex gap-3">
+                                <a href="@($"shows/{episode.ShowId}")" class="flex-shrink-0" aria-label="@newEpisode.ShowTitle">
+                                    @if (!string.IsNullOrEmpty(newEpisode.ShowArtworkUrl))
+                                    {
+                                        <img src="@newEpisode.ShowArtworkUrl" alt="" style="width: 3.5rem; height: 3.5rem; object-fit: cover;" class="rounded" />
+                                    }
+                                    else
+                                    {
+                                        <span class="d-flex align-items-center justify-content-center rounded bg-body-secondary"
+                                              style="width: 3.5rem; height: 3.5rem; font-size: 1.5rem;" aria-hidden="true">
+                                            🎙️
+                                        </span>
+                                    }
                                 </a>
-                                <p class="card-text text-muted small">
-                                    @if (episode.PublishedAt is { } publishedAt)
-                                    {
-                                        @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
-                                        <text> &middot; </text>
-                                    }
-                                    @if (episode.Duration is { } duration)
-                                    {
-                                        @EpisodeFormatting.FormatDuration(duration)
-                                    }
-                                </p>
-                                <div class="d-flex gap-2">
-                                    <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
-                                        Play
+                                <div class="flex-grow-1" style="min-width: 0;">
+                                    <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="text-decoration-none">
+                                        <h6 class="card-title">@episode.Title</h6>
                                     </a>
-                                    <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(newEpisode)">
-                                        Mark as played
-                                    </button>
+                                    <p class="card-text text-muted small mb-1">
+                                        <a href="@($"shows/{episode.ShowId}")" class="text-decoration-none text-muted">@newEpisode.ShowTitle</a>
+                                    </p>
+                                    <p class="card-text text-muted small">
+                                        @if (episode.PublishedAt is { } publishedAt)
+                                        {
+                                            @publishedAt.ToLocalTime().ToString("MMM d, yyyy")
+                                            <text> &middot; </text>
+                                        }
+                                        @if (episode.Duration is { } duration)
+                                        {
+                                            @EpisodeFormatting.FormatDuration(duration)
+                                        }
+                                    </p>
+                                    <div class="d-flex gap-2">
+                                        <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
+                                            Play
+                                        </a>
+                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(newEpisode)">
+                                            Mark as played
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
