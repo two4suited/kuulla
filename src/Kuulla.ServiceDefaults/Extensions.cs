@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -121,6 +122,36 @@ public static class Extensions
                 Predicate = r => r.Tags.Contains("live")
             });
         }
+
+        return app;
+    }
+
+    // Front Door is the only supported public entry point once it's in front of a service (#367)
+    // — ACA still exposes its own *.azurecontainerapps.io FQDN, so this rejects anything that
+    // reaches it directly instead of through Front Door. Front Door adds this header (and it
+    // can't be set by an external caller — ACA only sees it once Front Door has already
+    // terminated and re-issued the request) to every request it forwards, health probes included.
+    // "FrontDoor:Id" is unset locally and in any environment not yet behind Front Door, so this
+    // is a no-op there rather than locking out direct access before Front Door exists.
+    public static WebApplication UseFrontDoorIdRestriction(this WebApplication app)
+    {
+        var frontDoorId = app.Configuration["FrontDoor:Id"];
+        if (string.IsNullOrEmpty(frontDoorId))
+        {
+            return app;
+        }
+
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Headers.TryGetValue("X-Azure-FDID", out var requestFrontDoorId)
+                && requestFrontDoorId == frontDoorId)
+            {
+                await next(context);
+                return;
+            }
+
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        });
 
         return app;
     }

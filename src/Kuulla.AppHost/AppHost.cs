@@ -1,7 +1,11 @@
 #pragma warning disable ASPIRECOSMOSDB001 // RunAsPreviewEmulator is experimental.
+#pragma warning disable ASPIREPROBES001 // WithHttpProbe is experimental.
 
+using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
+using Azure.Provisioning;
 using Azure.Provisioning.AppContainers;
+using Azure.Provisioning.Cdn;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -43,6 +47,16 @@ var googleClientId = builder.AddParameter("google-client-id");
 var googleClientSecret = builder.AddParameter("google-client-secret", secret: true);
 var googleIosClientId = builder.AddParameter("google-ios-client-id");
 
+// Front Door's ID for the shared "azure-shared" profile (issue #367) — not a secret, it's sent
+// on every request Front Door forwards and is discoverable from the profile itself, but it's
+// still a parameter rather than hardcoded in Program.cs so it isn't tied to this one shared
+// profile if that ever changes. Empty in Run mode (local dev isn't behind Front Door), which is
+// what leaves UseFrontDoorIdRestriction (Kuulla.ServiceDefaults/Extensions.cs) a no-op there.
+var frontDoorId = builder.AddParameter(
+    "frontdoor-id",
+    value: builder.ExecutionContext.IsPublishMode ? "39174db2-771d-4851-8b26-b1e6049393fd" : "",
+    secret: false);
+
 // APNs credentials for push notifications (milestone #32, issue #216). Unlike the Google OAuth
 // params above, these default to empty strings rather than being required — push notifications
 // are optional infrastructure, so a `dotnet user-secrets set` for these isn't part of getting a
@@ -59,6 +73,10 @@ var apnsConfigured = !string.IsNullOrWhiteSpace(await apnsPrivateKey.Resource.Ge
 
 var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     .WithExternalHttpEndpoints()
+    // Front Door's health probe (below) targets this instead of the default "/" so a cold-started
+    // replica (#361) doesn't get probed on an arbitrary route.
+    .WithHttpProbe(ProbeType.Liveness, "/health")
+    .WithEnvironment("FrontDoor__Id", frontDoorId)
     .WithReference(cosmos)
     .WithReference(users)
     .WithReference(shows)
@@ -94,13 +112,65 @@ var api = apiBuilder
     .WaitFor(redis)
     .PublishAsAzureContainerApp(ScaleToZero);
 
-builder.AddProject<Projects.Kuulla_Web>("web")
+var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .WithExternalHttpEndpoints()
+    .WithHttpProbe(ProbeType.Liveness, "/health")
+    .WithEnvironment("FrontDoor__Id", frontDoorId)
     .WithReference(api)
     .WithEnvironment("Authentication__Google__ClientId", googleClientId)
     .WithEnvironment("Authentication__Google__ClientSecret", googleClientSecret)
     .WaitFor(api)
     .PublishAsAzureContainerApp(ScaleToZero);
+
+// Azure Front Door (issue #367): routes api.kuulla.us -> api and app.kuulla.us -> web through the
+// existing shared Front Door profile (Standard SKU, Terraform-managed, resource group
+// "azure-shared") rather than provisioning a new one — PublishAsExisting only takes effect for
+// `aspire deploy`/`aspire publish`, so this is a no-op locally same as the ACA resources above.
+// AddAzureFrontDoor is a brand-new preview API (Aspire.Hosting.Azure.FrontDoor) with a minimal
+// surface today: WithOrigin gives each backend its own *.azurefd.net endpoint/origin
+// group/route, and health probe path comes from the WithHttpProbe annotations above. It has no
+// custom-domain API yet, so those are added by hand below via ConfigureInfrastructure.
+var frontDoor = builder.AddAzureFrontDoor("frontdoor")
+    .PublishAsExisting("azure-shared", "azure-shared")
+    .WithOrigin(api)
+    .WithOrigin(web);
+
+frontDoor.ConfigureInfrastructure(infra =>
+{
+    var profile = infra.GetProvisionableResources().OfType<CdnProfile>().Single();
+
+    AddCustomDomain(infra, profile, api.Resource.Name, "api.kuulla.us");
+    AddCustomDomain(infra, profile, web.Resource.Name, "app.kuulla.us");
+
+    static void AddCustomDomain(AzureResourceInfrastructure infra, CdnProfile profile, string originName, string hostName)
+    {
+        var originBicepId = Infrastructure.NormalizeBicepIdentifier(originName);
+        var route = infra.GetProvisionableResources().OfType<FrontDoorRoute>()
+            .Single(r => r.BicepIdentifier == $"{originBicepId}Route");
+
+        var domain = new FrontDoorCustomDomain($"{originBicepId}Domain")
+        {
+            Parent = profile,
+            HostName = hostName,
+            // Front Door issues and renews this itself once the domain validates (TXT record
+            // below) and DNS points at the route — no cert material to manage ourselves.
+            TlsSettings = new FrontDoorCustomDomainHttpsContent
+            {
+                CertificateType = FrontDoorCertificateType.ManagedCertificate
+            }
+        };
+        infra.Add(domain);
+
+        route.CustomDomains.Add(new FrontDoorActivatedResourceInfo { Id = domain.Id });
+
+        // Cloudflare needs this as a TXT record on the domain (e.g. _dnsauth.api.kuulla.us) before
+        // Front Door will validate it — read it from the deploy output after `aspire deploy`.
+        infra.Add(new ProvisioningOutput($"{originBicepId}_domainValidationToken", typeof(string))
+        {
+            Value = domain.ValidationProperties.ValidationToken
+        });
+    }
+});
 
 // Builds and launches the app in the iOS Simulator with the API's Aspire-resolved
 // endpoint injected, so it doesn't need a manually-set KUULLA_API_BASE_URL (see #50, #51).

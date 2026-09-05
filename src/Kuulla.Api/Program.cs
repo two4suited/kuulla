@@ -243,6 +243,7 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+app.UseFrontDoorIdRestriction();
 
 app.UseAuthentication();
 app.UseAuthorization();
