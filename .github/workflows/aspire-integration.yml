@@ -1,12 +1,13 @@
 name: Aspire Integration Tests (manual)
 
-# Kuulla.AppHost.Tests and Kuulla.Web.E2E both boot the real AppHost — API, Web, and a real
-# Cosmos DB emulator container via DistributedApplicationTestingBuilder — and are excluded from
+# Kuulla.AppHost.Tests boots the real AppHost — API, Web, and a real Cosmos DB emulator container
+# via DistributedApplicationTestingBuilder (the HTTP-level flow tests and the Playwright browser
+# E2E tests share one collection fixture, so the emulator boots once) — and is excluded from
 # pr.yml's required checks (see the comment there) because the emulator's own startup time in CI
 # is slow and inconsistent: one run had it healthy in ~2 minutes, another exhausted a 3-attempt/
-# 5-minute-each retry budget and still timed out. That makes them unsuitable as a PR gate, but
-# they're still real coverage worth having on demand — to verify a fix before landing it, or to
-# investigate the emulator flakiness itself, without blocking every PR on either.
+# 5-minute-each retry budget and still timed out. That makes it unsuitable as a PR gate, but
+# it's still real coverage worth having on demand — to verify a fix before landing it, or to
+# investigate the emulator flakiness itself, without blocking every PR on it.
 on:
   workflow_dispatch:
 
@@ -46,14 +47,12 @@ jobs:
       - name: Build (Debug)
         run: dotnet build Kuulla.sln --no-restore --configuration Debug
 
+      # AppHostFixture self-installs the Chromium *browser* on first NewPageAsync() (Playwright.
+      # Program.Main ["install", "chromium"]), but a bare Linux CI runner is also missing the
+      # system libraries (libnss3, libatk, etc.) headless Chromium needs to actually launch —
+      # install those too, ahead of the test run that will trigger the browser download.
+      - name: Install Playwright browser dependencies
+        run: pwsh tests/Kuulla.AppHost.Tests/bin/Debug/net10.0/playwright.ps1 install-deps chromium
+
       - name: Test AppHost integration (Debug)
         run: dotnet test tests/Kuulla.AppHost.Tests/Kuulla.AppHost.Tests.csproj --no-build --configuration Debug
-
-      # WebAppFixture self-installs the Chromium *browser* on first run (Playwright.Program.Main
-      # ["install", "chromium"]), but a bare Linux CI runner is also missing the system libraries
-      # (libnss3, libatk, etc.) headless Chromium needs to actually launch — install those too.
-      - name: Install Playwright browser dependencies
-        run: pwsh tests/Kuulla.Web.E2E/bin/Debug/net10.0/playwright.ps1 install-deps chromium
-
-      - name: Test Web E2E (Debug)
-        run: dotnet test tests/Kuulla.Web.E2E/Kuulla.Web.E2E.csproj --no-build --configuration Debug

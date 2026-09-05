@@ -50,7 +50,6 @@ jobs:
             # part of Kuulla.sln — a change here should still get build/compile coverage.
             dotnet_other:
               - 'tests/Kuulla.AppHost.Tests/**'
-              - 'tests/Kuulla.Web.E2E/**'
 
   build-dotnet:
     name: Build .NET
@@ -91,9 +90,9 @@ jobs:
       # expects HTTPS), the emulator container's own startup time is separately slow and highly
       # variable on this runner — one CI run had it healthy in ~2 minutes, another exhausted the
       # fixture's full 3-attempt/5-minute-each retry budget (~17 minutes) and still timed out.
-      # That makes it unsuitable as a PR gate regardless of the TLS fix. Kuulla.Web.E2E is
-      # excluded for the same reason (it boots the same AppHost, Cosmos emulator included). Both
-      # run reliably locally via `dotnet test` against a real `aspire run`/`aspire start` API.
+      # That makes it unsuitable as a PR gate regardless of the TLS fix. Its Playwright browser
+      # E2E tests share the same AppHost collection fixture, so they're in the same boat and run
+      # from the same manual workflow. All of it runs reliably locally via `dotnet test`.
 
   build-ios:
     name: Build iOS
