@@ -61,6 +61,7 @@ jobs:
           Azure__ResourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
           Parameters__google_client_id: ${{ vars.GOOGLE_CLIENT_ID }}
           Parameters__google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          Parameters__redis_password: ${{ secrets.REDIS_PASSWORD }}
           Parameters__google_ios_client_id: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
           Parameters__apns_key_id: ${{ vars.APNS_KEY_ID }}
           Parameters__apns_team_id: ${{ vars.APNS_TEAM_ID }}

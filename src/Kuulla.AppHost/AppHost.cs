@@ -55,7 +55,19 @@ var episodeStates = cosmos.AddContainer("episodestates", partitionKeyPath: "/Use
 var playlists = cosmos.AddContainer("playlists", partitionKeyPath: "/UserId");
 var deviceTokens = cosmos.AddContainer("devicetokens", partitionKeyPath: "/UserId");
 
-var redis = builder.AddRedis("redis")
+// Redis runs with `redis-server --requirepass` in publish mode. Left to itself, Aspire's
+// AddRedis synthesizes the password parameter and regenerates it on every `aspire deploy`;
+// because updating a Container Apps *secret* value doesn't roll the consuming revision, a warm
+// `redis` replica keeps enforcing the password it booted with while a freshly deployed `api`
+// revision connects with the new one — a steady NOAUTH / AuthenticationFailure stream.
+// Pin it to an explicit parameter so it's stable across deploys: supplied from the
+// REDIS_PASSWORD GitHub Actions secret in CI (see deploy.yml), and a throwaway fixed value for
+// local `aspire run` / AppHost tests, where Redis is only reachable inside the Aspire network.
+var redisPassword = builder.ExecutionContext.IsPublishMode
+    ? builder.AddParameter("redis-password", secret: true)
+    : builder.AddParameter("redis-password", value: "localdev", secret: true);
+
+var redis = builder.AddRedis("redis", port: null, password: redisPassword)
     .PublishAsAzureContainerApp(ScaleToZero);
 
 // Google OAuth credentials for "Login with Google" (milestone #1, issues #5-#8).
