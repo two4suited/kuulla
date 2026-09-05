@@ -1,10 +1,12 @@
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Kuulla.Web.E2E;
+namespace Kuulla.AppHost.Tests;
 
-[Collection(WebAppCollection.Name)]
-public class SubscriptionTests(WebAppFixture fixture)
+// Browser-level counterpart to SubscriptionFlowTests: drives subscribe/unsubscribe through the
+// real Blazor Server UI via Playwright instead of calling the API directly.
+[Collection(AppHostCollection.Name)]
+public class SubscriptionUiTests(AppHostFixture fixture)
 {
     [Fact]
     public async Task Subscribe_ThenUnsubscribe_RoundTripsThroughTheRealUi()

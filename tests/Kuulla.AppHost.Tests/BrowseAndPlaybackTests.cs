@@ -1,15 +1,15 @@
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Kuulla.Web.E2E;
+namespace Kuulla.AppHost.Tests;
 
 // Exercises search against the real iTunes podcast directory (ShowService.SearchAsync has no
 // dev/test double — see ItunesPodcastDirectoryClient) and plays a real episode audio file end to
-// end, rather than seeding through /dev/seed-show like SubscriptionTests. That trades some
+// end, rather than seeding through /dev/seed-show like SubscriptionUiTests. That trades some
 // network-dependent flakiness for actually proving the browse -> show -> episode -> playback path
 // works against a real feed and a real audio file, not just wiring.
-[Collection(WebAppCollection.Name)]
-public class BrowseAndPlaybackTests(WebAppFixture fixture)
+[Collection(AppHostCollection.Name)]
+public class BrowseAndPlaybackTests(AppHostFixture fixture)
 {
     private const string SearchTerm = "Radiolab";
 

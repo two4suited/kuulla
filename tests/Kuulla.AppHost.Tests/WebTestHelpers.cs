@@ -3,7 +3,7 @@ using Kuulla.Api.Models;
 using Microsoft.Playwright;
 using Xunit;
 
-namespace Kuulla.Web.E2E;
+namespace Kuulla.AppHost.Tests;
 
 internal static class WebTestHelpers
 {
@@ -19,8 +19,8 @@ internal static class WebTestHelpers
     }
 
     // Seeds a show directly into Cosmos through the API's own /dev/seed-show hook (the same one
-    // AppHost.Tests' SubscriptionFlowTests uses), so subscribe/unsubscribe tests don't depend on
-    // the real iTunes directory being reachable or returning stable results.
+    // SubscriptionFlowTests uses), so subscribe/unsubscribe tests don't depend on the real
+    // iTunes directory being reachable or returning stable results.
     public static async Task<Show> SeedShowAsync(HttpClient apiClient, string idSuffix)
     {
         var show = new Show(
