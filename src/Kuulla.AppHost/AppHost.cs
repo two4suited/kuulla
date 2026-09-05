@@ -9,6 +9,7 @@ using Azure.Core;
 using Azure.Provisioning;
 using Azure.Provisioning.AppContainers;
 using Azure.Provisioning.Cdn;
+using Azure.Provisioning.CosmosDB;
 using Azure.Provisioning.Expressions;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -47,9 +48,51 @@ var insights = builder.ExecutionContext.IsPublishMode
     ? builder.AddAzureApplicationInsights("insights")
     : null;
 
-var cosmos = builder.AddAzureCosmosDB("cosmos")
-    .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
-    .AddCosmosDatabase("kuulladb");
+var cosmosAccount = builder.AddAzureCosmosDB("cosmos")
+    .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer());
+
+var cosmos = cosmosAccount.AddCosmosDatabase("kuulladb");
+
+// Data-plane access for a human operator ("view/edit data in Cosmos"). The production account
+// runs with DisableLocalAuth=true — account keys are off, so Data Explorer and every other
+// client authenticates with Entra ID and needs an explicit Cosmos SQL role assignment. Aspire
+// only wires the managed identities of api/web this way automatically; this additionally grants
+// the built-in "Cosmos DB Built-in Data Contributor" role (read + write on all data) to a named
+// principal. Publish/deploy-mode only: local dev uses the emulator, which ignores RBAC, and the
+// AppHost integration tests boot the model with no Azure provisioner.
+if (builder.ExecutionContext.IsPublishMode)
+{
+    // Object ID of the Entra user (or group) that gets read-write data access. Defaults to the
+    // maintainer's own oid — same hardcode-with-override pattern as frontdoor-id above; override
+    // with `-p cosmos-data-admin-principal-id=<oid>` or Parameters:cosmos-data-admin-principal-id.
+    var cosmosDataAdminPrincipalId = builder.AddParameter(
+        "cosmos-data-admin-principal-id",
+        value: "c6d08828-a711-4f75-a697-58f177a30bb8",
+        secret: false);
+
+    cosmosAccount.ConfigureInfrastructure(infra =>
+    {
+        var account = infra.GetProvisionableResources().OfType<CosmosDBAccount>().Single();
+        var principalId = cosmosDataAdminPrincipalId.AsProvisioningParameter(infra, "cosmosDataAdminPrincipalId");
+
+        // Fixed well-known id of the "Cosmos DB Built-in Data Contributor" data-plane role,
+        // present on every SQL API account.
+        const string dataContributorRoleId = "00000000-0000-0000-0000-000000000002";
+        var roleDefinitionId = (BicepExpression?)BicepFunction.Interpolate(
+            $"{account.Id}/sqlRoleDefinitions/{dataContributorRoleId}");
+
+        infra.Add(new NamedCosmosDBSqlRoleAssignment("cosmosDataAdminRoleAssignment")
+        {
+            Parent = account,
+            PrincipalId = principalId,
+            RoleDefinitionId = roleDefinitionId,
+            Scope = account.Id,
+            // The sqlRoleAssignments name segment must be a GUID, deterministic so redeploys don't
+            // pile up duplicate assignments.
+            NameOverride = BicepFunction.CreateGuid(account.Id, principalId, dataContributorRoleId),
+        });
+    });
+}
 
 var users = cosmos.AddContainer("users", partitionKeyPath: "/id");
 var shows = cosmos.AddContainer("shows", partitionKeyPath: "/id");
@@ -346,3 +389,27 @@ if (!OperatingSystem.IsWindows())
 }
 
 builder.Build().Run();
+
+/// <summary>
+/// <see cref="CosmosDBSqlRoleAssignment"/> exposes <c>Name</c> as a read-only output, but the
+/// <c>sqlRoleAssignments</c> ARM resource needs its name segment written (it must be a GUID).
+/// This redefines <c>name</c> as a writable property — the same trick Aspire uses internally
+/// via its generated <c>*_Derived</c> subclasses.
+/// </summary>
+file sealed class NamedCosmosDBSqlRoleAssignment(string bicepIdentifier)
+    : CosmosDBSqlRoleAssignment(bicepIdentifier)
+{
+    private BicepValue<string>? _name;
+
+    public BicepValue<string> NameOverride
+    {
+        get { Initialize(); return _name!; }
+        set { Initialize(); _name!.Assign(value); }
+    }
+
+    protected override void DefineProvisionableProperties()
+    {
+        base.DefineProvisionableProperties();
+        _name = DefineProperty<string>("Name", ["name"]);
+    }
+}
