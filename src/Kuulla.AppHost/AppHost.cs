@@ -282,13 +282,16 @@ var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
         var originGroup = new FrontDoorOriginGroup($"{originBicepId}OriginGroup")
         {
             Parent = profile,
-            // Points at the unconditional /health endpoint both apps expose instead of the "/"
-            // default, tolerant of the scale-to-zero cold-start window (#361).
-            HealthProbeSettings = new HealthProbeSettings
-            {
-                ProbeProtocol = HealthProbeProtocol.Https,
-                ProbePath = "/health"
-            },
+            // Health probes are deliberately left unset (disabled). Each Front Door edge PoP probes
+            // the origin independently, so even at the longest interval this is a near-continuous
+            // stream of requests landing on ACA's HTTP ingress — which is exactly the signal KEDA's
+            // default HTTP scale rule uses to keep a replica alive. With probes on, api/web never go
+            // idle and never scale to zero (#361, #363), defeating the whole point of MinReplicas=0.
+            // Front Door allows disabling probes when an origin group has a single origin (as here),
+            // and with one origin it always routes there regardless of probe state, so nothing is
+            // lost. ACA's own Liveness probe (WithHttpProbe on api/web) still guards replica health;
+            // it runs node-local against a running replica and doesn't go through ingress, so it
+            // doesn't hold the app awake.
             // Required by ARM even with a single origin per group.
             LoadBalancingSettings = new LoadBalancingSettings
             {
