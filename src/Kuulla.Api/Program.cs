@@ -692,6 +692,16 @@ episodeState.MapPost("/states", async (
     return Results.Ok(states);
 });
 
+episodeState.MapGet("/in-progress-shows", async (
+    ClaimsPrincipal user,
+    IEpisodeStateService episodeStateService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var showIds = await episodeStateService.GetInProgressShowIdsAsync(userId, ct);
+    return Results.Ok(showIds);
+});
+
 episodeState.MapPut("/{id}/state", async (
     string id,
     UpdateEpisodeStateRequest request,

@@ -326,6 +326,18 @@ public class EpisodeStateServiceTests
         Assert.False(upserted.Archived);
     }
 
+    [Fact]
+    public async Task GetInProgressShowIdsAsync_ReturnsDistinctShowIdsFromScopedQuery()
+    {
+        _episodeStatesContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<string>(["show-1", "show-2", "show-1"]));
+
+        var result = await _sut.GetInProgressShowIdsAsync(UserId, CancellationToken.None);
+
+        Assert.Equal(new[] { "show-1", "show-2" }, result.OrderBy(s => s));
+    }
+
     private void SetupEmptyStatesQuery() => SetupStatesQuery([]);
 
     private void SetupStatesQuery(IReadOnlyList<EpisodeState> states) =>

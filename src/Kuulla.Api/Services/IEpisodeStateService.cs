@@ -24,6 +24,10 @@ public interface IEpisodeStateService
     Task<IReadOnlyList<EpisodeState>> GetShowStatesAsync(
         string userId, string showId, CancellationToken cancellationToken);
 
+    // Show ids the user has at least one in-progress episode for (a saved position, not yet
+    // completed) — powers the "in progress" show badge on the Library and Subscriptions grids.
+    Task<IReadOnlyList<string>> GetInProgressShowIdsAsync(string userId, CancellationToken cancellationToken);
+
     Task SetArchivedAsync(
         string userId, IReadOnlyList<EpisodeState> states, bool archived, CancellationToken cancellationToken);
 

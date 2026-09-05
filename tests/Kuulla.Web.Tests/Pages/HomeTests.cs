@@ -23,15 +23,22 @@ public class HomeTests : WebTestContext
 
     private static readonly List<NewEpisode> NewEpisodes =
     [
-        new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: false),
+        new(new Episode("ep-1", "show-1", "Monday Edition", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio", null, 128, 1024), AutoPlayed: false, ShowTitle: "The Daily", ShowArtworkUrl: "https://art/show-1.jpg"),
     ];
 
     private static TestHttpMessageHandler RouteHandler(
         Func<HttpRequestMessage, HttpResponseMessage>? onGetSubscriptions = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onGetPlaylists = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? onGetNewEpisodes = null) => new(request =>
+        Func<HttpRequestMessage, HttpResponseMessage>? onGetNewEpisodes = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onGetInProgress = null) => new(request =>
     {
-        if (request.RequestUri!.AbsolutePath == "/api/subscriptions" && request.Method == HttpMethod.Get)
+        if (request.RequestUri!.AbsolutePath == "/api/episodes/in-progress-shows" && request.Method == HttpMethod.Get)
+        {
+            return onGetInProgress?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<string>()) };
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/subscriptions" && request.Method == HttpMethod.Get)
         {
             return onGetSubscriptions?.Invoke(request) ??
                 new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Subscriptions) };
@@ -78,6 +85,18 @@ public class HomeTests : WebTestContext
         var cut = RenderComponent<Home>();
 
         cut.WaitForAssertion(() => Assert.Contains("badge", cut.Markup));
+    }
+
+    [Fact]
+    public void ShowsInProgressBadge_ForShowWithInProgressEpisode()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onGetInProgress: _ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new[] { "show-1" }) }));
+
+        var cut = RenderComponent<Home>();
+
+        cut.WaitForAssertion(() => Assert.Contains("In progress", cut.Markup));
     }
 
     [Fact]
