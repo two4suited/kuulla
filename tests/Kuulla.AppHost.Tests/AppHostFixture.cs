@@ -32,8 +32,9 @@ public sealed class AppHostFixture : IAsyncLifetime
         // dependency-readiness probe for the "cosmos"-dependent resources doesn't retry on
         // that specific transient 503 — it fails "api" (and "web" as a cascade) outright.
         // Retrying the whole app startup with a fresh emulator container is the only lever
-        // available at this layer.
-        const int maxAttempts = 3;
+        // available at this layer. One retry is enough for the genuine race; a run that fails
+        // twice is a real wiring problem, not a flake, and shouldn't burn another full boot.
+        const int maxAttempts = 2;
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             DistributedApplication? app = null;
@@ -45,22 +46,24 @@ public sealed class AppHostFixture : IAsyncLifetime
 
                 var resourceNotificationService = app.Services.GetRequiredService<ResourceNotificationService>();
 
-                // "Running" just means the container process/API process has launched — the
-                // Cosmos emulator's own gateway takes several minutes longer to actually start
-                // accepting requests, so wait for its health check (not just Running) too.
+                // The Cosmos emulator's gateway genuinely takes a few minutes to come up, so it
+                // gets the long timeout. "api"/"web" only have to reach Running once their
+                // dependencies are healthy — that's quick, so a short timeout there turns a
+                // real startup failure into a fast retry instead of a 5-minute hang.
                 await resourceNotificationService.WaitForResourceHealthyAsync("cosmos")
                     .WaitAsync(TimeSpan.FromMinutes(5));
                 await resourceNotificationService.WaitForResourceAsync("api", KnownResourceStates.Running)
-                    .WaitAsync(TimeSpan.FromMinutes(5));
+                    .WaitAsync(TimeSpan.FromMinutes(2));
                 await resourceNotificationService.WaitForResourceAsync("web", KnownResourceStates.Running)
-                    .WaitAsync(TimeSpan.FromMinutes(5));
+                    .WaitAsync(TimeSpan.FromMinutes(2));
 
                 _app = app;
                 WebBaseUri = app.GetEndpoint("web");
                 return;
             }
-            catch when (attempt < maxAttempts)
+            catch (Exception ex) when (attempt < maxAttempts)
             {
+                Console.WriteLine($"AppHostFixture: startup attempt {attempt}/{maxAttempts} failed, retrying with a fresh AppHost. {ex.GetType().Name}: {ex.Message}");
                 if (app is not null)
                 {
                     await app.DisposeAsync();

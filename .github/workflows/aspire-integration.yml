@@ -4,8 +4,8 @@ name: Aspire Integration Tests (manual)
 # via DistributedApplicationTestingBuilder (the HTTP-level flow tests and the Playwright browser
 # E2E tests share one collection fixture, so the emulator boots once) — and is excluded from
 # pr.yml's required checks (see the comment there) because the emulator's own startup time in CI
-# is slow and inconsistent: one run had it healthy in ~2 minutes, another exhausted a 3-attempt/
-# 5-minute-each retry budget and still timed out. That makes it unsuitable as a PR gate, but
+# is slow and inconsistent: one run had it healthy in ~2 minutes, another never got there before
+# the fixture's retry budget ran out. That makes it unsuitable as a PR gate, but
 # it's still real coverage worth having on demand — to verify a fix before landing it, or to
 # investigate the emulator flakiness itself, without blocking every PR on it.
 on:
