@@ -10,7 +10,6 @@ using Azure.Provisioning;
 using Azure.Provisioning.AppContainers;
 using Azure.Provisioning.Cdn;
 using Azure.Provisioning.Expressions;
-using Azure.Provisioning.Resources;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -96,6 +95,10 @@ var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     // replica (#361) doesn't get probed on an arbitrary route.
     .WithHttpProbe(ProbeType.Liveness, "/health")
     .WithEnvironment("FrontDoor__Id", frontDoorId)
+    // The public origin Front Door serves this app on. Kuulla.ServiceDefaults rewrites
+    // Request.Host to this so absolute URLs aren't built from ACA's raw *.azurecontainerapps.io
+    // hostname (ACA clobbers X-Forwarded-Host, so it can't be recovered from a header).
+    .WithEnvironment("FrontDoor__PublicUrl", "https://api.kuulla.us")
     .WithReference(insights)
     .WithReference(cosmos)
     .WithReference(users)
@@ -136,6 +139,9 @@ var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .WithExternalHttpEndpoints()
     .WithHttpProbe(ProbeType.Liveness, "/health")
     .WithEnvironment("FrontDoor__Id", frontDoorId)
+    // See the api resource above — same rewrite, so Google OAuth's redirect_uri is built from
+    // app.kuulla.us rather than ACA's raw hostname (which fails redirect_uri_mismatch).
+    .WithEnvironment("FrontDoor__PublicUrl", "https://app.kuulla.us")
     .WithReference(insights)
     .WithReference(api)
     .WithEnvironment("Authentication__Google__ClientId", googleClientId)
@@ -216,39 +222,12 @@ var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
         };
         infra.Add(origin);
 
-        // ACA's own ingress overwrites the standard X-Forwarded-Host with whatever Host it
-        // receives — which, per OriginHostHeader above, is ACA's own raw hostname, not the
-        // public one the browser used. So the public hostname has to ride in on a header ACA
-        // has no reason to touch; this rule stamps it on every request before it reaches the
-        // origin. Kuulla.ServiceDefaults reads it back via ForwardedHostHeaderName. Needed for
-        // anything that builds an absolute URL from Request.Host — notably Google OAuth's
-        // callback/redirect_uri, which otherwise gets built from the raw *.azurecontainerapps.io
-        // host and fails redirect_uri_mismatch against what's registered with Google.
-        var ruleSet = new FrontDoorRuleSet($"{originBicepId}RuleSet")
-        {
-            Parent = profile
-        };
-        infra.Add(ruleSet);
-
-        var originalHostRule = new FrontDoorRule($"{originBicepId}OriginalHostRule")
-        {
-            Parent = ruleSet,
-            Order = 1,
-            Actions =
-            [
-                new DeliveryRuleRequestHeaderAction
-                {
-                    Properties = new HeaderActionProperties
-                    {
-                        HeaderAction = HeaderAction.Overwrite,
-                        HeaderName = "X-Original-Host",
-                        Value = hostName
-                    }
-                }
-            ]
-        };
-        infra.Add(originalHostRule);
-
+        // The public hostname the browser used (api.kuulla.us / app.kuulla.us) isn't forwarded
+        // to the app in a header — ACA's ingress overwrites X-Forwarded-Host with its own raw
+        // hostname. Each app is instead handed its public origin via the FrontDoor__PublicUrl
+        // env var (see the api/web resources above), and Kuulla.ServiceDefaults rewrites
+        // Request.Host to it so absolute URLs (Google OAuth's redirect_uri among them) are built
+        // from the public hostname rather than ACA's *.azurecontainerapps.io one.
         var route = new FrontDoorRoute($"{originBicepId}Route")
         {
             Parent = endpoint,
@@ -259,8 +238,7 @@ var frontDoor = builder.AddAzureInfrastructure("frontdoor", infra =>
             // app.kuulla.us) — Enabled also serves the endpoint's auto-generated
             // *.z01.azurefd.net default domain, which shouldn't be a reachable public entry point.
             LinkToDefaultDomain = LinkToDefaultDomain.Disabled,
-            HttpsRedirect = HttpsRedirect.Enabled,
-            RuleSets = [new WritableSubResource { Id = ruleSet.Id }]
+            HttpsRedirect = HttpsRedirect.Enabled
         };
         // Route must wait for origin to be created — without this, ARM deploys the route in
         // parallel and fails because the origin group has no origins yet (OriginGroupId above

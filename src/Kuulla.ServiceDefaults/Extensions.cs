@@ -32,24 +32,16 @@ public static class Extensions
         // Front Door -> ACA is a multi-hop proxy chain whose IPs aren't known/stable, so the
         // usual KnownProxies/KnownNetworks allowlist can't validate it; trust X-Forwarded-* from
         // any hop instead, the same way UseFrontDoorIdRestriction below trusts X-Azure-FDID
-        // without an IP check. Without this, ASP.NET Core builds redirect_uri/absolute URLs
-        // (Google OAuth's callback URL among them) from ACA's raw *.azurecontainerapps.io
-        // Host/http scheme instead of the app.kuulla.us/https that the browser actually requested.
+        // without an IP check. This recovers the client IP (X-Forwarded-For) and the original
+        // https scheme (X-Forwarded-Proto) the browser used through Front Door.
         //
-        // The host part still needs a header ACA won't touch: ACA's own ingress overwrites the
-        // standard X-Forwarded-Host with whatever Host it received from Front Door — which is
-        // ACA's raw hostname, since AppHost.cs's FrontDoorOrigin.OriginHostHeader has to stay
-        // pointed at that raw hostname (there's no custom domain bound to the Container App
-        // itself). So Front Door's Rules Engine (see AppHost.cs) instead stamps the real
-        // public hostname onto a header of our own, "X-Original-Host", that ACA has no reason
-        // to know about or rewrite, and this middleware is told to read the host from that
-        // header instead of the standard (and unreliable, here) X-Forwarded-Host.
+        // The host is handled separately (see MapDefaultEndpoints, FrontDoor:PublicUrl): ACA's
+        // own ingress overwrites X-Forwarded-Host with its raw *.azurecontainerapps.io hostname,
+        // so it can't be trusted here. Each app is instead told its own public origin via config.
         builder.Services.Configure<ForwardedHeadersOptions>(options =>
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
-                | ForwardedHeaders.XForwardedProto
-                | ForwardedHeaders.XForwardedHost;
-            options.ForwardedHostHeaderName = "X-Original-Host";
+                | ForwardedHeaders.XForwardedProto;
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
         });
@@ -144,10 +136,29 @@ public static class Extensions
         // which is exactly what gates the dev-only token-minting endpoints in Development.
         // Must run before anything that reads Request.Scheme/Host (HTTPS redirection, OAuth
         // challenge/callback URL generation, UseFrontDoorIdRestriction) so they see the
-        // original app.kuulla.us/https the browser requested, not ACA's internal hop.
+        // original https scheme the browser requested, not ACA's internal http hop.
         if (!string.IsNullOrEmpty(app.Configuration["FrontDoor:Id"]))
         {
             app.UseForwardedHeaders();
+        }
+
+        // The host can't be recovered from a forwarded header behind Front Door: ACA's ingress
+        // overwrites X-Forwarded-Host with its own raw *.azurecontainerapps.io hostname before
+        // the request reaches this app. Instead, each app is handed its own public origin
+        // (https://api.kuulla.us / https://app.kuulla.us) via config at deploy time (AppHost.cs),
+        // and Request.Host is rewritten to it here. Without this, ASP.NET Core builds absolute
+        // URLs — Google OAuth's redirect_uri among them — from the raw ACA hostname, which fails
+        // redirect_uri_mismatch against what's registered with Google. Runs after
+        // UseForwardedHeaders so Request.Scheme is already the browser's https by this point.
+        if (Uri.TryCreate(app.Configuration["FrontDoor:PublicUrl"], UriKind.Absolute, out var publicUrl))
+        {
+            var publicHost = new HostString(publicUrl.Authority);
+            app.Use((context, next) =>
+            {
+                context.Request.Scheme = publicUrl.Scheme;
+                context.Request.Host = publicHost;
+                return next(context);
+            });
         }
 
         // Adding health checks endpoints to applications in non-development environments has security implications.
