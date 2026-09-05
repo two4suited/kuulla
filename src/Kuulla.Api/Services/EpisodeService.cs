@@ -186,6 +186,15 @@ public class EpisodeService(
         // scoped to this show's subscribers and can belong to any user.
         await InsertIntoDynamicPlaylistsAsync(showId, insertedEpisodes.ToList(), cancellationToken);
 
+        // Keep each subscriber's Subscription.LatestEpisodePublishedAt fresh for the "Latest
+        // episode" sort mode (#438), reusing the subscriberIds scan above. Only advances the
+        // value, so a late-arriving old episode in this batch can't move a show backward.
+        // Enumerable.Max on DateTimeOffset? skips nulls and returns null when every value is null.
+        if (insertedEpisodes.Max(e => e.PublishedAt) is { } latestPublishedAt)
+        {
+            await UpdateSubscribersLatestEpisodeAsync(showId, subscriberIds, latestPublishedAt, cancellationToken);
+        }
+
         // Push notifications (#216) — best-effort and gated to recently-published episodes only,
         // see RecentEpisodeWindow's doc comment above for why. Runs after (not folded into) the
         // subscriber-enforcement loop above so a notification failure can never affect the
@@ -488,6 +497,46 @@ public class EpisodeService(
         return results;
     }
 
+    // Advances Subscription.LatestEpisodePublishedAt for every subscriber of this show (#438).
+    // Point read + conditional upsert per row (subscriptions are partitioned by UserId, id ==
+    // ShowId) rather than a cross-partition patch, matching how the rest of this service touches
+    // the subscriptions container. Best-effort: a per-row failure is logged and skipped so it
+    // can't fail episode caching itself — the value self-heals on the next feed poll.
+    private async Task UpdateSubscribersLatestEpisodeAsync(
+        string showId, IReadOnlyList<string> subscriberIds, DateTimeOffset latestEpisodePublishedAt, CancellationToken cancellationToken)
+    {
+        await Parallel.ForEachAsync(
+            subscriberIds,
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
+            async (userId, ct) =>
+            {
+                try
+                {
+                    var existing = await subscriptionsContainer.ReadItemAsync<Subscription>(
+                        showId, new PartitionKey(userId), cancellationToken: ct);
+
+                    if (existing.Resource.LatestEpisodePublishedAt is { } current && current >= latestEpisodePublishedAt)
+                    {
+                        return;
+                    }
+
+                    var updated = existing.Resource with { LatestEpisodePublishedAt = latestEpisodePublishedAt };
+                    await subscriptionsContainer.UpsertItemAsync(
+                        updated, new PartitionKey(userId), new ItemRequestOptions { IfMatchEtag = existing.ETag }, ct);
+                }
+                catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.PreconditionFailed)
+                {
+                    // NotFound: the subscription was removed between the scan and this write.
+                    // PreconditionFailed: a concurrent write beat us — the next poll retries.
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(
+                        ex, "Failed to update LatestEpisodePublishedAt for user {UserId} on show {ShowId}", userId, showId);
+                }
+            });
+    }
+
     private async Task<IReadOnlyList<string>> GetSubscriberUserIdsAsync(string showId, CancellationToken cancellationToken)
     {
         var results = new List<string>();
@@ -573,5 +622,29 @@ public class EpisodeService(
         }
 
         return items;
+    }
+
+    public async Task<DateTimeOffset?> GetNewestCachedEpisodePublishedAtAsync(string showId, CancellationToken cancellationToken)
+    {
+        // Single-partition, single-item read — no feed fallback (that's GetEpisodesAsync's job).
+        // Cosmos orders nulls first under DESC, so the WHERE guard keeps LIMIT 1 landing on the
+        // newest episode that actually has a publish date.
+        var queryDefinition = new QueryDefinition(
+                "SELECT VALUE c.PublishedAt FROM c WHERE c.ShowId = @showId AND IS_DEFINED(c.PublishedAt) AND c.PublishedAt != null " +
+                "ORDER BY c.PublishedAt DESC OFFSET 0 LIMIT 1")
+            .WithParameter("@showId", showId);
+        var requestOptions = new QueryRequestOptions { PartitionKey = new PartitionKey(showId) };
+
+        using var iterator = episodesContainer.GetItemQueryIterator<DateTimeOffset?>(queryDefinition, requestOptions: requestOptions);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            foreach (var publishedAt in response)
+            {
+                return publishedAt;
+            }
+        }
+
+        return null;
     }
 }

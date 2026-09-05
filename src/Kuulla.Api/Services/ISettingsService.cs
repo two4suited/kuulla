@@ -17,6 +17,9 @@ public interface ISettingsService
     Task<UserSettings> UpdateUnlistenedEpisodeCountAsync(
         string userId, UnlistenedEpisodeCount unlistenedEpisodeCount, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateSubscriptionSortOrderAsync(
+        string userId, SubscriptionSortOrder subscriptionSortOrder, CancellationToken cancellationToken);
+
     Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken);
 
     Task<ShowSettings> UpdateShowUnlistenedEpisodeCountAsync(

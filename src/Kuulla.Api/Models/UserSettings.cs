@@ -64,6 +64,11 @@ public record UserSettings(
     // remembered default only; the actual running countdown is session-local and lives entirely
     // on-device (AudioPlayer/SleepTimer on iOS), never synced or persisted here.
     int? SleepTimerDefaultDurationMinutes = null,
+    // How the subscribed-shows list is ordered on Library/Subscriptions (#438). Title is the
+    // CLR zero value, so a settings document written before this field existed deserializes it
+    // as Title — the Library's historical default — with no DefaultValueHandling needed (unlike
+    // NotificationsEnabled, whose non-zero default does need it).
+    SubscriptionSortOrder SubscriptionSortOrder = SubscriptionSortOrder.Title,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -72,7 +77,8 @@ public record UserSettings(
     public static UserSettings CreateDefault(string userId) =>
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
             PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false,
-            SmartSpeed: false, NotificationsEnabled: true, SleepTimerDefaultDurationMinutes: null, UpdatedAt: DateTimeOffset.UtcNow);
+            SmartSpeed: false, NotificationsEnabled: true, SleepTimerDefaultDurationMinutes: null,
+            SubscriptionSortOrder: SubscriptionSortOrder.Title, UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization

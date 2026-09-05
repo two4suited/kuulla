@@ -114,6 +114,71 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateSubscriptionSortOrderAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateSubscriptionSortOrderAsync(UserId, SubscriptionSortOrder.LatestEpisode, CancellationToken.None);
+
+        Assert.Equal(SubscriptionSortOrder.LatestEpisode, result.SubscriptionSortOrder);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesStoredSubscriptionSortOrderWhenChangeOmitsIt()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            SubscriptionSortOrder: SubscriptionSortOrder.RecentlyAdded);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        // Older client that doesn't send the field yet.
+        var change = MakeChange(DateTimeOffset.UtcNow, subscriptionSortOrder: null);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.SubscriptionSortOrder == SubscriptionSortOrder.RecentlyAdded),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncAsync_AppliesSubscriptionSortOrderFromChange()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1));
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var change = MakeChange(DateTimeOffset.UtcNow, subscriptionSortOrder: SubscriptionSortOrder.Manual);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.SubscriptionSortOrder == SubscriptionSortOrder.Manual),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task GetShowSettingsAsync_ReturnsDefaultWhenNoDocumentExists()
     {
         const string showId = "show-1";
@@ -755,10 +820,11 @@ public class SettingsServiceTests
         DateTimeOffset updatedAt,
         float playbackSpeed = 1.0f,
         bool? notificationsEnabled = true,
-        int? sleepTimerDefaultDurationMinutes = null) =>
+        int? sleepTimerDefaultDurationMinutes = null,
+        SubscriptionSortOrder? subscriptionSortOrder = SubscriptionSortOrder.Title) =>
         new(
             UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
-            notificationsEnabled, sleepTimerDefaultDurationMinutes, updatedAt);
+            notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, updatedAt);
 
     [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()

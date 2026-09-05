@@ -21,20 +21,34 @@ public class SubscriptionsTests : WebTestContext
         Func<HttpRequestMessage, HttpResponseMessage>? onGetSubscriptions = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onGetNewEpisodes = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onGetInProgress = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? onDelete = null) => new(request =>
+        Func<HttpRequestMessage, HttpResponseMessage>? onDelete = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onGetSettings = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onPutSortOrder = null) => new(request =>
     {
+        if (request.RequestUri!.AbsolutePath == "/api/settings/subscription-sort-order" && request.Method == HttpMethod.Put)
+        {
+            return onPutSortOrder?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { subscriptionSortOrder = 0, version = 2 }) };
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
+        {
+            return onGetSettings?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { subscriptionSortOrder = 0, version = 1 }) };
+        }
+
         if (request.Method == HttpMethod.Delete)
         {
             return onDelete?.Invoke(request) ?? new HttpResponseMessage(HttpStatusCode.OK);
         }
 
-        if (request.RequestUri!.AbsolutePath == "/api/episodes/in-progress-shows" && request.Method == HttpMethod.Get)
+        if (request.RequestUri.AbsolutePath == "/api/episodes/in-progress-shows" && request.Method == HttpMethod.Get)
         {
             return onGetInProgress?.Invoke(request) ??
                 new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<string>()) };
         }
 
-        if (request.RequestUri!.AbsolutePath == "/api/subscriptions" && request.Method == HttpMethod.Get)
+        if (request.RequestUri.AbsolutePath == "/api/subscriptions" && request.Method == HttpMethod.Get)
         {
             return onGetSubscriptions?.Invoke(request) ??
                 new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Subscriptions) };
@@ -119,6 +133,47 @@ public class SubscriptionsTests : WebTestContext
         var cut = RenderComponent<Subscriptions>();
 
         cut.WaitForAssertion(() => Assert.Contains("Something went wrong", cut.Markup));
+    }
+
+    [Fact]
+    public void RendersSortControl_WithPersistedSelection()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(
+            onGetSettings: _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { subscriptionSortOrder = 2, version = 3 }),
+            }));
+
+        var cut = RenderComponent<Subscriptions>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var select = cut.Find("select.form-select");
+            Assert.Equal("RecentlyAdded", select.GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void PersistsSortChoice_WhenSortControlChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        string? putBody = null;
+        ConfigureApi(RouteHandler(onPutSortOrder: request =>
+        {
+            putBody = request.Content!.ReadAsStringAsync().Result;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { subscriptionSortOrder = 1, version = 2 }),
+            };
+        }));
+
+        var cut = RenderComponent<Subscriptions>();
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("select.form-select")));
+
+        cut.Find("select.form-select").Change("LatestEpisode");
+
+        cut.WaitForAssertion(() => Assert.Contains("1", putBody ?? ""));
     }
 
     [Fact]

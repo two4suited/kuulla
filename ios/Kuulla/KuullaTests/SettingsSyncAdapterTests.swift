@@ -58,7 +58,7 @@ final class SettingsSyncAdapterTests: MockedApiTestCase {
 
         stubSync(
             serverChanges: """
-            [{"unlistenedEpisodeCount":10,"version":2,"autoArchiveRule":1,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":2.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":true,"smartSpeed":true,"notificationsEnabled":false,"updatedAt":"2026-08-19T09:00:00Z"}]
+            [{"unlistenedEpisodeCount":10,"version":2,"autoArchiveRule":1,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":2.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":true,"smartSpeed":true,"notificationsEnabled":false,"subscriptionSortOrder":2,"updatedAt":"2026-08-19T09:00:00Z"}]
             """,
             hash: "h2")
         let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")
@@ -72,7 +72,34 @@ final class SettingsSyncAdapterTests: MockedApiTestCase {
         XCTAssertTrue(stored.autoDownloadNewEpisodes)
         XCTAssertTrue(stored.smartSpeed)
         XCTAssertFalse(stored.notificationsEnabled)
+        XCTAssertEqual(stored.subscriptionSortOrder, .recentlyAdded)
         XCTAssertFalse(stored.isDirty)
+    }
+
+    func testSyncNowSendsDirtySubscriptionSortOrderInRequestBody() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let settings = UserSettings(
+            userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .never,
+            subscriptionSortOrder: .latestEpisode, updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(UserSettingsRecord(from: settings, isDirty: true))
+        try context.save()
+
+        var capturedBody: Data?
+        let json = """
+        {"serverChanges":[],"syncedAt":"2026-08-19T10:00:00Z","hash":"h1"}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+        await engine.syncNow()
+
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        let changes = try XCTUnwrap(bodyJSON["changes"] as? [[String: Any]])
+        XCTAssertEqual(changes.first?["subscriptionSortOrder"] as? Int, SubscriptionSortOrder.latestEpisode.rawValue)
     }
 
     func testApplyDiscardsServerChangeOlderThanStoredRecord() throws {
@@ -122,7 +149,7 @@ final class SettingsSyncAdapterTests: MockedApiTestCase {
 
         stubSync(
             serverChanges: """
-            [{"unlistenedEpisodeCount":10,"version":2,"autoArchiveRule":1,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":2.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":true,"smartSpeed":true,"notificationsEnabled":false,"sleepTimerDefaultDurationMinutes":45,"updatedAt":"2026-08-19T09:00:00Z"}]
+            [{"unlistenedEpisodeCount":10,"version":2,"autoArchiveRule":1,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":2.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":true,"smartSpeed":true,"notificationsEnabled":false,"sleepTimerDefaultDurationMinutes":45,"subscriptionSortOrder":0,"updatedAt":"2026-08-19T09:00:00Z"}]
             """,
             hash: "h2")
         let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")

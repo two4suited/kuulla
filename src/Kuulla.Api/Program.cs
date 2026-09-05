@@ -1160,6 +1160,22 @@ settings.MapPut("", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/subscription-sort-order", async (
+    UpdateSubscriptionSortOrderRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!Enum.IsDefined(request.SubscriptionSortOrder))
+    {
+        return Results.BadRequest(new { error = "'subscriptionSortOrder' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateSubscriptionSortOrderAsync(userId, request.SubscriptionSortOrder, ct);
+    return Results.Ok(result);
+});
+
 settings.MapGet("/shows/{showId}", async (
     string showId,
     ClaimsPrincipal user,

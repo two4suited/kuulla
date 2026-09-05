@@ -6,4 +6,5 @@ public record Subscription(
     string ShowTitle,
     string ShowAuthor,
     string? ShowArtworkUrl,
-    DateTimeOffset SubscribedAt);
+    DateTimeOffset SubscribedAt,
+    DateTimeOffset? LatestEpisodePublishedAt = null);

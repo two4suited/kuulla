@@ -8,9 +8,13 @@ struct LibraryView: View {
     @State private var isLoadingPlaylists = false
     @State private var showsErrorMessage: String?
     @State private var playlistsErrorMessage: String?
+    @State private var sortOrder: SubscriptionSortOrder = .title
+    @State private var sortSaveTask: Task<Void, Never>?
+    @State private var sortSaveError: String?
 
     private let subscriptionClient = SubscriptionClient()
     private let playlistClient = PlaylistClient()
+    private let settingsClient = SettingsClient()
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 16)]
 
@@ -25,6 +29,9 @@ struct LibraryView: View {
         .navigationTitle("Library")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                sortMenu
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(destination: FeedView()) {
                     Image(systemName: "bell")
                 }
@@ -34,12 +41,65 @@ struct LibraryView: View {
         .task {
             async let showsTask: Void = loadShows()
             async let playlistsTask: Void = loadPlaylists()
-            _ = await (showsTask, playlistsTask)
+            async let sortTask: Void = loadSortOrder()
+            _ = await (showsTask, playlistsTask, sortTask)
         }
         .refreshable {
             async let showsTask: Void = loadShows()
             async let playlistsTask: Void = loadPlaylists()
             _ = await (showsTask, playlistsTask)
+        }
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort shows", selection: sortOrderBinding) {
+                // Manual mode arrives with #438 PR 2 — omitted from the picker until then.
+                ForEach(SubscriptionSortOrder.allCases.filter { $0 != .manual }) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel("Sort shows")
+        .disabled(subscriptions.isEmpty && showsErrorMessage == nil)
+    }
+
+    private var sortOrderBinding: Binding<SubscriptionSortOrder> {
+        Binding(
+            get: { sortOrder },
+            set: { newValue in
+                let previous = sortOrder
+                guard newValue != previous else { return }
+                sortOrder = newValue
+                subscriptions = sortedSubscriptions(subscriptions, by: newValue)
+                sortSaveError = nil
+                persistSortOrder(newValue, revertingTo: previous)
+            })
+    }
+
+    private func loadSortOrder() async {
+        guard let settings = try? await settingsClient.getSettings(), !Task.isCancelled else { return }
+        sortOrder = settings.subscriptionSortOrder
+        subscriptions = sortedSubscriptions(subscriptions, by: sortOrder)
+    }
+
+    // Cancels an in-flight save when a new choice comes in so the last pick wins, mirroring
+    // SettingsView's saveTask pattern. On failure the optimistic change is rolled back and an
+    // error is shown, matching the web pages — a silently-dropped save would otherwise revert
+    // itself on the next launch with no explanation.
+    private func persistSortOrder(_ newValue: SubscriptionSortOrder, revertingTo previous: SubscriptionSortOrder) {
+        sortSaveTask?.cancel()
+        sortSaveTask = Task {
+            do {
+                _ = try await settingsClient.updateSubscriptionSortOrder(newValue)
+            } catch {
+                guard !Task.isCancelled else { return }
+                sortOrder = previous
+                subscriptions = sortedSubscriptions(subscriptions, by: previous)
+                sortSaveError = "Couldn't save your sort choice. Please try again."
+            }
         }
     }
 
@@ -94,6 +154,13 @@ struct LibraryView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
 
+            if let sortSaveError {
+                Text(sortSaveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+            }
+
             if isLoadingShows {
                 ProgressView()
                     .padding(.horizontal)
@@ -125,8 +192,7 @@ struct LibraryView: View {
         showsErrorMessage = nil
 
         do {
-            let results = try await subscriptionClient.getSubscriptions()
-                .sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
+            let results = sortedSubscriptions(try await subscriptionClient.getSubscriptions(), by: sortOrder)
             if !Task.isCancelled {
                 subscriptions = results
             }

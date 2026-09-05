@@ -13,6 +13,7 @@ public record UserSettings(
     bool AutoDownloadNewEpisodes = false,
     bool SmartSpeed = false,
     int? SleepTimerDefaultDurationMinutes = null,
+    SubscriptionSortOrder SubscriptionSortOrder = SubscriptionSortOrder.Title,
     DateTimeOffset UpdatedAt = default,
     string? DeviceId = null);
 

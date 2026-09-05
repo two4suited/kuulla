@@ -20,6 +20,13 @@ public class SubscriptionServiceTests
     {
         _sut = new SubscriptionService(
             _subscriptionsContainer.Object, _showService.Object, _episodeService.Object, _episodeStateService.Object);
+
+        // SubscribeAsync reads the newest cached episode date to stamp
+        // Subscription.LatestEpisodePublishedAt (#438); default to null so tests that don't care
+        // about it are unaffected.
+        _episodeService
+            .Setup(s => s.GetNewestCachedEpisodePublishedAtAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((DateTimeOffset?)null);
     }
 
     [Fact]
@@ -69,6 +76,38 @@ public class SubscriptionServiceTests
         Assert.Equal(show.Title, result.ShowTitle);
         Assert.Equal(show.Author, result.ShowAuthor);
         Assert.Equal(show.ArtworkUrl, result.ShowArtworkUrl);
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_StampsLatestEpisodePublishedAtFromNewestEpisode()
+    {
+        var show = CosmosTestHelpers.MakeShow(ShowId);
+        var newest = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _episodeService
+            .Setup(s => s.GetNewestCachedEpisodePublishedAtAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(newest);
+        _subscriptionsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Subscription>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Subscription s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.SubscribeAsync(UserId, ShowId, CancellationToken.None);
+
+        Assert.Equal(newest, result!.LatestEpisodePublishedAt);
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_LeavesLatestEpisodePublishedAtNullWhenShowHasNoEpisodes()
+    {
+        var show = CosmosTestHelpers.MakeShow(ShowId);
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _subscriptionsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Subscription>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Subscription s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.SubscribeAsync(UserId, ShowId, CancellationToken.None);
+
+        Assert.Null(result!.LatestEpisodePublishedAt);
     }
 
     [Fact]

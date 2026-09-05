@@ -41,6 +41,12 @@ public class SubscriptionService(
             return null;
         }
 
+        // Seed the newest-episode date for the "Latest episode" sort mode (#438) from what's
+        // already cached — no live feed fetch, so subscribe stays a fast point operation. If
+        // nothing is cached yet the value stays null; the first show-open and every feed poll
+        // run CacheEpisodesAsync, which backfills it for all subscribers.
+        var latestEpisodePublishedAt = await episodeService.GetNewestCachedEpisodePublishedAtAsync(showId, cancellationToken);
+
         var subscription = new Subscription(
             showId,
             userId,
@@ -48,7 +54,8 @@ public class SubscriptionService(
             show.Title,
             show.Author,
             show.ArtworkUrl,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            latestEpisodePublishedAt);
 
         try
         {
