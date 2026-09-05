@@ -1,0 +1,89 @@
+name: Deploy to Azure
+
+# Deploys Kuulla to Azure Container Apps via `aspire deploy`. Runs on every push to `main`
+# (i.e. after a PR has already passed pr.yml's required checks and been merged) and can also be
+# triggered manually. The `production` GitHub Environment below is where the actual gate lives —
+# configure required reviewers on it so this doesn't provision/update cloud resources unattended
+# (see issue #365).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # Self-contained build/test gate rather than trusting that main's history already passed CI —
+  # cheap insurance, and it also gives the deploy job something concrete it "needs".
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore Kuulla.sln
+
+      - name: Build (Release)
+        run: dotnet build Kuulla.sln --no-restore --configuration Release
+
+      - name: Test API (Debug)
+        run: dotnet test tests/Kuulla.Api.Tests/Kuulla.Api.Tests.csproj --configuration Debug
+
+      - name: Test Web
+        run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
+
+  deploy:
+    name: aspire deploy
+    needs: build-test
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+      DOTNET_NOLOGO: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Aspire CLI
+        run: |
+          curl -sSL https://aspire.dev/install.sh | bash
+          echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Preview deployment steps
+        run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --list-steps
+
+      - name: Deploy with Aspire
+        run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --non-interactive
+        env:
+          Azure__SubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          Azure__Location: ${{ vars.AZURE_LOCATION }}
+          Azure__ResourceGroup: ${{ vars.AZURE_RESOURCE_GROUP }}
+          Parameters__google_client_id: ${{ vars.GOOGLE_CLIENT_ID }}
+          Parameters__google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          Parameters__google_ios_client_id: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+          Parameters__apns_key_id: ${{ vars.APNS_KEY_ID }}
+          Parameters__apns_team_id: ${{ vars.APNS_TEAM_ID }}
+          Parameters__apns_bundle_id: ${{ vars.APNS_BUNDLE_ID }}
+          Parameters__apns_private_key: ${{ secrets.APNS_PRIVATE_KEY }}
