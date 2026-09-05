@@ -1,0 +1,41 @@
+name: Release
+
+# A release is cut by pushing a CalVer tag `vYYYY.M.N` at a chosen `main` commit
+# (`scripts/new-release.sh` computes and pushes it). That tag push is the trigger here.
+# This job turns the tag into a GitHub Release whose notes are auto-generated from every
+# merged PR in the range previous-tag..this-tag, grouped by label per `.github/release.yml`.
+#
+# deploy.yml keys off the same `v*` tag push independently — release notes and deploy do
+# not depend on each other's ordering (see #408).
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      # Full history + the tag itself, so --generate-notes can walk back to the previous tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Create release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"
