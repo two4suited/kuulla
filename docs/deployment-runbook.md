@@ -49,3 +49,53 @@ the actual deployed `production` environment (see
 If either cold-start number turns out too high for iOS clients, revisit before assuming this
 doc is stale — the fix path is likely a custom `Http` scale rule with a lower concurrency
 threshold, not abandoning scale-to-zero.
+
+## Production telemetry (issue #366)
+
+`Kuulla.ServiceDefaults`' OpenTelemetry wiring (see
+[Extensions.cs](../src/Kuulla.ServiceDefaults/Extensions.cs)) exports to two places depending on
+environment:
+
+- **Local `aspire run`/`aspire start`**: the Aspire dashboard, via the OTLP exporter Aspire wires
+  up automatically. In-memory, capped retention — fine for local diagnostics, not for production.
+- **Deployed**: an Azure Application Insights resource (`insights` in
+  [AppHost.cs](../src/Kuulla.AppHost/AppHost.cs)), via `Azure.Monitor.OpenTelemetry.AspNetCore`.
+  `WithReference(insights)` on `api` and `web` sets `APPLICATIONINSIGHTS_CONNECTION_STRING` on
+  both, which `ConfigureOpenTelemetry` picks up automatically — no other code path changes.
+
+This resource only provisions on an actual `aspire deploy`/`aspire publish`; in Run mode the
+connection string stays unset and telemetry keeps flowing to the local dashboard as before.
+
+### Alerting
+
+Basic alerting on the scale-to-zero `api` (error rate, cold-start latency) isn't modeled in the
+AppHost itself: Aspire's Azure Monitor hosting integration (`Azure.Provisioning.Monitor`, still
+`1.0.0-beta.1` as of writing) generates invalid Bicep for `Microsoft.Insights/metricAlerts` — its
+`MetricAlert.WindowSize` serializes to a bogus root-level `WindowSize` property instead of ARM's
+actual `properties.windowSize`, which `az bicep build` rejects outright (`BCP037`). Revisit
+folding this into the AppHost once that package fixes it.
+
+Until then, run [scripts/setup-monitor-alerts.sh](../scripts/setup-monitor-alerts.sh) once after
+each deploy to a new resource group (idempotent — safe to re-run):
+
+```sh
+./scripts/setup-monitor-alerts.sh <resource-group> <alert-email>
+```
+
+It finds the deployed `insights` Application Insights resource by its `aspire-resource-name` tag
+and creates an action group plus two metric alerts scoped to it, filtered to the `api` cloud role
+so `web`'s traffic doesn't skew the thresholds:
+
+- **`kuulla-api-elevated-error-rate`** — more than 5 failed requests in a 5-minute window.
+- **`kuulla-api-cold-start-latency-spike`** — average request duration over 5s in a 5-minute
+  window (a cold start pays container start + Cosmos/Redis connection warmup on the first
+  request, so this is the practical signal for #361's tradeoff going bad).
+
+### Pulling logs directly from ACA
+
+If Application Insights doesn't have what's needed (data not yet flushed, query scope too
+narrow, etc.), pull container logs directly from Azure Container Apps as a fallback:
+
+```sh
+az containerapp logs show --name <api-or-web> --resource-group <resource-group> --follow
+```

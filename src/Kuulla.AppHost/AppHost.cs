@@ -35,6 +35,13 @@ static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app)
 // explicit .WithComputeEnvironment(...) calls.
 var aca = builder.AddAzureContainerAppEnvironment("aca");
 
+// Production telemetry backend (issue #366): ServiceDefaults' OTel wiring already exports to
+// the Aspire dashboard locally via OTLP; WithReference below sets APPLICATIONINSIGHTS_CONNECTION_STRING
+// on api/web so Azure.Monitor.OpenTelemetry.AspNetCore additionally exports there once deployed.
+// Only provisions when actually deployed (`aspire deploy`/`aspire publish`) — in Run mode the
+// connection string stays unset and telemetry keeps flowing to the local dashboard as usual.
+var insights = builder.AddAzureApplicationInsights("insights");
+
 var cosmos = builder.AddAzureCosmosDB("cosmos")
     .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer())
     .AddCosmosDatabase("kuulladb");
@@ -88,6 +95,7 @@ var apiBuilder = builder.AddProject<Projects.Kuulla_Api>("api")
     // replica (#361) doesn't get probed on an arbitrary route.
     .WithHttpProbe(ProbeType.Liveness, "/health")
     .WithEnvironment("FrontDoor__Id", frontDoorId)
+    .WithReference(insights)
     .WithReference(cosmos)
     .WithReference(users)
     .WithReference(shows)
@@ -127,6 +135,7 @@ var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .WithExternalHttpEndpoints()
     .WithHttpProbe(ProbeType.Liveness, "/health")
     .WithEnvironment("FrontDoor__Id", frontDoorId)
+    .WithReference(insights)
     .WithReference(api)
     .WithEnvironment("Authentication__Google__ClientId", googleClientId)
     .WithEnvironment("Authentication__Google__ClientSecret", googleClientSecret)
