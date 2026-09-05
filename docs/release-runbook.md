@@ -58,7 +58,8 @@ iOS App Store versioning is tracked separately in milestone #34 and is not affec
 3. The tag push triggers two workflows **in parallel**, with no ordering dependency between them:
    - **[release.yml](../.github/workflows/release.yml)** — checks out the tag with full history
      and runs `gh release create <tag> --verify-tag --generate-notes`, publishing a GitHub
-     Release.
+     Release. It then regenerates [CHANGELOG.md](../CHANGELOG.md) from all releases and commits
+     it to `main` (see [Changelog](#changelog)).
    - **[deploy.yml](../.github/workflows/deploy.yml)** — checks out the tagged commit and runs
      `aspire deploy` against the `production` environment. This waits on the `production`
      environment's required-reviewer gate before it provisions anything.
@@ -93,6 +94,20 @@ Path-based labels (`ios`, `web`, `api`, `infra`, `documentation`, …) are appli
 [the labeler workflow](../.github/workflows/labeler.yml) from the PR's changed files. **`feature`
 vs `bug` is not path-derivable** — apply one of those by hand on the PR (before it merges) when it
 matters for the notes. A PR with no matching label still ships; it just lands under "Other".
+
+## Changelog
+
+The GitHub Releases are the source of truth for release notes, but the repo is private, so the
+web app can't read them at runtime. Instead, `release.yml` runs
+[scripts/generate-changelog.sh](../scripts/generate-changelog.sh) after cutting a release: it
+flattens every published Release into [CHANGELOG.md](../CHANGELOG.md) (version, date, and the
+label-grouped bullets, attribution stripped) and commits that file to `main`.
+
+`Kuulla.Web` ships `CHANGELOG.md` in its build output and renders the three most recent entries
+in the "What's new" section of the marketing page (`/welcome`) via `ChangelogProvider`. Because
+the commit lands on `main` *after* the tag that triggered it, a release's own entry appears on
+the site with the *next* release's deploy — acceptable for a "shipped recently" list. Don't edit
+`CHANGELOG.md` by hand; re-run the script to regenerate it.
 
 ## Hotfixes
 

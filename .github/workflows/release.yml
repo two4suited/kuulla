@@ -3,7 +3,11 @@ name: Release
 # A release is cut by pushing a CalVer tag `vYYYY.M.N` at a chosen `main` commit
 # (`scripts/new-release.sh` computes and pushes it). That tag push is the trigger here.
 # This job turns the tag into a GitHub Release whose notes are auto-generated from every
-# merged PR in the range previous-tag..this-tag, grouped by label per `.github/release.yml`.
+# merged PR in the range previous-tag..this-tag, grouped by label per `.github/release.yml`,
+# then flattens all releases into a committed CHANGELOG.md on `main` (the web app ships that
+# file and renders it on the marketing page — see ChangelogProvider). The changelog commit
+# lands one release behind the deploy of the same tag, which is fine: the newest entry shows
+# on the site after the next release.
 #
 # deploy.yml keys off the same `v*` tag push independently — release notes and deploy do
 # not depend on each other's ordering (see #408).
@@ -39,3 +43,24 @@ jobs:
             --verify-tag \
             --generate-notes \
             --title "$GITHUB_REF_NAME"
+
+      - name: Regenerate CHANGELOG.md on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main origin/main
+          scripts/generate-changelog.sh
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md already current."
+            exit 0
+          fi
+          git add CHANGELOG.md
+          git commit -m "Update CHANGELOG.md for $GITHUB_REF_NAME"
+          # A concurrent push to main is possible; rebase once and retry before giving up.
+          for attempt in 1 2 3; do
+            if git push origin main; then exit 0; fi
+            git pull --rebase origin main
+          done
+          exit 1
