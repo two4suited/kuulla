@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -27,6 +28,21 @@ public static class Extensions
         builder.AddDefaultHealthChecks();
 
         builder.Services.AddServiceDiscovery();
+
+        // Front Door -> ACA is a multi-hop proxy chain whose IPs aren't known/stable, so the
+        // usual KnownProxies/KnownNetworks allowlist can't validate it; trust X-Forwarded-* from
+        // any hop instead, the same way UseFrontDoorIdRestriction below trusts X-Azure-FDID
+        // without an IP check. Without this, ASP.NET Core builds redirect_uri/absolute URLs
+        // (Google OAuth's callback URL among them) from ACA's raw *.azurecontainerapps.io
+        // Host/http scheme instead of the app.kuulla.us/https that the browser actually requested.
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                | ForwardedHeaders.XForwardedProto
+                | ForwardedHeaders.XForwardedHost;
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+        });
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
@@ -112,6 +128,18 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
+        // Only trust forwarded headers once Front Door is actually in front (mirrors
+        // UseFrontDoorIdRestriction's own no-op below) — otherwise anyone reaching this
+        // service directly could spoof X-Forwarded-For to impersonate a loopback caller,
+        // which is exactly what gates the dev-only token-minting endpoints in Development.
+        // Must run before anything that reads Request.Scheme/Host (HTTPS redirection, OAuth
+        // challenge/callback URL generation, UseFrontDoorIdRestriction) so they see the
+        // original app.kuulla.us/https the browser requested, not ACA's internal hop.
+        if (!string.IsNullOrEmpty(app.Configuration["FrontDoor:Id"]))
+        {
+            app.UseForwardedHeaders();
+        }
+
         // Adding health checks endpoints to applications in non-development environments has security implications.
         // See https://aka.ms/aspire/healthchecks for details before enabling these endpoints in non-development environments.
         if (app.Environment.IsDevelopment())
