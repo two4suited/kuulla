@@ -20,6 +20,7 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       ios: ${{ steps.filter.outputs.ios }}
       shared: ${{ steps.filter.outputs.shared }}
+      apphost: ${{ steps.filter.outputs.apphost }}
       dotnet_other: ${{ steps.filter.outputs.dotnet_other }}
     steps:
       - uses: actions/checkout@v4
@@ -38,9 +39,13 @@ jobs:
               - 'ios/**'
             shared:
               - 'src/Kuulla.ServiceDefaults/**'
-              - 'src/Kuulla.AppHost/**'
               - 'Kuulla.sln'
               - '.github/workflows/**'
+            # AppHost is deployment orchestration only — it isn't a dependency of the iOS app
+            # (Swift, not .NET) the way ServiceDefaults/API contracts can be, so it gets its own
+            # category rather than feeding into `shared` and triggering an iOS build for nothing.
+            apphost:
+              - 'src/Kuulla.AppHost/**'
             # Not run by this workflow (see the Kuulla.AppHost.Tests comment below), but still
             # part of Kuulla.sln — a change here should still get build/compile coverage.
             dotnet_other:
@@ -50,7 +55,7 @@ jobs:
   build-dotnet:
     name: Build .NET
     needs: changes
-    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.dotnet_other == 'true'
+    if: needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.apphost == 'true' || needs.changes.outputs.dotnet_other == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
