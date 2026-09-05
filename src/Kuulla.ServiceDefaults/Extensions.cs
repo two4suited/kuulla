@@ -163,6 +163,10 @@ public static class Extensions
 
         // Adding health checks endpoints to applications in non-development environments has security implications.
         // See https://aka.ms/aspire/healthchecks for details before enabling these endpoints in non-development environments.
+        // NOTE: api and web each map their own always-200 GET /health in Program.cs (independent of any
+        // downstream Cosmos/Redis health check, so the liveness probe doesn't fail during Redis scale-to-zero) —
+        // that's what ACA's liveness probe and Front Door's origin probe target. Mapping MapHealthChecks on the
+        // same "/health" route here would be an ambiguous-route conflict, so this stays Development-only.
         if (app.Environment.IsDevelopment())
         {
             // All health checks must pass for app to be considered ready to accept traffic after starting
@@ -182,7 +186,8 @@ public static class Extensions
     // — ACA still exposes its own *.azurecontainerapps.io FQDN, so this rejects anything that
     // reaches it directly instead of through Front Door. Front Door adds this header (and it
     // can't be set by an external caller — ACA only sees it once Front Door has already
-    // terminated and re-issued the request) to every request it forwards, health probes included.
+    // terminated and re-issued the request) to every request it forwards, its own origin health
+    // probe included.
     // "FrontDoor:Id" is unset locally and in any environment not yet behind Front Door, so this
     // is a no-op there rather than locking out direct access before Front Door exists.
     public static WebApplication UseFrontDoorIdRestriction(this WebApplication app)
@@ -195,6 +200,20 @@ public static class Extensions
 
         app.Use(async (context, next) =>
         {
+            // ACA's own liveness/readiness probes hit the container directly on the health paths
+            // without going through Front Door, so they can never carry X-Azure-FDID — 403'ing
+            // them makes every deployed revision fail its liveness probe, never go ready, and
+            // leaves traffic pinned to the previous revision. Let those paths through: api/web
+            // map them to an always-200 handler with no sensitive body. (Front Door's origin
+            // probe carries the header like any forwarded request, so it doesn't rely on this.)
+            var path = context.Request.Path;
+            if (path.Equals(HealthEndpointPath, StringComparison.OrdinalIgnoreCase)
+                || path.Equals(AlivenessEndpointPath, StringComparison.OrdinalIgnoreCase))
+            {
+                await next(context);
+                return;
+            }
+
             if (context.Request.Headers.TryGetValue("X-Azure-FDID", out var requestFrontDoorId)
                 && requestFrontDoorId == frontDoorId)
             {
