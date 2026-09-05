@@ -11,9 +11,16 @@ var builder = DistributedApplication.CreateBuilder(args);
 // leaving Rules empty means ACA falls back to its default HTTP concurrent-requests scale rule,
 // which is what wakes a cold instance on the first inbound request via WithExternalHttpEndpoints.
 // redis has no HTTP ingress, so its scale rule falls back to ACA's default TCP-connections rule
-// instead — an inbound connection from api wakes it the same way. This only takes effect in
-// publish/deploy mode; PublishAsAzureContainerApp is a no-op locally.
-static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app) => app.Template.Scale.MinReplicas = 0;
+// instead — an inbound connection from api wakes it the same way.
+// CooldownPeriod is the number of seconds KEDA waits after the last active trigger before
+// scaling down to MinReplicas; ACA defaults it to 300s (5 minutes), so it's raised here to keep
+// containers warm for 30 minutes of inactivity instead.
+// This only takes effect in publish/deploy mode; PublishAsAzureContainerApp is a no-op locally.
+static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app)
+{
+    app.Template.Scale.MinReplicas = 0;
+    app.Template.Scale.CooldownPeriod = (int)TimeSpan.FromMinutes(30).TotalSeconds;
+}
 
 // Azure Container Apps environment for `aspire deploy`/`aspire publish` (Consumption plan).
 // Single compute environment, so every compute resource below deploys here without needing
