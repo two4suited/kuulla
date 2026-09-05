@@ -138,3 +138,36 @@ jobs:
             -configuration Debug \
             -skip-testing:KuullaUITests \
             CODE_SIGNING_ALLOWED=NO
+
+  # Structural preview of the deploy pipeline, moved here from deploy.yml so the planned steps are
+  # reviewable on the PR instead of only showing up in the post-merge deploy log. Gated on an
+  # AppHost change — nothing else in the repo alters the deployment step list.
+  #
+  # No Azure login: `--list-steps` enumerates the pipeline the AppHost model produces without
+  # applying it, and keeping cloud credentials out of PR CI is deliberate. If a future AppHost
+  # change makes `aspire deploy --list-steps` require an authenticated Azure context, switch this
+  # to `aspire publish --list-steps` (fully offline) rather than granting this job OIDC.
+  preview-deploy-steps:
+    name: Preview deploy steps
+    needs: changes
+    if: needs.changes.outputs.apphost == 'true'
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+      DOTNET_NOLOGO: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Aspire CLI
+        run: |
+          curl -sSL https://aspire.dev/install.sh | bash
+          echo "$HOME/.aspire/bin" >> "$GITHUB_PATH"
+
+      - name: Preview deployment steps
+        run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --list-steps --non-interactive
