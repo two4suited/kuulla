@@ -86,7 +86,9 @@ private struct UserSettingsChangeDTO: Encodable {
     // Non-optional (unlike the API's nullable UserSettingsChange.SubscriptionSortOrder) — this
     // client always knows the field and always sends it, so there's no "omit to keep stored".
     let subscriptionSortOrder: SubscriptionSortOrder
-    // Always sent (empty array = "user has no manual order" / "cleared it").
+    // Always sent (this DTO can't express null). An empty array means "this device has no
+    // manual arrangement"; the server treats null and empty alike here and keeps whatever's
+    // stored, so a device that never used Manual mode can't wipe another device's order.
     let subscriptionManualOrder: [String]
     let updatedAt: Date
 }

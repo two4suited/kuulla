@@ -107,6 +107,7 @@
                     <div class="col" style="@(isManual ? "cursor: move;" : null)"
                          draggable="@(isManual ? "true" : null)"
                          @ondragstart="@(() => dragSourceIndex = index)"
+                         @ondragend="@(() => dragSourceIndex = null)"
                          @ondragover:preventDefault="isManual"
                          @ondrop="@(() => OnManualDropAsync(index))">
                         <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none text-body"
@@ -201,29 +202,25 @@
     {
         var source = dragSourceIndex;
         dragSourceIndex = null;
-        if (source is not { } from || from == targetIndex)
+        if (source is not { } from)
         {
             return;
         }
 
         // Rebuild the full ordered show-id list from the current visual order with the drag
         // applied, then send it wholesale (last-write-wins on the whole array, per #438).
-        var ordered = SubscriptionSorting.Sort(subscriptions, sortOrder, manualOrder).Select(s => s.ShowId).ToList();
-        if (from < 0 || from >= ordered.Count || targetIndex < 0 || targetIndex >= ordered.Count)
+        var ordered = SubscriptionSorting.Sort(subscriptions, sortOrder, manualOrder);
+        if (SubscriptionSorting.ApplyManualMove(ordered, from, targetIndex) is not { } newOrder)
         {
             return;
         }
 
-        var moved = ordered[from];
-        ordered.RemoveAt(from);
-        ordered.Insert(targetIndex, moved);
-
         var previous = manualOrder;
-        manualOrder = ordered;
+        manualOrder = newOrder.ToList();
         manualOrderError = null;
         try
         {
-            await SettingsClient.UpdateSubscriptionManualOrderAsync(ordered);
+            await SettingsClient.UpdateSubscriptionManualOrderAsync(manualOrder);
         }
         catch (HttpRequestException)
         {

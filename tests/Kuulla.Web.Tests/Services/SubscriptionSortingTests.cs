@@ -59,6 +59,27 @@ public class SubscriptionSortingTests
     }
 
     [Fact]
+    public void ApplyManualMove_MovesTheItemAndReturnsFullOrder()
+    {
+        var view = new[] { Sub("a", "A"), Sub("b", "B"), Sub("c", "C") };
+
+        var result = SubscriptionSorting.ApplyManualMove(view, fromIndex: 2, toIndex: 0);
+
+        Assert.Equal(["c", "a", "b"], result);
+    }
+
+    [Theory]
+    [InlineData(1, 1)]   // same position
+    [InlineData(-1, 0)]  // from out of range
+    [InlineData(0, 5)]   // to out of range
+    public void ApplyManualMove_ReturnsNullForNoOpOrOutOfRange(int from, int to)
+    {
+        var view = new[] { Sub("a", "A"), Sub("b", "B") };
+
+        Assert.Null(SubscriptionSorting.ApplyManualMove(view, from, to));
+    }
+
+    [Fact]
     public void RecentlyAdded_OrdersNewestFirst()
     {
         var subs = new[]

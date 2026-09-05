@@ -197,7 +197,7 @@ public class SettingsServiceTests
     }
 
     [Fact]
-    public async Task SyncAsync_AppliesManualOrderFromChangeIncludingAnExplicitClear()
+    public async Task SyncAsync_AppliesNonEmptyManualOrderFromChange()
     {
         var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
         var stored = new UserSettings(
@@ -210,13 +210,38 @@ public class SettingsServiceTests
             .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
             .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
 
-        // Explicit empty list = "user cleared their manual arrangement", distinct from null.
+        var change = MakeChange(DateTimeOffset.UtcNow, subscriptionManualOrder: ["show-y", "show-z"]);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.SubscriptionManualOrder != null && s.SubscriptionManualOrder.SequenceEqual(new[] { "show-y", "show-z" })),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncAsync_KeepsStoredManualOrderWhenChangeSendsAnEmptyList()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            SubscriptionManualOrder: ["show-x", "show-w"]);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        // A device with no local arrangement (iOS DTO can only send [] here, never null) must
+        // not wipe the order saved from another device.
         var change = MakeChange(DateTimeOffset.UtcNow, subscriptionManualOrder: []);
         await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
 
         _settingsContainer.Verify(
             c => c.UpsertItemAsync(
-                It.Is<UserSettings>(s => s.SubscriptionManualOrder != null && s.SubscriptionManualOrder.Count == 0),
+                It.Is<UserSettings>(s => s.SubscriptionManualOrder != null && s.SubscriptionManualOrder.SequenceEqual(new[] { "show-x", "show-w" })),
                 It.IsAny<PartitionKey?>(), null, default),
             Times.Once);
     }
