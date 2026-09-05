@@ -3,7 +3,10 @@ name: Deploy to Azure
 # Deploys Kuulla to Azure Container Apps via `aspire deploy`. Runs on every push to `main`
 # (i.e. after a PR has already passed pr.yml's required checks and been merged) and can also be
 # triggered manually. Build/test is not repeated here — pr.yml already gates merges to main, and
-# `aspire deploy` builds the containers itself. The `production` GitHub Environment below is
+# `aspire deploy` builds the containers itself. The deployment-steps preview (`--list-steps`) also
+# isn't here — it runs in pr.yml on any change under src/Kuulla.AppHost/**, so the planned steps
+# are reviewable before merge rather than only in the post-merge deploy log. The `production`
+# GitHub Environment below is
 # where the actual gate lives — configure required reviewers on it so this doesn't provision/
 # update cloud resources unattended (see issue #365).
 
@@ -49,9 +52,6 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Preview deployment steps
-        run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --list-steps --non-interactive
 
       - name: Deploy with Aspire
         run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --non-interactive
