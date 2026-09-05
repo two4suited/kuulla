@@ -9,6 +9,7 @@ namespace Kuulla.Api.Services;
 public class PlaylistService(
     [FromKeyedServices("playlists")] Container playlistsContainer,
     IEpisodeService episodeService,
+    IEpisodeStateService episodeStateService,
     IShowService showService) : IPlaylistService
 {
     private readonly SyncReconciler<Playlist, PlaylistChange> _reconciler = new();
@@ -32,7 +33,7 @@ public class PlaylistService(
         var playlist = new Playlist(
             Guid.NewGuid().ToString(), userId, name, PlaylistType.Dynamic, [], now, now, DynamicConfig: config);
 
-        var items = await ComputeDynamicItemsAsync(config, cancellationToken);
+        var items = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
         var populated = playlist with { Items = items };
         await UpsertAsync(populated, cancellationToken);
         return populated;
@@ -47,7 +48,7 @@ public class PlaylistService(
             return null;
         }
 
-        var items = await ComputeDynamicItemsAsync(config, cancellationToken);
+        var items = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
         var updated = playlist with { DynamicConfig = config, Items = items, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
         return updated;
@@ -61,7 +62,7 @@ public class PlaylistService(
             return null;
         }
 
-        var items = await ComputeDynamicItemsAsync(playlist.DynamicConfig, cancellationToken);
+        var items = await ComputeDynamicItemsAsync(userId, playlist.DynamicConfig, cancellationToken);
         var updated = playlist with { Items = items, UpdatedAt = DateTimeOffset.UtcNow };
         await UpsertAsync(updated, cancellationToken);
         return updated;
@@ -77,23 +78,45 @@ public class PlaylistService(
     // PlaylistRankGenerator.UnboundedSafetyCap is the ceiling applied when the user didn't set
     // one — shared with EpisodeService's incremental insert path (#112) so both the full-rebuild
     // and per-episode-insert paths enforce the same cap.
+    // A dynamic playlist tracks what's left to listen to, not a show's whole back catalogue, so
+    // episodes the user has already finished (or that unlistened-limit enforcement auto-marked
+    // played, #97) are filtered out before ordering/capping — without this, MaxEpisodes fills up
+    // with played episodes and the "N episodes total" count dwarfs the handful actually left to
+    // hear (#433). An in-progress episode (a saved position but not Completed) is deliberately
+    // kept so a partially-heard episode isn't dropped before it's finished.
     private async Task<IReadOnlyList<PlaylistItem>> ComputeDynamicItemsAsync(
-        DynamicPlaylistConfig config, CancellationToken cancellationToken)
+        string userId, DynamicPlaylistConfig config, CancellationToken cancellationToken)
     {
         var showRank = config.PriorityList
             .Select((showId, index) => (showId, index))
             .ToDictionary(x => x.showId, x => x.index);
 
-        var episodesByShow = await Task.WhenAll(config.ShowIds.Select(async showId =>
-            (showId, episodes: await episodeService.GetAllEpisodesOrderedAsync(showId, cancellationToken))));
+        // Per show: its episodes and the user's play state for that show, fetched together. State
+        // is a single-partition query per show (GetShowStatesAsync) rather than a point read per
+        // episode — an unbounded playlist over large back catalogues would otherwise fan out
+        // thousands of point reads on every recompute.
+        var perShow = await Task.WhenAll(config.ShowIds.Select(async showId =>
+        {
+            var episodesTask = episodeService.GetAllEpisodesOrderedAsync(showId, cancellationToken);
+            var statesTask = episodeStateService.GetShowStatesAsync(userId, showId, cancellationToken);
+            await Task.WhenAll(episodesTask, statesTask);
+            return (showId, episodes: episodesTask.Result, states: statesTask.Result);
+        }));
+
+        var playedEpisodeIds = perShow
+            .SelectMany(x => x.states)
+            .Where(state => state.Completed || state.AutoPlayed)
+            .Select(state => state.EpisodeId)
+            .ToHashSet();
 
         var addedAt = DateTimeOffset.UtcNow;
 
         // MaxEpisodes is optional — no explicit cap still applies PlaylistRankGenerator.
         // UnboundedSafetyCap rather than truly no limit.
-        var ordered = episodesByShow
+        var ordered = perShow
             .OrderBy(x => showRank.TryGetValue(x.showId, out var rank) ? rank : int.MaxValue)
             .SelectMany(x => x.episodes.Select(episode => (x.showId, episode)))
+            .Where(x => !playedEpisodeIds.Contains(x.episode.Id))
             .Take(config.MaxEpisodes ?? PlaylistRankGenerator.UnboundedSafetyCap);
 
         var items = new List<PlaylistItem>();
