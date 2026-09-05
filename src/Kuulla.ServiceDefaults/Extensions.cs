@@ -35,11 +35,21 @@ public static class Extensions
         // without an IP check. Without this, ASP.NET Core builds redirect_uri/absolute URLs
         // (Google OAuth's callback URL among them) from ACA's raw *.azurecontainerapps.io
         // Host/http scheme instead of the app.kuulla.us/https that the browser actually requested.
+        //
+        // The host part still needs a header ACA won't touch: ACA's own ingress overwrites the
+        // standard X-Forwarded-Host with whatever Host it received from Front Door — which is
+        // ACA's raw hostname, since AppHost.cs's FrontDoorOrigin.OriginHostHeader has to stay
+        // pointed at that raw hostname (there's no custom domain bound to the Container App
+        // itself). So Front Door's Rules Engine (see AppHost.cs) instead stamps the real
+        // public hostname onto a header of our own, "X-Original-Host", that ACA has no reason
+        // to know about or rewrite, and this middleware is told to read the host from that
+        // header instead of the standard (and unreliable, here) X-Forwarded-Host.
         builder.Services.Configure<ForwardedHeadersOptions>(options =>
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
                 | ForwardedHeaders.XForwardedProto
                 | ForwardedHeaders.XForwardedHost;
+            options.ForwardedHostHeaderName = "X-Original-Host";
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
         });
