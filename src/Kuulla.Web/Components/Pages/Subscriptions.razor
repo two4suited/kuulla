@@ -30,19 +30,20 @@
                 {
                     <div class="col">
                         <div class="card h-100 position-relative">
-                            @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount))
-                            {
-                                <span class="badge bg-primary rounded-pill position-absolute top-0 end-0 m-2" style="pointer-events: none;">
-                                    @(unplayedCount.HitCap ? $"{unplayedCount.Count}+" : unplayedCount.Count)
-                                </span>
-                            }
-                            @if (inProgressShowIds.Contains(subscription.ShowId))
-                            {
-                                <span class="badge bg-info position-absolute top-0 start-0 m-2" style="pointer-events: none;"
-                                      title="You have an episode in progress">
-                                    <span aria-hidden="true">◐</span> In progress
-                                </span>
-                            }
+                            <div class="position-absolute top-0 end-0 m-2 d-flex flex-column align-items-end gap-1" style="pointer-events: none;">
+                                @if (unplayedCounts.TryGetValue(subscription.ShowId, out var unplayedCount))
+                                {
+                                    <span class="badge bg-primary rounded-pill">
+                                        @(unplayedCount.HitCap ? $"{unplayedCount.Count}+" : unplayedCount.Count)
+                                    </span>
+                                }
+                                @if (inProgressShowIds.Contains(subscription.ShowId))
+                                {
+                                    <span class="badge bg-info" title="You have an episode in progress">
+                                        <span aria-hidden="true">◐</span> In progress
+                                    </span>
+                                }
+                            </div>
                             @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
                             {
                                 <a href="@($"shows/{subscription.ShowId}")">
