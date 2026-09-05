@@ -40,6 +40,7 @@ var apnsBundleId = builder.AddParameter("apns-bundle-id", value: "", secret: fal
 var apnsPrivateKey = builder.AddParameter("apns-private-key", value: "", secret: true);
 
 var api = builder.AddProject<Projects.Kuulla_Api>("api")
+    .WithExternalHttpEndpoints()
     .WithReference(cosmos)
     .WithReference(users)
     .WithReference(shows)
