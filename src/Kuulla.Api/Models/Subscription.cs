@@ -17,4 +17,9 @@ public record Subscription(
     string ShowTitle,
     string ShowAuthor,
     string? ShowArtworkUrl,
-    DateTimeOffset SubscribedAt);
+    DateTimeOffset SubscribedAt,
+    // The publish date of this show's most recent episode, for the "Latest episode" sort mode
+    // (#438). Stamped on subscribe and kept fresh by EpisodeService.CacheEpisodesAsync whenever
+    // feed polling discovers newer episodes. Null when unknown (a row that predates this field);
+    // callers sort a null as oldest, and the next feed poll backfills it.
+    DateTimeOffset? LatestEpisodePublishedAt = null);

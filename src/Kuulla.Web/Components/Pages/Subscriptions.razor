@@ -4,12 +4,32 @@
 @using Kuulla.Web.Services
 @inject SubscriptionClient SubscriptionClient
 @inject EpisodeStateClient EpisodeStateClient
+@inject SettingsClient SettingsClient
 
 <PageTitle>Subscriptions</PageTitle>
 
 <AuthorizeView>
     <Authorized>
-        <h1>Subscriptions</h1>
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <h1 class="mb-0">Subscriptions</h1>
+            @if (!isLoading && loadError is null && subscriptions.Count > 0)
+            {
+                <label class="d-flex align-items-center gap-2 mb-0 small text-muted">
+                    Sort
+                    <select class="form-select form-select-sm w-auto" value="@sortOrder"
+                            @onchange="OnSortOrderChangedAsync" disabled="@isSavingSortOrder">
+                        <option value="@SubscriptionSortOrder.Title">Title (A–Z)</option>
+                        <option value="@SubscriptionSortOrder.LatestEpisode">Latest episode</option>
+                        <option value="@SubscriptionSortOrder.RecentlyAdded">Recently added</option>
+                    </select>
+                </label>
+            }
+        </div>
+
+        @if (sortOrderError is not null)
+        {
+            <p class="text-danger small">@sortOrderError</p>
+        }
 
         @if (isLoading)
         {
@@ -26,7 +46,7 @@
         else
         {
             <div class="row row-cols-2 row-cols-md-4 g-4">
-                @foreach (var subscription in subscriptions)
+                @foreach (var subscription in SubscriptionSorting.Sort(subscriptions, sortOrder))
                 {
                     <div class="col">
                         <div class="card h-100 position-relative">
@@ -92,6 +112,9 @@
     private string? confirmingShowId;
     private bool isBusy;
     private string? unsubscribeError;
+    private SubscriptionSortOrder sortOrder = SubscriptionSortOrder.Title;
+    private bool isSavingSortOrder;
+    private string? sortOrderError;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -110,7 +133,8 @@
         try
         {
             var results = await SubscriptionClient.GetSubscriptionsAsync();
-            subscriptions.AddRange(results.OrderBy(s => s.ShowTitle, StringComparer.OrdinalIgnoreCase));
+            // Ordering is applied at render time via SubscriptionSorting.Sort(sortOrder).
+            subscriptions.AddRange(results);
         }
         catch (HttpRequestException)
         {
@@ -119,6 +143,16 @@
         finally
         {
             isLoading = false;
+        }
+
+        try
+        {
+            var settings = await SettingsClient.GetSettingsAsync();
+            sortOrder = settings.SubscriptionSortOrder;
+        }
+        catch (HttpRequestException)
+        {
+            // Non-fatal — the grid still renders in the default Title order.
         }
 
         // Kept outside the try/catch above on purpose: unplayed badges are supplementary, so a
@@ -135,6 +169,32 @@
             catch (HttpRequestException)
             {
             }
+        }
+    }
+
+    private async Task OnSortOrderChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<SubscriptionSortOrder>(e.Value?.ToString(), out var newOrder) || newOrder == sortOrder)
+        {
+            return;
+        }
+
+        var previous = sortOrder;
+        sortOrder = newOrder;
+        isSavingSortOrder = true;
+        sortOrderError = null;
+        try
+        {
+            await SettingsClient.UpdateSubscriptionSortOrderAsync(newOrder);
+        }
+        catch (HttpRequestException)
+        {
+            sortOrder = previous;
+            sortOrderError = "Couldn't save your sort choice. Please try again.";
+        }
+        finally
+        {
+            isSavingSortOrder = false;
         }
     }
 
@@ -157,8 +217,8 @@
         {
             if (removed is not null)
             {
+                // Re-add; SubscriptionSorting.Sort re-orders it back into place at render time.
                 subscriptions.Add(removed);
-                subscriptions.Sort((a, b) => string.Compare(a.ShowTitle, b.ShowTitle, StringComparison.OrdinalIgnoreCase));
             }
 
             unsubscribeError = "Something went wrong while unsubscribing. Please try again.";

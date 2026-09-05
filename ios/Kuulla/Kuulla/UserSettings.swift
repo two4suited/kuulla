@@ -19,6 +19,10 @@ struct UserSettings: Codable, Hashable {
     // just "absent from an old response" — so absence-from-JSON and "no default chosen" collapse
     // to the same nil here, same as the API's own decode.
     let sleepTimerDefaultDurationMinutes: Int?
+    // How the subscribed-shows list is ordered on Library/Subscriptions (#438). Defaults to
+    // .title (see decoder below) when absent — the historical Library default — so an API
+    // response that predates this field decodes cleanly.
+    let subscriptionSortOrder: SubscriptionSortOrder
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -29,6 +33,7 @@ struct UserSettings: Codable, Hashable {
         autoSkipIntroSeconds: Int = 0, autoSkipOutroSeconds: Int = 0, playbackSpeed: Float = 1.0,
         autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7, autoDownloadNewEpisodes: Bool = false,
         smartSpeed: Bool = false, notificationsEnabled: Bool = true, sleepTimerDefaultDurationMinutes: Int? = nil,
+        subscriptionSortOrder: SubscriptionSortOrder = .title,
         updatedAt: Date = .distantPast
     ) {
         self.userId = userId
@@ -44,13 +49,14 @@ struct UserSettings: Codable, Hashable {
         self.smartSpeed = smartSpeed
         self.notificationsEnabled = notificationsEnabled
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
+        self.subscriptionSortOrder = subscriptionSortOrder
         self.updatedAt = updatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
-        case sleepTimerDefaultDurationMinutes, updatedAt
+        case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -80,6 +86,10 @@ struct UserSettings: Codable, Hashable {
         // Absent (predates #205) decodes the same as an explicit null (no default chosen yet) —
         // both mean "nothing to seed the picker with", so there's no separate fallback here.
         sleepTimerDefaultDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .sleepTimerDefaultDurationMinutes)
+        // Default to .title when absent (#438) — the historical Library sort — same rationale as
+        // autoArchiveRule above.
+        subscriptionSortOrder = try container.decodeIfPresent(
+            SubscriptionSortOrder.self, forKey: .subscriptionSortOrder) ?? .title
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -106,7 +116,8 @@ struct UserSettings: Codable, Hashable {
         // "unset" — a plain Int? param can't distinguish "omitted" from "explicitly nil" the way
         // every other field's own nil-means-unset case doesn't need to here, since this feature
         // never needs that distinction.
-        sleepTimerDefaultDurationMinutes: Int? = nil
+        sleepTimerDefaultDurationMinutes: Int? = nil,
+        subscriptionSortOrder: SubscriptionSortOrder? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -120,6 +131,7 @@ struct UserSettings: Codable, Hashable {
             smartSpeed: smartSpeed ?? self.smartSpeed,
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes ?? self.sleepTimerDefaultDurationMinutes,
+            subscriptionSortOrder: subscriptionSortOrder ?? self.subscriptionSortOrder,
             updatedAt: updatedAt)
     }
 }

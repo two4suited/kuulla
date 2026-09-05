@@ -143,6 +143,10 @@ public class SettingsService(
                 // See UserSettingsChange.SleepTimerDefaultDurationMinutes — null from the client
                 // always means "keep whatever's stored", never "clear it to unset".
                 change.SleepTimerDefaultDurationMinutes ?? stored?.SleepTimerDefaultDurationMinutes,
+                // Null means the pushing client doesn't send this field yet (see
+                // UserSettingsChange.SubscriptionSortOrder) — keep the stored choice rather than
+                // resetting it to Title.
+                change.SubscriptionSortOrder ?? stored?.SubscriptionSortOrder ?? SubscriptionSortOrder.Title,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -157,6 +161,11 @@ public class SettingsService(
         string userId, UnlistenedEpisodeCount unlistenedEpisodeCount, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(
             userId, current => current with { UnlistenedEpisodeCount = unlistenedEpisodeCount }, cancellationToken);
+
+    public Task<UserSettings> UpdateSubscriptionSortOrderAsync(
+        string userId, SubscriptionSortOrder subscriptionSortOrder, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { SubscriptionSortOrder = subscriptionSortOrder }, cancellationToken);
 
     public async Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken)
     {

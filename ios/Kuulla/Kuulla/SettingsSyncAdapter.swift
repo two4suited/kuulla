@@ -42,6 +42,7 @@ struct SettingsSyncAdapter: SyncAdapter {
                 smartSpeed: $0.smartSpeed,
                 notificationsEnabled: $0.notificationsEnabled,
                 sleepTimerDefaultDurationMinutes: $0.sleepTimerDefaultDurationMinutes,
+                subscriptionSortOrder: $0.subscriptionSortOrder,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -81,6 +82,9 @@ private struct UserSettingsChangeDTO: Encodable {
     let smartSpeed: Bool
     let notificationsEnabled: Bool
     let sleepTimerDefaultDurationMinutes: Int?
+    // Non-optional (unlike the API's nullable UserSettingsChange.SubscriptionSortOrder) — this
+    // client always knows the field and always sends it, so there's no "omit to keep stored".
+    let subscriptionSortOrder: SubscriptionSortOrder
     let updatedAt: Date
 }
 
@@ -113,6 +117,7 @@ private struct UserSettingsDTO: Decodable {
     let smartSpeed: Bool
     let notificationsEnabled: Bool
     let sleepTimerDefaultDurationMinutes: Int?
+    let subscriptionSortOrder: SubscriptionSortOrder
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -121,6 +126,7 @@ private struct UserSettingsDTO: Decodable {
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed,
             autoDeleteRule: autoDeleteRule, autoDeleteAfterDays: autoDeleteAfterDays, autoDownloadNewEpisodes: autoDownloadNewEpisodes,
             smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
-            sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes, version: version, updatedAt: updatedAt)
+            sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
+            subscriptionSortOrder: subscriptionSortOrder, version: version, updatedAt: updatedAt)
     }
 }

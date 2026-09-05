@@ -26,6 +26,33 @@ final class UserSettingsTests: XCTestCase {
         // preserving it.
         XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
         XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, base.sleepTimerDefaultDurationMinutes)
+        XCTAssertEqual(updated.subscriptionSortOrder, base.subscriptionSortOrder)
+    }
+
+    func testWithSetsSubscriptionSortOrder() {
+        let updated = base.with(subscriptionSortOrder: .recentlyAdded)
+
+        XCTAssertEqual(updated.subscriptionSortOrder, .recentlyAdded)
+    }
+
+    func testDecodingResponseMissingSubscriptionSortOrderDefaultsToTitle() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertEqual(decoded.subscriptionSortOrder, .title)
+    }
+
+    func testDecodingSubscriptionSortOrderFromWireInteger() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0,"subscriptionSortOrder":2}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertEqual(decoded.subscriptionSortOrder, .recentlyAdded)
     }
 
     func testWithNoArgumentsReturnsAnEquivalentCopy() {

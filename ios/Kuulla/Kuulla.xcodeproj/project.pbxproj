@@ -25,6 +25,9 @@
 		A1000015 /* EpisodeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
 		A1000016 /* Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
 		A1000017 /* SubscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
+		W1000001 /* SubscriptionSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000001; };
+		W1000002 /* SubscriptionSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000002; };
+		W1000003 /* SubscriptionSortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000003; };
 		A1000030 /* DeviceTokenClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030; };
 		A1000031 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000031; };
 		A1000040 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040; };
@@ -167,6 +170,9 @@
 		A2000016 /* EpisodeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailView.swift; sourceTree = "<group>"; };
 		A2000017 /* Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscription.swift; sourceTree = "<group>"; };
 		A2000018 /* SubscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClient.swift; sourceTree = "<group>"; };
+		W2000001 /* SubscriptionSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortOrder.swift; sourceTree = "<group>"; };
+		W2000002 /* SubscriptionSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSort.swift; sourceTree = "<group>"; };
+		W2000003 /* SubscriptionSortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortTests.swift; sourceTree = "<group>"; };
 		A2000030 /* DeviceTokenClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenClient.swift; sourceTree = "<group>"; };
 		A2000031 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		A2000032 /* Kuulla.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Kuulla.entitlements; sourceTree = "<group>"; };
@@ -304,6 +310,8 @@
 				A2000016 /* EpisodeDetailView.swift */,
 				A2000017 /* Subscription.swift */,
 				A2000018 /* SubscriptionClient.swift */,
+				W2000001 /* SubscriptionSortOrder.swift */,
+				W2000002 /* SubscriptionSort.swift */,
 				A2000030 /* DeviceTokenClient.swift */,
 				A2000031 /* PushNotificationManager.swift */,
 				A2000032 /* Kuulla.entitlements */,
@@ -391,6 +399,7 @@
 				D2000002 /* ApiClientTests.swift */,
 				D2000003 /* PodcastCatalogClientTests.swift */,
 				D2000004 /* SubscriptionClientTests.swift */,
+				W2000003 /* SubscriptionSortTests.swift */,
 				D2000020 /* DeviceTokenClientTests.swift */,
 				D2000021 /* PushNotificationManagerTests.swift */,
 				D2000050 /* PushNotificationRoutingTests.swift */,
@@ -547,6 +556,8 @@
 				A1000015,
 				A1000016,
 				A1000017,
+				W1000001,
+				W1000002,
 				A1000030,
 				A1000031,
 				A1000040,
@@ -616,6 +627,7 @@
 				D1000002,
 				D1000003,
 				D1000004,
+				W1000003,
 				D1000020,
 				D1000021,
 				D1000050,

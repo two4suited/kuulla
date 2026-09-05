@@ -30,4 +30,9 @@ public record UserSettingsChange(
     // way — a client can never explicitly clear a previously-picked default back to "unset" via
     // sync, only by picking a different duration.
     int? SleepTimerDefaultDurationMinutes,
+    // Nullable for the same reason as NotificationsEnabled above: a client that predates this
+    // field omits the JSON property, and STJ would bind a missing non-nullable enum to its zero
+    // value (Title) — silently resetting the user's real sort choice. Null means "this client
+    // doesn't know about this setting yet", so SettingsService.SyncAsync keeps the stored value.
+    SubscriptionSortOrder? SubscriptionSortOrder,
     DateTimeOffset UpdatedAt);

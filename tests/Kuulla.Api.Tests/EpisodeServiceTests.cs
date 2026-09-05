@@ -336,6 +336,66 @@ public class EpisodeServiceTests
     }
 
     [Fact]
+    public async Task CacheEpisodesAsync_AdvancesLatestEpisodePublishedAtForSubscribers()
+    {
+        var publishedAt = new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero);
+        var newEpisode = MakeEpisode("new-1", ShowId, publishedAt);
+        var existingSub = new Subscription(
+            ShowId, UserId, ShowId, "Title", "Author", null, DateTimeOffset.UtcNow.AddDays(-10),
+            LatestEpisodePublishedAt: publishedAt.AddDays(-5));
+
+        SetupSuccessfulCreate(newEpisode);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+        _subscriptionsContainer
+            .Setup(c => c.ReadItemAsync<Subscription>(ShowId, It.IsAny<PartitionKey>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existingSub));
+        Subscription? upserted = null;
+        _subscriptionsContainer
+            .Setup(c => c.UpsertItemAsync(
+                It.IsAny<Subscription>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
+            .Callback((Subscription s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => upserted = s)
+            .ReturnsAsync((Subscription s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.Equal(publishedAt, upserted!.LatestEpisodePublishedAt);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_DoesNotMoveLatestEpisodePublishedAtBackward()
+    {
+        var oldPublishedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var lateArrival = MakeEpisode("old-1", ShowId, oldPublishedAt);
+        var existingSub = new Subscription(
+            ShowId, UserId, ShowId, "Title", "Author", null, DateTimeOffset.UtcNow.AddDays(-10),
+            LatestEpisodePublishedAt: new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
+
+        SetupSuccessfulCreate(lateArrival);
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { UserId }));
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+        _subscriptionsContainer
+            .Setup(c => c.ReadItemAsync<Subscription>(ShowId, It.IsAny<PartitionKey>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existingSub));
+
+        await _sut.CacheEpisodesAsync(ShowId, [lateArrival], CancellationToken.None);
+
+        _subscriptionsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.IsAny<Subscription>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task CacheEpisodesAsync_NotifiesSubscriberWithNotificationsEnabledAndRegisteredDevices()
     {
         var show = new Show(ShowId, "Title", "Author", "https://feed.example/rss", null, null, []);

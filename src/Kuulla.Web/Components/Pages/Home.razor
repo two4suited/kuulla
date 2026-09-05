@@ -5,6 +5,7 @@
 @inject SubscriptionClient SubscriptionClient
 @inject PlaylistClient PlaylistClient
 @inject EpisodeStateClient EpisodeStateClient
+@inject SettingsClient SettingsClient
 @inject NavigationManager Navigation
 
 <PageTitle>Library</PageTitle>
@@ -54,7 +55,21 @@
             </div>
         }
 
-        <h2 class="h5 text-muted mt-4">Shows</h2>
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mt-4">
+            <h2 class="h5 text-muted mb-0">Shows</h2>
+            @if (!isLoadingShows && showsLoadError is null && subscriptions.Count > 0)
+            {
+                <label class="d-flex align-items-center gap-2 mb-0 small text-muted">
+                    Sort
+                    <select class="form-select form-select-sm w-auto" value="@sortOrder"
+                            @onchange="OnSortOrderChangedAsync" disabled="@isSavingSortOrder">
+                        <option value="@SubscriptionSortOrder.Title">Title (A–Z)</option>
+                        <option value="@SubscriptionSortOrder.LatestEpisode">Latest episode</option>
+                        <option value="@SubscriptionSortOrder.RecentlyAdded">Recently added</option>
+                    </select>
+                </label>
+            }
+        </div>
         @if (isLoadingShows)
         {
             <p>Loading&hellip;</p>
@@ -69,8 +84,12 @@
         }
         else
         {
+            @if (sortOrderError is not null)
+            {
+                <p class="text-danger small">@sortOrderError</p>
+            }
             <div class="row row-cols-2 row-cols-md-4 g-4">
-                @foreach (var subscription in subscriptions)
+                @foreach (var subscription in SubscriptionSorting.Sort(subscriptions, sortOrder))
                 {
                     <div class="col">
                         <a href="@($"shows/{subscription.ShowId}")" class="text-decoration-none text-body">
@@ -110,6 +129,9 @@
     private bool isLoadingPlaylists;
     private string? showsLoadError;
     private string? playlistsLoadError;
+    private SubscriptionSortOrder sortOrder = SubscriptionSortOrder.Title;
+    private bool isSavingSortOrder;
+    private string? sortOrderError;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -128,7 +150,46 @@
             return;
         }
 
-        await Task.WhenAll(LoadShowsAsync(), LoadPlaylistsAsync());
+        await Task.WhenAll(LoadShowsAsync(), LoadPlaylistsAsync(), LoadSortOrderAsync());
+    }
+
+    private async Task LoadSortOrderAsync()
+    {
+        try
+        {
+            var settings = await SettingsClient.GetSettingsAsync();
+            sortOrder = settings.SubscriptionSortOrder;
+        }
+        catch (HttpRequestException)
+        {
+            // Non-fatal — the grid still renders in the default Title order.
+        }
+    }
+
+    private async Task OnSortOrderChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<SubscriptionSortOrder>(e.Value?.ToString(), out var newOrder) || newOrder == sortOrder)
+        {
+            return;
+        }
+
+        var previous = sortOrder;
+        sortOrder = newOrder;
+        isSavingSortOrder = true;
+        sortOrderError = null;
+        try
+        {
+            await SettingsClient.UpdateSubscriptionSortOrderAsync(newOrder);
+        }
+        catch (HttpRequestException)
+        {
+            sortOrder = previous;
+            sortOrderError = "Couldn't save your sort choice. Please try again.";
+        }
+        finally
+        {
+            isSavingSortOrder = false;
+        }
     }
 
     private async Task LoadShowsAsync()
@@ -137,7 +198,8 @@
         try
         {
             var results = await SubscriptionClient.GetSubscriptionsAsync();
-            subscriptions.AddRange(results.OrderBy(s => s.ShowTitle, StringComparer.OrdinalIgnoreCase));
+            // Ordering is applied at render time via SubscriptionSorting.Sort(sortOrder).
+            subscriptions.AddRange(results);
         }
         catch (HttpRequestException)
         {
