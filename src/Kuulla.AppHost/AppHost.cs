@@ -1,6 +1,17 @@
 #pragma warning disable ASPIRECOSMOSDB001 // RunAsPreviewEmulator is experimental.
 
+using Aspire.Hosting.Azure;
+using Azure.Provisioning.AppContainers;
+
 var builder = DistributedApplication.CreateBuilder(args);
+
+// Scale-to-zero on the Consumption plan (issue #361): min replicas 0 for both api and web.
+// Aspire sets Template.Scale.MinReplicas = 1 by default; overriding it here is the only way to
+// get to zero since there's no dedicated builder method for it yet. No custom Rules are added —
+// leaving Rules empty means ACA falls back to its default HTTP concurrent-requests scale rule,
+// which is what wakes a cold instance on the first inbound request via WithExternalHttpEndpoints.
+// This only takes effect in publish/deploy mode; PublishAsAzureContainerApp is a no-op locally.
+static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app) => app.Template.Scale.MinReplicas = 0;
 
 // Azure Container Apps environment for `aspire deploy`/`aspire publish` (Consumption plan).
 // Single compute environment, so every compute resource below deploys here without needing
@@ -66,14 +77,16 @@ var api = builder.AddProject<Projects.Kuulla_Api>("api")
     .WaitFor(episodeStates)
     .WaitFor(playlists)
     .WaitFor(deviceTokens)
-    .WaitFor(redis);
+    .WaitFor(redis)
+    .PublishAsAzureContainerApp(ScaleToZero);
 
 builder.AddProject<Projects.Kuulla_Web>("web")
     .WithExternalHttpEndpoints()
     .WithReference(api)
     .WithEnvironment("Authentication__Google__ClientId", googleClientId)
     .WithEnvironment("Authentication__Google__ClientSecret", googleClientSecret)
-    .WaitFor(api);
+    .WaitFor(api)
+    .PublishAsAzureContainerApp(ScaleToZero);
 
 // Builds and launches the app in the iOS Simulator with the API's Aspire-resolved
 // endpoint injected, so it doesn't need a manually-set KUULLA_API_BASE_URL (see #50, #51).
