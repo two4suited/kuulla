@@ -47,7 +47,13 @@ var insights = builder.ExecutionContext.IsPublishMode
     : null;
 
 var cosmosAccount = builder.AddAzureCosmosDB("cosmos")
-    .RunAsPreviewEmulator(emulator => emulator.WithDataExplorer());
+    .RunAsPreviewEmulator(emulator => emulator
+        .WithDataExplorer()
+        // Persist the emulator's data across `aspire run` restarts so a local dev environment
+        // keeps its seeded shows/episodes/playback state instead of starting empty every time.
+        // Named volume (not a bind mount) so it's managed by the container runtime; delete it
+        // with `docker volume rm` if the emulator data ever needs a clean reset.
+        .WithDataVolume());
 
 var cosmos = cosmosAccount.AddCosmosDatabase("kuulladb");
 
