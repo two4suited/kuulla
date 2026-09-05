@@ -131,12 +131,54 @@ public class PlaylistService(
         return items;
     }
 
+    // Compares two Items lists by their (EpisodeId, ShowId) sequence only — deliberately ignoring
+    // Order and AddedAt. ComputeDynamicItemsAsync stamps a fresh AddedAt on every call and could in
+    // principle re-derive different rank strings, so comparing those fields would report a spurious
+    // change (and a needless write) even when the actual episode membership and ordering are
+    // identical.
+    private static bool SameEpisodes(IReadOnlyList<PlaylistItem> current, IReadOnlyList<PlaylistItem> recomputed)
+    {
+        if (current.Count != recomputed.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < current.Count; i++)
+        {
+            if (current[i].EpisodeId != recomputed[i].EpisodeId || current[i].ShowId != recomputed[i].ShowId)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public async Task<PlaylistDetail?> GetPlaylistDetailAsync(string userId, string id, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
         if (playlist is null)
         {
             return null;
+        }
+
+        // A dynamic playlist's stored Items are only as fresh as its last create / config-save /
+        // explicit recompute. The #112 auto-insert hook only ever *adds* newly-published episodes;
+        // nothing prunes an episode once the user finishes it, so the stored list (and the
+        // "N episodes total" count built from it) drifts to include played episodes over time
+        // (follow-up to #433, which only fixed freshly-computed playlists). Rebuild from current
+        // play state on read, and persist the result only when the episode set actually changed —
+        // so the next reader, the sync feed, and iOS all converge on the pruned list without
+        // waiting for an explicit recompute, while an unchanged playlist doesn't churn its
+        // UpdatedAt / sync hash on every page view.
+        if (playlist is { Type: PlaylistType.Dynamic, DynamicConfig: { } config })
+        {
+            var fresh = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
+            if (!SameEpisodes(playlist.Items, fresh))
+            {
+                playlist = playlist with { Items = fresh, UpdatedAt = DateTimeOffset.UtcNow };
+                await UpsertAsync(playlist, cancellationToken);
+            }
         }
 
         // Resolve each distinct show once (not once per item) — a playlist with many episodes

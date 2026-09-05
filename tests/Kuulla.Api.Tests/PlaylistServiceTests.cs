@@ -286,6 +286,70 @@ public class PlaylistServiceTests
     }
 
     [Fact]
+    public async Task GetPlaylistDetailAsync_PrunesPlayedEpisodesFromDynamicPlaylistAndPersists()
+    {
+        var config = new DynamicPlaylistConfig([ShowId], MaxEpisodes: null, [ShowId]);
+        var stored = new Playlist(
+            PlaylistId, UserId, "Dynamic Playlist", PlaylistType.Dynamic,
+            [
+                new PlaylistItem("unplayed", ShowId, DateTimeOffset.UtcNow, "i"),
+                new PlaylistItem("finished", ShowId, DateTimeOffset.UtcNow, "r"),
+            ],
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DynamicConfig: config);
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("unplayed", ShowId), MakeEpisode("finished", ShowId)]);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[MakeState("finished", completed: true)]);
+        _episodeService.Setup(s => s.GetEpisodeAsync(ShowId, "unplayed", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeEpisode("unplayed", ShowId));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.MakeShow(ShowId));
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.GetPlaylistDetailAsync(UserId, PlaylistId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(["unplayed"], result!.Items.Select(i => i.EpisodeId));
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<Playlist>(p => p.Items.Select(i => i.EpisodeId).SequenceEqual(new[] { "unplayed" })),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetPlaylistDetailAsync_DoesNotRewriteDynamicPlaylistWhenEpisodeSetUnchanged()
+    {
+        var config = new DynamicPlaylistConfig([ShowId], MaxEpisodes: null, [ShowId]);
+        var stored = new Playlist(
+            PlaylistId, UserId, "Dynamic Playlist", PlaylistType.Dynamic,
+            [new PlaylistItem("only-episode", ShowId, DateTimeOffset.UnixEpoch, "some-stale-rank")],
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DynamicConfig: config);
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("only-episode", ShowId)]);
+        _episodeService.Setup(s => s.GetEpisodeAsync(ShowId, "only-episode", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeEpisode("only-episode", ShowId));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.MakeShow(ShowId));
+
+        var result = await _sut.GetPlaylistDetailAsync(UserId, PlaylistId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(["only-episode"], result!.Items.Select(i => i.EpisodeId));
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
     public async Task RenamePlaylistAsync_ReturnsNullWhenPlaylistDoesNotExist()
     {
         _playlistsContainer

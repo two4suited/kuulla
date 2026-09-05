@@ -22,6 +22,11 @@ public interface IPlaylistService
     // reuse it (or a per-episode incremental variant of it) instead of duplicating this logic.
     Task<Playlist?> RecomputeDynamicPlaylistAsync(string userId, string id, CancellationToken cancellationToken);
 
+    // Resolves a playlist's items to display shape (title/artwork). For a Dynamic playlist it also
+    // rebuilds Items from current play state first (same logic as RecomputeDynamicPlaylistAsync),
+    // persisting only when the episode set changed — so played episodes the #112 insert hook never
+    // prunes don't accumulate in the stored list and its "N episodes total" count (follow-up to
+    // #433 — that fix only covered freshly-computed playlists).
     Task<PlaylistDetail?> GetPlaylistDetailAsync(string userId, string id, CancellationToken cancellationToken);
 
     Task<Playlist?> RenamePlaylistAsync(string userId, string id, string name, CancellationToken cancellationToken);
