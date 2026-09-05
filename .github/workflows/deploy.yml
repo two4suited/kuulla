@@ -72,7 +72,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Preview deployment steps
-        run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --list-steps
+        run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --list-steps --non-interactive
 
       - name: Deploy with Aspire
         run: aspire deploy --apphost ./src/Kuulla.AppHost/Kuulla.AppHost.csproj --environment production --non-interactive
