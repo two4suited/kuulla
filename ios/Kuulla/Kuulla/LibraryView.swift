@@ -12,11 +12,15 @@ struct LibraryView: View {
     @State private var sortSaveTask: Task<Void, Never>?
     @State private var sortSaveError: String?
 
+    @AppStorage(ShowIconSize.storageKey) private var iconSizeRaw = ShowIconSize.default.rawValue
+
     private let subscriptionClient = SubscriptionClient()
     private let playlistClient = PlaylistClient()
     private let settingsClient = SettingsClient()
 
-    private let columns = [GridItem(.adaptive(minimum: 110), spacing: 16)]
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: ShowIconSize.current(iconSizeRaw).gridMinimum), spacing: 16)]
+    }
 
     var body: some View {
         ScrollView {
@@ -30,6 +34,9 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 sortMenu
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                ShowIconSizeMenu()
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(destination: FeedView()) {

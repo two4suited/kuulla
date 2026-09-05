@@ -52,6 +52,7 @@
 		M1000001 /* AutoArchiveRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = M2000001; };
 		N1000001 /* AutoSkipDuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000001; };
 		N1000002 /* PlaybackSpeedOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000002; };
+		N1000003 /* ShowIconSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000003; };
 		F1000001 /* Syncable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001; };
 		F1000002 /* SyncCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000002; };
 		F1000003 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000003; };
@@ -99,6 +100,7 @@
 		D1000011 /* SyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000011; };
 		H1000001 /* EpisodeStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000001; };
 		H1000002 /* CarPlaySceneDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000002; };
+		H1000003 /* ShowIconSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000003; };
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002; };
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003; };
@@ -198,6 +200,7 @@
 		M2000001 /* AutoArchiveRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoArchiveRule.swift; sourceTree = "<group>"; };
 		N2000001 /* AutoSkipDuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSkipDuration.swift; sourceTree = "<group>"; };
 		N2000002 /* PlaybackSpeedOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedOption.swift; sourceTree = "<group>"; };
+		N2000003 /* ShowIconSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowIconSize.swift; sourceTree = "<group>"; };
 		F2000001 /* Syncable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Syncable.swift; sourceTree = "<group>"; };
 		F2000002 /* SyncCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCursor.swift; sourceTree = "<group>"; };
 		F2000003 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
@@ -243,6 +246,7 @@
 		D2000011 /* SyncEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngineTests.swift; sourceTree = "<group>"; };
 		H2000001 /* EpisodeStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStatusTests.swift; sourceTree = "<group>"; };
 		H2000002 /* CarPlaySceneDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegateTests.swift; sourceTree = "<group>"; };
+		H2000003 /* ShowIconSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowIconSizeTests.swift; sourceTree = "<group>"; };
 		D3000000 /* KuullaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2000001 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
 		E2000002 /* SearchAndSubscribeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAndSubscribeUITests.swift; sourceTree = "<group>"; };
@@ -330,6 +334,7 @@
 				P2000011 /* AutoDeleteRule.swift */,
 				N2000001 /* AutoSkipDuration.swift */,
 				N2000002 /* PlaybackSpeedOption.swift */,
+				N2000003 /* ShowIconSize.swift */,
 				F2000001 /* Syncable.swift */,
 				F2000002 /* SyncCursor.swift */,
 				F2000003 /* SyncEngine.swift */,
@@ -413,6 +418,7 @@
 				F2000007 /* CrossDeviceResumeTests.swift */,
 				H2000001 /* EpisodeStatusTests.swift */,
 				H2000002 /* CarPlaySceneDelegateTests.swift */,
+				H2000003 /* ShowIconSizeTests.swift */,
 				J2000008 /* PlaylistSyncAdapterTests.swift */,
 				Q2000004 /* SettingsSyncAdapterTests.swift */,
 				J2000009 /* PlaylistClientTests.swift */,
@@ -577,6 +583,7 @@
 				P1000011,
 				N1000001,
 				N1000002,
+				N1000003,
 				F1000001,
 				F1000002,
 				F1000003,
@@ -640,6 +647,7 @@
 				D1000011,
 				F1000007,
 				H1000001,
+				H1000003,
 				H1000002,
 				J1000008,
 				J1000009,
