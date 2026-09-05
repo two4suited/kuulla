@@ -215,6 +215,67 @@
     line-height: 1.55;
 }
 
+/* ---- feature grid ---- */
+.l-features {
+    padding: 72px 0;
+    border-top: 1px solid var(--k-border);
+}
+
+.l-features-h {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    margin-bottom: 32px;
+}
+
+.l-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1px;
+    background: var(--k-border);
+    border: 1px solid var(--k-border);
+    border-radius: var(--k-radius);
+    overflow: hidden;
+}
+
+.l-feature {
+    background: var(--k-bg);
+    padding: 24px;
+}
+
+.l-feature-tag {
+    display: inline-block;
+    font-family: var(--k-font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--k-accent-ink);
+    background: var(--k-accent-soft);
+    border-radius: 999px;
+    padding: 3px 9px;
+    margin-bottom: 12px;
+}
+
+.l-feature h3 {
+    font-family: var(--k-font-display);
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    font-size: 1.05rem;
+    color: var(--k-text);
+    margin: 0 0 8px;
+}
+
+.l-feature p {
+    margin: 0;
+    color: var(--k-text-muted);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+.l-also {
+    margin: 24px 0 0;
+    color: var(--k-text-faint);
+    font-size: 0.9rem;
+    line-height: 1.7;
+}
+
 /* ---- screenshot ---- */
 .l-shot {
     display: grid;
@@ -250,6 +311,15 @@
     max-width: 46ch;
     color: var(--k-text-muted);
     line-height: 1.6;
+}
+
+/* Copy on the left, phone on the right — alternates the rhythm between shots. */
+.l-shot--reverse {
+    grid-template-columns: 1fr 300px;
+}
+
+.l-shot--reverse .l-phone {
+    order: 2;
 }
 
 /* ---- footer ---- */
@@ -304,10 +374,15 @@
         grid-template-columns: 1fr;
     }
 
-    .l-shot {
+    .l-shot,
+    .l-shot--reverse {
         grid-template-columns: 1fr;
         gap: 28px;
         text-align: center;
+    }
+
+    .l-shot--reverse .l-phone {
+        order: -1;
     }
 
     .l-shot-copy p {
