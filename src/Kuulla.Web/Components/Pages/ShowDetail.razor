@@ -134,6 +134,10 @@ else
                     aria-pressed="@(selectedFilter == EpisodeFilter.All)" @onclick="() => SetFilter(EpisodeFilter.All)">
                 All
             </button>
+            <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.Unfinished ? "active" : "")"
+                    aria-pressed="@(selectedFilter == EpisodeFilter.Unfinished)" @onclick="() => SetFilter(EpisodeFilter.Unfinished)">
+                Unfinished
+            </button>
             <button type="button" class="btn btn-sm btn-outline-primary @(selectedFilter == EpisodeFilter.Unplayed ? "active" : "")"
                     aria-pressed="@(selectedFilter == EpisodeFilter.Unplayed)" @onclick="() => SetFilter(EpisodeFilter.Unplayed)">
                 Unplayed
@@ -286,10 +290,10 @@ else
     private readonly HashSet<string> togglingEpisodeIds = [];
     private string? episodeStateError;
     private bool isAuthenticated;
-    private EpisodeFilter selectedFilter = EpisodeFilter.Unplayed;
+    private EpisodeFilter selectedFilter = EpisodeFilter.Unfinished;
     private EpisodeSortOrder selectedSort = EpisodeSortOrder.NewestFirst;
 
-    private enum EpisodeFilter { All, Unplayed, InProgress }
+    private enum EpisodeFilter { All, Unfinished, Unplayed, InProgress }
 
     private enum EpisodeSortOrder { NewestFirst, OldestFirst }
 
@@ -317,6 +321,7 @@ else
             IEnumerable<Episode> active = episodes.Where(e => !IsArchived(e));
             IEnumerable<Episode> filtered = selectedFilter switch
             {
+                EpisodeFilter.Unfinished => active.Where(e => IsUnplayed(e) || IsInProgress(e)),
                 EpisodeFilter.Unplayed => active.Where(IsUnplayed),
                 EpisodeFilter.InProgress => active.Where(IsInProgress),
                 _ => active,
@@ -403,7 +408,7 @@ else
         togglingEpisodeIds.Clear();
         episodeStateError = null;
         isAuthenticated = false;
-        selectedFilter = EpisodeFilter.Unplayed;
+        selectedFilter = EpisodeFilter.Unfinished;
         selectedSort = EpisodeSortOrder.NewestFirst;
 
         isLoadingShow = true;

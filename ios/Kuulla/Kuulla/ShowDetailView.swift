@@ -15,7 +15,7 @@ struct ShowDetailView: View {
     @State private var downloadStatusByEpisodeId: [String: DownloadStatus] = [:]
     @State private var positionSecondsByEpisodeId: [String: Int] = [:]
     @State private var archivedEpisodeIds: Set<String> = []
-    @State private var selectedFilter: EpisodeFilter = .all
+    @State private var selectedFilter: EpisodeFilter = .unfinished
     @State private var selectedSort: EpisodeSortOrder = .newestFirst
     @State private var continuationToken: String?
     @State private var isLoadingEpisodes = false
@@ -157,7 +157,7 @@ struct ShowDetailView: View {
         episodes = []
         statusByEpisodeId = [:]
         positionSecondsByEpisodeId = [:]
-        selectedFilter = .all
+        selectedFilter = .unfinished
         selectedSort = .newestFirst
         continuationToken = nil
         episodeError = nil
