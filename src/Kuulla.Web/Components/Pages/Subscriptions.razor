@@ -36,6 +36,13 @@
                                     @(unplayedCount.HitCap ? $"{unplayedCount.Count}+" : unplayedCount.Count)
                                 </span>
                             }
+                            @if (inProgressShowIds.Contains(subscription.ShowId))
+                            {
+                                <span class="badge bg-info position-absolute top-0 start-0 m-2" style="pointer-events: none;"
+                                      title="You have an episode in progress">
+                                    <span aria-hidden="true">◐</span> In progress
+                                </span>
+                            }
                             @if (!string.IsNullOrEmpty(subscription.ShowArtworkUrl))
                             {
                                 <a href="@($"shows/{subscription.ShowId}")">
@@ -87,6 +94,7 @@
 @code {
     private readonly List<Subscription> subscriptions = [];
     private readonly Dictionary<string, UnplayedCount> unplayedCounts = [];
+    private IReadOnlySet<string> inProgressShowIds = new HashSet<string>();
     private bool isLoading;
     private string? loadError;
     private string? confirmingShowId;
@@ -131,6 +139,8 @@
                 {
                     unplayedCounts[showId] = count;
                 }
+
+                inProgressShowIds = await EpisodeStateClient.GetInProgressShowIdsAsync();
             }
             catch (HttpRequestException)
             {
