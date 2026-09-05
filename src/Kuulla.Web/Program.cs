@@ -54,6 +54,9 @@ builder.Services.AddScoped<PlaylistClient>();
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+app.UseFrontDoorIdRestriction();
+
+app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 if (!app.Environment.IsDevelopment())
 {
