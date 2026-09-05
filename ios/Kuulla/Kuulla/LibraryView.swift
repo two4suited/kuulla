@@ -10,6 +10,7 @@ struct LibraryView: View {
     @State private var playlistsErrorMessage: String?
     @State private var sortOrder: SubscriptionSortOrder = .title
     @State private var sortSaveTask: Task<Void, Never>?
+    @State private var sortSaveError: String?
 
     private let subscriptionClient = SubscriptionClient()
     private let playlistClient = PlaylistClient()
@@ -69,10 +70,12 @@ struct LibraryView: View {
         Binding(
             get: { sortOrder },
             set: { newValue in
-                guard newValue != sortOrder else { return }
+                let previous = sortOrder
+                guard newValue != previous else { return }
                 sortOrder = newValue
                 subscriptions = sortedSubscriptions(subscriptions, by: newValue)
-                persistSortOrder(newValue)
+                sortSaveError = nil
+                persistSortOrder(newValue, revertingTo: previous)
             })
     }
 
@@ -83,11 +86,20 @@ struct LibraryView: View {
     }
 
     // Cancels an in-flight save when a new choice comes in so the last pick wins, mirroring
-    // SettingsView's saveTask pattern.
-    private func persistSortOrder(_ newValue: SubscriptionSortOrder) {
+    // SettingsView's saveTask pattern. On failure the optimistic change is rolled back and an
+    // error is shown, matching the web pages — a silently-dropped save would otherwise revert
+    // itself on the next launch with no explanation.
+    private func persistSortOrder(_ newValue: SubscriptionSortOrder, revertingTo previous: SubscriptionSortOrder) {
         sortSaveTask?.cancel()
         sortSaveTask = Task {
-            _ = try? await settingsClient.updateSubscriptionSortOrder(newValue)
+            do {
+                _ = try await settingsClient.updateSubscriptionSortOrder(newValue)
+            } catch {
+                guard !Task.isCancelled else { return }
+                sortOrder = previous
+                subscriptions = sortedSubscriptions(subscriptions, by: previous)
+                sortSaveError = "Couldn't save your sort choice. Please try again."
+            }
         }
     }
 
@@ -141,6 +153,13 @@ struct LibraryView: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
+
+            if let sortSaveError {
+                Text(sortSaveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+            }
 
             if isLoadingShows {
                 ProgressView()

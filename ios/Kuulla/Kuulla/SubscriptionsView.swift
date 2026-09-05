@@ -10,6 +10,7 @@ struct SubscriptionsView: View {
     @State private var unsubscribeError: String?
     @State private var sortOrder: SubscriptionSortOrder = .title
     @State private var sortSaveTask: Task<Void, Never>?
+    @State private var sortSaveError: String?
 
     private let subscriptionClient = SubscriptionClient()
     private let settingsClient = SettingsClient()
@@ -18,6 +19,14 @@ struct SubscriptionsView: View {
 
     var body: some View {
         ScrollView {
+            if let sortSaveError {
+                Text(sortSaveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+                    .padding(.top)
+            }
+
             if let errorMessage {
                 Text(errorMessage)
                     .foregroundStyle(.red)
@@ -86,12 +95,23 @@ struct SubscriptionsView: View {
         Binding(
             get: { sortOrder },
             set: { newValue in
-                guard newValue != sortOrder else { return }
+                let previous = sortOrder
+                guard newValue != previous else { return }
                 sortOrder = newValue
                 subscriptions = sortedSubscriptions(subscriptions, by: newValue)
+                sortSaveError = nil
+                // On failure roll back the optimistic change and surface an error, matching the
+                // web pages — a silently-dropped save would otherwise revert on next launch.
                 sortSaveTask?.cancel()
                 sortSaveTask = Task {
-                    _ = try? await settingsClient.updateSubscriptionSortOrder(newValue)
+                    do {
+                        _ = try await settingsClient.updateSubscriptionSortOrder(newValue)
+                    } catch {
+                        guard !Task.isCancelled else { return }
+                        sortOrder = previous
+                        subscriptions = sortedSubscriptions(subscriptions, by: previous)
+                        sortSaveError = "Couldn't save your sort choice. Please try again."
+                    }
                 }
             })
     }

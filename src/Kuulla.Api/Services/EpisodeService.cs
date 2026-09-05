@@ -189,14 +189,10 @@ public class EpisodeService(
         // Keep each subscriber's Subscription.LatestEpisodePublishedAt fresh for the "Latest
         // episode" sort mode (#438), reusing the subscriberIds scan above. Only advances the
         // value, so a late-arriving old episode in this batch can't move a show backward.
-        var newestPublishedAt = insertedEpisodes
-            .Select(e => e.PublishedAt)
-            .Where(publishedAt => publishedAt is not null)
-            .DefaultIfEmpty(null)
-            .Max();
-        if (newestPublishedAt is { } latest)
+        // Enumerable.Max on DateTimeOffset? skips nulls and returns null when every value is null.
+        if (insertedEpisodes.Max(e => e.PublishedAt) is { } latestPublishedAt)
         {
-            await UpdateSubscribersLatestEpisodeAsync(showId, subscriberIds, latest, cancellationToken);
+            await UpdateSubscribersLatestEpisodeAsync(showId, subscriberIds, latestPublishedAt, cancellationToken);
         }
 
         // Push notifications (#216) — best-effort and gated to recently-published episodes only,
@@ -626,5 +622,29 @@ public class EpisodeService(
         }
 
         return items;
+    }
+
+    public async Task<DateTimeOffset?> GetNewestCachedEpisodePublishedAtAsync(string showId, CancellationToken cancellationToken)
+    {
+        // Single-partition, single-item read — no feed fallback (that's GetEpisodesAsync's job).
+        // Cosmos orders nulls first under DESC, so the WHERE guard keeps LIMIT 1 landing on the
+        // newest episode that actually has a publish date.
+        var queryDefinition = new QueryDefinition(
+                "SELECT VALUE c.PublishedAt FROM c WHERE c.ShowId = @showId AND IS_DEFINED(c.PublishedAt) AND c.PublishedAt != null " +
+                "ORDER BY c.PublishedAt DESC OFFSET 0 LIMIT 1")
+            .WithParameter("@showId", showId);
+        var requestOptions = new QueryRequestOptions { PartitionKey = new PartitionKey(showId) };
+
+        using var iterator = episodesContainer.GetItemQueryIterator<DateTimeOffset?>(queryDefinition, requestOptions: requestOptions);
+        while (iterator.HasMoreResults)
+        {
+            var response = await iterator.ReadNextAsync(cancellationToken);
+            foreach (var publishedAt in response)
+            {
+                return publishedAt;
+            }
+        }
+
+        return null;
     }
 }

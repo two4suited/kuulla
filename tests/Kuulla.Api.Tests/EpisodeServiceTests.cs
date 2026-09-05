@@ -84,6 +84,31 @@ public class EpisodeServiceTests
             .Returns(CosmosTestHelpers.FeedIterator(items));
 
     [Fact]
+    public async Task GetNewestCachedEpisodePublishedAtAsync_ReturnsFirstRowFromTheIndexedQuery()
+    {
+        var newest = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);
+        _episodesContainer
+            .Setup(c => c.GetItemQueryIterator<DateTimeOffset?>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<DateTimeOffset?>(new DateTimeOffset?[] { newest }));
+
+        var result = await _sut.GetNewestCachedEpisodePublishedAtAsync(ShowId, CancellationToken.None);
+
+        Assert.Equal(newest, result);
+    }
+
+    [Fact]
+    public async Task GetNewestCachedEpisodePublishedAtAsync_ReturnsNullWhenNothingCached()
+    {
+        _episodesContainer
+            .Setup(c => c.GetItemQueryIterator<DateTimeOffset?>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator<DateTimeOffset?>(Array.Empty<DateTimeOffset?>()));
+
+        var result = await _sut.GetNewestCachedEpisodePublishedAtAsync(ShowId, CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task GetEpisodesAsync_TrimsExtraItemAndReturnsNextTokenWhenMoreExist()
     {
         var episodes = Enumerable.Range(1, 21).Select(i => MakeEpisode(i.ToString())).ToList();

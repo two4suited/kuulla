@@ -41,20 +41,11 @@ public class SubscriptionService(
             return null;
         }
 
-        // Stamp the newest-episode date up front for the "Latest episode" sort mode (#438). This
-        // also triggers EpisodeService's first-load feed backfill, so the show's episodes are
-        // cached by the time the user opens it. A null (feed empty/unreachable) is fine — feed
-        // polling backfills the value on the next sweep.
-        DateTimeOffset? latestEpisodePublishedAt = null;
-        try
-        {
-            var newestPage = await episodeService.GetEpisodesAsync(showId, continuationToken: null, pageSize: 1, cancellationToken);
-            latestEpisodePublishedAt = newestPage.Items.Count > 0 ? newestPage.Items[0].PublishedAt : null;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or XmlException or TaskCanceledException)
-        {
-            // One flaky feed shouldn't block a subscribe — same narrow catch GetNewEpisodesAsync uses.
-        }
+        // Seed the newest-episode date for the "Latest episode" sort mode (#438) from what's
+        // already cached — no live feed fetch, so subscribe stays a fast point operation. If
+        // nothing is cached yet the value stays null; the first show-open and every feed poll
+        // run CacheEpisodesAsync, which backfills it for all subscribers.
+        var latestEpisodePublishedAt = await episodeService.GetNewestCachedEpisodePublishedAtAsync(showId, cancellationToken);
 
         var subscription = new Subscription(
             showId,
