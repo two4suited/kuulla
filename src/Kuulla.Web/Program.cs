@@ -40,9 +40,18 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 
+// In deployed environments the API is behind Front Door with an X-Azure-FDID restriction
+// (Kuulla.ServiceDefaults.UseFrontDoorIdRestriction). Aspire service discovery would point this
+// server-side client straight at ACA ingress, bypassing Front Door, so every /api/* call comes
+// back 403. Target the API's public Front Door origin instead so requests are forwarded with the
+// header. Unset locally (see AppHost) -> fall back to the "https+http://api" discovery address.
+var apiBaseAddress = builder.Configuration["Api:PublicUrl"] is { Length: > 0 } apiPublicUrl
+    ? apiPublicUrl
+    : "https+http://api";
+
 builder.Services.AddHttpClient("api", client =>
 {
-    client.BaseAddress = new Uri("https+http://api");
+    client.BaseAddress = new Uri(apiBaseAddress);
 });
 builder.Services.AddScoped<KuullaApiClient>();
 builder.Services.AddScoped<PodcastCatalogClient>();
