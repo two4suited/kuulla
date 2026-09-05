@@ -23,6 +23,10 @@ mono_crash.*
 [Rr]elease/
 [Rr]eleases/
 
+# ...but not the checked-in "release" skill (the [Rr]elease/ rule above would eat it)
+!.claude/skills/release/
+!.claude/skills/release/**
+
 [Dd]ebug/x64/
 [Dd]ebugPublic/x64/
 [Rr]elease/x64/
