@@ -108,6 +108,15 @@ final class PlaylistClientTests: MockedApiTestCase {
         XCTAssertTrue(requestedURL.absoluteString.contains("a%2Fb"))
     }
 
+    func testDeletePlaylistEscapesIdAndUsesDelete() async throws {
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 204, data: Data(), headers: [:])) }
+
+        try await client.deletePlaylist(id: "a/b")
+
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/playlists/a%2Fb"))
+    }
+
     func testReorderItemSendsNeighborIds() async throws {
         let json = """
         {"id":"p1","userId":"u1","name":"Commute","type":0,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00"}

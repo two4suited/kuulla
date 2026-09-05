@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Bunit;
+using Bunit.TestDoubles;
 using Kuulla.Web.Models;
+using Microsoft.Extensions.DependencyInjection;
 using PlaylistDetailPage = Kuulla.Web.Components.Pages.PlaylistDetail;
 
 namespace Kuulla.Web.Tests.Pages;
@@ -271,5 +273,35 @@ public class PlaylistDetailTests : WebTestContext
         cut.Find("button.btn-outline-danger").Click();
 
         cut.WaitForAssertion(() => Assert.DoesNotContain("Episode One", cut.Markup));
+    }
+
+    [Fact]
+    public void DeletesPlaylist_AndNavigatesToList_WhenDeleteConfirmed()
+    {
+        var detail = MakeDetail();
+        string? deletedPath = null;
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            if (request.Method == HttpMethod.Delete)
+            {
+                deletedPath = request.RequestUri!.AbsolutePath;
+                return new HttpResponseMessage(HttpStatusCode.NoContent);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) };
+        }));
+
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Delete playlist", cut.Markup));
+
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Delete playlist")).Click();
+        cut.FindAll("button").Single(button => button.TextContent.Trim() == "Confirm").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("/api/playlists/playlist-1", deletedPath);
+            Assert.Equal("http://localhost/playlists", navigation.Uri);
+        });
     }
 }
