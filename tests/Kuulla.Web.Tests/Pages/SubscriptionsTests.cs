@@ -2,11 +2,19 @@ using System.Net;
 using System.Net.Http.Json;
 using Kuulla.Web.Components.Pages;
 using Kuulla.Web.Models;
+using Microsoft.JSInterop;
 
 namespace Kuulla.Web.Tests.Pages;
 
 public class SubscriptionsTests : WebTestContext
 {
+    public SubscriptionsTests()
+    {
+        // Subscriptions hosts <ShowIconSizeSelect>, which reads the "showIconSize" localStorage key
+        // via JS interop on first render. Loose mode auto-stubs that (returns null → default size).
+        JSInterop.Mode = JSRuntimeMode.Loose;
+    }
+
     private static readonly List<Subscription> Subscriptions =
     [
         new("sub-1", "show-1", "The Daily", "NYT", null, DateTimeOffset.UtcNow),
@@ -156,7 +164,7 @@ public class SubscriptionsTests : WebTestContext
 
         cut.WaitForAssertion(() =>
         {
-            var select = cut.Find("select.form-select");
+            var select = cut.Find("select.sort-select");
             Assert.Equal("RecentlyAdded", select.GetAttribute("value"));
         });
     }
@@ -176,9 +184,9 @@ public class SubscriptionsTests : WebTestContext
         }));
 
         var cut = RenderComponent<Subscriptions>();
-        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("select.form-select")));
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("select.sort-select")));
 
-        cut.Find("select.form-select").Change("LatestEpisode");
+        cut.Find("select.sort-select").Change("LatestEpisode");
 
         cut.WaitForAssertion(() => Assert.Contains("1", putBody ?? ""));
     }

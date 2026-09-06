@@ -5,12 +5,20 @@ using Kuulla.Web.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.JSInterop;
 using Moq;
 
 namespace Kuulla.Web.Tests.Pages;
 
 public class HomeTests : WebTestContext
 {
+    public HomeTests()
+    {
+        // Home hosts <ShowIconSizeSelect>, which reads the "showIconSize" localStorage key via JS
+        // interop on first render. Loose mode auto-stubs that (returns null → the default size).
+        JSInterop.Mode = JSRuntimeMode.Loose;
+    }
+
     private static readonly List<Subscription> Subscriptions =
     [
         new("sub-1", "show-1", "The Daily", "NYT", null, DateTimeOffset.UtcNow),
