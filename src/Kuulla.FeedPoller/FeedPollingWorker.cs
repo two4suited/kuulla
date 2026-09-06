@@ -26,6 +26,7 @@ public class FeedPollingWorker(
         // and stop the host — no idle timer keeping the replica (and its billing) alive.
         if (configuration.GetValue<bool>("FeedPolling:RunOnceThenExit"))
         {
+            logger.LogInformation("Feed poller running a single sweep (RunOnceThenExit) then exiting");
             await PollOnceAsync(stoppingToken);
             lifetime.StopApplication();
             return;

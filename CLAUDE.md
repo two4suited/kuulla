@@ -60,8 +60,26 @@ The AppHost (`src/Kuulla.AppHost/AppHost.cs`) is the entry point for local devel
 - **CosmosDB** (runs as emulator locally) → referenced by API as `"kuulladb"`
 - **API** (`src/Kuulla.Api`) → depends on CosmosDB
 - **Web** (`src/Kuulla.Web`) → depends on API via Aspire service discovery (`https+http://api`)
+- **Feed poller** (`src/Kuulla.FeedPoller`) → depends on CosmosDB; runs the subscribed-podcast feed sweep
 
-The dependency chain is: Web → API → CosmosDB. Aspire handles startup ordering with `WaitFor`.
+The dependency chain is: Web → API → CosmosDB, and Feed poller → CosmosDB. Aspire handles startup ordering with `WaitFor`.
+
+### Domain layer (`Kuulla.Core`)
+
+`src/Kuulla.Core` holds the domain services (episodes, shows, subscriptions, settings, episode
+state, device tokens, feed polling, the podcast directory/feed clients, the SSRF-guarded resource
+fetcher) and all the model records. Both the API and the feed poller reference it and wire it with
+`AddKuullaCore()` + `AddKuullaNotifications()`. The API keeps only its endpoints plus the
+Playlist / Discovery / User / Transcript services.
+
+### Feed polling (`Kuulla.FeedPoller`)
+
+The subscribed-podcast episode pull (`FeedPollingService.PollOnceAsync` in `Kuulla.Core`) runs in
+a dedicated worker, **not** an API hosted service — so it runs once per tick regardless of API
+replica count. Locally it's an Aspire-orchestrated `PeriodicTimer` worker (`feed-poller`);
+in production it's an Azure Container Apps **scheduled job** (cron `*/15`, parallelism 1,
+run-one-sweep-and-exit). `POST /dev/poll-feeds` runs one sweep on demand for local testing. See
+[docs/feed-poller-runbook.md](docs/feed-poller-runbook.md).
 
 ### Service Defaults
 

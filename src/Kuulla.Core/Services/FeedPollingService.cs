@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Xml;
 
 namespace Kuulla.Core.Services;
@@ -17,15 +18,35 @@ public class FeedPollingService(
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         var showIds = await subscriptionService.GetDistinctSubscribedShowIdsAsync(cancellationToken);
 
+        // A scheduled job (Kuulla.FeedPoller) is otherwise unobserved — nothing tails its output —
+        // so bookend the sweep with a summary line each. "one sweep per interval, N shows, M
+        // failed" is the signal used to confirm the cutover in #416 without wading through the
+        // per-request HTTP-client noise.
+        logger.LogInformation("Feed-poll sweep starting: {ShowCount} subscribed show(s)", showIds.Count);
+
+        var failures = 0;
         await Parallel.ForEachAsync(
             showIds,
             new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism, CancellationToken = cancellationToken },
-            (showId, ct) => new ValueTask(PollShowAsync(showId, ct)));
+            async (showId, ct) =>
+            {
+                if (!await PollShowAsync(showId, ct))
+                {
+                    Interlocked.Increment(ref failures);
+                }
+            });
+
+        logger.LogInformation(
+            "Feed-poll sweep complete: {ShowCount} show(s), {FailureCount} unreachable/malformed, {ElapsedMs}ms",
+            showIds.Count, failures, stopwatch.ElapsedMilliseconds);
     }
 
-    private async Task PollShowAsync(string showId, CancellationToken cancellationToken)
+    // Returns false only when the feed itself couldn't be fetched or parsed (counted toward the
+    // sweep's failure total); an intentional skip (no/invalid FeedUrl, empty feed) returns true.
+    private async Task<bool> PollShowAsync(string showId, CancellationToken cancellationToken)
     {
         try
         {
@@ -41,13 +62,13 @@ public class FeedPollingService(
                     logger.LogWarning("Show {ShowId} has an invalid FeedUrl {FeedUrl} — skipping", showId, show.FeedUrl);
                 }
 
-                return;
+                return true;
             }
 
             var feed = await feedClient.FetchAsync(show.FeedUrl, cancellationToken);
             if (feed is not { Episodes.Count: > 0 })
             {
-                return;
+                return true;
             }
 
             // Create-only under the hood (CacheEpisodesAsync), so re-polling a feed with no new
@@ -57,6 +78,7 @@ public class FeedPollingService(
             // dynamic-playlist auto-insert), which is also the choke point #216's push-send hooks
             // into — no separate "is this new" bookkeeping needed here.
             await episodeService.CacheEpisodesAsync(showId, feed.Episodes, cancellationToken);
+            return true;
         }
         catch (Exception ex) when (
             ex is HttpRequestException or XmlException || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
@@ -72,6 +94,7 @@ public class FeedPollingService(
             // BackgroundService's normal shutdown handling applies instead of being logged as a
             // per-show failure.
             logger.LogWarning(ex, "Failed to poll feed for show {ShowId}", showId);
+            return false;
         }
     }
 }
