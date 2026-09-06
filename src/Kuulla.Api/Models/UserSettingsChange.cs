@@ -40,9 +40,12 @@ public record UserSettingsChange(
     // device that has no local arrangement can't wipe one saved from another device.
     IReadOnlyList<string>? SubscriptionManualOrder,
     // Nullable, same rationale as SubscriptionSortOrder above: a client that predates this field
-    // omits the JSON property, and STJ would bind a missing non-nullable bool to false — silently
-    // opting the user out. Null means "this client doesn't know about this setting yet", so
-    // SettingsService.SyncAsync keeps the stored value.
+    // omits the JSON property, and minimal-API binding would populate a missing non-nullable
+    // bool with false — silently turning the setting off. Null means "this client doesn't know
+    // about this setting yet", so SettingsService.SyncAsync keeps the stored value.
+    bool? HideCaughtUpShows,
+    // Nullable, same rationale as HideCaughtUpShows above — a client that predates #440 omits the
+    // property, and null means "keep whatever's stored".
     bool? AutoAddNewEpisodesToUpNext,
     // Nullable for the same reason. Null means "keep whatever's stored" rather than resetting to
     // Bottom.

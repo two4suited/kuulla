@@ -17,21 +17,25 @@ public class PlaylistService(
     public Task<IReadOnlyList<Playlist>> GetPlaylistsAsync(string userId, CancellationToken cancellationToken) =>
         QueryAllAsync(userId, cancellationToken);
 
-    public async Task<Playlist> CreatePlaylistAsync(string userId, string name, CancellationToken cancellationToken)
+    public async Task<Playlist> CreatePlaylistAsync(
+        string userId, string name, string? icon, string? accentColor, CancellationToken cancellationToken)
     {
+        var now = DateTimeOffset.UtcNow;
         var playlist = new Playlist(
-            Guid.NewGuid().ToString(), userId, name, PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+            Guid.NewGuid().ToString(), userId, name, PlaylistType.Manual, [], now, now,
+            Icon: icon, AccentColor: accentColor);
 
         await UpsertAsync(playlist, cancellationToken);
         return playlist;
     }
 
     public async Task<Playlist> CreateDynamicPlaylistAsync(
-        string userId, string name, DynamicPlaylistConfig config, CancellationToken cancellationToken)
+        string userId, string name, DynamicPlaylistConfig config, string? icon, string? accentColor, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
         var playlist = new Playlist(
-            Guid.NewGuid().ToString(), userId, name, PlaylistType.Dynamic, [], now, now, DynamicConfig: config);
+            Guid.NewGuid().ToString(), userId, name, PlaylistType.Dynamic, [], now, now,
+            DynamicConfig: config, Icon: icon, AccentColor: accentColor);
 
         var items = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
         var populated = playlist with { Items = items };
@@ -197,10 +201,12 @@ public class PlaylistService(
         }));
 
         return new PlaylistDetail(
-            playlist.Id, playlist.Name, playlist.Type, items, playlist.CreatedAt, playlist.UpdatedAt, playlist.DynamicConfig);
+            playlist.Id, playlist.Name, playlist.Type, items, playlist.CreatedAt, playlist.UpdatedAt,
+            playlist.DynamicConfig, playlist.Icon, playlist.AccentColor);
     }
 
-    public async Task<Playlist?> RenamePlaylistAsync(string userId, string id, string name, CancellationToken cancellationToken)
+    public async Task<Playlist?> RenamePlaylistAsync(
+        string userId, string id, string name, string? icon, string? accentColor, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
         if (playlist is null)
@@ -208,7 +214,13 @@ public class PlaylistService(
             return null;
         }
 
-        var updated = playlist with { Name = name, UpdatedAt = DateTimeOffset.UtcNow };
+        var updated = playlist with
+        {
+            Name = name,
+            Icon = icon,
+            AccentColor = accentColor,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
         await UpsertAsync(updated, cancellationToken);
         return updated;
     }
@@ -353,7 +365,9 @@ public class PlaylistService(
                 change.CreatedAt,
                 DateTimeOffset.UtcNow,
                 deviceId,
-                change.DynamicConfig),
+                change.DynamicConfig,
+                change.Icon,
+                change.AccentColor),
             readStoredAsync: (id, ct) => ReadAsync(userId, id, ct),
             upsertAsync: UpsertAsync,
             queryAllAsync: ct => QueryAllAsync(userId, ct),

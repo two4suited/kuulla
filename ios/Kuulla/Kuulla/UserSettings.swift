@@ -28,6 +28,11 @@ struct UserSettings: Codable, Hashable {
     // older response; consumers treat empty as "no manual order". No-longer-subscribed ids are
     // ignored on read; newly-subscribed shows not yet listed fall to the end by title.
     let subscriptionManualOrder: [String]
+    // When true, the Library/Subscriptions shows list hides shows the user is caught up on —
+    // nothing unplayed and nothing in progress (#438 follow-up). Defaults to false (see decoder)
+    // when absent, same as the API's own CLR-zero default. Even when false, a caught-up show
+    // sinks below active ones under .latestEpisode sort — that's client-side ordering only.
+    let hideCaughtUpShows: Bool
     // Auto-add new subscription episodes to the "Up Next" playlist (#440). Defaults to false
     // (opt-in) when absent, same as autoDownloadNewEpisodes.
     let autoAddNewEpisodesToUpNext: Bool
@@ -46,6 +51,7 @@ struct UserSettings: Codable, Hashable {
         smartSpeed: Bool = false, notificationsEnabled: Bool = true, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
         subscriptionManualOrder: [String] = [],
+        hideCaughtUpShows: Bool = false,
         autoAddNewEpisodesToUpNext: Bool = false,
         upNextInsertPosition: UpNextInsertPosition = .bottom,
         updatedAt: Date = .distantPast
@@ -65,6 +71,7 @@ struct UserSettings: Codable, Hashable {
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
         self.subscriptionManualOrder = subscriptionManualOrder
+        self.hideCaughtUpShows = hideCaughtUpShows
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.upNextInsertPosition = upNextInsertPosition
         self.updatedAt = updatedAt
@@ -73,7 +80,7 @@ struct UserSettings: Codable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
-        case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder
+        case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, hideCaughtUpShows
         case autoAddNewEpisodesToUpNext, upNextInsertPosition, updatedAt
     }
 
@@ -110,6 +117,8 @@ struct UserSettings: Codable, Hashable {
             SubscriptionSortOrder.self, forKey: .subscriptionSortOrder) ?? .title
         // Absent (older response) or explicit null both decode to [] — "no manual order".
         subscriptionManualOrder = try container.decodeIfPresent([String].self, forKey: .subscriptionManualOrder) ?? []
+        // Default to false when absent (#438 follow-up) — same rationale as autoArchiveRule above.
+        hideCaughtUpShows = try container.decodeIfPresent(Bool.self, forKey: .hideCaughtUpShows) ?? false
         // Default to false (off) when absent (#440), same rationale as autoDownloadNewEpisodes above.
         autoAddNewEpisodesToUpNext = try container.decodeIfPresent(Bool.self, forKey: .autoAddNewEpisodesToUpNext) ?? false
         // Default to .bottom when absent (#440), same rationale as subscriptionSortOrder above.
@@ -144,6 +153,7 @@ struct UserSettings: Codable, Hashable {
         sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder? = nil,
         subscriptionManualOrder: [String]? = nil,
+        hideCaughtUpShows: Bool? = nil,
         autoAddNewEpisodesToUpNext: Bool? = nil,
         upNextInsertPosition: UpNextInsertPosition? = nil
     ) -> UserSettings {
@@ -161,6 +171,7 @@ struct UserSettings: Codable, Hashable {
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes ?? self.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder ?? self.subscriptionSortOrder,
             subscriptionManualOrder: subscriptionManualOrder ?? self.subscriptionManualOrder,
+            hideCaughtUpShows: hideCaughtUpShows ?? self.hideCaughtUpShows,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
             upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
             updatedAt: updatedAt)

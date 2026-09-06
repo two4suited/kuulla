@@ -5,6 +5,7 @@
 @using Kuulla.Web.Services
 @inject PodcastCatalogClient CatalogClient
 @inject EpisodeStateClient EpisodeStateClient
+@inject SettingsClient SettingsClient
 @inject IJSRuntime JS
 
 <PageTitle>@(episode?.Title ?? "Episode")</PageTitle>
@@ -46,6 +47,21 @@ else
         <source src="@episode.AudioUrl" />
         Your browser does not support the audio element.
     </audio>
+
+    <div class="d-flex align-items-center gap-2 mb-2">
+        <label for="playback-speed" class="form-label mb-0 small text-muted">Speed</label>
+        <select id="playback-speed" class="form-select form-select-sm w-auto" disabled="@isPlaybackSpeedSaving"
+                value="@playbackSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="OnPlaybackSpeedChangedAsync">
+            @foreach (var option in PlaybackSpeedUi.OptionsIncluding(playbackSpeed))
+            {
+                <option value="@option.ToString(System.Globalization.CultureInfo.InvariantCulture)">@PlaybackSpeedUi.Format(option)</option>
+            }
+        </select>
+        @if (playbackSpeedError is not null)
+        {
+            <span class="text-danger small">@playbackSpeedError</span>
+        }
+    </div>
 
     @if (resumePrompt is not null)
     {
@@ -197,6 +213,14 @@ else
     private IJSObjectReference? _watcher;
     private DotNetObjectReference<EpisodeDetail>? _selfReference;
 
+    // Effective playback speed for this episode (#443): the per-show ShowSettings.PlaybackSpeed
+    // override if set, else the global UserSettings.PlaybackSpeed, else 1.0 — matching the iOS
+    // resolution order in EpisodeDetailView.loadPlaybackSettings(). Seeded into the JS watcher on
+    // attach and adjustable live from the speed selector.
+    private float playbackSpeed = 1.0f;
+    private bool isPlaybackSpeedSaving;
+    private string? playbackSpeedError;
+
     private int savedPositionSeconds;
     private bool isCompleted;
     private bool isAutoPlayed;
@@ -277,6 +301,8 @@ else
         lastSurfacedHandoffUpdatedAt = null;
         handoffDismissed = false;
         streamBlockedMessage = null;
+        playbackSpeed = 1.0f;
+        playbackSpeedError = null;
         transcript = null;
         isTranscriptLoading = false;
         transcriptLoadFailed = false;
@@ -313,6 +339,21 @@ else
                 isCompleted = state.Completed;
                 isAutoPlayed = state.AutoPlayed;
             }
+        }
+        catch (HttpRequestException)
+        {
+        }
+
+        // Best-effort, mirroring iOS EpisodeDetailView.loadPlaybackSettings(): resolve the
+        // effective speed from the per-show override, else the global setting, else 1.0. Kept out
+        // of the episode try/catch for the same reason as playback state above — a settings hiccup
+        // shouldn't hide an episode that loaded, it just leaves playback at 1.0x.
+        try
+        {
+            var userSettingsTask = SettingsClient.GetSettingsAsync();
+            var showSettingsTask = SettingsClient.GetShowSettingsAsync(ShowId);
+            await Task.WhenAll(userSettingsTask, showSettingsTask);
+            playbackSpeed = showSettingsTask.Result.PlaybackSpeed ?? userSettingsTask.Result.PlaybackSpeed;
         }
         catch (HttpRequestException)
         {
@@ -382,7 +423,7 @@ else
         }
 
         var attachPosition = resumePrompt?.LocalPositionSeconds ?? savedPositionSeconds;
-        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, attachPosition);
+        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, attachPosition, playbackSpeed);
 
         if (resumePrompt is null && episodeState is not null)
         {
@@ -712,6 +753,44 @@ else
         }
 
         await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("seekTo", startTime.TotalSeconds).AsTask());
+    }
+
+    // Applies the chosen speed to live playback immediately, then persists it back to the global
+    // UserSettings.PlaybackSpeed — same behaviour as iOS EpisodeDetailView.cyclePlaybackSpeed().
+    // A per-show override still takes precedence the next time the episode is opened; that
+    // override is edited from the show screen, not here. The new rate stays applied even if the
+    // save fails (the audio is already playing at it) — only a small "couldn't save" hint shows.
+    private async Task OnPlaybackSpeedChangedAsync(ChangeEventArgs args)
+    {
+        if (!float.TryParse(
+                args.Value?.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var value) ||
+            !float.IsFinite(value) || value <= 0)
+        {
+            return;
+        }
+
+        playbackSpeed = value;
+        playbackSpeedError = null;
+
+        if (_watcher is not null)
+        {
+            await SafeInvokeAsync(() => _watcher.InvokeVoidAsync("setPlaybackRate", value).AsTask());
+        }
+
+        isPlaybackSpeedSaving = true;
+        try
+        {
+            await SettingsClient.UpdatePlaybackSpeedAsync(value);
+        }
+        catch (HttpRequestException)
+        {
+            playbackSpeedError = "Couldn't save your speed.";
+        }
+        finally
+        {
+            isPlaybackSpeedSaving = false;
+        }
     }
 
     // Splits a segment into alternating plain / matched runs so the view can wrap matches in

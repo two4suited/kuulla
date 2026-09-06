@@ -85,6 +85,20 @@ Tag scheme: `v<UTC year>.<UTC month, no leading zero>.<zero-based counter within
    gh release view "$(git tag -l 'v*' --sort=-v:refname | head -1)"
    ```
 
+8. **Summarize the release for the marketing page.** Once `release.yml`'s "Update CHANGELOG.md"
+   commit has landed on `main`, generate the plain-language blurb the `/welcome` "What's new"
+   list leads with (see the runbook's [Summaries](../../../docs/release-runbook.md#summaries)).
+   Not in CI — run it by hand and commit:
+
+   ```sh
+   git checkout main && git pull
+   scripts/summarize-releases.sh
+   git add release-summaries.json && git commit -m "Summarize <tag> for the marketing page" && git push
+   ```
+
+   It only calls the model for releases with no blurb yet; a clean "0 updated" means nothing to
+   commit. The new blurb shows on the site with the next release's deploy.
+
 ## Hotfixes
 
 Default: roll forward. A hotfix is an ordinary PR to `main` + a new release tag with the next

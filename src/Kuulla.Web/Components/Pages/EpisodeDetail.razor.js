@@ -64,18 +64,38 @@ export function writeLocalPlayback(userId, episodeId, pos, at) {
     }
 }
 
-export function attach(dotNetRef, audioEl, initialPositionSeconds) {
+// Coerces whatever Blazor passes for the playback rate into a value the media element accepts —
+// a non-finite or non-positive rate (0, negative, NaN) throws when assigned to playbackRate, so
+// those fall back to normal speed (#443).
+function normalizePlaybackRate(rate) {
+    return Number.isFinite(rate) && rate > 0 ? rate : 1.0;
+}
+
+export function attach(dotNetRef, audioEl, initialPositionSeconds, playbackRate) {
     let lastReported = 0;
     // The browser fires 'pause' immediately before 'ended' when playback finishes naturally —
     // once 'ended' has been observed, suppress further progress reporting (pause/timeupdate) so a
     // stale completed:false update can't be sent after the completed:true one.
     let hasEnded = false;
 
+    // The user's effective playback speed (#443). Some browsers reset audioEl.playbackRate to 1.0
+    // when a new source loads, so it's re-applied on 'loadedmetadata' as well as set here.
+    let currentRate = normalizePlaybackRate(playbackRate);
+    const applyRate = () => {
+        try {
+            audioEl.playbackRate = currentRate;
+        } catch (e) {
+            // Nothing to recover — playback just stays at the browser default rate.
+        }
+    };
+    applyRate();
+
     const onLoadedMetadata = () => {
         if (initialPositionSeconds > 0 && initialPositionSeconds < (audioEl.duration || Infinity)) {
             audioEl.currentTime = initialPositionSeconds;
         }
         lastReported = initialPositionSeconds;
+        applyRate();
     };
 
     const onTimeUpdate = () => {
@@ -160,6 +180,12 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds) {
             } catch (e) {
                 // Nothing to recover — the click simply doesn't seek.
             }
+        },
+        // Called from the speed selector — changes the rate of playback in progress (and any
+        // that follows on this element) immediately (#443).
+        setPlaybackRate(rate) {
+            currentRate = normalizePlaybackRate(rate);
+            applyRate();
         },
         dispose() {
             audioEl.removeEventListener("loadedmetadata", onLoadedMetadata);

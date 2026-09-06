@@ -31,11 +31,18 @@ struct PlaylistsView: View {
 
                 ForEach(playlists) { playlist in
                     NavigationLink(value: CatalogRoute.playlist(id: playlist.id)) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(playlist.name)
-                            Text("\(playlist.items.count) episode\(playlist.items.count == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            if let icon = playlist.icon, !icon.isEmpty {
+                                Text(icon)
+                                    .font(.title3)
+                                    .foregroundStyle(Color(playlistAccentHex: playlist.accentColor) ?? .primary)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(playlist.name)
+                                Text("\(playlist.items.count) episode\(playlist.items.count == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -57,6 +64,7 @@ struct PlaylistsView: View {
         }
         .sheet(isPresented: $isShowingCreateSheet) {
             NewPlaylistSheet(onCreate: createPlaylist)
+                .presentationDetents([.medium, .large])
         }
         .task {
             await loadPlaylists()
@@ -85,8 +93,8 @@ struct PlaylistsView: View {
         }
     }
 
-    private func createPlaylist(name: String) async throws {
-        let created = try await playlistClient.createPlaylist(name: name)
+    private func createPlaylist(name: String, icon: String?, accentColor: String?) async throws {
+        let created = try await playlistClient.createPlaylist(name: name, icon: icon, accentColor: accentColor)
         playlists.append(created)
         playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -112,10 +120,12 @@ struct PlaylistsView: View {
 }
 
 private struct NewPlaylistSheet: View {
-    let onCreate: (String) async throws -> Void
+    let onCreate: (String, String?, String?) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var icon: String?
+    @State private var accentColor: String?
     @State private var isCreating = false
     @State private var errorMessage: String?
 
@@ -123,6 +133,9 @@ private struct NewPlaylistSheet: View {
         NavigationStack {
             Form {
                 TextField("Playlist name", text: $name)
+                Section {
+                    PlaylistAppearancePicker(icon: $icon, accentColor: $accentColor)
+                }
                 if let errorMessage {
                     Text(errorMessage)
                         .foregroundStyle(.red)
@@ -155,7 +168,7 @@ private struct NewPlaylistSheet: View {
         isCreating = true
         errorMessage = nil
         do {
-            try await onCreate(trimmed)
+            try await onCreate(trimmed, icon, accentColor)
             dismiss()
         } catch {
             errorMessage = "Something went wrong while creating this playlist. Please try again."

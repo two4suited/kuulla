@@ -64,7 +64,7 @@ public class PlaylistServiceTests
             .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>(
                 (IReadOnlyList<Playlist>)(created is not null ? [created] : Array.Empty<Playlist>())));
 
-        var result = await _sut.CreatePlaylistAsync(UserId, "New Playlist", CancellationToken.None);
+        var result = await _sut.CreatePlaylistAsync(UserId, "New Playlist", null, null, CancellationToken.None);
 
         Assert.Equal(UserId, result.UserId);
         Assert.Equal("New Playlist", result.Name);
@@ -100,7 +100,7 @@ public class PlaylistServiceTests
             .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => created = p)
             .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
 
-        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, null, null, CancellationToken.None);
 
         Assert.Equal(PlaylistType.Dynamic, result.Type);
         Assert.Equal(config, result.DynamicConfig);
@@ -132,7 +132,7 @@ public class PlaylistServiceTests
             .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => created = p)
             .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
 
-        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, null, null, CancellationToken.None);
 
         Assert.Equal(["b-new", "b-old", "a-new", "a-old"], result.Items.Select(i => i.EpisodeId));
         Assert.NotNull(created);
@@ -160,7 +160,7 @@ public class PlaylistServiceTests
             .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
             .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
 
-        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, null, null, CancellationToken.None);
 
         Assert.Equal(["unplayed"], result.Items.Select(i => i.EpisodeId));
     }
@@ -184,7 +184,7 @@ public class PlaylistServiceTests
             .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
             .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
 
-        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, CancellationToken.None);
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, null, null, CancellationToken.None);
 
         Assert.Equal(["in-progress", "fresh"], result.Items.Select(i => i.EpisodeId));
     }
@@ -356,7 +356,7 @@ public class PlaylistServiceTests
             .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -370,11 +370,67 @@ public class PlaylistServiceTests
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
         SetUpEmptyQuery();
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("New Name", result!.Name);
         Assert.True(result.UpdatedAt > playlist.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task CreatePlaylistAsync_PersistsIconAndAccentColor()
+    {
+        Playlist? created = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => created = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.CreatePlaylistAsync(UserId, "Workout", "💪", "#FF8800", CancellationToken.None);
+
+        Assert.Equal("💪", result.Icon);
+        Assert.Equal("#FF8800", result.AccentColor);
+        Assert.Equal("💪", created!.Icon);
+    }
+
+    [Fact]
+    public async Task RenamePlaylistAsync_UpdatesIconAndAccentColor()
+    {
+        var playlist = MakePlaylist(name: "Old Name") with { Icon = "🎧", AccentColor = "#111111" };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+        SetUpEmptyQuery();
+
+        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", "🔥", null, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("🔥", result!.Icon);
+        // A null accent colour clears it — the edit request carries the full desired state.
+        Assert.Null(result.AccentColor);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PersistsIconFromAcceptedChange()
+    {
+        Playlist? upserted = null;
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => upserted = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+        SetUpEmptyQuery();
+
+        var change = new PlaylistChange(
+            PlaylistId, "Synced Playlist", PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+            Icon: "⭐", AccentColor: "#ABCDEF");
+
+        await _sut.SyncAsync(UserId, "device-1", DateTimeOffset.MinValue, localHash: "", [change], CancellationToken.None);
+
+        Assert.Equal("⭐", upserted!.Icon);
+        Assert.Equal("#ABCDEF", upserted.AccentColor);
     }
 
     [Fact]

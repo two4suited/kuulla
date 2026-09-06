@@ -15,6 +15,7 @@ public record UserSettings(
     int? SleepTimerDefaultDurationMinutes = null,
     SubscriptionSortOrder SubscriptionSortOrder = SubscriptionSortOrder.Title,
     IReadOnlyList<string>? SubscriptionManualOrder = null,
+    bool HideCaughtUpShows = false,
     bool AutoAddNewEpisodesToUpNext = false,
     UpNextInsertPosition UpNextInsertPosition = UpNextInsertPosition.Bottom,
     DateTimeOffset UpdatedAt = default,

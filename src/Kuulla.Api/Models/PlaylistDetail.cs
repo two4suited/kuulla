@@ -9,4 +9,6 @@ public record PlaylistDetail(
     IReadOnlyList<PlaylistItemDetail> Items,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    DynamicPlaylistConfig? DynamicConfig = null);
+    DynamicPlaylistConfig? DynamicConfig = null,
+    string? Icon = null,
+    string? AccentColor = null);

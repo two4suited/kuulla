@@ -49,12 +49,39 @@ public class EpisodeDetailTests : WebTestContext
     private static readonly EpisodeState AutoPlayedState = new(
         "ep-1", "user-1", "ep-1", "show-1", 1200, true, DateTimeOffset.UtcNow, null, AutoPlayed: true);
 
+    private static readonly UserSettings DefaultUserSettings = new(
+        "user-1", UnlistenedEpisodeCount.Five, Version: 1);
+
+    private static ShowSettings ShowSettingsDoc(float? playbackSpeed = null) => new(
+        "show:user-1:show-1", "user-1", "show-1", null, Version: 1, PlaybackSpeed: playbackSpeed);
+
     private static TestHttpMessageHandler RouteHandler(
         Func<HttpRequestMessage, HttpResponseMessage>? onGetState = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onPutState = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onTranscript = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onGetSettings = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onGetShowSettings = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onPutPlaybackSpeed = null,
         Episode? episode = null) => new(request =>
     {
+        if (request.RequestUri!.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
+        {
+            return onGetSettings?.Invoke(request)
+                ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultUserSettings) };
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/settings/shows/show-1" && request.Method == HttpMethod.Get)
+        {
+            return onGetShowSettings?.Invoke(request)
+                ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(ShowSettingsDoc()) };
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/settings/playback-speed" && request.Method == HttpMethod.Put)
+        {
+            return onPutPlaybackSpeed?.Invoke(request)
+                ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultUserSettings) };
+        }
+
         if (request.RequestUri!.AbsolutePath == "/api/shows/show-1/episodes/ep-1/transcript" && request.Method == HttpMethod.Get)
         {
             return onTranscript?.Invoke(request) ?? new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -354,6 +381,96 @@ public class EpisodeDetailTests : WebTestContext
 
         var invocation = JSInterop.VerifyInvoke("seekTo");
         Assert.Equal(125d, invocation.Arguments[0]);
+    }
+
+    [Fact]
+    public void SeedsPlayerWithGlobalPlaybackSpeed_WhenNoShowOverride()
+    {
+        ConfigureApi(RouteHandler(
+            onGetSettings: _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(DefaultUserSettings with { PlaybackSpeed = 1.5f }),
+            }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var attach = JSInterop.Invocations.Single(i => i.Identifier == "attach");
+            Assert.Equal(1.5f, attach.Arguments[3]);
+            Assert.Equal("1.5", cut.Find("#playback-speed").GetAttribute("value"));
+            Assert.Contains("1.5x", cut.Find("#playback-speed").TextContent);
+        });
+    }
+
+    [Fact]
+    public void ShowOverride_TakesPrecedenceOverGlobalPlaybackSpeed()
+    {
+        ConfigureApi(RouteHandler(
+            onGetSettings: _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(DefaultUserSettings with { PlaybackSpeed = 1.5f }),
+            },
+            onGetShowSettings: _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(ShowSettingsDoc(playbackSpeed: 2.0f)),
+            }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var attach = JSInterop.Invocations.Single(i => i.Identifier == "attach");
+            Assert.Equal(2.0f, attach.Arguments[3]);
+        });
+    }
+
+    [Fact]
+    public void FallsBackToNormalSpeed_WhenSettingsFetchFails()
+    {
+        ConfigureApi(RouteHandler(
+            onGetSettings: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var attach = JSInterop.Invocations.Single(i => i.Identifier == "attach");
+            Assert.Equal(1.0f, attach.Arguments[3]);
+        });
+    }
+
+    [Fact]
+    public void ChangingSpeedSelector_AppliesRateLiveAndPersistsToGlobalSetting()
+    {
+        string? putBody = null;
+        ConfigureApi(RouteHandler(
+            onPutPlaybackSpeed: request =>
+            {
+                putBody = request.Content!.ReadAsStringAsync().Result;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultUserSettings) };
+            }));
+
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+
+        cut.Find("#playback-speed").Change("2");
+
+        cut.WaitForAssertion(() =>
+        {
+            var invocation = JSInterop.VerifyInvoke("setPlaybackRate");
+            Assert.Equal(2f, invocation.Arguments[0]);
+            Assert.NotNull(putBody);
+            Assert.Contains("2", putBody!);
+        });
     }
 
     private static HttpResponseMessage TranscriptOk() =>

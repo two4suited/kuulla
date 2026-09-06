@@ -35,6 +35,10 @@ struct AddToPlaylistSheet: View {
                             Task { await addToExisting(playlist) }
                         } label: {
                             HStack {
+                                if let icon = playlist.icon, !icon.isEmpty {
+                                    Text(icon)
+                                        .foregroundStyle(Color(playlistAccentHex: playlist.accentColor) ?? .primary)
+                                }
                                 Text(playlist.name)
                                     .foregroundStyle(.primary)
                                 Spacer()

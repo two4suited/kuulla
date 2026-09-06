@@ -37,6 +37,9 @@ final class UserSettingsRecord: Syncable {
     // Inline default required for the same lightweight-migration reason as the fields above.
     // `[String]` persists fine as a SwiftData attribute (stored as a value type). #438 manual sort.
     var subscriptionManualOrder: [String] = [String]()
+    // Inline default required for the same lightweight-migration reason as the fields above.
+    // #438 follow-up: hide caught-up shows from the Library/Subscriptions list.
+    var hideCaughtUpShows: Bool = false
     // Inline default required, same lightweight-migration reason as the fields above. #440.
     var autoAddNewEpisodesToUpNext: Bool = false
     // Inline default required, same reason. .bottom matches the API's default for #440.
@@ -52,6 +55,7 @@ final class UserSettingsRecord: Syncable {
         smartSpeed: Bool, notificationsEnabled: Bool, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
         subscriptionManualOrder: [String] = [],
+        hideCaughtUpShows: Bool = false,
         autoAddNewEpisodesToUpNext: Bool = false,
         upNextInsertPosition: UpNextInsertPosition = .bottom,
         version: Int, updatedAt: Date, isDirty: Bool = false
@@ -70,6 +74,7 @@ final class UserSettingsRecord: Syncable {
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
         self.subscriptionManualOrder = subscriptionManualOrder
+        self.hideCaughtUpShows = hideCaughtUpShows
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.upNextInsertPosition = upNextInsertPosition
         self.version = version
@@ -87,6 +92,7 @@ final class UserSettingsRecord: Syncable {
             sleepTimerDefaultDurationMinutes: settings.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: settings.subscriptionSortOrder,
             subscriptionManualOrder: settings.subscriptionManualOrder,
+            hideCaughtUpShows: settings.hideCaughtUpShows,
             autoAddNewEpisodesToUpNext: settings.autoAddNewEpisodesToUpNext,
             upNextInsertPosition: settings.upNextInsertPosition,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
@@ -108,6 +114,7 @@ final class UserSettingsRecord: Syncable {
         sleepTimerDefaultDurationMinutes = settings.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = settings.subscriptionSortOrder
         subscriptionManualOrder = settings.subscriptionManualOrder
+        hideCaughtUpShows = settings.hideCaughtUpShows
         autoAddNewEpisodesToUpNext = settings.autoAddNewEpisodesToUpNext
         upNextInsertPosition = settings.upNextInsertPosition
         version = settings.version
@@ -132,6 +139,7 @@ final class UserSettingsRecord: Syncable {
         sleepTimerDefaultDurationMinutes = other.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = other.subscriptionSortOrder
         subscriptionManualOrder = other.subscriptionManualOrder
+        hideCaughtUpShows = other.hideCaughtUpShows
         autoAddNewEpisodesToUpNext = other.autoAddNewEpisodesToUpNext
         upNextInsertPosition = other.upNextInsertPosition
         version = other.version
@@ -152,6 +160,7 @@ final class UserSettingsRecord: Syncable {
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder,
             subscriptionManualOrder: subscriptionManualOrder,
+            hideCaughtUpShows: hideCaughtUpShows,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext,
             upNextInsertPosition: upNextInsertPosition, updatedAt: updatedAt)
     }

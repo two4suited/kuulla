@@ -27,7 +27,9 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 items: $0.items,
                 createdAt: $0.createdAt,
                 updatedAt: $0.updatedAt,
-                dynamicConfig: $0.dynamicConfig)
+                dynamicConfig: $0.dynamicConfig,
+                icon: $0.icon,
+                accentColor: $0.accentColor)
         }
         let request = SyncPlaylistsRequestDTO(
             deviceId: deviceId, lastSyncedAt: lastSyncedAt, localHash: localHash, changes: changes)
@@ -42,7 +44,9 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 items: $0.items,
                 createdAt: $0.createdAt,
                 updatedAt: $0.updatedAt,
-                dynamicConfig: $0.dynamicConfig)
+                dynamicConfig: $0.dynamicConfig,
+                icon: $0.icon,
+                accentColor: $0.accentColor)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
@@ -62,6 +66,8 @@ struct PlaylistSyncAdapter: SyncAdapter {
             existing.items = record.items
             existing.updatedAt = record.updatedAt
             existing.dynamicConfig = record.dynamicConfig
+            existing.icon = record.icon
+            existing.accentColor = record.accentColor
             existing.isDirty = false
         } else {
             context.insert(record)
@@ -77,6 +83,8 @@ private struct PlaylistChangeDTO: Encodable {
     let createdAt: Date
     let updatedAt: Date
     let dynamicConfig: DynamicPlaylistConfigRecord?
+    let icon: String?
+    let accentColor: String?
 }
 
 private struct SyncPlaylistsRequestDTO: Encodable {
@@ -103,4 +111,6 @@ private struct PlaylistSyncDTO: Decodable {
     let createdAt: Date
     let updatedAt: Date
     let dynamicConfig: DynamicPlaylistConfigRecord?
+    let icon: String?
+    let accentColor: String?
 }

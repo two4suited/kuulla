@@ -155,6 +155,10 @@ public class SettingsService(
                 change.SubscriptionManualOrder is { Count: > 0 }
                     ? change.SubscriptionManualOrder
                     : stored?.SubscriptionManualOrder,
+                // Null means the pushing client doesn't send this field yet (see
+                // UserSettingsChange.HideCaughtUpShows) — keep the stored value rather than
+                // turning the setting off.
+                change.HideCaughtUpShows ?? stored?.HideCaughtUpShows ?? false,
                 // Null means the pushing client doesn't send these fields yet (see
                 // UserSettingsChange) — keep whatever's stored rather than clobbering it.
                 change.AutoAddNewEpisodesToUpNext ?? stored?.AutoAddNewEpisodesToUpNext ?? false,
@@ -183,6 +187,11 @@ public class SettingsService(
         string userId, IReadOnlyList<string> subscriptionManualOrder, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(
             userId, current => current with { SubscriptionManualOrder = subscriptionManualOrder }, cancellationToken);
+
+    public Task<UserSettings> UpdateHideCaughtUpShowsAsync(
+        string userId, bool hideCaughtUpShows, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { HideCaughtUpShows = hideCaughtUpShows }, cancellationToken);
 
     public async Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken)
     {

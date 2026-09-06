@@ -77,6 +77,14 @@ public record UserSettings(
     // null and empty identically. Show ids no longer subscribed to are ignored on read; newly
     // subscribed shows not yet in the array fall to the end (by title).
     IReadOnlyList<string>? SubscriptionManualOrder = null,
+    // When true, the Library/Subscriptions shows list hides shows that have nothing unplayed and
+    // nothing in progress — a show the user is "caught up" on (#438 follow-up). False is the CLR
+    // zero value, so a settings document written before this field existed deserializes it as
+    // false (every subscribed show visible) with no DefaultValueHandling needed. Even with the
+    // flag off, a caught-up show sinks below active ones under
+    // SubscriptionSortOrder.LatestEpisode — that ordering is applied client-side and needs no
+    // stored flag.
+    bool HideCaughtUpShows = false,
     // False is the safe default — auto-queueing new episodes is a behaviour a user should opt
     // into, not one applied on their behalf, matching AutoDownloadNewEpisodes' convention above.
     bool AutoAddNewEpisodesToUpNext = false,
@@ -93,9 +101,7 @@ public record UserSettings(
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
             PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false,
             SmartSpeed: false, NotificationsEnabled: true, SleepTimerDefaultDurationMinutes: null,
-            SubscriptionSortOrder: SubscriptionSortOrder.Title, SubscriptionManualOrder: null,
-            AutoAddNewEpisodesToUpNext: false, UpNextInsertPosition: UpNextInsertPosition.Bottom,
-            UpdatedAt: DateTimeOffset.UtcNow);
+            SubscriptionSortOrder: SubscriptionSortOrder.Title, UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization

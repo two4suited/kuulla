@@ -13,13 +13,19 @@ namespace Kuulla.Web.Services;
 /// </code>
 /// The <c># Changelog</c> title, HTML comments, and blank lines are ignored; a <c>##</c> with no
 /// change bullets under it is dropped.
+///
+/// <paramref name="summaries"/>, when supplied, is a version → blurb map from
+/// <c>release-summaries.json</c>; a matching entry becomes the <see cref="ReleaseNote.Summary"/>.
 /// </summary>
 internal static class ChangelogParser
 {
     // "## <version> — <yyyy-MM-dd>"; the date (and its dash) are optional.
     private static readonly char[] DateSeparators = ['—', '–']; // em dash, en dash
 
-    public static IReadOnlyList<ReleaseNote> Parse(string? markdown, string repository)
+    public static IReadOnlyList<ReleaseNote> Parse(
+        string? markdown,
+        string repository,
+        IReadOnlyDictionary<string, string>? summaries = null)
     {
         if (string.IsNullOrWhiteSpace(markdown))
         {
@@ -53,7 +59,10 @@ internal static class ChangelogParser
                     version,
                     publishedOn,
                     groups.ToArray(),
-                    $"https://github.com/{repository}/releases/tag/v{version}"));
+                    $"https://github.com/{repository}/releases/tag/v{version}",
+                    summaries is not null && summaries.TryGetValue(version, out var summary)
+                        ? summary
+                        : null));
             }
 
             groups = [];
