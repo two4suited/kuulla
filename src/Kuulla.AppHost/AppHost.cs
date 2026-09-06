@@ -196,6 +196,43 @@ var api = apiBuilder
     .WaitFor(deviceTokens)
     .PublishAsAzureContainerApp(ScaleToZero);
 
+// Runs the subscribed-podcast feed-polling sweep (milestone #38). Separate from the API so the
+// sweep runs once per tick regardless of API replica count. Shares the same Cosmos containers and
+// the moved Kuulla.Core domain services. #414 publishes this as an ACA scheduled job (cron); for
+// now it deploys as a plain container app alongside api/web.
+var feedPoller = builder.AddProject<Projects.Kuulla_FeedPoller>("feed-poller")
+    .WithReference(cosmos)
+    .WithReference(shows)
+    .WithReference(episodes)
+    .WithReference(subscriptions)
+    .WithReference(settings)
+    .WithReference(episodeStates)
+    .WithReference(playlists)
+    .WithReference(deviceTokens)
+    .WaitFor(cosmos)
+    .WaitFor(shows)
+    .WaitFor(episodes)
+    .WaitFor(subscriptions)
+    .WaitFor(settings)
+    .WaitFor(episodeStates)
+    .WaitFor(playlists)
+    .WaitFor(deviceTokens);
+
+// Publish-mode only (see the `insights` declaration) — null in Run/test mode.
+if (insights is not null)
+{
+    feedPoller.WithReference(insights);
+}
+
+if (apnsConfigured)
+{
+    feedPoller
+        .WithEnvironment("Apns__KeyId", apnsKeyId)
+        .WithEnvironment("Apns__TeamId", apnsTeamId)
+        .WithEnvironment("Apns__BundleId", apnsBundleId)
+        .WithEnvironment("Apns__PrivateKey", apnsPrivateKey);
+}
+
 var web = builder.AddProject<Projects.Kuulla_Web>("web")
     .WithExternalHttpEndpoints()
     .WithHttpProbe(ProbeType.Liveness, "/health")

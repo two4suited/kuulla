@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using dotAPNS;
 using Kuulla.Api.Services;
 using Kuulla.Core;
 using Kuulla.Core.Models;
@@ -39,43 +38,10 @@ builder.Services.AddScoped<ITranscriptService, TranscriptService>();
 // verified in production (#415).
 builder.Services.AddHostedService<FeedPollingBackgroundService>();
 
-// APNs credentials (milestone #32, issue #216) — optional, unlike Google OAuth's required-audience
-// check above: push notifications are additive infrastructure, not something local dev or CI needs
-// configured to run the app. Falls back to a no-op sender (with a one-time startup warning) when
-// any of the four values is unset, rather than failing startup.
-var apnsKeyId = builder.Configuration["Apns:KeyId"];
-var apnsTeamId = builder.Configuration["Apns:TeamId"];
-var apnsBundleId = builder.Configuration["Apns:BundleId"];
-var apnsPrivateKey = builder.Configuration["Apns:PrivateKey"];
-if (!string.IsNullOrEmpty(apnsKeyId) && !string.IsNullOrEmpty(apnsTeamId)
-    && !string.IsNullOrEmpty(apnsBundleId) && !string.IsNullOrEmpty(apnsPrivateKey))
-{
-    builder.Services.AddHttpClient("apns");
-    builder.Services.AddSingleton<IApnsClient>(sp =>
-    {
-        var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("apns");
-        return ApnsClient.CreateUsingJwt(httpClient, new ApnsJwtOptions
-        {
-            CertContent = apnsPrivateKey,
-            KeyId = apnsKeyId,
-            TeamId = apnsTeamId,
-            BundleId = apnsBundleId,
-        });
-    });
-    // Development always talks to Apple's sandbox APNs environment — a debug-signed build's
-    // device tokens are only ever valid there, never on the production endpoint. Set per-push
-    // (ApplePush.SendToDevelopmentServer()) rather than on the client itself — ApnsClient.
-    // UseSandbox() is obsolete in this package version.
-    builder.Services.AddSingleton(sp => new ApnsNotificationServiceOptions(UseSandbox: builder.Environment.IsDevelopment()));
-    builder.Services.AddScoped<INotificationService, ApnsNotificationService>();
-}
-else
-{
-    Console.WriteLine(
-        "warn: APNs not configured ('Apns:KeyId'/'Apns:TeamId'/'Apns:BundleId'/'Apns:PrivateKey') " +
-        "— push notifications are disabled; new-episode pushes will be silently skipped.");
-    builder.Services.AddScoped<INotificationService, NoOpNotificationService>();
-}
+// Push-notification sender (APNs, or a no-op fallback when APNs isn't configured). Shared with
+// the Kuulla.FeedPoller worker, which sends the same new-episode push (milestone #32, issue #216).
+builder.Services.AddKuullaNotifications(
+    builder.Configuration, useSandbox: builder.Environment.IsDevelopment());
 
 var googleClientId = builder.Configuration["Google:ClientId"];
 var googleIosClientId = builder.Configuration["Google:IosClientId"];
@@ -367,6 +333,26 @@ if (app.Environment.IsDevelopment())
 
         await episodeService.CacheEpisodesAsync(request.ShowId, request.Episodes, ct);
         return Results.Ok(request.Episodes);
+    });
+
+    // Local-testing-only (milestone #38): runs one feed-polling sweep on demand — the exact path
+    // the Kuulla.FeedPoller worker runs on its timer — so a local test doesn't have to wait out a
+    // full FeedPolling:IntervalMinutes tick. Pair it with /dev/simulate-new-episodes (to inject a
+    // synthetic episode) or point a seeded Show's FeedUrl at a feed you control to watch a new
+    // episode flow through caching + the new-episode push. Same loopback + Development + DEBUG
+    // guard as the other /dev/* endpoints above.
+    app.MapPost("/dev/poll-feeds", async (
+        HttpContext context,
+        IFeedPollingService feedPollingService,
+        CancellationToken ct) =>
+    {
+        if (!IsLoopbackCaller(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        await feedPollingService.PollOnceAsync(ct);
+        return Results.Ok(new { status = "swept" });
     });
 
     // Local-testing-only (issue #249): lets integration tests seed manual and dynamic Playlists
