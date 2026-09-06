@@ -322,7 +322,8 @@
     order: 2;
 }
 
-/* ---- what's new: the latest GitHub Releases, grouped as in the release notes ---- */
+/* ---- what's new: the latest GitHub Releases — an AI blurb per release, with the raw
+   label-grouped notes in a "Full notes" expander ---- */
 .l-whatsnew {
     padding: 72px 0;
     border-top: 1px solid var(--k-border);
@@ -374,7 +375,50 @@
 
 .l-release-changes {
     display: grid;
-    gap: 16px;
+    gap: 14px;
+}
+
+/* The AI-written blurb — the entry's headline; raw notes move into the expander below. */
+.l-release-summary {
+    margin: 0;
+    color: var(--k-text);
+    font-size: 0.98rem;
+    line-height: 1.6;
+    max-width: 60ch;
+}
+
+.l-release-notes > summary {
+    cursor: pointer;
+    display: inline-block;
+    font-family: var(--k-font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--k-text-muted);
+    list-style: none;
+}
+
+.l-release-notes > summary::-webkit-details-marker {
+    display: none;
+}
+
+.l-release-notes > summary::before {
+    content: "+ ";
+}
+
+.l-release-notes[open] > summary::before {
+    content: "– ";
+}
+
+.l-release-notes > summary:hover {
+    color: var(--k-accent-ink);
+}
+
+.l-release-notes[open] > summary {
+    margin-bottom: 14px;
+}
+
+.l-release-notes > .l-release-group + .l-release-group {
+    margin-top: 16px;
 }
 
 .l-release-group-title {

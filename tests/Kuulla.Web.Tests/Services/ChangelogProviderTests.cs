@@ -59,4 +59,27 @@ public class ChangelogProviderTests
 
         Assert.Equal(1, reads);
     }
+
+    [Fact]
+    public void GetRecent_merges_summaries_from_the_summaries_json_by_version()
+    {
+        var provider = new ChangelogProvider(
+            () => ThreeReleases,
+            "o/r",
+            () => """{ "2026.9.3": "Newest blurb.", "2026.9.1": "Oldest blurb." }""");
+
+        var recent = provider.GetRecent(count: 3);
+
+        Assert.Equal("Newest blurb.", recent[0].Summary);
+        Assert.Null(recent[1].Summary);
+        Assert.Equal("Oldest blurb.", recent[2].Summary);
+    }
+
+    [Fact]
+    public void GetRecent_ignores_an_unparseable_summaries_json()
+    {
+        var provider = new ChangelogProvider(() => ThreeReleases, "o/r", () => "not json");
+
+        Assert.All(provider.GetRecent(), r => Assert.Null(r.Summary));
+    }
 }

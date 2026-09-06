@@ -1,0 +1,6 @@
+{
+  "2026.9.0": "Behind-the-scenes improvements.",
+  "2026.9.1": "Dynamic playlists are now built from unplayed episodes only, so the list stops showing you shows you've already heard.",
+  "2026.9.2": "Dynamic playlists now drop each episode as soon as you finish it, so the list always reflects what's left to hear. Plus a fuller look for this page and behind-the-scenes fixes.",
+  "2026.9.3": "The Library and Subscriptions grid is yours to arrange: drag shows into any order, choose small, medium, or large artwork, and sort the list the way you want, with your choice remembered between visits. Episode lists now open straight to what's unplayed or still in progress, New Episodes rows show the podcast's artwork and name, and show cards flag anything you've started. Plus behind-the-scenes fixes."
+}
