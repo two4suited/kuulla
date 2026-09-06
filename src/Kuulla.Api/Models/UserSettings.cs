@@ -77,6 +77,14 @@ public record UserSettings(
     // null and empty identically. Show ids no longer subscribed to are ignored on read; newly
     // subscribed shows not yet in the array fall to the end (by title).
     IReadOnlyList<string>? SubscriptionManualOrder = null,
+    // When true, the Library/Subscriptions shows list hides shows that have nothing unplayed and
+    // nothing in progress — a show the user is "caught up" on (#438 follow-up). False is the CLR
+    // zero value, so a settings document written before this field existed deserializes it as
+    // false (every subscribed show visible) with no DefaultValueHandling needed. Even with the
+    // flag off, a caught-up show sinks below active ones under
+    // SubscriptionSortOrder.LatestEpisode — that ordering is applied client-side and needs no
+    // stored flag.
+    bool HideCaughtUpShows = false,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {

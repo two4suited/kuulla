@@ -113,4 +113,66 @@ public class SubscriptionSortingTests
 
         Assert.Equal(["2", "1"], SubscriptionSorting.Sort(subs, SubscriptionSortOrder.LatestEpisode).Select(s => s.Id));
     }
+
+    [Fact]
+    public void LatestEpisode_SinksCaughtUpShowsBelowActiveOnesRegardlessOfDate()
+    {
+        var subs = new[]
+        {
+            Sub("caught-up-fresh", "A", latestEpisodePublishedAt: new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero)),
+            Sub("active-stale", "B", latestEpisodePublishedAt: new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+        };
+        var active = new HashSet<string> { "active-stale" };
+
+        var sorted = SubscriptionSorting.Sort(subs, SubscriptionSortOrder.LatestEpisode, activeShowIds: active);
+
+        // "active-stale" has an older episode but still comes first — the caught-up show sinks.
+        Assert.Equal(["active-stale", "caught-up-fresh"], sorted.Select(s => s.Id));
+    }
+
+    [Fact]
+    public void LatestEpisode_NullActiveShowIds_LeavesOrderUnchanged()
+    {
+        var subs = new[]
+        {
+            Sub("stale", "A", latestEpisodePublishedAt: new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+            Sub("fresh", "B", latestEpisodePublishedAt: new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero)),
+        };
+
+        Assert.Equal(["fresh", "stale"], SubscriptionSorting.Sort(subs, SubscriptionSortOrder.LatestEpisode, activeShowIds: null).Select(s => s.Id));
+    }
+
+    [Fact]
+    public void HideCaughtUp_RemovesShowsNotInActiveSet()
+    {
+        var subs = new[] { Sub("a", "Apple"), Sub("b", "Banana"), Sub("c", "Cherry") };
+        var active = new HashSet<string> { "b" };
+
+        var sorted = SubscriptionSorting.Sort(subs, SubscriptionSortOrder.Title, activeShowIds: active, hideCaughtUp: true);
+
+        Assert.Equal(["b"], sorted.Select(s => s.Id));
+    }
+
+    [Fact]
+    public void HideCaughtUp_WithNullActiveShowIds_KeepsEveryShow()
+    {
+        var subs = new[] { Sub("a", "Apple"), Sub("b", "Banana") };
+
+        var sorted = SubscriptionSorting.Sort(subs, SubscriptionSortOrder.Title, activeShowIds: null, hideCaughtUp: true);
+
+        Assert.Equal(["a", "b"], sorted.Select(s => s.Id));
+    }
+
+    [Fact]
+    public void HideCaughtUp_IgnoredInManualMode()
+    {
+        var subs = new[] { Sub("a", "Apple"), Sub("b", "Banana"), Sub("c", "Cherry") };
+        var active = new HashSet<string> { "b" };
+
+        var sorted = SubscriptionSorting.Sort(
+            subs, SubscriptionSortOrder.Manual, ["c", "a", "b"], activeShowIds: active, hideCaughtUp: true);
+
+        // Manual is a hand-curated arrangement — every subscribed show still shows.
+        Assert.Equal(["c", "a", "b"], sorted.Select(s => s.Id));
+    }
 }

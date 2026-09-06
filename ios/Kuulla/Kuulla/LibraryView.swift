@@ -4,6 +4,8 @@ struct LibraryView: View {
     @State private var subscriptions: [Subscription] = []
     @State private var playlists: [Playlist] = []
     @State private var unplayedCounts: [String: UnplayedCounts.Count] = [:]
+    @State private var inProgressShowIds: Set<String> = []
+    @State private var episodeStateLoaded = false
     @State private var isLoadingShows = false
     @State private var isLoadingPlaylists = false
     @State private var showsErrorMessage: String?
@@ -14,6 +16,24 @@ struct LibraryView: View {
     @State private var manualOrder: [String] = []
     @State private var manualSaveTask: Task<Void, Never>?
     @State private var manualSaveError: String?
+    @State private var hideCaughtUpShows = false
+    @State private var hideCaughtUpSaveTask: Task<Void, Never>?
+    @State private var hideCaughtUpSaveError: String?
+
+    // Shows with at least one unplayed or in-progress episode — the complement of "caught up".
+    // Nil until the best-effort episode-state fetch in loadShows() completes, so the grid never
+    // hides or re-sinks shows on incomplete data.
+    private var activeShowIds: Set<String>? {
+        episodeStateLoaded ? Set(unplayedCounts.keys).union(inProgressShowIds) : nil
+    }
+
+    // Render order for the grid: the stored `subscriptions` order with the caught-up sink (and,
+    // when enabled, the hide filter) layered on. `subscriptions` itself stays the full list.
+    private var displayedSubscriptions: [Subscription] {
+        sortedSubscriptions(
+            subscriptions, by: sortOrder, manualOrder: manualOrder,
+            activeShowIds: activeShowIds, hideCaughtUp: hideCaughtUpShows)
+    }
 
     @AppStorage(ShowIconSize.storageKey) private var iconSizeRaw = ShowIconSize.default.rawValue
 
@@ -68,11 +88,35 @@ struct LibraryView: View {
                     Text(option.label).tag(option)
                 }
             }
+            Divider()
+            Toggle("Hide caught-up shows", isOn: hideCaughtUpBinding)
         } label: {
             Image(systemName: "arrow.up.arrow.down")
         }
         .accessibilityLabel("Sort shows")
         .disabled(subscriptions.isEmpty && showsErrorMessage == nil)
+    }
+
+    private var hideCaughtUpBinding: Binding<Bool> {
+        Binding(
+            get: { hideCaughtUpShows },
+            set: { newValue in
+                let previous = hideCaughtUpShows
+                guard newValue != previous else { return }
+                hideCaughtUpShows = newValue
+                hideCaughtUpSaveError = nil
+                // Optimistic, with rollback on failure — matches the sort-order binding.
+                hideCaughtUpSaveTask?.cancel()
+                hideCaughtUpSaveTask = Task {
+                    do {
+                        _ = try await settingsClient.updateHideCaughtUpShows(newValue)
+                    } catch {
+                        guard !Task.isCancelled else { return }
+                        hideCaughtUpShows = previous
+                        hideCaughtUpSaveError = "Couldn't save your choice. Please try again."
+                    }
+                }
+            })
     }
 
     private var sortOrderBinding: Binding<SubscriptionSortOrder> {
@@ -93,6 +137,7 @@ struct LibraryView: View {
         guard let settings = try? await settingsClient.getSettings(), !Task.isCancelled else { return }
         sortOrder = settings.subscriptionSortOrder
         manualOrder = settings.subscriptionManualOrder
+        hideCaughtUpShows = settings.hideCaughtUpShows
         subscriptions = sortedSubscriptions(subscriptions, by: sortOrder, manualOrder: manualOrder)
     }
 
@@ -192,6 +237,12 @@ struct LibraryView: View {
                     .foregroundStyle(.red)
                     .padding(.horizontal)
             }
+            if let hideCaughtUpSaveError {
+                Text(hideCaughtUpSaveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+            }
             if let manualSaveError {
                 Text(manualSaveError)
                     .font(.caption)
@@ -212,9 +263,13 @@ struct LibraryView: View {
                     .padding(.horizontal)
             } else if sortOrder == .manual {
                 manualReorderList
+            } else if displayedSubscriptions.isEmpty {
+                Text("You're caught up on every show. Turn off \u{201C}Hide caught-up shows\u{201D} to see them all.")
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
             } else {
                 LazyVGrid(columns: columns, spacing: 20) {
-                    ForEach(subscriptions) { subscription in
+                    ForEach(displayedSubscriptions) { subscription in
                         NavigationLink(value: CatalogRoute.show(id: subscription.showId)) {
                             ShowTile(subscription: subscription, unplayedCount: unplayedCounts[subscription.showId])
                         }
@@ -273,9 +328,23 @@ struct LibraryView: View {
         guard !Task.isCancelled, showsErrorMessage == nil else { return }
 
         // Best-effort, run after the grid has already rendered: unplayed badges are supplementary,
-        // so a failure here shouldn't hide the already-loaded show grid behind an error.
-        if let newEpisodes = try? await subscriptionClient.getNewEpisodes(), !Task.isCancelled {
+        // so a failure here shouldn't hide the already-loaded show grid behind an error. The same
+        // data also drives the caught-up hide/sink, gated on episodeStateLoaded so nothing is
+        // hidden until both fetches have actually landed. Fetched concurrently — neither depends
+        // on the other.
+        async let newEpisodesTask = subscriptionClient.getNewEpisodes()
+        async let inProgressTask = subscriptionClient.getInProgressShowIds()
+        let newEpisodes = try? await newEpisodesTask
+        let inProgress = try? await inProgressTask
+        guard !Task.isCancelled else { return }
+        if let newEpisodes {
             unplayedCounts = UnplayedCounts.compute(from: newEpisodes)
+        }
+        if let inProgress {
+            inProgressShowIds = inProgress
+        }
+        if newEpisodes != nil, inProgress != nil {
+            episodeStateLoaded = true
         }
     }
 

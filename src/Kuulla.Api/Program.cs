@@ -1197,6 +1197,17 @@ settings.MapPut("/subscription-manual-order", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/hide-caught-up-shows", async (
+    UpdateHideCaughtUpShowsRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateHideCaughtUpShowsAsync(userId, request.HideCaughtUpShows, ct);
+    return Results.Ok(result);
+});
+
 settings.MapGet("/shows/{showId}", async (
     string showId,
     ClaimsPrincipal user,

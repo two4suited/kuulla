@@ -32,6 +32,18 @@ struct SubscriptionClient {
             return []
         }
     }
+
+    // Shows the user has at least one in-progress episode for — pairs with getNewEpisodes() to
+    // decide which shows are "caught up" for the hide/sink behavior (#438 follow-up). Mirrors
+    // EpisodeStateClient.GetInProgressShowIdsAsync on Web.
+    func getInProgressShowIds() async throws -> Set<String> {
+        do {
+            let ids: [String] = try await apiClient.get(["api", "episodes", "in-progress-shows"])
+            return Set(ids)
+        } catch ApiError.requestFailed(let statusCode) where statusCode == 401 || statusCode == 403 {
+            return []
+        }
+    }
 }
 
 private struct SubscribeRequest: Encodable {

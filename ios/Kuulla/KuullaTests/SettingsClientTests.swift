@@ -82,6 +82,28 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertEqual(bodyJSON["showIds"] as? [String], ["b", "a"])
     }
 
+    func testUpdateHideCaughtUpShowsSendsPutWithBoolBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"hideCaughtUpShows":true}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateHideCaughtUpShows(true)
+
+        XCTAssertTrue(updated.hideCaughtUpShows)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/hide-caught-up-shows"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["hideCaughtUpShows"] as? Bool, true)
+    }
+
     func testGetShowSettingsDecodesNullOverrideAsNil() async throws {
         let json = """
         {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1}

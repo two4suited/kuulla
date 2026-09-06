@@ -39,4 +39,9 @@ public record UserSettingsChange(
     // null AND empty here as "keep whatever's stored" — it only accepts a non-empty list — so a
     // device that has no local arrangement can't wipe one saved from another device.
     IReadOnlyList<string>? SubscriptionManualOrder,
+    // Nullable, same rationale as SubscriptionSortOrder above: a client that predates this field
+    // omits the JSON property, and minimal-API binding would populate a missing non-nullable
+    // bool with false — silently turning the setting off. Null means "this client doesn't know
+    // about this setting yet", so SettingsService.SyncAsync keeps the stored value.
+    bool? HideCaughtUpShows,
     DateTimeOffset UpdatedAt);

@@ -88,4 +88,23 @@ final class SubscriptionClientTests: MockedApiTestCase {
 
         XCTAssertTrue(episodes.isEmpty)
     }
+
+    func testGetInProgressShowIdsDecodesResponse() async throws {
+        let json = #"["show-a","show-b"]"#.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let ids = try await client.getInProgressShowIds()
+
+        XCTAssertEqual(ids, ["show-a", "show-b"])
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/episodes/in-progress-shows"))
+    }
+
+    func testGetInProgressShowIdsReturnsEmptyOn403() async throws {
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 403, data: Data(), headers: [:])) }
+
+        let ids = try await client.getInProgressShowIds()
+
+        XCTAssertTrue(ids.isEmpty)
+    }
 }
