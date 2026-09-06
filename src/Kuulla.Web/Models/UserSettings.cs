@@ -16,6 +16,8 @@ public record UserSettings(
     SubscriptionSortOrder SubscriptionSortOrder = SubscriptionSortOrder.Title,
     IReadOnlyList<string>? SubscriptionManualOrder = null,
     bool HideCaughtUpShows = false,
+    bool AutoAddNewEpisodesToUpNext = false,
+    UpNextInsertPosition UpNextInsertPosition = UpNextInsertPosition.Bottom,
     DateTimeOffset UpdatedAt = default,
     string? DeviceId = null);
 
@@ -26,4 +28,10 @@ public enum UnlistenedEpisodeCount
     Five = 5,
     Ten = 10,
     Unlimited = -1,
+}
+
+public enum UpNextInsertPosition
+{
+    Bottom,
+    Top,
 }

@@ -44,4 +44,10 @@ public record UserSettingsChange(
     // bool with false — silently turning the setting off. Null means "this client doesn't know
     // about this setting yet", so SettingsService.SyncAsync keeps the stored value.
     bool? HideCaughtUpShows,
+    // Nullable, same rationale as HideCaughtUpShows above — a client that predates #440 omits the
+    // property, and null means "keep whatever's stored".
+    bool? AutoAddNewEpisodesToUpNext,
+    // Nullable for the same reason. Null means "keep whatever's stored" rather than resetting to
+    // Bottom.
+    UpNextInsertPosition? UpNextInsertPosition,
     DateTimeOffset UpdatedAt);

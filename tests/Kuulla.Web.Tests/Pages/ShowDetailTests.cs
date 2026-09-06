@@ -23,7 +23,8 @@ public class ShowDetailTests : WebTestContext
         IReadOnlyList<Subscription>? subscriptions = null,
         ShowSettings? showSettings = null,
         EpisodeState? episodeState = null,
-        ShowSettings? autoDownloadPutResponse = null) =>
+        ShowSettings? autoDownloadPutResponse = null,
+        ShowSettings? autoAddUpNextPutResponse = null) =>
         new(request =>
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -115,6 +116,14 @@ public class ShowDetailTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(autoDownloadPutResponse ?? showSettings ?? DefaultShowSettings),
+                };
+            }
+
+            if (path == "/api/settings/shows/show-1/auto-add-up-next" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(autoAddUpNextPutResponse ?? showSettings ?? DefaultShowSettings),
                 };
             }
 
@@ -346,6 +355,33 @@ public class ShowDetailTests : WebTestContext
         cut.WaitForAssertion(() => Assert.Contains("Auto-download new episodes", cut.Markup));
 
         cut.Find("#show-auto-download-new-episodes").Change("true");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void AutoAddUpNextSelector_ShowsExistingOverride()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoAddNewEpisodesToUpNext: false);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("false", cut.Find("#show-auto-add-up-next").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void AutoAddUpNextSelector_SavesOverride_WhenChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler(
+            autoAddUpNextPutResponse: new("user-1:show-1", "user-1", "show-1", null, Version: 3, AutoAddNewEpisodesToUpNext: true)));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Add new episodes to Up Next", cut.Markup));
+
+        cut.Find("#show-auto-add-up-next").Change("true");
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }

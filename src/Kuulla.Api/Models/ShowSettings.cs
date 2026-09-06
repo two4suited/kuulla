@@ -34,6 +34,9 @@ public record ShowSettings(
     bool? AutoDownloadNewEpisodes = null,
     // Null means "no override — inherit the user's global SmartSpeed".
     bool? SmartSpeed = null,
+    // Null means "no override — inherit the user's global AutoAddNewEpisodesToUpNext". The
+    // insert position (UpNextInsertPosition) is global-only — there's no per-show override for it.
+    bool? AutoAddNewEpisodesToUpNext = null,
     // Null means "no override — inherit the user's global NotificationsEnabled".
     bool? NotificationsEnabled = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
@@ -48,7 +51,8 @@ public record ShowSettings(
     public static ShowSettings CreateDefault(string userId, string showId) =>
         new(BuildId(userId, showId), userId, showId, UnlistenedEpisodeCount: null, Version: 1,
             AutoArchiveRule: null, AutoSkipIntroSeconds: null, AutoSkipOutroSeconds: null, PlaybackSpeed: null,
-            AutoDownloadNewEpisodes: null, SmartSpeed: null, NotificationsEnabled: null, UpdatedAt: DateTimeOffset.UtcNow);
+            AutoDownloadNewEpisodes: null, SmartSpeed: null, AutoAddNewEpisodesToUpNext: null, NotificationsEnabled: null,
+            UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization.

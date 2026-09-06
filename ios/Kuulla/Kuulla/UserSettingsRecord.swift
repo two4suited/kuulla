@@ -40,6 +40,10 @@ final class UserSettingsRecord: Syncable {
     // Inline default required for the same lightweight-migration reason as the fields above.
     // #438 follow-up: hide caught-up shows from the Library/Subscriptions list.
     var hideCaughtUpShows: Bool = false
+    // Inline default required, same lightweight-migration reason as the fields above. #440.
+    var autoAddNewEpisodesToUpNext: Bool = false
+    // Inline default required, same reason. .bottom matches the API's default for #440.
+    var upNextInsertPosition: UpNextInsertPosition = UpNextInsertPosition.bottom
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -52,6 +56,8 @@ final class UserSettingsRecord: Syncable {
         subscriptionSortOrder: SubscriptionSortOrder = .title,
         subscriptionManualOrder: [String] = [],
         hideCaughtUpShows: Bool = false,
+        autoAddNewEpisodesToUpNext: Bool = false,
+        upNextInsertPosition: UpNextInsertPosition = .bottom,
         version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
@@ -69,6 +75,8 @@ final class UserSettingsRecord: Syncable {
         self.subscriptionSortOrder = subscriptionSortOrder
         self.subscriptionManualOrder = subscriptionManualOrder
         self.hideCaughtUpShows = hideCaughtUpShows
+        self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
+        self.upNextInsertPosition = upNextInsertPosition
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -85,6 +93,8 @@ final class UserSettingsRecord: Syncable {
             subscriptionSortOrder: settings.subscriptionSortOrder,
             subscriptionManualOrder: settings.subscriptionManualOrder,
             hideCaughtUpShows: settings.hideCaughtUpShows,
+            autoAddNewEpisodesToUpNext: settings.autoAddNewEpisodesToUpNext,
+            upNextInsertPosition: settings.upNextInsertPosition,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -105,6 +115,8 @@ final class UserSettingsRecord: Syncable {
         subscriptionSortOrder = settings.subscriptionSortOrder
         subscriptionManualOrder = settings.subscriptionManualOrder
         hideCaughtUpShows = settings.hideCaughtUpShows
+        autoAddNewEpisodesToUpNext = settings.autoAddNewEpisodesToUpNext
+        upNextInsertPosition = settings.upNextInsertPosition
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -128,6 +140,8 @@ final class UserSettingsRecord: Syncable {
         subscriptionSortOrder = other.subscriptionSortOrder
         subscriptionManualOrder = other.subscriptionManualOrder
         hideCaughtUpShows = other.hideCaughtUpShows
+        autoAddNewEpisodesToUpNext = other.autoAddNewEpisodesToUpNext
+        upNextInsertPosition = other.upNextInsertPosition
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -146,6 +160,8 @@ final class UserSettingsRecord: Syncable {
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder,
             subscriptionManualOrder: subscriptionManualOrder,
-            hideCaughtUpShows: hideCaughtUpShows, updatedAt: updatedAt)
+            hideCaughtUpShows: hideCaughtUpShows,
+            autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext,
+            upNextInsertPosition: upNextInsertPosition, updatedAt: updatedAt)
     }
 }

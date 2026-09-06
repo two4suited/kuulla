@@ -21,6 +21,8 @@ struct SettingsView: View {
     @State private var autoSkipSaveError: String?
     @State private var autoDeleteSaveError: String?
     @State private var autoDownloadSaveError: String?
+    @State private var autoAddUpNextSaveError: String?
+    @State private var upNextInsertPositionSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
@@ -31,6 +33,8 @@ struct SettingsView: View {
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
+    @State private var autoAddUpNextSaveTask: Task<Void, Never>?
+    @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
 
@@ -95,6 +99,34 @@ struct SettingsView: View {
                             .foregroundStyle(.red)
                     } else {
                         Text("Trims silence and boosts quiet passages during playback.")
+                    }
+                }
+            }
+
+            Section {
+                Toggle("Add new episodes to Up Next", isOn: autoAddNewEpisodesToUpNextBinding)
+                    .disabled(settings == nil)
+
+                Picker("Add to", selection: upNextInsertPositionBinding) {
+                    ForEach(UpNextInsertPosition.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .disabled(settings == nil)
+            } header: {
+                Text("Up Next")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let autoAddUpNextSaveError {
+                        Text(autoAddUpNextSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if let upNextInsertPositionSaveError {
+                        Text(upNextInsertPositionSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if autoAddUpNextSaveError == nil && upNextInsertPositionSaveError == nil {
+                        Text("New episodes from your subscriptions are queued automatically. Override this per show from a show's page.")
                     }
                 }
             }
@@ -284,6 +316,26 @@ struct SettingsView: View {
         )
     }
 
+    private var autoAddNewEpisodesToUpNextBinding: Binding<Bool> {
+        Binding(
+            get: { settings?.autoAddNewEpisodesToUpNext ?? false },
+            set: { newValue in
+                autoAddUpNextSaveTask?.cancel()
+                autoAddUpNextSaveTask = Task { await updateAutoAddNewEpisodesToUpNext(newValue) }
+            }
+        )
+    }
+
+    private var upNextInsertPositionBinding: Binding<UpNextInsertPosition> {
+        Binding(
+            get: { settings?.upNextInsertPosition ?? .bottom },
+            set: { newValue in
+                upNextInsertPositionSaveTask?.cancel()
+                upNextInsertPositionSaveTask = Task { await updateUpNextInsertPosition(newValue) }
+            }
+        )
+    }
+
     // The presets don't cover every value the API accepts (0...3600), so a value saved from
     // elsewhere (or a future release with different presets) that doesn't match one of them gets
     // a synthesized "Custom" row rather than silently snapping to the nearest preset (or "Off").
@@ -466,6 +518,46 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDownloadSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateAutoAddNewEpisodesToUpNext(_ value: Bool) async {
+        guard let previous = settings else { return }
+
+        autoAddUpNextSaveError = nil
+        settings = previous.with(autoAddNewEpisodesToUpNext: value)
+
+        do {
+            let updated = try await settingsClient.updateAutoAddNewEpisodesToUpNext(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoAddUpNextSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateUpNextInsertPosition(_ value: UpNextInsertPosition) async {
+        guard let previous = settings else { return }
+
+        upNextInsertPositionSaveError = nil
+        settings = previous.with(upNextInsertPosition: value)
+
+        do {
+            let updated = try await settingsClient.updateUpNextInsertPosition(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                upNextInsertPositionSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

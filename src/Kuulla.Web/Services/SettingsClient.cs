@@ -156,6 +156,39 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<UserSettings> UpdateAutoAddNewEpisodesToUpNextAsync(
+        bool autoAddNewEpisodesToUpNext, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/auto-add-up-next",
+            new { AutoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowAutoAddNewEpisodesToUpNextAsync(
+        string showId, bool? autoAddNewEpisodesToUpNext, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/auto-add-up-next",
+            new { AutoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<UserSettings> UpdateUpNextInsertPositionAsync(
+        UpNextInsertPosition upNextInsertPosition, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/up-next-insert-position",
+            new { UpNextInsertPosition = upNextInsertPosition }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<UserSettings> UpdateSmartSpeedAsync(
         bool smartSpeed, CancellationToken cancellationToken = default)
     {

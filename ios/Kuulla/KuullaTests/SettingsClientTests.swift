@@ -435,6 +435,78 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertNil(bodyJSON["autoDownloadNewEpisodes"])
     }
 
+    func testGetSettingsDefaultsAutoAddNewEpisodesToUpNextFieldsWhenAbsent() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":1}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getSettings()
+
+        XCTAssertFalse(settings.autoAddNewEpisodesToUpNext)
+        XCTAssertEqual(settings.upNextInsertPosition, .bottom)
+    }
+
+    func testUpdateAutoAddNewEpisodesToUpNextSendsPutWithBooleanBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"autoAddNewEpisodesToUpNext":true}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateAutoAddNewEpisodesToUpNext(true)
+
+        XCTAssertTrue(updated.autoAddNewEpisodesToUpNext)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/auto-add-up-next"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["autoAddNewEpisodesToUpNext"] as? Bool, true)
+    }
+
+    func testUpdateUpNextInsertPositionSendsPutWithIntegerBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"upNextInsertPosition":1}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateUpNextInsertPosition(.top)
+
+        XCTAssertEqual(updated.upNextInsertPosition, .top)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/up-next-insert-position"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["upNextInsertPosition"] as? Int, 1)
+    }
+
+    func testUpdateShowAutoAddNewEpisodesToUpNextClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"autoAddNewEpisodesToUpNext":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowAutoAddNewEpisodesToUpNext(showId: "s1", value: nil)
+
+        XCTAssertNil(updated.autoAddNewEpisodesToUpNext)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/auto-add-up-next"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["autoAddNewEpisodesToUpNext"])
+    }
+
     func testGetSettingsDefaultsSmartSpeedToFalseWhenAbsent() async throws {
         let json = """
         {"userId":"u1","unlistenedEpisodeCount":5,"version":1}

@@ -121,6 +121,24 @@ else
                             <p class="text-success mt-1 mb-0">Saved.</p>
                         }
                     </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-auto-add-up-next">Add new episodes to Up Next</label>
+                        <select id="show-auto-add-up-next" class="form-select" disabled="@isShowAutoAddUpNextSaving"
+                                value="@ShowAutoAddUpNextSelectValue" @onchange="OnShowAutoAddNewEpisodesToUpNextChangedAsync">
+                            <option value="">Use global default</option>
+                            <option value="true">On</option>
+                            <option value="false">Off</option>
+                        </select>
+                        @if (showAutoAddUpNextError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showAutoAddUpNextError</p>
+                        }
+                        else if (showAutoAddUpNextSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
                 </Authorized>
             </AuthorizeView>
         </div>
@@ -285,6 +303,10 @@ else
     private bool isShowAutoDownloadSaving;
     private string? showAutoDownloadError;
     private bool showAutoDownloadSavedConfirmation;
+    private bool? showAutoAddNewEpisodesToUpNextOverride;
+    private bool isShowAutoAddUpNextSaving;
+    private string? showAutoAddUpNextError;
+    private bool showAutoAddUpNextSavedConfirmation;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
     private readonly HashSet<string> restoringEpisodeIds = [];
     private readonly HashSet<string> togglingEpisodeIds = [];
@@ -302,6 +324,13 @@ else
     private string ShowArchiveSettingsSelectValue => showAutoArchiveRuleOverride?.ToString() ?? "";
 
     private string ShowAutoDownloadSelectValue => showAutoDownloadNewEpisodesOverride switch
+    {
+        true => "true",
+        false => "false",
+        null => "",
+    };
+
+    private string ShowAutoAddUpNextSelectValue => showAutoAddNewEpisodesToUpNextOverride switch
     {
         true => "true",
         false => "false",
@@ -403,6 +432,10 @@ else
         isShowAutoDownloadSaving = false;
         showAutoDownloadError = null;
         showAutoDownloadSavedConfirmation = false;
+        showAutoAddNewEpisodesToUpNextOverride = null;
+        isShowAutoAddUpNextSaving = false;
+        showAutoAddUpNextError = null;
+        showAutoAddUpNextSavedConfirmation = false;
         episodeStatesById.Clear();
         restoringEpisodeIds.Clear();
         togglingEpisodeIds.Clear();
@@ -445,6 +478,7 @@ else
             showUnlistenedEpisodeCountOverride = settings.UnlistenedEpisodeCount;
             showAutoArchiveRuleOverride = settings.AutoArchiveRule;
             showAutoDownloadNewEpisodesOverride = settings.AutoDownloadNewEpisodes;
+            showAutoAddNewEpisodesToUpNextOverride = settings.AutoAddNewEpisodesToUpNext;
         }
         catch (HttpRequestException)
         {
@@ -568,6 +602,47 @@ else
         finally
         {
             isShowAutoDownloadSaving = false;
+        }
+    }
+
+    private async Task OnShowAutoAddNewEpisodesToUpNextChangedAsync(ChangeEventArgs args)
+    {
+        var raw = args.Value?.ToString();
+        bool? value;
+        switch (raw)
+        {
+            case "" or null:
+                value = null;
+                break;
+            case "true":
+                value = true;
+                break;
+            case "false":
+                value = false;
+                break;
+            default:
+                return;
+        }
+
+        var previous = showAutoAddNewEpisodesToUpNextOverride;
+        showAutoAddNewEpisodesToUpNextOverride = value;
+        isShowAutoAddUpNextSaving = true;
+        showAutoAddUpNextError = null;
+        showAutoAddUpNextSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowAutoAddNewEpisodesToUpNextAsync(Id, value);
+            showAutoAddUpNextSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showAutoAddNewEpisodesToUpNextOverride = previous;
+            showAutoAddUpNextError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowAutoAddUpNextSaving = false;
         }
     }
 

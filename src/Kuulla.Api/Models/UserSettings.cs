@@ -85,6 +85,13 @@ public record UserSettings(
     // SubscriptionSortOrder.LatestEpisode — that ordering is applied client-side and needs no
     // stored flag.
     bool HideCaughtUpShows = false,
+    // False is the safe default — auto-queueing new episodes is a behaviour a user should opt
+    // into, not one applied on their behalf, matching AutoDownloadNewEpisodes' convention above.
+    bool AutoAddNewEpisodesToUpNext = false,
+    // Which end of the Up Next queue an auto-added episode lands at. Bottom is the CLR zero
+    // value, so a settings document written before this field existed deserializes it as Bottom
+    // — the intended default — with no DefaultValueHandling needed (same as SubscriptionSortOrder).
+    UpNextInsertPosition UpNextInsertPosition = UpNextInsertPosition.Bottom,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -113,4 +120,12 @@ public enum UnlistenedEpisodeCount
     Five = 5,
     Ten = 10,
     Unlimited = -1,
+}
+
+// Which end of the "Up Next" queue an auto-added new episode is placed at. Bottom is first (the
+// CLR zero value) so it's the default a pre-existing settings document deserializes to.
+public enum UpNextInsertPosition
+{
+    Bottom,
+    Top,
 }

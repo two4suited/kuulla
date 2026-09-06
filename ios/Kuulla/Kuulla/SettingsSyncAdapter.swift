@@ -45,6 +45,8 @@ struct SettingsSyncAdapter: SyncAdapter {
                 subscriptionSortOrder: $0.subscriptionSortOrder,
                 subscriptionManualOrder: $0.subscriptionManualOrder,
                 hideCaughtUpShows: $0.hideCaughtUpShows,
+                autoAddNewEpisodesToUpNext: $0.autoAddNewEpisodesToUpNext,
+                upNextInsertPosition: $0.upNextInsertPosition,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -94,6 +96,8 @@ private struct UserSettingsChangeDTO: Encodable {
     // Non-optional — this client always knows the field and always sends it (the API's
     // UserSettingsChange.HideCaughtUpShows is nullable only for older clients that omit it).
     let hideCaughtUpShows: Bool
+    let autoAddNewEpisodesToUpNext: Bool
+    let upNextInsertPosition: UpNextInsertPosition
     let updatedAt: Date
 }
 
@@ -131,6 +135,9 @@ private struct UserSettingsDTO: Decodable {
     let subscriptionManualOrder: [String]?
     // Optional so a response that predates this field still decodes; defaults to false.
     let hideCaughtUpShows: Bool?
+    // Optional so a response from an API that predates #440 still decodes; asRecord falls back.
+    let autoAddNewEpisodesToUpNext: Bool?
+    let upNextInsertPosition: UpNextInsertPosition?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -142,6 +149,8 @@ private struct UserSettingsDTO: Decodable {
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder, subscriptionManualOrder: subscriptionManualOrder ?? [],
             hideCaughtUpShows: hideCaughtUpShows ?? false,
+            autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? false,
+            upNextInsertPosition: upNextInsertPosition ?? .bottom,
             version: version, updatedAt: updatedAt)
     }
 }

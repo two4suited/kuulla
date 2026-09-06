@@ -14,13 +14,15 @@ struct ShowSettings: Codable, Hashable {
     let playbackSpeed: Float?
     let autoDownloadNewEpisodes: Bool?
     let smartSpeed: Bool?
+    let autoAddNewEpisodesToUpNext: Bool?
     let notificationsEnabled: Bool?
 
     init(
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
         version: Int, autoArchiveRule: AutoArchiveRule?,
         autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil,
-        autoDownloadNewEpisodes: Bool? = nil, smartSpeed: Bool? = nil, notificationsEnabled: Bool? = nil
+        autoDownloadNewEpisodes: Bool? = nil, smartSpeed: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
+        notificationsEnabled: Bool? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -33,12 +35,13 @@ struct ShowSettings: Codable, Hashable {
         self.playbackSpeed = playbackSpeed
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
         self.smartSpeed = smartSpeed
+        self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.notificationsEnabled = notificationsEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
+        case autoDownloadNewEpisodes, smartSpeed, autoAddNewEpisodesToUpNext, notificationsEnabled
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -56,6 +59,7 @@ struct ShowSettings: Codable, Hashable {
         playbackSpeed = try container.decodeIfPresent(Float.self, forKey: .playbackSpeed)
         autoDownloadNewEpisodes = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadNewEpisodes)
         smartSpeed = try container.decodeIfPresent(Bool.self, forKey: .smartSpeed)
+        autoAddNewEpisodesToUpNext = try container.decodeIfPresent(Bool.self, forKey: .autoAddNewEpisodesToUpNext)
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)
     }
 
@@ -75,6 +79,7 @@ struct ShowSettings: Codable, Hashable {
         playbackSpeed: Float?? = nil,
         autoDownloadNewEpisodes: Bool?? = nil,
         smartSpeed: Bool?? = nil,
+        autoAddNewEpisodesToUpNext: Bool?? = nil,
         notificationsEnabled: Bool?? = nil
     ) -> ShowSettings {
         ShowSettings(
@@ -87,6 +92,7 @@ struct ShowSettings: Codable, Hashable {
             playbackSpeed: playbackSpeed ?? self.playbackSpeed,
             autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes,
             smartSpeed: smartSpeed ?? self.smartSpeed,
+            autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled)
     }
 }

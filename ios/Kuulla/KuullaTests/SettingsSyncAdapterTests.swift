@@ -130,6 +130,50 @@ final class SettingsSyncAdapterTests: MockedApiTestCase {
         XCTAssertEqual(changes.first?["subscriptionSortOrder"] as? Int, SubscriptionSortOrder.latestEpisode.rawValue)
     }
 
+    func testSyncNowSendsDirtyUpNextFieldsInRequestBody() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let settings = UserSettings(
+            userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .never,
+            autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top,
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        context.insert(UserSettingsRecord(from: settings, isDirty: true))
+        try context.save()
+
+        var capturedBody: Data?
+        let json = """
+        {"serverChanges":[],"syncedAt":"2026-08-19T10:00:00Z","hash":"h1"}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+        await engine.syncNow()
+
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        let changes = try XCTUnwrap(bodyJSON["changes"] as? [[String: Any]])
+        XCTAssertEqual(changes.first?["autoAddNewEpisodesToUpNext"] as? Bool, true)
+        XCTAssertEqual(changes.first?["upNextInsertPosition"] as? Int, UpNextInsertPosition.top.rawValue)
+    }
+
+    func testSyncNowStoresServerChangeUpNextFields() async throws {
+        let container = try makeContainer()
+        let json = """
+        {"serverChanges":[{"unlistenedEpisodeCount":5,"version":2,"autoArchiveRule":0,"autoSkipIntroSeconds":0,"autoSkipOutroSeconds":0,"playbackSpeed":1.0,"autoDeleteRule":0,"autoDeleteAfterDays":7,"autoDownloadNewEpisodes":false,"smartSpeed":false,"notificationsEnabled":true,"subscriptionSortOrder":0,"autoAddNewEpisodesToUpNext":true,"upNextInsertPosition":1,"updatedAt":"2026-08-19T09:00:00Z"}],"syncedAt":"2026-08-19T10:00:00Z","hash":"h1"}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let engine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+        await engine.syncNow()
+
+        let context = ModelContext(container)
+        let stored = try XCTUnwrap(try context.fetch(FetchDescriptor<UserSettingsRecord>()).first)
+        XCTAssertTrue(stored.autoAddNewEpisodesToUpNext)
+        XCTAssertEqual(stored.upNextInsertPosition, .top)
+    }
+
     func testApplyDiscardsServerChangeOlderThanStoredRecord() throws {
         let container = try makeContainer()
         let context = ModelContext(container)

@@ -73,6 +73,18 @@ public interface ISettingsService
     Task<bool> GetEffectiveAutoDownloadNewEpisodesAsync(
         string userId, string showId, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateAutoAddNewEpisodesToUpNextAsync(
+        string userId, bool autoAddNewEpisodesToUpNext, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowAutoAddNewEpisodesToUpNextAsync(
+        string userId, string showId, bool? autoAddNewEpisodesToUpNext, CancellationToken cancellationToken);
+
+    Task<bool> GetEffectiveAutoAddNewEpisodesToUpNextAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateUpNextInsertPositionAsync(
+        string userId, UpNextInsertPosition upNextInsertPosition, CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateSmartSpeedAsync(
         string userId, bool smartSpeed, CancellationToken cancellationToken);
 

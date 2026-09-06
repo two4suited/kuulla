@@ -13,6 +13,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveError: String?
     @State private var playbackSpeedSaveError: String?
     @State private var autoDownloadSaveError: String?
+    @State private var autoAddUpNextSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
@@ -23,6 +24,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
+    @State private var autoAddUpNextSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
@@ -116,6 +118,20 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let autoDownloadSaveError {
                         Text(autoDownloadSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Add new episodes to Up Next", selection: autoAddUpNextOverrideBinding) {
+                        Text("Use global default").tag(Bool?.none)
+                        Text("On").tag(Bool?.some(true))
+                        Text("Off").tag(Bool?.some(false))
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let autoAddUpNextSaveError {
+                        Text(autoAddUpNextSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -368,6 +384,35 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDownloadSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var autoAddUpNextOverrideBinding: Binding<Bool?> {
+        Binding(
+            get: { settings?.autoAddNewEpisodesToUpNext },
+            set: { newValue in
+                autoAddUpNextSaveTask?.cancel()
+                autoAddUpNextSaveTask = Task { await updateAutoAddUpNextOverride(newValue) }
+            }
+        )
+    }
+
+    private func updateAutoAddUpNextOverride(_ value: Bool?) async {
+        guard let previous = settings else { return }
+
+        autoAddUpNextSaveError = nil
+        settings = previous.with(autoAddNewEpisodesToUpNext: value)
+
+        do {
+            let updated = try await settingsClient.updateShowAutoAddNewEpisodesToUpNext(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoAddUpNextSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

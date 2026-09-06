@@ -93,6 +93,24 @@ struct SettingsClient {
             body: UpdateShowAutoDownloadNewEpisodesRequest(autoDownloadNewEpisodes: value))
     }
 
+    func updateAutoAddNewEpisodesToUpNext(_ value: Bool) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "auto-add-up-next"],
+            body: UpdateAutoAddNewEpisodesToUpNextRequest(autoAddNewEpisodesToUpNext: value))
+    }
+
+    func updateShowAutoAddNewEpisodesToUpNext(showId: String, value: Bool?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "auto-add-up-next"],
+            body: UpdateShowAutoAddNewEpisodesToUpNextRequest(autoAddNewEpisodesToUpNext: value))
+    }
+
+    func updateUpNextInsertPosition(_ value: UpNextInsertPosition) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "up-next-insert-position"],
+            body: UpdateUpNextInsertPositionRequest(upNextInsertPosition: value))
+    }
+
     func updateSmartSpeed(_ value: Bool) async throws -> UserSettings {
         try await apiClient.put(["api", "settings", "smart-speed"], body: UpdateSmartSpeedRequest(smartSpeed: value))
     }
@@ -179,6 +197,18 @@ private struct UpdateAutoDownloadNewEpisodesRequest: Encodable {
 
 private struct UpdateShowAutoDownloadNewEpisodesRequest: Encodable {
     let autoDownloadNewEpisodes: Bool?
+}
+
+private struct UpdateAutoAddNewEpisodesToUpNextRequest: Encodable {
+    let autoAddNewEpisodesToUpNext: Bool
+}
+
+private struct UpdateShowAutoAddNewEpisodesToUpNextRequest: Encodable {
+    let autoAddNewEpisodesToUpNext: Bool?
+}
+
+private struct UpdateUpNextInsertPositionRequest: Encodable {
+    let upNextInsertPosition: UpNextInsertPosition
 }
 
 private struct UpdateSmartSpeedRequest: Encodable {

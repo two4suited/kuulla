@@ -679,6 +679,193 @@ public class EpisodeServiceTests
         Assert.Equal(["new-1", "old"], upserted!.Items.Select(i => i.EpisodeId));
     }
 
+    // --- Auto-add new episodes to the Up Next playlist (#440) ---
+
+    private void SetupSubscriber(string userId = UserId) =>
+        _subscriptionsContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null))
+            .Returns(CosmosTestHelpers.FeedIterator(new[] { userId }));
+
+    private void SetupUpNextEnabled(UpNextInsertPosition position = UpNextInsertPosition.Bottom, string userId = UserId)
+    {
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(userId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+        _settingsService
+            .Setup(s => s.GetEffectiveAutoAddNewEpisodesToUpNextAsync(userId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _settingsService
+            .Setup(s => s.GetSettingsAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserSettings(userId, UnlistenedEpisodeCount.Five, Version: 1, UpNextInsertPosition: position));
+        _episodeStateService
+            .Setup(s => s.GetStatesAsync(userId, It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, EpisodeState>());
+    }
+
+    // Stands in for the user's single-partition "Up Next" name query, plus the point read the
+    // find-or-create does for the ETag. Pass null to model a user with no Up Next playlist yet.
+    private void SetupUpNextPlaylist(Playlist? existing)
+    {
+        var rows = existing is null ? Array.Empty<Playlist>() : new[] { existing };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(
+                It.IsAny<QueryDefinition>(), null, It.Is<QueryRequestOptions>(o => o != null)))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>(rows));
+
+        if (existing is not null)
+        {
+            _playlistsContainer
+                .Setup(c => c.ReadItemAsync<Playlist>(existing.Id, It.IsAny<PartitionKey>(), null, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        }
+    }
+
+    private Func<Playlist?> CaptureUpNextUpsert()
+    {
+        var box = new Playlist?[1];
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => box[0] = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+        return () => box[0];
+    }
+
+    private static Playlist MakeUpNext(params PlaylistItem[] items) =>
+        new("up-next-1", UserId, Playlist.UpNextName, PlaylistType.Manual, items,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+
+    [Fact]
+    public async Task CacheEpisodesAsync_AppendsNewEpisodeToUpNextWhenEffectiveSettingOn()
+    {
+        var newEpisode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+        SetupSuccessfulCreate(newEpisode);
+        SetupSubscriber();
+        SetupUpNextEnabled(UpNextInsertPosition.Bottom);
+        SetupUpNextPlaylist(MakeUpNext(new PlaylistItem("existing", ShowId, DateTimeOffset.UnixEpoch, "m")));
+        var upserted = CaptureUpNextUpsert();
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.NotNull(upserted());
+        Assert.Equal(["existing", "new-1"], upserted()!.Items.Select(i => i.EpisodeId));
+        Assert.Equal(
+            upserted()!.Items.Select(i => i.Order).Order(StringComparer.Ordinal),
+            upserted()!.Items.Select(i => i.Order));
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_PrependsToUpNextWhenInsertPositionIsTop()
+    {
+        var newEpisode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+        SetupSuccessfulCreate(newEpisode);
+        SetupSubscriber();
+        SetupUpNextEnabled(UpNextInsertPosition.Top);
+        SetupUpNextPlaylist(MakeUpNext(new PlaylistItem("existing", ShowId, DateTimeOffset.UnixEpoch, "m")));
+        var upserted = CaptureUpNextUpsert();
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.NotNull(upserted());
+        Assert.Equal(["new-1", "existing"], upserted()!.Items.Select(i => i.EpisodeId));
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_CreatesUpNextPlaylistOnDemandWhenUserHasNone()
+    {
+        var newEpisode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+        SetupSuccessfulCreate(newEpisode);
+        SetupSubscriber();
+        SetupUpNextEnabled();
+        SetupUpNextPlaylist(existing: null);
+        _playlistsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+        var upserted = CaptureUpNextUpsert();
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.CreateItemAsync(
+                It.Is<Playlist>(p => p.Name == Playlist.UpNextName && p.Type == PlaylistType.Manual),
+                It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()),
+            Times.Once);
+        Assert.NotNull(upserted());
+        Assert.Equal(["new-1"], upserted()!.Items.Select(i => i.EpisodeId));
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_DoesNotTouchUpNextWhenEffectiveSettingOff()
+    {
+        var newEpisode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+        SetupSuccessfulCreate(newEpisode);
+        SetupSubscriber();
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+        _settingsService
+            .Setup(s => s.GetEffectiveAutoAddNewEpisodesToUpNextAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        var upserted = CaptureUpNextUpsert();
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.Null(upserted());
+        _settingsService.Verify(s => s.GetSettingsAsync(UserId, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_SkipsAlreadyPlayedEpisodeForUpNext()
+    {
+        var newEpisode = MakeEpisode("new-1", ShowId, DateTimeOffset.UtcNow);
+        SetupSuccessfulCreate(newEpisode);
+        SetupSubscriber();
+        SetupUpNextEnabled();
+        SetupUpNextPlaylist(MakeUpNext());
+        _episodeStateService
+            .Setup(s => s.GetStatesAsync(UserId, It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, EpisodeState>
+            {
+                ["new-1"] = new("new-1", UserId, "new-1", ShowId, PositionSeconds: 0, Completed: true, UpdatedAt: DateTimeOffset.UtcNow),
+            });
+        var upserted = CaptureUpNextUpsert();
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.Null(upserted());
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_DoesNotAutoAddBackfilledOldEpisodesToUpNext()
+    {
+        // A show's first-ever poll caches its whole back catalogue as "inserted"; those old
+        // episodes must not flood the queue (same RecentEpisodeWindow gate as notifications).
+        var oldEpisode = MakeEpisode("old-1", ShowId, DateTimeOffset.UtcNow.AddDays(-30));
+        SetupSuccessfulCreate(oldEpisode);
+        SetupSubscriber();
+        SetupUpNextEnabled();
+        SetupUpNextPlaylist(MakeUpNext());
+        var upserted = CaptureUpNextUpsert();
+
+        await _sut.CacheEpisodesAsync(ShowId, [oldEpisode], CancellationToken.None);
+
+        Assert.Null(upserted());
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_SkipsUpNextEpisodeAlreadyInQueue()
+    {
+        var newEpisode = MakeEpisode("dup", ShowId, DateTimeOffset.UtcNow);
+        SetupSuccessfulCreate(newEpisode);
+        SetupSubscriber();
+        SetupUpNextEnabled();
+        SetupUpNextPlaylist(MakeUpNext(new PlaylistItem("dup", ShowId, DateTimeOffset.UnixEpoch, "m")));
+        var upserted = CaptureUpNextUpsert();
+
+        await _sut.CacheEpisodesAsync(ShowId, [newEpisode], CancellationToken.None);
+
+        Assert.Null(upserted());
+    }
+
     [Fact]
     public async Task EnforceAutoArchiveRuleAsync_DoesNothingWhenRuleIsNever()
     {

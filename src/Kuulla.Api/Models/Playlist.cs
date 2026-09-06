@@ -23,7 +23,14 @@ public record Playlist(
     // Curated emoji from PlaylistIcons.Curated, or null for "no icon" (client falls back to its
     // default glyph). Travels in the sync payload and reconciles last-write-wins like Name (#439).
     [property: JsonProperty("icon")] string? Icon = null,
-    [property: JsonProperty("accentColor")] string? AccentColor = null) : ISyncableRecord;
+    [property: JsonProperty("accentColor")] string? AccentColor = null) : ISyncableRecord
+{
+    // The "Up Next" queue is a regular manual playlist the clients resolve (or create) by this
+    // well-known name rather than a distinct backend concept — see UpNext.razor / UpNextView.swift.
+    // Duplicated here (not shared with those clients, which are separate codebases) so the feed
+    // poller's auto-add hook can find-or-create the same playlist server-side.
+    public const string UpNextName = "Up Next";
+}
 
 // Embedded on Playlist rather than a separate container/doc — items are always read/written
 // with their parent playlist, and doc size (a few hundred episode refs) is well within Cosmos's
