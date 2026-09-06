@@ -180,6 +180,35 @@ h1:focus {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Grid                                                                    */
+/* ---------------------------------------------------------------------- */
+
+/* Bootstrap's row-cols-* only ships 1–6, so row-cols-md-8 on the show-card
+   grids was a no-op and the layout fell back to the base row-cols-2 (two
+   cards per row). Define the 7- and 8-up steps here. */
+.row-cols-7 > * {
+    flex: 0 0 auto;
+    width: 14.28571429%;
+}
+
+.row-cols-8 > * {
+    flex: 0 0 auto;
+    width: 12.5%;
+}
+
+@media (min-width: 768px) {
+    .row-cols-md-7 > * {
+        flex: 0 0 auto;
+        width: 14.28571429%;
+    }
+
+    .row-cols-md-8 > * {
+        flex: 0 0 auto;
+        width: 12.5%;
+    }
+}
+
+/* ---------------------------------------------------------------------- */
 /* Cards                                                                   */
 /* ---------------------------------------------------------------------- */
 
