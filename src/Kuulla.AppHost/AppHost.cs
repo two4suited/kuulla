@@ -197,9 +197,21 @@ var api = apiBuilder
     .PublishAsAzureContainerApp(ScaleToZero);
 
 // Runs the subscribed-podcast feed-polling sweep (milestone #38). Separate from the API so the
-// sweep runs once per tick regardless of API replica count. Shares the same Cosmos containers and
-// the moved Kuulla.Core domain services. #414 publishes this as an ACA scheduled job (cron); for
-// now it deploys as a plain container app alongside api/web.
+// sweep runs exactly once per tick regardless of API replica count.
+//
+// In publish/deploy mode this becomes an Azure Container Apps *scheduled job* (cron), not an
+// always-on container app: the container starts on the cron tick, runs one sweep, and exits.
+// Parallelism/ReplicaCompletionCount are pinned to 1 so a single execution runs per tick — that
+// single-execution guarantee is the whole point of moving off the per-replica hosted service.
+// FeedPolling:RunOnceThenExit tells FeedPollingWorker to do one sweep and stop the host (a job
+// execution that never exits would be killed at ReplicaTimeout and marked failed); it's left
+// unset locally so `aspire run` keeps the continuous PeriodicTimer poller for dev.
+//
+// PublishAsScheduledAzureContainerAppJob is a no-op in Run mode (it early-returns unless
+// IsPublishMode), like PublishAsAzureContainerApp on api/web — so it needs no IsPublishMode guard
+// and doesn't affect the AppHost integration tests. The job's managed identity gets Cosmos
+// data-plane access automatically from the .WithReference(cosmos) below, the same way api/web do.
+var feedPollerCron = "*/15 * * * *"; // aligned with FeedPolling:IntervalMinutes default of 15
 var feedPoller = builder.AddProject<Projects.Kuulla_FeedPoller>("feed-poller")
     .WithReference(cosmos)
     .WithReference(shows)
@@ -216,7 +228,15 @@ var feedPoller = builder.AddProject<Projects.Kuulla_FeedPoller>("feed-poller")
     .WaitFor(settings)
     .WaitFor(episodeStates)
     .WaitFor(playlists)
-    .WaitFor(deviceTokens);
+    .WaitFor(deviceTokens)
+    .WithEnvironment(
+        "FeedPolling__RunOnceThenExit",
+        builder.ExecutionContext.IsPublishMode ? "true" : "false")
+    .PublishAsScheduledAzureContainerAppJob(feedPollerCron, (_, job) =>
+    {
+        job.Configuration.ScheduleTriggerConfig.Parallelism = 1;
+        job.Configuration.ScheduleTriggerConfig.ReplicaCompletionCount = 1;
+    });
 
 // Publish-mode only (see the `insights` declaration) — null in Run/test mode.
 if (insights is not null)
