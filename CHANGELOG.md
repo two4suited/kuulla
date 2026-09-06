@@ -2,6 +2,22 @@
 
 <!-- Generated from the GitHub Releases by scripts/generate-changelog.sh. Do not edit by hand. -->
 
+## 2026.9.4 — 2026-09-06
+
+### iOS
+- Hide or sink shows with nothing unplayed or in progress
+- Add an optional icon and accent colour to playlists
+- Auto-add new episodes to the Up Next playlist (#440)
+
+### Web
+- Fix show-card grids collapsing to 2 per row
+- Web: small/medium/large icon size option on Library and Subscriptions
+- Summarize each release with AI on the marketing page
+- Apply effective playback speed on the web episode player
+
+### Infra / Deploy
+- Update Aspire packages to 13.5.3
+
 ## 2026.9.3 — 2026-09-06
 
 ### iOS
