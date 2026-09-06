@@ -78,4 +78,51 @@ final class SubscriptionSortTests: XCTestCase {
 
         XCTAssertEqual(sortedSubscriptions(subs, by: .latestEpisode).map(\.showId), ["2", "1"])
     }
+
+    func testLatestEpisodeSinksCaughtUpShowsBelowActiveOnes() {
+        let subs = [
+            sub("caught-up-fresh", title: "A", latestEpisodePublishedAt: Date(timeIntervalSince1970: 900)),
+            sub("active-stale", title: "B", latestEpisodePublishedAt: Date(timeIntervalSince1970: 100)),
+        ]
+
+        let sorted = sortedSubscriptions(subs, by: .latestEpisode, activeShowIds: ["active-stale"])
+
+        XCTAssertEqual(sorted.map(\.showId), ["active-stale", "caught-up-fresh"])
+    }
+
+    func testLatestEpisodeNilActiveShowIdsLeavesOrderUnchanged() {
+        let subs = [
+            sub("stale", title: "A", latestEpisodePublishedAt: Date(timeIntervalSince1970: 100)),
+            sub("fresh", title: "B", latestEpisodePublishedAt: Date(timeIntervalSince1970: 500)),
+        ]
+
+        XCTAssertEqual(
+            sortedSubscriptions(subs, by: .latestEpisode, activeShowIds: nil).map(\.showId),
+            ["fresh", "stale"])
+    }
+
+    func testHideCaughtUpRemovesShowsNotInActiveSet() {
+        let subs = [sub("a", title: "Apple"), sub("b", title: "Banana"), sub("c", title: "Cherry")]
+
+        let sorted = sortedSubscriptions(subs, by: .title, activeShowIds: ["b"], hideCaughtUp: true)
+
+        XCTAssertEqual(sorted.map(\.showId), ["b"])
+    }
+
+    func testHideCaughtUpWithNilActiveShowIdsKeepsEveryShow() {
+        let subs = [sub("a", title: "Apple"), sub("b", title: "Banana")]
+
+        let sorted = sortedSubscriptions(subs, by: .title, activeShowIds: nil, hideCaughtUp: true)
+
+        XCTAssertEqual(sorted.map(\.showId), ["a", "b"])
+    }
+
+    func testHideCaughtUpIgnoredInManualMode() {
+        let subs = [sub("a", title: "Apple"), sub("b", title: "Banana"), sub("c", title: "Cherry")]
+
+        let sorted = sortedSubscriptions(
+            subs, by: .manual, manualOrder: ["c", "a", "b"], activeShowIds: ["b"], hideCaughtUp: true)
+
+        XCTAssertEqual(sorted.map(\.showId), ["c", "a", "b"])
+    }
 }

@@ -23,6 +23,9 @@ public interface ISettingsService
     Task<UserSettings> UpdateSubscriptionManualOrderAsync(
         string userId, IReadOnlyList<string> subscriptionManualOrder, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateHideCaughtUpShowsAsync(
+        string userId, bool hideCaughtUpShows, CancellationToken cancellationToken);
+
     Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken);
 
     Task<ShowSettings> UpdateShowUnlistenedEpisodeCountAsync(

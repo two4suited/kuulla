@@ -61,6 +61,12 @@
             {
                 <div class="d-flex align-items-center gap-3 flex-wrap">
                     <ShowIconSizeSelect Value="iconSize" ValueChanged="OnIconSizeChanged" />
+                    <div class="form-check form-switch mb-0 small text-muted">
+                        <input class="form-check-input" type="checkbox" role="switch" id="hideCaughtUpShows"
+                               checked="@hideCaughtUpShows" @onchange="OnHideCaughtUpShowsChangedAsync"
+                               disabled="@isSavingHideCaughtUpShows" />
+                        <label class="form-check-label" for="hideCaughtUpShows">Hide caught-up shows</label>
+                    </div>
                     <label class="d-flex align-items-center gap-2 mb-0 small text-muted">
                         Sort
                         <select class="form-select form-select-sm w-auto sort-select" value="@sortOrder"
@@ -74,6 +80,10 @@
                 </div>
             }
         </div>
+        @if (hideCaughtUpShowsError is not null)
+        {
+            <p class="text-danger small mb-2">@hideCaughtUpShowsError</p>
+        }
         @if (sortOrder == SubscriptionSortOrder.Manual && !isLoadingShows && showsLoadError is null && subscriptions.Count > 0)
         {
             <p class="text-muted small mb-2"><span aria-hidden="true">⠿</span> Drag a show to reorder. Your arrangement syncs across devices.</p>
@@ -100,8 +110,12 @@
             {
                 <p class="text-danger small">@sortOrderError</p>
             }
-            var ordered = SubscriptionSorting.Sort(subscriptions, sortOrder, manualOrder);
+            var ordered = SubscriptionSorting.Sort(subscriptions, sortOrder, manualOrder, ActiveShowIds, hideCaughtUpShows);
             var isManual = sortOrder == SubscriptionSortOrder.Manual;
+            if (ordered.Count == 0)
+            {
+                <p class="text-muted">You're caught up on every show. Turn off <em>Hide caught-up shows</em> to see them all.</p>
+            }
             <div class="row @iconSize.RowColsClass() g-4">
                 @for (var i = 0; i < ordered.Count; i++)
                 {
@@ -169,6 +183,16 @@
     // Device-local tile size; the real value is read from localStorage by ShowIconSizeSelect on
     // its first render, which then raises OnIconSizeChanged.
     private ShowIconSize iconSize = ShowIconSizes.Default;
+    private bool hideCaughtUpShows;
+    private bool isSavingHideCaughtUpShows;
+    private string? hideCaughtUpShowsError;
+    private bool episodeStateLoaded;
+
+    // Shows with at least one unplayed or in-progress episode — the complement of "caught up".
+    // Null until the supplementary episode-state fetch in LoadShowsAsync has completed, so the
+    // grid never hides or re-sinks shows on incomplete data.
+    private IReadOnlySet<string>? ActiveShowIds =>
+        episodeStateLoaded ? unplayedCounts.Keys.Concat(inProgressShowIds).ToHashSet() : null;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -197,10 +221,38 @@
             var settings = await SettingsClient.GetSettingsAsync();
             sortOrder = settings.SubscriptionSortOrder;
             manualOrder = settings.SubscriptionManualOrder?.ToList() ?? [];
+            hideCaughtUpShows = settings.HideCaughtUpShows;
         }
         catch (HttpRequestException)
         {
             // Non-fatal — the grid still renders in the default Title order.
+        }
+    }
+
+    private async Task OnHideCaughtUpShowsChangedAsync(ChangeEventArgs e)
+    {
+        var newValue = e.Value is true;
+        if (newValue == hideCaughtUpShows)
+        {
+            return;
+        }
+
+        var previous = hideCaughtUpShows;
+        hideCaughtUpShows = newValue;
+        isSavingHideCaughtUpShows = true;
+        hideCaughtUpShowsError = null;
+        try
+        {
+            await SettingsClient.UpdateHideCaughtUpShowsAsync(newValue);
+        }
+        catch (HttpRequestException)
+        {
+            hideCaughtUpShows = previous;
+            hideCaughtUpShowsError = "Couldn't save your choice. Please try again.";
+        }
+        finally
+        {
+            isSavingHideCaughtUpShows = false;
         }
     }
 
@@ -293,6 +345,7 @@
                 }
 
                 inProgressShowIds = await EpisodeStateClient.GetInProgressShowIdsAsync();
+                episodeStateLoaded = true;
             }
             catch (HttpRequestException)
             {

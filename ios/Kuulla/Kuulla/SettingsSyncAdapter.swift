@@ -44,6 +44,7 @@ struct SettingsSyncAdapter: SyncAdapter {
                 sleepTimerDefaultDurationMinutes: $0.sleepTimerDefaultDurationMinutes,
                 subscriptionSortOrder: $0.subscriptionSortOrder,
                 subscriptionManualOrder: $0.subscriptionManualOrder,
+                hideCaughtUpShows: $0.hideCaughtUpShows,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -90,6 +91,9 @@ private struct UserSettingsChangeDTO: Encodable {
     // manual arrangement"; the server treats null and empty alike here and keeps whatever's
     // stored, so a device that never used Manual mode can't wipe another device's order.
     let subscriptionManualOrder: [String]
+    // Non-optional — this client always knows the field and always sends it (the API's
+    // UserSettingsChange.HideCaughtUpShows is nullable only for older clients that omit it).
+    let hideCaughtUpShows: Bool
     let updatedAt: Date
 }
 
@@ -125,6 +129,8 @@ private struct UserSettingsDTO: Decodable {
     let subscriptionSortOrder: SubscriptionSortOrder
     // Optional so a response that omits it or sends null (the API default) still decodes.
     let subscriptionManualOrder: [String]?
+    // Optional so a response that predates this field still decodes; defaults to false.
+    let hideCaughtUpShows: Bool?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -135,6 +141,7 @@ private struct UserSettingsDTO: Decodable {
             smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder, subscriptionManualOrder: subscriptionManualOrder ?? [],
+            hideCaughtUpShows: hideCaughtUpShows ?? false,
             version: version, updatedAt: updatedAt)
     }
 }

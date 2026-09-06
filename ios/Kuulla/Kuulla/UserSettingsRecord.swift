@@ -37,6 +37,9 @@ final class UserSettingsRecord: Syncable {
     // Inline default required for the same lightweight-migration reason as the fields above.
     // `[String]` persists fine as a SwiftData attribute (stored as a value type). #438 manual sort.
     var subscriptionManualOrder: [String] = [String]()
+    // Inline default required for the same lightweight-migration reason as the fields above.
+    // #438 follow-up: hide caught-up shows from the Library/Subscriptions list.
+    var hideCaughtUpShows: Bool = false
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -48,6 +51,7 @@ final class UserSettingsRecord: Syncable {
         smartSpeed: Bool, notificationsEnabled: Bool, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
         subscriptionManualOrder: [String] = [],
+        hideCaughtUpShows: Bool = false,
         version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
@@ -64,6 +68,7 @@ final class UserSettingsRecord: Syncable {
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
         self.subscriptionManualOrder = subscriptionManualOrder
+        self.hideCaughtUpShows = hideCaughtUpShows
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -79,6 +84,7 @@ final class UserSettingsRecord: Syncable {
             sleepTimerDefaultDurationMinutes: settings.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: settings.subscriptionSortOrder,
             subscriptionManualOrder: settings.subscriptionManualOrder,
+            hideCaughtUpShows: settings.hideCaughtUpShows,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -98,6 +104,7 @@ final class UserSettingsRecord: Syncable {
         sleepTimerDefaultDurationMinutes = settings.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = settings.subscriptionSortOrder
         subscriptionManualOrder = settings.subscriptionManualOrder
+        hideCaughtUpShows = settings.hideCaughtUpShows
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -120,6 +127,7 @@ final class UserSettingsRecord: Syncable {
         sleepTimerDefaultDurationMinutes = other.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = other.subscriptionSortOrder
         subscriptionManualOrder = other.subscriptionManualOrder
+        hideCaughtUpShows = other.hideCaughtUpShows
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -137,6 +145,7 @@ final class UserSettingsRecord: Syncable {
             smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder,
-            subscriptionManualOrder: subscriptionManualOrder, updatedAt: updatedAt)
+            subscriptionManualOrder: subscriptionManualOrder,
+            hideCaughtUpShows: hideCaughtUpShows, updatedAt: updatedAt)
     }
 }

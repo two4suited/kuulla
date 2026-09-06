@@ -28,6 +28,33 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, base.sleepTimerDefaultDurationMinutes)
         XCTAssertEqual(updated.subscriptionSortOrder, base.subscriptionSortOrder)
         XCTAssertEqual(updated.subscriptionManualOrder, base.subscriptionManualOrder)
+        XCTAssertEqual(updated.hideCaughtUpShows, base.hideCaughtUpShows)
+    }
+
+    func testWithSetsHideCaughtUpShows() {
+        let updated = base.with(hideCaughtUpShows: true)
+
+        XCTAssertTrue(updated.hideCaughtUpShows)
+    }
+
+    func testDecodingResponseMissingHideCaughtUpShowsDefaultsToFalse() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertFalse(decoded.hideCaughtUpShows)
+    }
+
+    func testDecodingHideCaughtUpShowsFromWireBool() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0,"hideCaughtUpShows":true}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertTrue(decoded.hideCaughtUpShows)
     }
 
     func testWithSetsSubscriptionSortOrder() {

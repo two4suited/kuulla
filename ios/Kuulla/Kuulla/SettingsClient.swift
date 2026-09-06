@@ -27,6 +27,12 @@ struct SettingsClient {
             body: UpdateSubscriptionManualOrderRequest(showIds: showIds))
     }
 
+    func updateHideCaughtUpShows(_ value: Bool) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "hide-caught-up-shows"],
+            body: UpdateHideCaughtUpShowsRequest(hideCaughtUpShows: value))
+    }
+
     func getShowSettings(showId: String) async throws -> ShowSettings {
         try await apiClient.get(["api", "settings", "shows", showId])
     }
@@ -126,6 +132,10 @@ private struct UpdateSubscriptionSortOrderRequest: Encodable {
 
 private struct UpdateSubscriptionManualOrderRequest: Encodable {
     let showIds: [String]
+}
+
+private struct UpdateHideCaughtUpShowsRequest: Encodable {
+    let hideCaughtUpShows: Bool
 }
 
 private struct UpdateShowSettingsRequest: Encodable {

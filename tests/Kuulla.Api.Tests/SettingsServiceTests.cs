@@ -270,6 +270,71 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateHideCaughtUpShowsAsync_PersistsValueAndBumpsVersion()
+    {
+        var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateHideCaughtUpShowsAsync(UserId, true, CancellationToken.None);
+
+        Assert.True(result.HideCaughtUpShows);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesStoredHideCaughtUpShowsWhenChangeOmitsIt()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            HideCaughtUpShows: true);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        // Older client that doesn't send the field yet — null must not turn the setting off.
+        var change = MakeChange(DateTimeOffset.UtcNow, hideCaughtUpShows: null);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.HideCaughtUpShows),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncAsync_AppliesHideCaughtUpShowsFromChange()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1));
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var change = MakeChange(DateTimeOffset.UtcNow, hideCaughtUpShows: true);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s => s.HideCaughtUpShows),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task GetShowSettingsAsync_ReturnsDefaultWhenNoDocumentExists()
     {
         const string showId = "show-1";
@@ -913,10 +978,12 @@ public class SettingsServiceTests
         bool? notificationsEnabled = true,
         int? sleepTimerDefaultDurationMinutes = null,
         SubscriptionSortOrder? subscriptionSortOrder = SubscriptionSortOrder.Title,
-        IReadOnlyList<string>? subscriptionManualOrder = null) =>
+        IReadOnlyList<string>? subscriptionManualOrder = null,
+        bool? hideCaughtUpShows = false) =>
         new(
             UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
-            notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, updatedAt);
+            notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder,
+            hideCaughtUpShows, updatedAt);
 
     [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()
