@@ -34,9 +34,10 @@ builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddScoped<IPlaylistService, PlaylistService>();
 builder.Services.AddScoped<ITranscriptService, TranscriptService>();
 
-// Still runs the in-process sweep in the API for now; retired once the ACA scheduled job is
-// verified in production (#415).
-builder.Services.AddHostedService<FeedPollingBackgroundService>();
+// The feed-polling sweep no longer runs in the API — the Kuulla.FeedPoller worker (an ACA
+// scheduled job in production) owns it now, so it runs once per tick instead of once per API
+// replica (#38). IFeedPollingService stays registered (via AddKuullaCore) for the dev-only
+// /dev/poll-feeds endpoint.
 
 // Push-notification sender (APNs, or a no-op fallback when APNs isn't configured). Shared with
 // the Kuulla.FeedPoller worker, which sends the same new-episode push (milestone #32, issue #216).
