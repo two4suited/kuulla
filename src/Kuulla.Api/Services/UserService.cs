@@ -1,6 +1,6 @@
 using System.Net;
 using Microsoft.Azure.Cosmos;
-using User = Kuulla.Api.Models.User;
+using User = Kuulla.Core.Models.User;
 
 namespace Kuulla.Api.Services;
 

@@ -1,6 +1,7 @@
+using Kuulla.Core.Services;
 using System.Net;
-using Kuulla.Api.Models;
-using Kuulla.Api.Services.Sync;
+using Kuulla.Core.Models;
+using Kuulla.Core.Services.Sync;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 

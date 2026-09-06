@@ -1,5 +1,5 @@
 using System.Net.Http.Json;
-using Kuulla.Api.Models;
+using Kuulla.Core.Models;
 using Microsoft.Playwright;
 using Xunit;
 

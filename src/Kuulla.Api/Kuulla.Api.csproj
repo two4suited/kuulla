@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Kuulla.ServiceDefaults\Kuulla.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Kuulla.Core\Kuulla.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

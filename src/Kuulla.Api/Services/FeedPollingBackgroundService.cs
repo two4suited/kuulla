@@ -1,3 +1,5 @@
+using Kuulla.Core.Services;
+
 namespace Kuulla.Api.Services;
 
 // The API's first scheduled/background job (see the Spike issue #215) — everything else that

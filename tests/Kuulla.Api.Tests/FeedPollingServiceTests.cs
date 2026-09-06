@@ -1,5 +1,5 @@
-using Kuulla.Api.Models;
-using Kuulla.Api.Services;
+using Kuulla.Core.Models;
+using Kuulla.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 

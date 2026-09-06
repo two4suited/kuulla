@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using Kuulla.Api.Services;
+using Kuulla.Core.Services;
 
 namespace Kuulla.Api.Tests;
 

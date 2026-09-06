@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Kuulla.Api\Kuulla.Api.csproj" />
+    <ProjectReference Include="..\..\src\Kuulla.Core\Kuulla.Core.csproj" />
   </ItemGroup>
 
 </Project>

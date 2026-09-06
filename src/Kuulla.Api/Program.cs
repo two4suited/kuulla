@@ -2,9 +2,10 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using dotAPNS;
-using Kuulla.Api.Models;
 using Kuulla.Api.Services;
-using Kuulla.Api.Services.Sync;
+using Kuulla.Core;
+using Kuulla.Core.Models;
+using Kuulla.Core.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,33 +24,19 @@ builder.AddKeyedAzureCosmosContainer("episodestates");
 builder.AddKeyedAzureCosmosContainer("playlists");
 builder.AddKeyedAzureCosmosContainer("devicetokens");
 
+// Domain services (feed polling, episodes, shows, subscriptions, settings, episode state, device
+// tokens, the podcast directory/feed HTTP clients and the SSRF-guarded resource fetcher) now live
+// in Kuulla.Core so the Kuulla.FeedPoller worker can share the exact same registrations (#38).
+builder.Services.AddKuullaCore();
+
+// API-only services that stayed behind: they front HTTP endpoints rather than the feed-poll path.
 builder.Services.AddScoped<IUserService, UserService>();
-builder.Services.AddScoped<IShowService, ShowService>();
 builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
-builder.Services.AddScoped<IEpisodeService, EpisodeService>();
-builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
-builder.Services.AddScoped<ISettingsService, SettingsService>();
-builder.Services.AddScoped<IEpisodeStateService, EpisodeStateService>();
 builder.Services.AddScoped<IPlaylistService, PlaylistService>();
-builder.Services.AddScoped<IDeviceTokenService, DeviceTokenService>();
-builder.Services.AddHttpClient<IPodcastDirectoryClient, ItunesPodcastDirectoryClient>(client =>
-{
-    client.BaseAddress = new Uri("https://itunes.apple.com/");
-});
-builder.Services.AddHttpClient<IPodcastFeedClient, PodcastFeedClient>();
 builder.Services.AddScoped<ITranscriptService, TranscriptService>();
-// Used for every fetch of an untrusted feed-supplied URL (podcast:chapters, podcast:transcript)
-// via PublicResourceFetcher — auto-redirect is disabled so it can see and re-validate every
-// redirect hop itself instead of the runtime following one straight past the SSRF guard. Still
-// inherits the app's HTTP defaults (resilience handler, service discovery, OTel instrumentation)
-// from ConfigureHttpClientDefaults in ServiceDefaults, since that applies to every client the
-// factory creates.
-builder.Services.AddHttpClient(PublicResourceFetcher.HttpClientName)
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
-// Stateless — it only holds the injected factory/resolver — so a singleton avoids any
-// captive-dependency concern from the transient PodcastFeedClient taking it as a dependency.
-builder.Services.AddSingleton<PublicResourceFetcher>();
-builder.Services.AddScoped<IFeedPollingService, FeedPollingService>();
+
+// Still runs the in-process sweep in the API for now; retired once the ACA scheduled job is
+// verified in production (#415).
 builder.Services.AddHostedService<FeedPollingBackgroundService>();
 
 // APNs credentials (milestone #32, issue #216) — optional, unlike Google OAuth's required-audience

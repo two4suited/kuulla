@@ -1,5 +1,5 @@
-using Kuulla.Api.Models;
-using Kuulla.Api.Services.Sync;
+using Kuulla.Core.Models;
+using Kuulla.Core.Services.Sync;
 
 namespace Kuulla.Api.Tests;
 
