@@ -211,24 +211,26 @@ var api = apiBuilder
 // IsPublishMode), like PublishAsAzureContainerApp on api/web — so it needs no IsPublishMode guard
 // and doesn't affect the AppHost integration tests. The job's managed identity gets Cosmos
 // data-plane access automatically from the .WithReference(cosmos) below, the same way api/web do.
+// Every Cosmos container the moved Kuulla.Core services resolve by key — the poller touches the
+// same set the API does, so both feed-poller resources below share this wiring.
+static IResourceBuilder<ProjectResource> WireFeedPollerDependencies(
+    IResourceBuilder<ProjectResource> project,
+    IResourceBuilder<Aspire.Hosting.Azure.AzureCosmosDBDatabaseResource> cosmos,
+    params IResourceBuilder<Aspire.Hosting.Azure.AzureCosmosDBContainerResource>[] containers)
+{
+    project.WithReference(cosmos).WaitFor(cosmos);
+    foreach (var container in containers)
+    {
+        project.WithReference(container).WaitFor(container);
+    }
+
+    return project;
+}
+
 var feedPollerCron = "*/15 * * * *"; // aligned with FeedPolling:IntervalMinutes default of 15
-var feedPoller = builder.AddProject<Projects.Kuulla_FeedPoller>("feed-poller")
-    .WithReference(cosmos)
-    .WithReference(shows)
-    .WithReference(episodes)
-    .WithReference(subscriptions)
-    .WithReference(settings)
-    .WithReference(episodeStates)
-    .WithReference(playlists)
-    .WithReference(deviceTokens)
-    .WaitFor(cosmos)
-    .WaitFor(shows)
-    .WaitFor(episodes)
-    .WaitFor(subscriptions)
-    .WaitFor(settings)
-    .WaitFor(episodeStates)
-    .WaitFor(playlists)
-    .WaitFor(deviceTokens)
+var feedPoller = WireFeedPollerDependencies(
+        builder.AddProject<Projects.Kuulla_FeedPoller>("feed-poller"),
+        cosmos, shows, episodes, subscriptions, settings, episodeStates, playlists, deviceTokens)
     .WithEnvironment(
         "FeedPolling__RunOnceThenExit",
         builder.ExecutionContext.IsPublishMode ? "true" : "false")
@@ -251,6 +253,29 @@ if (apnsConfigured)
         .WithEnvironment("Apns__TeamId", apnsTeamId)
         .WithEnvironment("Apns__BundleId", apnsBundleId)
         .WithEnvironment("Apns__PrivateKey", apnsPrivateKey);
+}
+
+// Local-only companion: the same worker wired to run exactly one sweep and exit — the shape the
+// ACA scheduled job runs in production. Explicit-start, so `aspire run` doesn't fire it (and
+// Kuulla.AppHost.Tests never starts it); hit Start on the `feed-poller-job` resource in the
+// dashboard to run a one-shot job against the local Cosmos emulator, watch it sweep, and see it
+// go to Finished. Not emitted in publish mode — the real job is `feed-poller` above.
+if (!builder.ExecutionContext.IsPublishMode)
+{
+    var feedPollerJob = WireFeedPollerDependencies(
+            builder.AddProject<Projects.Kuulla_FeedPoller>("feed-poller-job"),
+            cosmos, shows, episodes, subscriptions, settings, episodeStates, playlists, deviceTokens)
+        .WithEnvironment("FeedPolling__RunOnceThenExit", "true")
+        .WithExplicitStart();
+
+    if (apnsConfigured)
+    {
+        feedPollerJob
+            .WithEnvironment("Apns__KeyId", apnsKeyId)
+            .WithEnvironment("Apns__TeamId", apnsTeamId)
+            .WithEnvironment("Apns__BundleId", apnsBundleId)
+            .WithEnvironment("Apns__PrivateKey", apnsPrivateKey);
+    }
 }
 
 var web = builder.AddProject<Projects.Kuulla_Web>("web")
