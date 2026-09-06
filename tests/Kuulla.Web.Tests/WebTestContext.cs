@@ -20,11 +20,6 @@ public abstract class WebTestContext : TestContext
         Services.AddScoped<SettingsClient>();
         Services.AddScoped<EpisodeStateClient>();
         Services.AddScoped<PlaylistClient>();
-
-        // The marketing landing page (also shown by Home's NotAuthorized branch) reads release
-        // notes through ChangelogProvider. Default to an empty changelog so the "What's new"
-        // section stays out of the markup under test; LandingTests overrides this with content.
-        Services.AddSingleton(new ChangelogProvider(() => null, "owner/repo"));
     }
 
     protected void ConfigureApi(HttpMessageHandler handler)

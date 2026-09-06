@@ -60,9 +60,6 @@ builder.Services.AddScoped<SettingsClient>();
 builder.Services.AddScoped<EpisodeStateClient>();
 builder.Services.AddScoped<PlaylistClient>();
 
-// Powers the marketing page's "What's new" section from the committed CHANGELOG.md.
-builder.Services.AddSingleton<ChangelogProvider>();
-
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
