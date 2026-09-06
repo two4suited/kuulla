@@ -1,5 +1,6 @@
-using Kuulla.Api.Models;
+using Kuulla.Core.Models;
 using Kuulla.Api.Services;
+using Kuulla.Core.Services;
 using Microsoft.Azure.Cosmos;
 using Moq;
 

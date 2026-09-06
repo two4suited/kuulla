@@ -1,5 +1,6 @@
+using Kuulla.Core.Services;
 using System.Text;
-using Kuulla.Api.Models;
+using Kuulla.Core.Models;
 
 namespace Kuulla.Api.Services;
 

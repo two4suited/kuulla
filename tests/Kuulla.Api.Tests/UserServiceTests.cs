@@ -1,7 +1,7 @@
 using Kuulla.Api.Services;
 using Microsoft.Azure.Cosmos;
 using Moq;
-using User = Kuulla.Api.Models.User;
+using User = Kuulla.Core.Models.User;
 
 namespace Kuulla.Api.Tests;
 

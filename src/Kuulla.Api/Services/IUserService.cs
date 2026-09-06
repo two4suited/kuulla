@@ -1,4 +1,4 @@
-using Kuulla.Api.Models;
+using Kuulla.Core.Models;
 
 namespace Kuulla.Api.Services;
 

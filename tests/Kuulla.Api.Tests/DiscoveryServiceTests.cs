@@ -1,4 +1,5 @@
 using Kuulla.Api.Services;
+using Kuulla.Core.Services;
 using Moq;
 
 namespace Kuulla.Api.Tests;

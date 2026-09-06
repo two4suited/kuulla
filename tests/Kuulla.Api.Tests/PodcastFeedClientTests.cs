@@ -1,5 +1,5 @@
 using System.Net;
-using Kuulla.Api.Services;
+using Kuulla.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Kuulla.Api.Tests;

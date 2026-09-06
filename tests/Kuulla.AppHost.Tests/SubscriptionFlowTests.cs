@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using Kuulla.Api.Models;
+using Kuulla.Core.Models;
 using Xunit;
 
 namespace Kuulla.AppHost.Tests;

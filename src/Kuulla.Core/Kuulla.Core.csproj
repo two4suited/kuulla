@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same FrameworkReference the ServiceDefaults shared project uses — brings in the
+         Microsoft.Extensions.* surface (DI, Logging, Http, Configuration) the moved domain
+         services and their AddKuullaCore wiring depend on. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+
+    <PackageReference Include="Aspire.Microsoft.Azure.Cosmos" Version="13.5.3" />
+    <PackageReference Include="dotAPNS" Version="4.6.0" />
+  </ItemGroup>
+
+  <!-- Microsoft.NET.Sdk.Web (the API's SDK) adds these to ImplicitUsings; a plain class library
+       doesn't, so add the one the moved service code relies on (ILogger<T> in primary ctors). -->
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+</Project>
