@@ -1,8 +1,5 @@
 @page "/welcome"
 @layout EmptyLayout
-@using Kuulla.Web.Models
-@using Kuulla.Web.Services
-@inject ChangelogProvider Changelog
 
 @*
     Public marketing page. Rendered two ways, both anonymous:
@@ -179,52 +176,6 @@
                 <p>Every show splits into Unplayed, In Progress, and Downloaded. Progress bars, “New” and “In Progress” markers, and newest-first sort — no hunting for where you stopped.</p>
             </div>
         </section>
-        @if (releases.Count > 0)
-        {
-            <section class="l-whatsnew">
-                <p class="l-eyebrow">What's new</p>
-                <h2 class="l-features-h">Shipped recently</h2>
-                <ol class="l-releases">
-                    @foreach (var release in releases)
-                    {
-                        <li class="l-release">
-                            <div class="l-release-meta">
-                                <a class="l-release-v" href="@release.Url">@release.Version</a>
-                                @if (release.PublishedOn is { } published)
-                                {
-                                    <time datetime="@published.ToString("yyyy-MM-dd")">@published.ToString("MMM d, yyyy")</time>
-                                }
-                            </div>
-                            <div class="l-release-changes">
-                                @if (!string.IsNullOrWhiteSpace(release.Summary))
-                                {
-                                    <p class="l-release-summary">@release.Summary</p>
-                                }
-                                <details class="l-release-notes">
-                                    <summary>Full notes</summary>
-                                    @foreach (var group in release.Groups)
-                                    {
-                                        <div class="l-release-group">
-                                            <span class="l-release-group-title">@group.Title</span>
-                                            <ul>
-                                                @foreach (var item in group.Items)
-                                                {
-                                                    <li>@item</li>
-                                                }
-                                            </ul>
-                                        </div>
-                                    }
-                                </details>
-                            </div>
-                        </li>
-                    }
-                </ol>
-                <p class="l-also">
-                    Every release, with full notes, on
-                    <a href="https://github.com/two4suited/kuulla/releases">GitHub</a>.
-                </p>
-            </section>
-        }
     </main>
 
     <footer class="l-footer">
@@ -236,14 +187,3 @@
         </nav>
     </footer>
 </div>
-
-@code {
-    // From the committed CHANGELOG.md, read once at startup. Empty (section skipped) when the
-    // file is missing — e.g. a local build that never ran the release workflow.
-    private IReadOnlyList<ReleaseNote> releases = [];
-
-    protected override void OnInitialized()
-    {
-        releases = Changelog.GetRecent(count: 3);
-    }
-}

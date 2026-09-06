@@ -58,8 +58,7 @@ iOS App Store versioning is tracked separately in milestone #34 and is not affec
 3. The tag push triggers two workflows **in parallel**, with no ordering dependency between them:
    - **[release.yml](../.github/workflows/release.yml)** — checks out the tag with full history
      and runs `gh release create <tag> --verify-tag --generate-notes`, publishing a GitHub
-     Release. It then regenerates [CHANGELOG.md](../CHANGELOG.md) from all releases and commits
-     it to `main` (see [Changelog](#changelog)).
+     Release. That Release is the whole notes story — nothing is mirrored back into the repo.
    - **[deploy.yml](../.github/workflows/deploy.yml)** — checks out the tagged commit and runs
      `aspire deploy` against the `production` environment. This waits on the `production`
      environment's required-reviewer gate before it provisions anything.
@@ -95,41 +94,9 @@ Path-based labels (`ios`, `web`, `api`, `infra`, `documentation`, …) are appli
 vs `bug` is not path-derivable** — apply one of those by hand on the PR (before it merges) when it
 matters for the notes. A PR with no matching label still ships; it just lands under "Other".
 
-## Changelog
-
-The GitHub Releases are the source of truth for release notes, but the repo is private, so the
-web app can't read them at runtime. Instead, `release.yml` runs
-[scripts/generate-changelog.sh](../scripts/generate-changelog.sh) after cutting a release: it
-flattens every published Release into [CHANGELOG.md](../CHANGELOG.md) (version, date, and the
-label-grouped bullets, attribution stripped) and commits that file to `main`.
-
-`Kuulla.Web` ships `CHANGELOG.md` in its build output and renders the three most recent entries
-in the "What's new" section of the marketing page (`/welcome`) via `ChangelogProvider`. Because
-the commit lands on `main` *after* the tag that triggered it, a release's own entry appears on
-the site with the *next* release's deploy — acceptable for a "shipped recently" list. Don't edit
-`CHANGELOG.md` by hand; re-run the script to regenerate it.
-
-### Summaries
-
-The flattened PR titles read like a dev changelog. `release-summaries.json` (repo root, shipped
-alongside `CHANGELOG.md`) maps each version to a one- or two-sentence plain-language blurb;
-`Landing.razor` shows that blurb as the entry's lead line and folds the raw grouped notes into a
-"Full notes" expander. A version with no entry just renders the notes as before.
-
-The blurbs are written by [`scripts/summarize-releases.sh`](../scripts/summarize-releases.sh),
-which feeds each release's notes through the `claude` CLI. It's **not** wired into CI — run it by
-hand from a `main` checkout once `release.yml`'s "Update CHANGELOG.md" commit has landed:
-
-```sh
-git checkout main && git pull
-scripts/summarize-releases.sh          # fills in any release missing a blurb
-git add release-summaries.json && git commit -m "Summarize <tag> for the marketing page"
-git push
-```
-
-It only calls the model for releases not already in the file, so re-runs are cheap. Use
-`--only <version>` to redo one entry or `--force` to redo all. Like the changelog commit, an
-updated blurb reaches the site on the next release's deploy.
+The GitHub Release is the only place release notes live. There is no in-repo changelog and the
+marketing page (`/welcome`) no longer lists releases — link people to
+[the Releases page](https://github.com/two4suited/kuulla/releases) instead.
 
 ## Hotfixes
 

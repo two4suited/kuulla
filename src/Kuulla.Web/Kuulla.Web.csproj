@@ -8,17 +8,6 @@
     <InternalsVisibleTo Include="Kuulla.Web.Tests" />
   </ItemGroup>
 
-  <!-- The repo-root changelog ships with the app; ChangelogProvider reads it from the build
-       output at runtime to render the marketing page's "What's new" section. Regenerated from
-       the GitHub Releases by .github/workflows/release.yml. release-summaries.json (written by
-       scripts/summarize-releases.sh) rides along and supplies each entry's plain-language blurb;
-       it's optional, so guard on Exists so a checkout without it still builds. -->
-  <ItemGroup>
-    <Content Include="..\..\CHANGELOG.md" Link="CHANGELOG.md" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\release-summaries.json" Link="release-summaries.json" CopyToOutputDirectory="PreserveNewest"
-             Condition="Exists('..\..\release-summaries.json')" />
-  </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.ServiceDiscovery" Version="10.9.0" />
