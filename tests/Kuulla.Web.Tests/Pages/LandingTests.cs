@@ -16,8 +16,8 @@ public class LandingTests : WebTestContext
         Services.AddSingleton(environment.Object);
     }
 
-    private void ChangelogReturns(string markdown) =>
-        Services.AddSingleton(new ChangelogProvider(() => markdown, "two4suited/kuulla"));
+    private void ChangelogReturns(string markdown, string? summariesJson = null) =>
+        Services.AddSingleton(new ChangelogProvider(() => markdown, "two4suited/kuulla", () => summariesJson));
 
     [Fact]
     public void RendersWhatsNewSection_FromTheChangelog()
@@ -42,6 +42,47 @@ public class LandingTests : WebTestContext
         Assert.Contains("Expand the marketing page", cut.Markup);
         Assert.Contains("Add a release skill", cut.Markup);
         Assert.Contains("releases/tag/v2026.9.2", cut.Markup);
+    }
+
+    [Fact]
+    public void ShowsTheAiSummaryAsTheLeadLine_WithRawNotesInAnExpander()
+    {
+        ChangelogReturns(
+            """
+            # Changelog
+
+            ## 2026.9.2 — 2026-09-05
+
+            ### Web
+            - Expand the marketing page
+            """,
+            summariesJson: """{ "2026.9.2": "The marketing page got roomier." }""");
+
+        var cut = RenderComponent<Landing>();
+
+        Assert.Contains("The marketing page got roomier.", cut.Markup);
+        // Raw notes stay in the markup, but folded into a <details> expander.
+        Assert.Contains("<details", cut.Markup);
+        Assert.Contains("Full notes", cut.Markup);
+        Assert.Contains("Expand the marketing page", cut.Markup);
+    }
+
+    [Fact]
+    public void OmitsTheSummaryLine_WhenNoSummaryExistsForTheRelease()
+    {
+        ChangelogReturns("""
+            # Changelog
+
+            ## 2026.9.2 — 2026-09-05
+
+            ### Web
+            - Expand the marketing page
+            """);
+
+        var cut = RenderComponent<Landing>();
+
+        Assert.DoesNotContain("l-release-summary", cut.Markup);
+        Assert.Contains("Expand the marketing page", cut.Markup);
     }
 
     [Fact]

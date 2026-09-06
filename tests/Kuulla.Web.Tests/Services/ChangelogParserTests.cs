@@ -76,4 +76,21 @@ public class ChangelogParserTests
     {
         Assert.Empty(ChangelogParser.Parse(markdown, "o/r"));
     }
+
+    [Fact]
+    public void Parse_attaches_a_summary_by_version_when_one_is_supplied()
+    {
+        var summaries = new Dictionary<string, string> { ["2026.9.2"] = "The marketing page grew." };
+
+        var releases = ChangelogParser.Parse(Sample, "two4suited/kuulla", summaries);
+
+        Assert.Equal("The marketing page grew.", releases[0].Summary);
+        Assert.Null(releases[1].Summary); // no entry for 2026.9.1
+    }
+
+    [Fact]
+    public void Parse_leaves_summary_null_when_no_map_is_supplied()
+    {
+        Assert.All(ChangelogParser.Parse(Sample, "o/r"), r => Assert.Null(r.Summary));
+    }
 }

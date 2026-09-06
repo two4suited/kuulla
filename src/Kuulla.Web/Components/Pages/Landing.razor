@@ -196,18 +196,25 @@
                                 }
                             </div>
                             <div class="l-release-changes">
-                                @foreach (var group in release.Groups)
+                                @if (!string.IsNullOrWhiteSpace(release.Summary))
                                 {
-                                    <div class="l-release-group">
-                                        <span class="l-release-group-title">@group.Title</span>
-                                        <ul>
-                                            @foreach (var item in group.Items)
-                                            {
-                                                <li>@item</li>
-                                            }
-                                        </ul>
-                                    </div>
+                                    <p class="l-release-summary">@release.Summary</p>
                                 }
+                                <details class="l-release-notes">
+                                    <summary>Full notes</summary>
+                                    @foreach (var group in release.Groups)
+                                    {
+                                        <div class="l-release-group">
+                                            <span class="l-release-group-title">@group.Title</span>
+                                            <ul>
+                                                @foreach (var item in group.Items)
+                                                {
+                                                    <li>@item</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                    }
+                                </details>
                             </div>
                         </li>
                     }

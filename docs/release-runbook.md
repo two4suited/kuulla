@@ -109,6 +109,28 @@ the commit lands on `main` *after* the tag that triggered it, a release's own en
 the site with the *next* release's deploy — acceptable for a "shipped recently" list. Don't edit
 `CHANGELOG.md` by hand; re-run the script to regenerate it.
 
+### Summaries
+
+The flattened PR titles read like a dev changelog. `release-summaries.json` (repo root, shipped
+alongside `CHANGELOG.md`) maps each version to a one- or two-sentence plain-language blurb;
+`Landing.razor` shows that blurb as the entry's lead line and folds the raw grouped notes into a
+"Full notes" expander. A version with no entry just renders the notes as before.
+
+The blurbs are written by [`scripts/summarize-releases.sh`](../scripts/summarize-releases.sh),
+which feeds each release's notes through the `claude` CLI. It's **not** wired into CI — run it by
+hand from a `main` checkout once `release.yml`'s "Update CHANGELOG.md" commit has landed:
+
+```sh
+git checkout main && git pull
+scripts/summarize-releases.sh          # fills in any release missing a blurb
+git add release-summaries.json && git commit -m "Summarize <tag> for the marketing page"
+git push
+```
+
+It only calls the model for releases not already in the file, so re-runs are cheap. Use
+`--only <version>` to redo one entry or `--force` to redo all. Like the changelog commit, an
+updated blurb reaches the site on the next release's deploy.
+
 ## Hotfixes
 
 **Default: roll forward from `main`.** A hotfix is an ordinary PR to `main` followed by a new
