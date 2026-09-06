@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Kuulla.Api\Kuulla.Api.csproj" />
+    <ProjectReference Include="..\Kuulla.FeedPoller\Kuulla.FeedPoller.csproj" />
     <ProjectReference Include="..\Kuulla.Web\Kuulla.Web.csproj" />
   </ItemGroup>
 
