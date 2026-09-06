@@ -10,7 +10,10 @@ public record Playlist(
     IReadOnlyList<PlaylistItem> Items,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    DynamicPlaylistConfig? DynamicConfig = null);
+    DynamicPlaylistConfig? DynamicConfig = null,
+    // Curated emoji from PlaylistIcons.Curated, or null for "no icon" (#439).
+    string? Icon = null,
+    string? AccentColor = null);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistItem's wire shape.
 public record PlaylistItem(
@@ -41,7 +44,9 @@ public record PlaylistDetail(
     IReadOnlyList<PlaylistItemDetail> Items,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    DynamicPlaylistConfig? DynamicConfig = null);
+    DynamicPlaylistConfig? DynamicConfig = null,
+    string? Icon = null,
+    string? AccentColor = null);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistItemDetail's wire shape.
 public record PlaylistItemDetail(

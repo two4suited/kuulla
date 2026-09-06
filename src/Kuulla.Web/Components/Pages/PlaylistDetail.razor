@@ -28,6 +28,10 @@ else
 {
     <div class="d-flex align-items-center justify-content-between mb-4">
         <div class="d-flex align-items-center gap-2">
+            @if (!string.IsNullOrEmpty(playlist.Icon))
+            {
+                <span aria-hidden="true" class="fs-3" style="@(string.IsNullOrEmpty(playlist.AccentColor) ? "" : $"color: {playlist.AccentColor};")">@playlist.Icon</span>
+            }
             <h1 class="mb-0">@playlist.Name</h1>
             @if (syncStatusService is not null)
             {
@@ -141,6 +145,34 @@ else
 
     <hr class="my-4" />
 
+    @if (editing)
+    {
+        <div class="mb-3" style="max-width: 32rem;">
+            <label class="form-label small">Playlist name</label>
+            <input class="form-control mb-2" @bind="editName" @bind:event="oninput" disabled="@isSavingEdit" />
+            <PlaylistAppearancePicker @bind-Icon="editIcon" @bind-AccentColor="editAccentColor" />
+            <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-sm btn-primary" disabled="@(isSavingEdit || string.IsNullOrWhiteSpace(editName))"
+                        @onclick="SaveEditAsync">
+                    Save
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" disabled="@isSavingEdit" @onclick="() => editing = false">
+                    Cancel
+                </button>
+            </div>
+            @if (editError is not null)
+            {
+                <p class="text-danger small mt-2">@editError</p>
+            }
+        </div>
+    }
+    else
+    {
+        <button class="btn btn-sm btn-outline-secondary me-2" @onclick="BeginEdit">
+            Edit playlist
+        </button>
+    }
+
     @if (confirmingDelete)
     {
         <p class="small">Delete “@playlist.Name”? This can't be undone.</p>
@@ -180,6 +212,12 @@ else
     private bool confirmingDelete;
     private bool isDeleting;
     private string? deleteError;
+    private bool editing;
+    private string editName = "";
+    private string? editIcon;
+    private string? editAccentColor;
+    private bool isSavingEdit;
+    private string? editError;
     private bool showOnlyUnplayed;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
 
@@ -222,6 +260,9 @@ else
         confirmingDelete = false;
         isDeleting = false;
         deleteError = null;
+        editing = false;
+        isSavingEdit = false;
+        editError = null;
         busyEpisodeIds.Clear();
         episodeStatesById.Clear();
         showOnlyUnplayed = true;
@@ -426,6 +467,59 @@ else
         finally
         {
             busyEpisodeIds.Remove(episodeId);
+        }
+    }
+
+    private void BeginEdit()
+    {
+        if (playlist is null)
+        {
+            return;
+        }
+
+        editName = playlist.Name;
+        editIcon = playlist.Icon;
+        editAccentColor = playlist.AccentColor;
+        editError = null;
+        editing = true;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (playlist is null || isSavingEdit)
+        {
+            return;
+        }
+
+        var name = editName.Trim();
+        if (name.Length == 0)
+        {
+            return;
+        }
+
+        isSavingEdit = true;
+        editError = null;
+
+        try
+        {
+            var updated = await PlaylistClient.RenamePlaylistAsync(Id, name, editIcon, editAccentColor);
+            if (updated is null)
+            {
+                editError = "This playlist no longer exists.";
+                return;
+            }
+
+            playlist = playlist with { Name = updated.Name, Icon = updated.Icon, AccentColor = updated.AccentColor };
+            editing = false;
+            await SyncOwnWriteBestEffortAsync();
+        }
+        catch (HttpRequestException)
+        {
+            editError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isSavingEdit = false;
         }
     }
 

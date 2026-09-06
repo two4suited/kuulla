@@ -781,6 +781,24 @@ static string? ValidateDynamicPlaylistConfig(DynamicPlaylistConfig config)
     return "'priorityList' must contain exactly the same shows as 'showIds'.";
 }
 
+// Shared by POST /api/playlists, PUT /api/playlists/{id} and POST /api/sync/playlists — a
+// playlist's Icon must be null or one of the curated set (PlaylistIcons), and AccentColor null
+// or a #RRGGBB hex string, so every client renders the same identity (#439).
+static string? ValidatePlaylistAppearance(string? icon, string? accentColor)
+{
+    if (!PlaylistIcons.IsValidIcon(icon))
+    {
+        return "'icon' must be one of the curated playlist icons.";
+    }
+
+    if (!PlaylistIcons.IsValidAccentColor(accentColor))
+    {
+        return "'accentColor' must be a '#RRGGBB' hex colour.";
+    }
+
+    return null;
+}
+
 playlists.MapGet("", async (ClaimsPrincipal user, IPlaylistService playlistService, CancellationToken ct) =>
 {
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -801,6 +819,12 @@ playlists.MapPost("", async (
         return Results.BadRequest(new { error = "'type' must be 'Manual' or 'Dynamic'." });
     }
 
+    var appearanceError = ValidatePlaylistAppearance(request.Icon, request.AccentColor);
+    if (appearanceError is not null)
+    {
+        return Results.BadRequest(new { error = appearanceError });
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
 
     if (request.Type == PlaylistType.Dynamic)
@@ -817,11 +841,12 @@ playlists.MapPost("", async (
         }
 
         var dynamicPlaylist = await playlistService.CreateDynamicPlaylistAsync(
-            userId, request.Name, request.DynamicConfig, ct);
+            userId, request.Name, request.DynamicConfig, request.Icon, request.AccentColor, ct);
         return Results.Ok(dynamicPlaylist);
     }
 
-    var playlist = await playlistService.CreatePlaylistAsync(userId, request.Name, ct);
+    var playlist = await playlistService.CreatePlaylistAsync(
+        userId, request.Name, request.Icon, request.AccentColor, ct);
     return Results.Ok(playlist);
 });
 
@@ -863,8 +888,15 @@ playlists.MapPut("/{id}", async (
         return Results.BadRequest(new { error = "'name' is required." });
     }
 
+    var appearanceError = ValidatePlaylistAppearance(request.Icon, request.AccentColor);
+    if (appearanceError is not null)
+    {
+        return Results.BadRequest(new { error = appearanceError });
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
-    var playlist = await playlistService.RenamePlaylistAsync(userId, id, request.Name, ct);
+    var playlist = await playlistService.RenamePlaylistAsync(
+        userId, id, request.Name, request.Icon, request.AccentColor, ct);
     return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
 });
 
@@ -988,6 +1020,12 @@ sync.MapPost("/playlists", async (
         if (string.IsNullOrWhiteSpace(change.Id) || string.IsNullOrWhiteSpace(change.Name))
         {
             return Results.BadRequest(new { error = "Each change requires a non-empty 'id' and 'name'." });
+        }
+
+        var appearanceError = ValidatePlaylistAppearance(change.Icon, change.AccentColor);
+        if (appearanceError is not null)
+        {
+            return Results.BadRequest(new { error = appearanceError });
         }
     }
 

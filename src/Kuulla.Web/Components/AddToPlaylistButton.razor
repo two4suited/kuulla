@@ -22,9 +22,13 @@
                 <div class="list-group list-group-flush mb-2">
                     @foreach (var playlist in playlists)
                     {
-                        <button class="list-group-item list-group-item-action py-1 px-2 small" disabled="@isBusy"
+                        <button class="list-group-item list-group-item-action py-1 px-2 small d-flex align-items-center gap-2" disabled="@isBusy"
                                 @onclick="() => AddToExistingAsync(playlist.Id)">
-                            @playlist.Name
+                            @if (!string.IsNullOrEmpty(playlist.Icon))
+                            {
+                                <span aria-hidden="true" style="@(string.IsNullOrEmpty(playlist.AccentColor) ? "" : $"color: {playlist.AccentColor};")">@playlist.Icon</span>
+                            }
+                            <span>@playlist.Name</span>
                         </button>
                     }
                 </div>

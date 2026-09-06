@@ -9,6 +9,7 @@ struct PlaylistDetailView: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var mutationError: String?
+    @State private var isShowingEditSheet = false
 
     private let playlistClient = PlaylistClient()
 
@@ -55,9 +56,31 @@ struct PlaylistDetailView: View {
         .navigationTitle(playlist?.name ?? "Playlist")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                if let playlist {
+                    HStack(spacing: 6) {
+                        if let icon = playlist.icon, !icon.isEmpty {
+                            Text(icon)
+                                .foregroundStyle(Color(playlistAccentHex: playlist.accentColor) ?? .primary)
+                        }
+                        Text(playlist.name)
+                            .font(.headline)
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if let playlist, playlist.type == .manual, playlist.items.count > 1 {
                     EditButton()
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if playlist != nil {
+                    Button {
+                        isShowingEditSheet = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .accessibilityLabel("Edit playlist")
                 }
             }
             ToolbarItem(placement: .bottomBar) {
@@ -71,6 +94,22 @@ struct PlaylistDetailView: View {
         .overlay {
             if isLoading {
                 ProgressView()
+            }
+        }
+        .sheet(isPresented: $isShowingEditSheet) {
+            if let playlist {
+                EditPlaylistSheet(
+                    name: playlist.name,
+                    icon: playlist.icon,
+                    accentColor: playlist.accentColor
+                ) { newName, newIcon, newAccent in
+                    _ = try await playlistClient.renamePlaylist(
+                        id: playlistId, name: newName, icon: newIcon, accentColor: newAccent)
+                    self.playlist?.name = newName
+                    self.playlist?.icon = newIcon
+                    self.playlist?.accentColor = newAccent
+                }
+                .presentationDetents([.medium, .large])
             }
         }
         .task(id: playlistId) {
@@ -308,6 +347,79 @@ private struct DynamicPlaylistConfigEditorView: View {
             }
             isSaving = false
         }
+    }
+}
+
+// Rename + icon/accent editor for an existing playlist (#439). Sends the playlist's full display
+// state on save (PUT /api/playlists/{id} replaces, it doesn't patch).
+private struct EditPlaylistSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String
+    @State private var icon: String?
+    @State private var accentColor: String?
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    let onSave: (String, String?, String?) async throws -> Void
+
+    init(
+        name: String,
+        icon: String?,
+        accentColor: String?,
+        onSave: @escaping (String, String?, String?) async throws -> Void
+    ) {
+        self._name = State(initialValue: name)
+        self._icon = State(initialValue: icon)
+        self._accentColor = State(initialValue: accentColor)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Playlist name", text: $name)
+                Section {
+                    PlaylistAppearancePicker(icon: $icon, accentColor: $accentColor)
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                }
+            }
+            .navigationTitle("Edit Playlist")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task { await save() }
+                        }
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        isSaving = true
+        errorMessage = nil
+        do {
+            try await onSave(trimmed, icon, accentColor)
+            dismiss()
+        } catch {
+            errorMessage = "Something went wrong while saving. Please try again."
+        }
+        isSaving = false
     }
 }
 
