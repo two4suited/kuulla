@@ -6,10 +6,11 @@ public interface IPlaylistService
 {
     Task<IReadOnlyList<Playlist>> GetPlaylistsAsync(string userId, CancellationToken cancellationToken);
 
-    Task<Playlist> CreatePlaylistAsync(string userId, string name, CancellationToken cancellationToken);
+    Task<Playlist> CreatePlaylistAsync(
+        string userId, string name, string? icon, string? accentColor, CancellationToken cancellationToken);
 
     Task<Playlist> CreateDynamicPlaylistAsync(
-        string userId, string name, DynamicPlaylistConfig config, CancellationToken cancellationToken);
+        string userId, string name, DynamicPlaylistConfig config, string? icon, string? accentColor, CancellationToken cancellationToken);
 
     // Updates an existing dynamic playlist's config and recomputes its Items from scratch (see
     // RecomputeDynamicPlaylistAsync). Returns null if the playlist doesn't exist or isn't Dynamic.
@@ -29,7 +30,10 @@ public interface IPlaylistService
     // #433 — that fix only covered freshly-computed playlists).
     Task<PlaylistDetail?> GetPlaylistDetailAsync(string userId, string id, CancellationToken cancellationToken);
 
-    Task<Playlist?> RenamePlaylistAsync(string userId, string id, string name, CancellationToken cancellationToken);
+    // "Edit playlist": sets Name/Icon/AccentColor to the supplied values (null icon/accent clears
+    // it). Returns null if the playlist doesn't exist.
+    Task<Playlist?> RenamePlaylistAsync(
+        string userId, string id, string name, string? icon, string? accentColor, CancellationToken cancellationToken);
 
     Task DeletePlaylistAsync(string userId, string id, CancellationToken cancellationToken);
 

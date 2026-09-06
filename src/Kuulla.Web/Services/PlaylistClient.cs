@@ -26,19 +26,22 @@ public class PlaylistClient(KuullaApiClient apiClient)
         return results ?? [];
     }
 
-    public async Task<Playlist> CreatePlaylistAsync(string name, CancellationToken cancellationToken = default)
+    public async Task<Playlist> CreatePlaylistAsync(
+        string name, string? icon = null, string? accentColor = null, CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
-        var response = await client.PostAsJsonAsync("api/playlists", new { Name = name }, JsonOptions, cancellationToken);
+        var body = new { Name = name, Icon = icon, AccentColor = accentColor };
+        var response = await client.PostAsJsonAsync("api/playlists", body, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<Playlist>(JsonOptions, cancellationToken))!;
     }
 
     public async Task<Playlist> CreateDynamicPlaylistAsync(
-        string name, DynamicPlaylistConfig config, CancellationToken cancellationToken = default)
+        string name, DynamicPlaylistConfig config, string? icon = null, string? accentColor = null,
+        CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
-        var body = new { Name = name, Type = PlaylistType.Dynamic, DynamicConfig = config };
+        var body = new { Name = name, Type = PlaylistType.Dynamic, DynamicConfig = config, Icon = icon, AccentColor = accentColor };
         var response = await client.PostAsJsonAsync("api/playlists", body, JsonOptions, cancellationToken);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<Playlist>(JsonOptions, cancellationToken))!;
@@ -72,11 +75,15 @@ public class PlaylistClient(KuullaApiClient apiClient)
         return await response.Content.ReadFromJsonAsync<PlaylistDetail>(JsonOptions, cancellationToken);
     }
 
-    public async Task<Playlist?> RenamePlaylistAsync(string id, string name, CancellationToken cancellationToken = default)
+    // PUT /api/playlists/{id} sets the playlist's full display state — pass the current icon/accent
+    // when only the name changes, or they'll be cleared.
+    public async Task<Playlist?> RenamePlaylistAsync(
+        string id, string name, string? icon = null, string? accentColor = null, CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
+        var body = new { Name = name, Icon = icon, AccentColor = accentColor };
         var response = await client.PutAsJsonAsync(
-            $"api/playlists/{Uri.EscapeDataString(id)}", new { Name = name }, JsonOptions, cancellationToken);
+            $"api/playlists/{Uri.EscapeDataString(id)}", body, JsonOptions, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;

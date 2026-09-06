@@ -17,6 +17,12 @@ final class PlaylistRecord: Syncable {
     // Present only when type == .dynamic. Stored inline like `items`, matching the server's
     // embedded DynamicPlaylistConfig field on Playlist.
     var dynamicConfig: DynamicPlaylistConfigRecord?
+    // Curated emoji from PlaylistIcons.curated, or nil for "no icon" (falls back to the default
+    // glyph). Mirrors the server's nullable Playlist.Icon; travels in the sync payload and
+    // reconciles last-write-wins like `name` (#439). Optional so adding it is a lightweight
+    // SwiftData migration.
+    var icon: String?
+    var accentColor: String?
 
     init(
         id: String,
@@ -26,7 +32,9 @@ final class PlaylistRecord: Syncable {
         createdAt: Date,
         updatedAt: Date,
         isDirty: Bool = false,
-        dynamicConfig: DynamicPlaylistConfigRecord? = nil
+        dynamicConfig: DynamicPlaylistConfigRecord? = nil,
+        icon: String? = nil,
+        accentColor: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -36,6 +44,8 @@ final class PlaylistRecord: Syncable {
         self.updatedAt = updatedAt
         self.isDirty = isDirty
         self.dynamicConfig = dynamicConfig
+        self.icon = icon
+        self.accentColor = accentColor
     }
 }
 

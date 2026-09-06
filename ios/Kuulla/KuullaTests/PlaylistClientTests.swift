@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import Kuulla
 
@@ -30,6 +31,50 @@ final class PlaylistClientTests: MockedApiTestCase {
         XCTAssertEqual(playlist.name, "New Playlist")
         let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
         XCTAssertEqual(bodyJSON["name"] as? String, "New Playlist")
+    }
+
+    func testCreatePlaylistSendsIconAndAccentColorAndDecodesThem() async throws {
+        let json = """
+        {"id":"p1","userId":"u1","name":"Workout","type":0,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00","icon":"💪","accentColor":"#FF8800"}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let playlist = try await client.createPlaylist(name: "Workout", icon: "💪", accentColor: "#FF8800")
+
+        XCTAssertEqual(playlist.icon, "💪")
+        XCTAssertEqual(playlist.accentColor, "#FF8800")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["icon"] as? String, "💪")
+        XCTAssertEqual(bodyJSON["accentColor"] as? String, "#FF8800")
+    }
+
+    func testRenamePlaylistSendsIconAndAccentColor() async throws {
+        let json = """
+        {"id":"p1","userId":"u1","name":"Renamed","type":0,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00","icon":"🔥"}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let playlist = try await client.renamePlaylist(id: "p1", name: "Renamed", icon: "🔥", accentColor: nil)
+
+        XCTAssertEqual(playlist?.icon, "🔥")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["name"] as? String, "Renamed")
+        XCTAssertEqual(bodyJSON["icon"] as? String, "🔥")
+    }
+
+    func testColorFromPlaylistAccentHexParsesAndRejects() {
+        XCTAssertNotNil(Color(playlistAccentHex: "#3B82F6"))
+        XCTAssertNil(Color(playlistAccentHex: nil))
+        XCTAssertNil(Color(playlistAccentHex: "3B82F6"))
+        XCTAssertNil(Color(playlistAccentHex: "#ZZZZZZ"))
     }
 
     func testCreateDynamicPlaylistSendsConfigAndDecodesResponse() async throws {

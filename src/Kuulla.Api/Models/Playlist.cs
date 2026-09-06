@@ -19,7 +19,11 @@ public record Playlist(
     DateTimeOffset CreatedAt,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt,
     [property: JsonProperty("deviceId")] string? DeviceId = null,
-    DynamicPlaylistConfig? DynamicConfig = null) : ISyncableRecord;
+    DynamicPlaylistConfig? DynamicConfig = null,
+    // Curated emoji from PlaylistIcons.Curated, or null for "no icon" (client falls back to its
+    // default glyph). Travels in the sync payload and reconciles last-write-wins like Name (#439).
+    [property: JsonProperty("icon")] string? Icon = null,
+    [property: JsonProperty("accentColor")] string? AccentColor = null) : ISyncableRecord;
 
 // Embedded on Playlist rather than a separate container/doc — items are always read/written
 // with their parent playlist, and doc size (a few hundred episode refs) is well within Cosmos's

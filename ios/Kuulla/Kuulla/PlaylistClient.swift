@@ -13,14 +13,19 @@ struct PlaylistClient {
         try await apiClient.get(["api", "playlists"])
     }
 
-    func createPlaylist(name: String) async throws -> Playlist {
-        try await apiClient.post(["api", "playlists"], body: CreatePlaylistRequest(name: name))
-    }
-
-    func createDynamicPlaylist(name: String, config: DynamicPlaylistConfig) async throws -> Playlist {
+    func createPlaylist(name: String, icon: String? = nil, accentColor: String? = nil) async throws -> Playlist {
         try await apiClient.post(
             ["api", "playlists"],
-            body: CreateDynamicPlaylistRequest(name: name, type: .dynamic, dynamicConfig: config))
+            body: CreatePlaylistRequest(name: name, icon: icon, accentColor: accentColor))
+    }
+
+    func createDynamicPlaylist(
+        name: String, config: DynamicPlaylistConfig, icon: String? = nil, accentColor: String? = nil
+    ) async throws -> Playlist {
+        try await apiClient.post(
+            ["api", "playlists"],
+            body: CreateDynamicPlaylistRequest(
+                name: name, type: .dynamic, dynamicConfig: config, icon: icon, accentColor: accentColor))
     }
 
     func updateDynamicPlaylistConfig(id: String, config: DynamicPlaylistConfig) async throws -> Playlist? {
@@ -39,9 +44,15 @@ struct PlaylistClient {
         }
     }
 
-    func renamePlaylist(id: String, name: String) async throws -> Playlist? {
+    // PUT /api/playlists/{id} sets the playlist's full display state — pass the current
+    // icon/accentColor when only the name changes, or they'll be cleared.
+    func renamePlaylist(
+        id: String, name: String, icon: String? = nil, accentColor: String? = nil
+    ) async throws -> Playlist? {
         do {
-            return try await apiClient.put(["api", "playlists", id], body: RenamePlaylistRequest(name: name))
+            return try await apiClient.put(
+                ["api", "playlists", id],
+                body: RenamePlaylistRequest(name: name, icon: icon, accentColor: accentColor))
         } catch ApiError.requestFailed(let statusCode) where statusCode == 404 {
             return nil
         }
@@ -81,6 +92,8 @@ struct Playlist: Codable, Identifiable {
     let createdAt: Date
     let updatedAt: Date
     var dynamicConfig: DynamicPlaylistConfig?
+    var icon: String?
+    var accentColor: String?
 }
 
 // GET /api/playlists/{id}'s response — items resolved against the episodes/shows containers for
@@ -88,12 +101,15 @@ struct Playlist: Codable, Identifiable {
 // in-place (optimistic remove/reorder) without round-tripping through a rebuild helper.
 struct PlaylistDetail: Decodable, Identifiable {
     let id: String
-    let name: String
+    // var so the edit-playlist flow can reflect a rename in-place without a full reload.
+    var name: String
     let type: PlaylistType
     var items: [PlaylistItemDetail]
     let createdAt: Date
     let updatedAt: Date
     var dynamicConfig: DynamicPlaylistConfig?
+    var icon: String?
+    var accentColor: String?
 }
 
 struct DynamicPlaylistConfig: Codable, Equatable {
@@ -116,16 +132,22 @@ struct PlaylistItemDetail: Decodable, Identifiable {
 
 private struct CreatePlaylistRequest: Encodable {
     let name: String
+    let icon: String?
+    let accentColor: String?
 }
 
 private struct CreateDynamicPlaylistRequest: Encodable {
     let name: String
     let type: PlaylistType
     let dynamicConfig: DynamicPlaylistConfig
+    let icon: String?
+    let accentColor: String?
 }
 
 private struct RenamePlaylistRequest: Encodable {
     let name: String
+    let icon: String?
+    let accentColor: String?
 }
 
 private struct AddPlaylistItemRequest: Encodable {

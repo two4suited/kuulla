@@ -1,0 +1,88 @@
+@using Kuulla.Web.Models
+
+@* Curated icon + accent-colour picker shared by the create-playlist and edit-playlist flows
+   (#439). The grid comes from PlaylistIcons.Curated so every client offers the same set; the
+   server rejects anything outside it. Both selections are optional — "None" clears them and the
+   playlist falls back to its default glyph. *@
+<div>
+    <div class="d-flex flex-wrap gap-1 mb-2" role="group" aria-label="Playlist icon">
+        <button type="button"
+                class="btn btn-sm @(Icon is null ? "btn-primary" : "btn-outline-secondary")"
+                @onclick="() => SetIconAsync(null)">
+            None
+        </button>
+        @foreach (var icon in PlaylistIcons.Curated)
+        {
+            <button type="button"
+                    class="btn btn-sm @(Icon == icon ? "btn-primary" : "btn-outline-secondary")"
+                    style="min-width: 2.25rem;"
+                    aria-pressed="@(Icon == icon)"
+                    @onclick="() => SetIconAsync(icon)">
+                @icon
+            </button>
+        }
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center gap-1" role="group" aria-label="Accent colour">
+        <button type="button"
+                class="btn btn-sm @(AccentColor is null ? "btn-primary" : "btn-outline-secondary")"
+                @onclick="() => SetAccentAsync(null)">
+            No colour
+        </button>
+        @foreach (var swatch in AccentPalette)
+        {
+            <button type="button"
+                    class="btn btn-sm p-0 border @(string.Equals(AccentColor, swatch, StringComparison.OrdinalIgnoreCase) ? "border-dark border-3" : "border-secondary")"
+                    style="@($"width: 1.75rem; height: 1.75rem; background-color: {swatch};")"
+                    aria-label="@swatch"
+                    aria-pressed="@string.Equals(AccentColor, swatch, StringComparison.OrdinalIgnoreCase)"
+                    @onclick="() => SetAccentAsync(swatch)">
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    // Web-side mirror of the curated accent palette — kept identical to
+    // ios/Kuulla/Kuulla/PlaylistIcons.swift. The server only checks #RRGGBB format, so these are a
+    // UI convenience rather than an enforced set.
+    private static readonly string[] AccentPalette =
+    [
+        "#EF4444", "#F97316", "#EAB308", "#22C55E", "#14B8A6",
+        "#3B82F6", "#6366F1", "#A855F7", "#EC4899", "#78716C",
+    ];
+
+    [Parameter]
+    public string? Icon { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> IconChanged { get; set; }
+
+    [Parameter]
+    public string? AccentColor { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> AccentColorChanged { get; set; }
+
+    private async Task SetIconAsync(string? icon)
+    {
+        if (Icon == icon)
+        {
+            return;
+        }
+
+        Icon = icon;
+        await IconChanged.InvokeAsync(icon);
+    }
+
+    private async Task SetAccentAsync(string? accent)
+    {
+        if (string.Equals(AccentColor, accent, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        AccentColor = accent;
+        await AccentColorChanged.InvokeAsync(accent);
+    }
+}
