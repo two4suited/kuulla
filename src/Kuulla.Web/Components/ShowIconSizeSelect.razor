@@ -1,0 +1,78 @@
+@using Kuulla.Web.Models
+@inject IJSRuntime JS
+
+@* Device-local show-tile size control shared by Library (Home.razor) and Subscriptions.razor.
+   Reads and writes the ShowIconSizes.StorageKey localStorage key directly (no UserSettings, no
+   API round-trip), so both grids follow one stored value. Mirrors the ShowIconSizeMenu toolbar
+   control in ios/Kuulla/Kuulla/ShowIconSize.swift (#452). *@
+<label class="d-flex align-items-center gap-2 mb-0 small text-muted">
+    Size
+    <select class="form-select form-select-sm w-auto" value="@Value"
+            @onchange="OnChangedAsync" disabled="@(!hasLoaded)">
+        @foreach (var size in ShowIconSizes.All)
+        {
+            <option value="@size">@size.Label()</option>
+        }
+    </select>
+</label>
+
+@code {
+    [Parameter]
+    public ShowIconSize Value { get; set; }
+
+    [Parameter]
+    public EventCallback<ShowIconSize> ValueChanged { get; set; }
+
+    // Starts disabled until the first localStorage read completes, so a stale default-Large render
+    // can't be changed before the real stored value is known (matches Settings.razor's
+    // wifiOnlyStreaming toggle). JS interop isn't available before the first render even with
+    // prerender disabled, so the read happens in OnAfterRenderAsync rather than OnInitializedAsync.
+    private bool hasLoaded;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // localStorage access can throw (e.g. private browsing with storage blocked) — fall back
+        // to the default rather than leaving the control stuck disabled forever.
+        ShowIconSize resolved;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", ShowIconSizes.StorageKey);
+            resolved = ShowIconSizes.Parse(stored);
+        }
+        catch (JSException)
+        {
+            resolved = ShowIconSizes.Default;
+        }
+
+        hasLoaded = true;
+        StateHasChanged();
+        if (resolved != Value)
+        {
+            await ValueChanged.InvokeAsync(resolved);
+        }
+    }
+
+    private async Task OnChangedAsync(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<ShowIconSize>(e.Value?.ToString(), out var size) || size == Value)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", ShowIconSizes.StorageKey, size.ToStorageString());
+        }
+        catch (JSException)
+        {
+            // Persisting the choice is best-effort; the grid still updates for this session.
+        }
+
+        await ValueChanged.InvokeAsync(size);
+    }
+}

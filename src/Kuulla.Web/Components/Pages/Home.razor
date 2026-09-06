@@ -59,16 +59,19 @@
             <h2 class="h5 text-muted mb-0">Shows</h2>
             @if (!isLoadingShows && showsLoadError is null && subscriptions.Count > 0)
             {
-                <label class="d-flex align-items-center gap-2 mb-0 small text-muted">
-                    Sort
-                    <select class="form-select form-select-sm w-auto" value="@sortOrder"
-                            @onchange="OnSortOrderChangedAsync" disabled="@isSavingSortOrder">
-                        <option value="@SubscriptionSortOrder.Title">Title (A–Z)</option>
-                        <option value="@SubscriptionSortOrder.LatestEpisode">Latest episode</option>
-                        <option value="@SubscriptionSortOrder.RecentlyAdded">Recently added</option>
-                        <option value="@SubscriptionSortOrder.Manual">Manual</option>
-                    </select>
-                </label>
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <ShowIconSizeSelect Value="iconSize" ValueChanged="OnIconSizeChanged" />
+                    <label class="d-flex align-items-center gap-2 mb-0 small text-muted">
+                        Sort
+                        <select class="form-select form-select-sm w-auto sort-select" value="@sortOrder"
+                                @onchange="OnSortOrderChangedAsync" disabled="@isSavingSortOrder">
+                            <option value="@SubscriptionSortOrder.Title">Title (A–Z)</option>
+                            <option value="@SubscriptionSortOrder.LatestEpisode">Latest episode</option>
+                            <option value="@SubscriptionSortOrder.RecentlyAdded">Recently added</option>
+                            <option value="@SubscriptionSortOrder.Manual">Manual</option>
+                        </select>
+                    </label>
+                </div>
             }
         </div>
         @if (sortOrder == SubscriptionSortOrder.Manual && !isLoadingShows && showsLoadError is null && subscriptions.Count > 0)
@@ -99,7 +102,7 @@
             }
             var ordered = SubscriptionSorting.Sort(subscriptions, sortOrder, manualOrder);
             var isManual = sortOrder == SubscriptionSortOrder.Manual;
-            <div class="row row-cols-2 row-cols-md-4 g-4">
+            <div class="row @iconSize.RowColsClass() g-4">
                 @for (var i = 0; i < ordered.Count; i++)
                 {
                     var index = i;
@@ -163,6 +166,9 @@
     private List<string> manualOrder = [];
     private int? dragSourceIndex;
     private string? manualOrderError;
+    // Device-local tile size; the real value is read from localStorage by ShowIconSizeSelect on
+    // its first render, which then raises OnIconSizeChanged.
+    private ShowIconSize iconSize = ShowIconSizes.Default;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -228,6 +234,8 @@
             manualOrderError = "Couldn't save the new order. Please try again.";
         }
     }
+
+    private void OnIconSizeChanged(ShowIconSize size) => iconSize = size;
 
     private async Task OnSortOrderChangedAsync(ChangeEventArgs e)
     {
