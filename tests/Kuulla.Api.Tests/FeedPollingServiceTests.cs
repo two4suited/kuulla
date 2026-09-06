@@ -1,6 +1,6 @@
 using Kuulla.Core.Models;
 using Kuulla.Core.Services;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace Kuulla.Api.Tests;
@@ -11,13 +11,29 @@ public class FeedPollingServiceTests
     private readonly Mock<IShowService> _showService = new();
     private readonly Mock<IPodcastFeedClient> _feedClient = new();
     private readonly Mock<IEpisodeService> _episodeService = new();
+    private readonly CapturingLogger<FeedPollingService> _logger = new();
     private readonly FeedPollingService _sut;
 
     public FeedPollingServiceTests()
     {
         _sut = new FeedPollingService(
             _subscriptionService.Object, _showService.Object, _feedClient.Object, _episodeService.Object,
-            NullLogger<FeedPollingService>.Instance);
+            _logger);
+    }
+
+    // Minimal ILogger that keeps every formatted message, so a test can assert on the sweep
+    // summary line without pulling in a mocking framework's awkward ILogger.Log verification.
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
     }
 
     private static Show MakeShow(string id, string feedUrl = "https://feed.example/rss") =>
@@ -114,5 +130,29 @@ public class FeedPollingServiceTests
             s => s.CacheEpisodesAsync("show-b", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Once);
         _episodeService.Verify(
             s => s.CacheEpisodesAsync("show-a", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_SummaryLineReportsShowCountAndFeedFailureCount()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["ok", "broken", "skipped"]);
+        _showService.Setup(s => s.GetByIdAsync("ok", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("ok", "https://feed.example/ok"));
+        _showService.Setup(s => s.GetByIdAsync("broken", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("broken", "https://feed.example/broken"));
+        _showService.Setup(s => s.GetByIdAsync("skipped", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("skipped", feedUrl: ""));
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/ok", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep", "ok")]));
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/broken", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("feed unreachable"));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        // Only the unreachable feed counts as a failure; the empty-FeedUrl show is an intentional skip.
+        Assert.Contains(_logger.Messages, m => m == "Feed-poll sweep starting: 3 subscribed show(s)");
+        Assert.Contains(_logger.Messages, m => m.StartsWith("Feed-poll sweep complete: 3 show(s), 1 unreachable/malformed,"));
     }
 }
