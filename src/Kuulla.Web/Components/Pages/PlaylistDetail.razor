@@ -30,7 +30,7 @@ else
         <div class="d-flex align-items-center gap-2">
             @if (!string.IsNullOrEmpty(playlist.Icon))
             {
-                <span aria-hidden="true" class="fs-3" style="@(string.IsNullOrEmpty(playlist.AccentColor) ? "" : $"color: {playlist.AccentColor};")">@playlist.Icon</span>
+                <span aria-hidden="true" class="fs-3" style="@PlaylistIcons.AccentColorStyle(playlist.AccentColor)">@playlist.Icon</span>
             }
             <h1 class="mb-0">@playlist.Name</h1>
             @if (syncStatusService is not null)

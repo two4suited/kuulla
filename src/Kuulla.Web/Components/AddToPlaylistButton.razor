@@ -26,7 +26,7 @@
                                 @onclick="() => AddToExistingAsync(playlist.Id)">
                             @if (!string.IsNullOrEmpty(playlist.Icon))
                             {
-                                <span aria-hidden="true" style="@(string.IsNullOrEmpty(playlist.AccentColor) ? "" : $"color: {playlist.AccentColor};")">@playlist.Icon</span>
+                                <span aria-hidden="true" style="@PlaylistIcons.AccentColorStyle(playlist.AccentColor)">@playlist.Icon</span>
                             }
                             <span>@playlist.Name</span>
                         </button>

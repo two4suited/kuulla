@@ -75,7 +75,7 @@
                         <span class="d-flex align-items-center gap-2">
                             @if (!string.IsNullOrEmpty(playlist.Icon))
                             {
-                                <span aria-hidden="true" style="@AccentStyle(playlist.AccentColor)">@playlist.Icon</span>
+                                <span aria-hidden="true" style="@PlaylistIcons.AccentColorStyle(playlist.AccentColor)">@playlist.Icon</span>
                             }
                             <span>@playlist.Name</span>
                         </span>
@@ -101,11 +101,6 @@
     private bool isCreating;
     private string? createError;
     private PlaylistType playlistType = PlaylistType.Manual;
-
-    // A playlist accent colour tints its icon glyph in list rows and the detail header. Kept to
-    // the glyph (not the whole row) so a strong swatch doesn't fight the surrounding text.
-    private static string AccentStyle(string? accentColor) =>
-        string.IsNullOrEmpty(accentColor) ? "" : $"color: {accentColor};";
 
     private void SelectPlaylistType(PlaylistType type)
     {

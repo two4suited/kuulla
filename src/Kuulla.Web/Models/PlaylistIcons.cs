@@ -11,4 +11,9 @@ public static class PlaylistIcons
         "🚗", "🛏️", "☕", "🌙", "☀️", "🧠", "📚", "💼",
         "🎙️", "😂", "📰", "🏛️", "⚽", "🍿", "✈️", "🧘",
     ];
+
+    // Inline style that tints a playlist's icon glyph with its accent colour — empty when the
+    // playlist has none. Shared by every surface that renders the glyph so they stay consistent.
+    public static string AccentColorStyle(string? accentColor) =>
+        string.IsNullOrEmpty(accentColor) ? "" : $"color: {accentColor};";
 }
