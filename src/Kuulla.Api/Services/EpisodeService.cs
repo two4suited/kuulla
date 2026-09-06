@@ -210,6 +210,14 @@ public class EpisodeService(
         if (recentEpisodes.Count > 0 && subscriberIds.Count > 0)
         {
             await NotifySubscribersAsync(showId, subscriberIds, recentEpisodes, cancellationToken);
+
+            // Auto-add to the "Up Next" queue for any subscriber whose effective
+            // AutoAddNewEpisodesToUpNext is on (#440). Gated to recentEpisodes (not raw
+            // insertedEpisodes) for the same reason NotifySubscribersAsync is — see
+            // RecentEpisodeWindow's doc comment: a show's first-ever poll caches its whole back
+            // catalogue as "inserted", and dumping all of that into every subscriber's queue is
+            // never what "a newly polled episode appears in Up Next" means.
+            await AutoAddToUpNextAsync(showId, subscriberIds, recentEpisodes, cancellationToken);
         }
     }
 
@@ -253,6 +261,152 @@ public class EpisodeService(
                     logger.LogWarning(ex, "Failed to notify user {UserId} of new episodes for show {ShowId}", userId, showId);
                 }
             });
+    }
+
+    // Appends (or prepends, per each user's UpNextInsertPosition) newly-cached episodes to a
+    // subscriber's "Up Next" playlist when their effective AutoAddNewEpisodesToUpNext is on (#440),
+    // creating that playlist on demand. Per-subscriber, best-effort with a per-user try/catch+log
+    // — same shape and rationale as NotifySubscribersAsync above.
+    private async Task AutoAddToUpNextAsync(
+        string showId, IReadOnlyList<string> subscriberIds, IReadOnlyList<Episode> newEpisodes, CancellationToken cancellationToken)
+    {
+        if (subscriberIds.Count == 0 || newEpisodes.Count == 0)
+        {
+            return;
+        }
+
+        // Oldest first so a Top insert leaves the newest episode at the very top and a Bottom
+        // insert appends in chronological order — same MinValue coalescing as
+        // InsertIntoDynamicPlaylistsAsync for a feed that omits PublishedAt.
+        var orderedNewEpisodes = newEpisodes.OrderBy(e => e.PublishedAt ?? DateTimeOffset.MinValue).ToList();
+
+        await Parallel.ForEachAsync(
+            subscriberIds,
+            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
+            async (userId, ct) =>
+            {
+                try
+                {
+                    if (!await settingsService.GetEffectiveAutoAddNewEpisodesToUpNextAsync(userId, showId, ct))
+                    {
+                        return;
+                    }
+
+                    var settings = await settingsService.GetSettingsAsync(userId, ct);
+                    await AddToUpNextWithRetryAsync(userId, orderedNewEpisodes, settings.UpNextInsertPosition, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(
+                        ex, "Failed to auto-add new episodes of show {ShowId} to Up Next for user {UserId}", showId, userId);
+                }
+            });
+    }
+
+    // Optimistic-concurrency retry around one user's Up Next playlist: re-reads (or creates) the
+    // playlist before each attempt and upserts with IfMatchEtag, retrying on a lost race rather
+    // than clobbering a concurrent edit — the same guarantee InsertIntoPlaylistWithRetryAsync
+    // gives dynamic playlists. Skips episodes the user has already finished/archived and any
+    // already in the queue.
+    private async Task AddToUpNextWithRetryAsync(
+        string userId, IReadOnlyList<Episode> newEpisodes, UpNextInsertPosition position, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 5;
+
+        var states = await episodeStateService.GetStatesAsync(
+            userId, newEpisodes.Select(e => e.Id).ToList(), cancellationToken);
+        var candidates = newEpisodes
+            .Where(e => !(states.TryGetValue(e.Id, out var state) && (state.Completed || state.Archived)))
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var (playlist, etag) = await ReadOrCreateUpNextPlaylistAsync(userId, cancellationToken);
+
+            var existingEpisodeIds = playlist.Items.Select(item => item.EpisodeId).ToHashSet();
+            var toAdd = candidates.Where(e => !existingEpisodeIds.Contains(e.Id)).ToList();
+            if (toAdd.Count == 0)
+            {
+                return;
+            }
+
+            var items = playlist.Items.OrderBy(item => item.Order, StringComparer.Ordinal).ToList();
+            var addedAt = DateTimeOffset.UtcNow;
+            foreach (var episode in toAdd)
+            {
+                if (position == UpNextInsertPosition.Top)
+                {
+                    var after = items.Count > 0 ? items[0].Order : null;
+                    items.Insert(0, new PlaylistItem(episode.Id, episode.ShowId, addedAt, PlaylistRankGenerator.Between(null, after)));
+                }
+                else
+                {
+                    var before = items.Count > 0 ? items[^1].Order : null;
+                    items.Add(new PlaylistItem(episode.Id, episode.ShowId, addedAt, PlaylistRankGenerator.Between(before, null)));
+                }
+            }
+
+            var updated = playlist with { Items = items, UpdatedAt = DateTimeOffset.UtcNow };
+            try
+            {
+                await playlistsContainer.UpsertItemAsync(
+                    updated, new PartitionKey(userId), new ItemRequestOptions { IfMatchEtag = etag }, cancellationToken);
+                return;
+            }
+            catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+            {
+                // Lost the race — PreconditionFailed: the playlist changed under us;
+                // Conflict: a concurrent writer created "Up Next" first. Re-read and retry.
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Failed to auto-add episodes to the Up Next playlist for user '{userId}' after {maxAttempts} attempts.");
+    }
+
+    // Returns the user's oldest-by-CreatedAt "Up Next" playlist and its ETag (a point read after
+    // the single-partition name query, since query results don't carry an ETag), creating an empty
+    // manual playlist if the user has none. The oldest-wins tiebreak matches the client resolution
+    // in UpNext.razor / UpNextView.swift for when a race left more than one.
+    private async Task<(Playlist Playlist, string ETag)> ReadOrCreateUpNextPlaylistAsync(
+        string userId, CancellationToken cancellationToken)
+    {
+        var query = new QueryDefinition("SELECT * FROM c WHERE c.UserId = @userId AND c.Name = @name")
+            .WithParameter("@userId", userId)
+            .WithParameter("@name", Playlist.UpNextName);
+
+        Playlist? oldest = null;
+        using var iterator = playlistsContainer.GetItemQueryIterator<Playlist>(
+            query, requestOptions: new QueryRequestOptions { PartitionKey = new PartitionKey(userId) });
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            foreach (var playlist in page)
+            {
+                if (oldest is null || playlist.CreatedAt < oldest.CreatedAt)
+                {
+                    oldest = playlist;
+                }
+            }
+        }
+
+        if (oldest is not null)
+        {
+            var read = await playlistsContainer.ReadItemAsync<Playlist>(
+                oldest.Id, new PartitionKey(userId), cancellationToken: cancellationToken);
+            return (read.Resource, read.ETag);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var created = new Playlist(
+            Guid.NewGuid().ToString(), userId, Playlist.UpNextName, PlaylistType.Manual, [], now, now);
+        var response = await playlistsContainer.CreateItemAsync(
+            created, new PartitionKey(userId), cancellationToken: cancellationToken);
+        return (response.Resource, response.ETag);
     }
 
     // Finds every dynamic playlist referencing showId and inserts each newly-cached episode into

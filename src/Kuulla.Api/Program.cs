@@ -1047,6 +1047,10 @@ sync.MapPost("/settings", async (
         {
             return Results.BadRequest(new { error });
         }
+        if (change.UpNextInsertPosition is { } upNextInsertPosition && !Enum.IsDefined(upNextInsertPosition))
+        {
+            return Results.BadRequest(new { error = "'upNextInsertPosition' is not a valid value." });
+        }
     }
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -1478,6 +1482,45 @@ settings.MapPut("/shows/{showId}/auto-download", async (
 {
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateShowAutoDownloadNewEpisodesAsync(userId, showId, request.AutoDownloadNewEpisodes, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/auto-add-up-next", async (
+    UpdateAutoAddNewEpisodesToUpNextRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateAutoAddNewEpisodesToUpNextAsync(userId, request.AutoAddNewEpisodesToUpNext, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/auto-add-up-next", async (
+    string showId,
+    UpdateShowAutoAddNewEpisodesToUpNextRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowAutoAddNewEpisodesToUpNextAsync(userId, showId, request.AutoAddNewEpisodesToUpNext, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/up-next-insert-position", async (
+    UpdateUpNextInsertPositionRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!Enum.IsDefined(request.UpNextInsertPosition))
+    {
+        return Results.BadRequest(new { error = "'upNextInsertPosition' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateUpNextInsertPositionAsync(userId, request.UpNextInsertPosition, ct);
     return Results.Ok(result);
 });
 

@@ -18,10 +18,7 @@ struct UpNextView: View {
     var body: some View {
         Group {
             if let playlistId {
-                VStack(spacing: 0) {
-                    autoAddBanner
-                    PlaylistDetailView(playlistId: playlistId)
-                }
+                PlaylistDetailView(playlistId: playlistId)
             } else if isResolving {
                 ProgressView()
                     .navigationTitle("Up Next")
@@ -39,24 +36,6 @@ struct UpNextView: View {
         .task {
             await resolve()
         }
-    }
-
-    private var autoAddBanner: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text("Auto-add")
-                .font(.caption2.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.2), in: Capsule())
-
-            Text("""
-                Automatically queueing new episodes from your subscriptions isn't available yet — \
-                add episodes to your queue manually from a show or episode page for now.
-                """)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding()
     }
 
     private func resolve() async {

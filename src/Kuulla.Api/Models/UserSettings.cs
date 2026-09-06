@@ -77,6 +77,13 @@ public record UserSettings(
     // null and empty identically. Show ids no longer subscribed to are ignored on read; newly
     // subscribed shows not yet in the array fall to the end (by title).
     IReadOnlyList<string>? SubscriptionManualOrder = null,
+    // False is the safe default — auto-queueing new episodes is a behaviour a user should opt
+    // into, not one applied on their behalf, matching AutoDownloadNewEpisodes' convention above.
+    bool AutoAddNewEpisodesToUpNext = false,
+    // Which end of the Up Next queue an auto-added episode lands at. Bottom is the CLR zero
+    // value, so a settings document written before this field existed deserializes it as Bottom
+    // — the intended default — with no DefaultValueHandling needed (same as SubscriptionSortOrder).
+    UpNextInsertPosition UpNextInsertPosition = UpNextInsertPosition.Bottom,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -86,7 +93,9 @@ public record UserSettings(
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
             PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false,
             SmartSpeed: false, NotificationsEnabled: true, SleepTimerDefaultDurationMinutes: null,
-            SubscriptionSortOrder: SubscriptionSortOrder.Title, UpdatedAt: DateTimeOffset.UtcNow);
+            SubscriptionSortOrder: SubscriptionSortOrder.Title, SubscriptionManualOrder: null,
+            AutoAddNewEpisodesToUpNext: false, UpNextInsertPosition: UpNextInsertPosition.Bottom,
+            UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization
@@ -105,4 +114,12 @@ public enum UnlistenedEpisodeCount
     Five = 5,
     Ten = 10,
     Unlimited = -1,
+}
+
+// Which end of the "Up Next" queue an auto-added new episode is placed at. Bottom is first (the
+// CLR zero value) so it's the default a pre-existing settings document deserializes to.
+public enum UpNextInsertPosition
+{
+    Bottom,
+    Top,
 }

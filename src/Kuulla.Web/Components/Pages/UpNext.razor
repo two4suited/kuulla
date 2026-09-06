@@ -10,14 +10,6 @@
     <Authorized>
         @if (upNextPlaylistId is not null)
         {
-            <div class="alert alert-secondary d-flex align-items-center gap-2 mb-3">
-                <span class="badge text-bg-secondary">Auto-add</span>
-                <span class="small text-muted">
-                    Automatically queueing new episodes from your subscriptions isn't available yet
-                    &mdash; add episodes to your queue manually from a show or episode page for now.
-                </span>
-            </div>
-
             <PlaylistDetail Id="@upNextPlaylistId" />
         }
         else if (isResolving)

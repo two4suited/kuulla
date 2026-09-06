@@ -28,6 +28,12 @@ struct UserSettings: Codable, Hashable {
     // older response; consumers treat empty as "no manual order". No-longer-subscribed ids are
     // ignored on read; newly-subscribed shows not yet listed fall to the end by title.
     let subscriptionManualOrder: [String]
+    // Auto-add new subscription episodes to the "Up Next" playlist (#440). Defaults to false
+    // (opt-in) when absent, same as autoDownloadNewEpisodes.
+    let autoAddNewEpisodesToUpNext: Bool
+    // Which end of the Up Next queue an auto-added episode lands at (#440). Defaults to .bottom
+    // (raw 0) when absent, same rationale as subscriptionSortOrder.
+    let upNextInsertPosition: UpNextInsertPosition
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -40,6 +46,8 @@ struct UserSettings: Codable, Hashable {
         smartSpeed: Bool = false, notificationsEnabled: Bool = true, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
         subscriptionManualOrder: [String] = [],
+        autoAddNewEpisodesToUpNext: Bool = false,
+        upNextInsertPosition: UpNextInsertPosition = .bottom,
         updatedAt: Date = .distantPast
     ) {
         self.userId = userId
@@ -57,13 +65,16 @@ struct UserSettings: Codable, Hashable {
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
         self.subscriptionManualOrder = subscriptionManualOrder
+        self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
+        self.upNextInsertPosition = upNextInsertPosition
         self.updatedAt = updatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
-        case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, updatedAt
+        case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder
+        case autoAddNewEpisodesToUpNext, upNextInsertPosition, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -99,6 +110,11 @@ struct UserSettings: Codable, Hashable {
             SubscriptionSortOrder.self, forKey: .subscriptionSortOrder) ?? .title
         // Absent (older response) or explicit null both decode to [] — "no manual order".
         subscriptionManualOrder = try container.decodeIfPresent([String].self, forKey: .subscriptionManualOrder) ?? []
+        // Default to false (off) when absent (#440), same rationale as autoDownloadNewEpisodes above.
+        autoAddNewEpisodesToUpNext = try container.decodeIfPresent(Bool.self, forKey: .autoAddNewEpisodesToUpNext) ?? false
+        // Default to .bottom when absent (#440), same rationale as subscriptionSortOrder above.
+        upNextInsertPosition = try container.decodeIfPresent(
+            UpNextInsertPosition.self, forKey: .upNextInsertPosition) ?? .bottom
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -127,7 +143,9 @@ struct UserSettings: Codable, Hashable {
         // never needs that distinction.
         sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder? = nil,
-        subscriptionManualOrder: [String]? = nil
+        subscriptionManualOrder: [String]? = nil,
+        autoAddNewEpisodesToUpNext: Bool? = nil,
+        upNextInsertPosition: UpNextInsertPosition? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -143,6 +161,8 @@ struct UserSettings: Codable, Hashable {
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes ?? self.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder ?? self.subscriptionSortOrder,
             subscriptionManualOrder: subscriptionManualOrder ?? self.subscriptionManualOrder,
+            autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
+            upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
             updatedAt: updatedAt)
     }
 }
@@ -166,6 +186,24 @@ enum UnlistenedEpisodeCount: Int, Codable, CaseIterable, Identifiable {
         case .five: "5 episodes"
         case .ten: "10 episodes"
         case .unlimited: "All episodes"
+        }
+    }
+}
+
+// Which end of the "Up Next" queue an auto-added new episode is placed at (#440). Mirrors the
+// API's Kuulla.Api.Models.UpNextInsertPosition enum, including its raw values, since the wire
+// format is a plain integer. Bottom is 0 so a settings document that predates this field
+// decodes as .bottom.
+enum UpNextInsertPosition: Int, Codable, CaseIterable, Identifiable {
+    case bottom = 0
+    case top = 1
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .bottom: "Bottom of the queue"
+        case .top: "Top of the queue"
         }
     }
 }

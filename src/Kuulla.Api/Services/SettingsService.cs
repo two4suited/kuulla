@@ -155,6 +155,10 @@ public class SettingsService(
                 change.SubscriptionManualOrder is { Count: > 0 }
                     ? change.SubscriptionManualOrder
                     : stored?.SubscriptionManualOrder,
+                // Null means the pushing client doesn't send these fields yet (see
+                // UserSettingsChange) — keep whatever's stored rather than clobbering it.
+                change.AutoAddNewEpisodesToUpNext ?? stored?.AutoAddNewEpisodesToUpNext ?? false,
+                change.UpNextInsertPosition ?? stored?.UpNextInsertPosition ?? UpNextInsertPosition.Bottom,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -380,6 +384,46 @@ public class SettingsService(
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.AutoDownloadNewEpisodes;
     }
+
+    public Task<UserSettings> UpdateAutoAddNewEpisodesToUpNextAsync(
+        string userId, bool autoAddNewEpisodesToUpNext, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { AutoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext }, cancellationToken);
+
+    public async Task<ShowSettings> UpdateShowAutoAddNewEpisodesToUpNextAsync(
+        string userId, string showId, bool? autoAddNewEpisodesToUpNext, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            AutoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<bool> GetEffectiveAutoAddNewEpisodesToUpNextAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.AutoAddNewEpisodesToUpNext is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.AutoAddNewEpisodesToUpNext;
+    }
+
+    public Task<UserSettings> UpdateUpNextInsertPositionAsync(
+        string userId, UpNextInsertPosition upNextInsertPosition, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { UpNextInsertPosition = upNextInsertPosition }, cancellationToken);
 
     public Task<UserSettings> UpdateSmartSpeedAsync(
         string userId, bool smartSpeed, CancellationToken cancellationToken) =>

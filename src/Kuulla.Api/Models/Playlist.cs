@@ -19,7 +19,14 @@ public record Playlist(
     DateTimeOffset CreatedAt,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt,
     [property: JsonProperty("deviceId")] string? DeviceId = null,
-    DynamicPlaylistConfig? DynamicConfig = null) : ISyncableRecord;
+    DynamicPlaylistConfig? DynamicConfig = null) : ISyncableRecord
+{
+    // The "Up Next" queue is a regular manual playlist the clients resolve (or create) by this
+    // well-known name rather than a distinct backend concept — see UpNext.razor / UpNextView.swift.
+    // Duplicated here (not shared with those clients, which are separate codebases) so the feed
+    // poller's auto-add hook can find-or-create the same playlist server-side.
+    public const string UpNextName = "Up Next";
+}
 
 // Embedded on Playlist rather than a separate container/doc — items are always read/written
 // with their parent playlist, and doc size (a few hundred episode refs) is well within Cosmos's

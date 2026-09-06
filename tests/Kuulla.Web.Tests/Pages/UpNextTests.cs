@@ -60,7 +60,8 @@ public class UpNextTests : WebTestContext
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("Monday Edition", cut.Markup);
-            Assert.Contains("Auto-add", cut.Markup);
+            // The old "auto-add isn't available yet" placeholder banner is gone (#440).
+            Assert.DoesNotContain("isn't available yet", cut.Markup);
         });
     }
 

@@ -44,6 +44,8 @@ struct SettingsSyncAdapter: SyncAdapter {
                 sleepTimerDefaultDurationMinutes: $0.sleepTimerDefaultDurationMinutes,
                 subscriptionSortOrder: $0.subscriptionSortOrder,
                 subscriptionManualOrder: $0.subscriptionManualOrder,
+                autoAddNewEpisodesToUpNext: $0.autoAddNewEpisodesToUpNext,
+                upNextInsertPosition: $0.upNextInsertPosition,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -90,6 +92,8 @@ private struct UserSettingsChangeDTO: Encodable {
     // manual arrangement"; the server treats null and empty alike here and keeps whatever's
     // stored, so a device that never used Manual mode can't wipe another device's order.
     let subscriptionManualOrder: [String]
+    let autoAddNewEpisodesToUpNext: Bool
+    let upNextInsertPosition: UpNextInsertPosition
     let updatedAt: Date
 }
 
@@ -125,6 +129,9 @@ private struct UserSettingsDTO: Decodable {
     let subscriptionSortOrder: SubscriptionSortOrder
     // Optional so a response that omits it or sends null (the API default) still decodes.
     let subscriptionManualOrder: [String]?
+    // Optional so a response from an API that predates #440 still decodes; asRecord falls back.
+    let autoAddNewEpisodesToUpNext: Bool?
+    let upNextInsertPosition: UpNextInsertPosition?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -135,6 +142,8 @@ private struct UserSettingsDTO: Decodable {
             smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder, subscriptionManualOrder: subscriptionManualOrder ?? [],
+            autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? false,
+            upNextInsertPosition: upNextInsertPosition ?? .bottom,
             version: version, updatedAt: updatedAt)
     }
 }
