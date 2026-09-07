@@ -28,10 +28,15 @@ public record ShowSettings(
     int? AutoSkipOutroSeconds = null,
     // Null means "no override — inherit the user's global PlaybackSpeed".
     float? PlaybackSpeed = null,
-    // Null means "no override — inherit the user's global AutoDownloadNewEpisodes". No per-show
-    // override for AutoDeleteRule/AutoDeleteAfterDays — global only, per
-    // docs/downloads-storage-settings.md's rationale.
+    // Null means "no override — inherit the user's global AutoDownloadNewEpisodes".
     bool? AutoDownloadNewEpisodes = null,
+    // Null means "no override — inherit the user's global AutoDeleteRule". docs/downloads-storage-settings.md
+    // originally decided against a per-show delete policy; #445 reversed that — users want per-podcast
+    // control over how long downloads are kept, not just whether they're auto-downloaded.
+    AutoDeleteRule? AutoDeleteRule = null,
+    // Null means "no override — inherit the user's global AutoDeleteAfterDays". Only meaningful when
+    // the effective rule (override-or-global) is AfterDays.
+    int? AutoDeleteAfterDays = null,
     // Null means "no override — inherit the user's global SmartSpeed".
     bool? SmartSpeed = null,
     // Null means "no override — inherit the user's global AutoAddNewEpisodesToUpNext". The
@@ -51,7 +56,8 @@ public record ShowSettings(
     public static ShowSettings CreateDefault(string userId, string showId) =>
         new(BuildId(userId, showId), userId, showId, UnlistenedEpisodeCount: null, Version: 1,
             AutoArchiveRule: null, AutoSkipIntroSeconds: null, AutoSkipOutroSeconds: null, PlaybackSpeed: null,
-            AutoDownloadNewEpisodes: null, SmartSpeed: null, AutoAddNewEpisodesToUpNext: null, NotificationsEnabled: null,
+            AutoDownloadNewEpisodes: null, AutoDeleteRule: null, AutoDeleteAfterDays: null, SmartSpeed: null,
+            AutoAddNewEpisodesToUpNext: null, NotificationsEnabled: null,
             UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document

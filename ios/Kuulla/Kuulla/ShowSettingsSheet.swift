@@ -13,6 +13,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveError: String?
     @State private var playbackSpeedSaveError: String?
     @State private var autoDownloadSaveError: String?
+    @State private var autoDeleteSaveError: String?
     @State private var autoAddUpNextSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var notificationsEnabledSaveError: String?
@@ -24,6 +25,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
+    @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoAddUpNextSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
@@ -118,6 +120,29 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let autoDownloadSaveError {
                         Text(autoDownloadSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Delete downloads", selection: autoDeleteRuleOverrideBinding) {
+                        Text("Use global default").tag(AutoDeleteRule?.none)
+                        ForEach(AutoDeleteRule.allCases) { option in
+                            Text(option.label).tag(AutoDeleteRule?.some(option))
+                        }
+                    }
+                    .disabled(settings == nil)
+
+                    if settings?.autoDeleteRule == .afterDays {
+                        Stepper(value: autoDeleteAfterDaysOverrideBinding, in: 1...365) {
+                            let days = settings?.autoDeleteAfterDays ?? 7
+                            Text("After \(days) day\(days == 1 ? "" : "s")")
+                        }
+                        .disabled(settings == nil)
+                    }
+                } footer: {
+                    if let autoDeleteSaveError {
+                        Text(autoDeleteSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -384,6 +409,52 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDownloadSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var autoDeleteRuleOverrideBinding: Binding<AutoDeleteRule?> {
+        Binding(
+            get: { settings?.autoDeleteRule },
+            set: { newValue in
+                autoDeleteSaveTask?.cancel()
+                // Switching to "After N days" with no prior day-count override seeds 7, so the
+                // stepper and the persisted override start from a concrete value.
+                let afterDays = newValue == .afterDays
+                    ? (settings?.autoDeleteAfterDays ?? 7)
+                    : settings?.autoDeleteAfterDays
+                autoDeleteSaveTask = Task { await updateAutoDeleteOverride(rule: newValue, afterDays: afterDays) }
+            }
+        )
+    }
+
+    private var autoDeleteAfterDaysOverrideBinding: Binding<Int> {
+        Binding(
+            get: { settings?.autoDeleteAfterDays ?? 7 },
+            set: { newValue in
+                autoDeleteSaveTask?.cancel()
+                autoDeleteSaveTask = Task {
+                    await updateAutoDeleteOverride(rule: settings?.autoDeleteRule, afterDays: newValue)
+                }
+            }
+        )
+    }
+
+    private func updateAutoDeleteOverride(rule: AutoDeleteRule?, afterDays: Int?) async {
+        guard let previous = settings else { return }
+
+        autoDeleteSaveError = nil
+        settings = previous.with(autoDeleteRule: rule, autoDeleteAfterDays: afterDays)
+
+        do {
+            let updated = try await settingsClient.updateShowAutoDeleteRule(showId: showId, rule: rule, afterDays: afterDays)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoDeleteSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

@@ -64,6 +64,12 @@ public interface ISettingsService
     Task<UserSettings> UpdateAutoDeleteRuleAsync(
         string userId, AutoDeleteRule autoDeleteRule, int autoDeleteAfterDays, CancellationToken cancellationToken);
 
+    Task<ShowSettings> UpdateShowAutoDeleteRuleAsync(
+        string userId, string showId, AutoDeleteRule? autoDeleteRule, int? autoDeleteAfterDays, CancellationToken cancellationToken);
+
+    Task<(AutoDeleteRule Rule, int AfterDays)> GetEffectiveAutoDeleteRuleAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateAutoDownloadNewEpisodesAsync(
         string userId, bool autoDownloadNewEpisodes, CancellationToken cancellationToken);
 

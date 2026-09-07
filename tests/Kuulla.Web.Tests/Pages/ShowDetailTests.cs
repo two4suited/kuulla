@@ -130,7 +130,8 @@ public class ShowDetailTests : WebTestContext
             if ((path == "/api/settings/shows/show-1/auto-skip"
                  || path == "/api/settings/shows/show-1/playback-speed"
                  || path == "/api/settings/shows/show-1/smart-speed"
-                 || path == "/api/settings/shows/show-1/notifications")
+                 || path == "/api/settings/shows/show-1/notifications"
+                 || path == "/api/settings/shows/show-1/auto-delete")
                 && request.Method == HttpMethod.Put)
             {
                 return new HttpResponseMessage(HttpStatusCode.OK)
@@ -367,6 +368,46 @@ public class ShowDetailTests : WebTestContext
         cut.WaitForAssertion(() => Assert.Contains("Auto-download new episodes", cut.Markup));
 
         cut.Find("#show-auto-download-new-episodes").Change("true");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void AutoDeleteSelector_DefaultsToUseGlobalDefault_WhenNoOverrideExists()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-delete-rule").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void AutoDeleteSelector_ShowsExistingOverride_WithAfterDaysInput()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2,
+            AutoDeleteRule: AutoDeleteRule.AfterDays, AutoDeleteAfterDays: 14);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("AfterDays", cut.Find("#show-auto-delete-rule").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("14", cut.Find("#show-auto-delete-after-days").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void AutoDeleteSelector_SavesOverride_WhenChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Delete downloads", cut.Markup));
+
+        cut.Find("#show-auto-delete-rule").Change("AfterPlayed");
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }

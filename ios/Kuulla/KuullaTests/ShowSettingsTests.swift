@@ -5,7 +5,8 @@ final class ShowSettingsTests: XCTestCase {
     private let base = ShowSettings(
         id: "show:u1:s1", userId: "u1", showId: "s1", unlistenedEpisodeCount: .ten,
         version: 1, autoArchiveRule: .after7Days, autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20,
-        playbackSpeed: 1.5, autoDownloadNewEpisodes: true, smartSpeed: true, autoAddNewEpisodesToUpNext: true)
+        playbackSpeed: 1.5, autoDownloadNewEpisodes: true, autoDeleteRule: .afterDays, autoDeleteAfterDays: 14,
+        smartSpeed: true, autoAddNewEpisodesToUpNext: true)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -21,6 +22,23 @@ final class ShowSettingsTests: XCTestCase {
         XCTAssertEqual(updated.autoDownloadNewEpisodes, base.autoDownloadNewEpisodes)
         XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
         XCTAssertEqual(updated.autoAddNewEpisodesToUpNext, base.autoAddNewEpisodesToUpNext)
+        XCTAssertEqual(updated.autoDeleteRule, base.autoDeleteRule)
+        XCTAssertEqual(updated.autoDeleteAfterDays, base.autoDeleteAfterDays)
+    }
+
+    func testWithChangingAutoDeleteRuleAndAfterDaysTogether() {
+        let updated = base.with(autoDeleteRule: AutoDeleteRule?.some(.never), autoDeleteAfterDays: Int?.none)
+        XCTAssertEqual(updated.autoDeleteRule, .never)
+        XCTAssertNil(updated.autoDeleteAfterDays)
+        // Other fields untouched.
+        XCTAssertEqual(updated.autoDownloadNewEpisodes, base.autoDownloadNewEpisodes)
+    }
+
+    func testWithExplicitNilClearsTheAutoDeleteRuleOverride() {
+        let updated = base.with(autoDeleteRule: AutoDeleteRule?.none)
+        XCTAssertNil(updated.autoDeleteRule)
+        // afterDays left untouched because it wasn't passed.
+        XCTAssertEqual(updated.autoDeleteAfterDays, base.autoDeleteAfterDays)
     }
 
     func testWithExplicitNilClearsTheAutoAddUpNextOverride() {
