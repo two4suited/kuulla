@@ -55,6 +55,38 @@ actor ApiClient {
         return try Self.decoder.decode(T.self, from: data)
     }
 
+    // multipart/form-data upload of a single file, decoding the JSON response (OPML import).
+    func upload<T: Decodable>(
+        _ pathComponents: [String],
+        fileData: Data,
+        fileName: String,
+        fieldName: String = "file",
+        fileContentType: String = "application/octet-stream"
+    ) async throws -> T {
+        guard let url = Self.components(baseURL: baseURL, pathComponents: pathComponents)?.url else {
+            throw ApiError.requestFailed(statusCode: nil)
+        }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        let safeFileName = fileName.replacingOccurrences(of: "\"", with: "")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append(
+            "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(safeFileName)\"\r\n"
+                .data(using: .utf8)!)
+        body.append("Content-Type: \(fileContentType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+
+        let (data, _) = try await send(request)
+        return try Self.decoder.decode(T.self, from: data)
+    }
+
     func delete(_ pathComponents: [String]) async throws {
         guard let url = Self.components(baseURL: baseURL, pathComponents: pathComponents)?.url else {
             throw ApiError.requestFailed(statusCode: nil)

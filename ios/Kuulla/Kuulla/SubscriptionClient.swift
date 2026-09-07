@@ -24,6 +24,16 @@ struct SubscriptionClient {
         try await apiClient.delete(["api", "subscriptions", showId])
     }
 
+    // Uploads an OPML file to the bulk-import endpoint. A 400 (unreadable document) or 413 (too
+    // large) surfaces as ApiError.requestFailed for the caller to translate.
+    func importOpml(fileData: Data, fileName: String) async throws -> OpmlImportResult {
+        try await apiClient.upload(
+            ["api", "subscriptions", "import"],
+            fileData: fileData,
+            fileName: fileName,
+            fileContentType: "text/x-opml")
+    }
+
     func getNewEpisodes() async throws -> [NewEpisode] {
         do {
             return try await apiClient.get(["api", "subscriptions", "episodes"])
@@ -48,6 +58,19 @@ struct SubscriptionClient {
 
 private struct SubscribeRequest: Encodable {
     let showId: String
+}
+
+// Wire shape of POST /api/subscriptions/import's response: { added, alreadySubscribed, failed }
+// where each failure is { feedUrl, reason }. Mirrors OpmlImportResult on Web/API.
+struct OpmlImportResult: Decodable, Equatable {
+    let added: Int
+    let alreadySubscribed: Int
+    let failed: [OpmlImportFailure]
+}
+
+struct OpmlImportFailure: Decodable, Equatable {
+    let feedUrl: String
+    let reason: String
 }
 
 // Wire shape is { episode, autoPlayed, showTitle, showArtworkUrl } per item (#98/#99, #441).
