@@ -5,6 +5,7 @@
 @inject SubscriptionClient SubscriptionClient
 @inject EpisodeStateClient EpisodeStateClient
 @inject SettingsClient SettingsClient
+@inject IJSRuntime JS
 
 <PageTitle>Subscriptions</PageTitle>
 
@@ -44,12 +45,21 @@
                         <InputFile OnChange="OnOpmlFileSelectedAsync" accept=".opml,.xml" disabled="@isImporting" class="d-none" />
                         @(isImporting ? "Importing…" : "Import OPML")
                     </label>
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            @onclick="OnExportOpmlAsync" disabled="@(isExporting || subscriptions.Count == 0)">
+                        @(isExporting ? "Exporting…" : "Export OPML")
+                    </button>
                     <span class="text-muted small">Bring your library over from another podcast app. Shows you already follow are skipped.</span>
                 </div>
 
                 @if (importError is not null)
                 {
                     <p class="text-danger small mb-0">@importError</p>
+                }
+
+                @if (exportError is not null)
+                {
+                    <p class="text-danger small mb-0">@exportError</p>
                 }
 
                 @if (importResult is not null)
@@ -219,6 +229,8 @@
     private string? importError;
     private OpmlImportResult? importResult;
     private bool showImportFailures;
+    private bool isExporting;
+    private string? exportError;
 
     // Shows with at least one unplayed or in-progress episode — the complement of "caught up".
     // Null until the supplementary episode-state fetch has completed, so the grid never hides
@@ -324,6 +336,26 @@
         finally
         {
             isImporting = false;
+        }
+    }
+
+    private async Task OnExportOpmlAsync()
+    {
+        isExporting = true;
+        exportError = null;
+        try
+        {
+            var opml = await SubscriptionClient.ExportOpmlAsync();
+            await JS.InvokeVoidAsync(
+                "kuullaDownloadFile", "kuulla-subscriptions.opml", "text/x-opml", Convert.ToBase64String(opml));
+        }
+        catch (HttpRequestException)
+        {
+            exportError = "Something went wrong exporting your subscriptions. Please try again.";
+        }
+        finally
+        {
+            isExporting = false;
         }
     }
 

@@ -33,7 +33,8 @@ public class SubscriptionsTests : WebTestContext
         Func<HttpRequestMessage, HttpResponseMessage>? onGetSettings = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onPutSortOrder = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onPutManualOrder = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? onImport = null) => new(request =>
+        Func<HttpRequestMessage, HttpResponseMessage>? onImport = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onExport = null) => new(request =>
     {
         if (request.RequestUri!.AbsolutePath == "/api/subscriptions/import" && request.Method == HttpMethod.Post)
         {
@@ -42,6 +43,12 @@ public class SubscriptionsTests : WebTestContext
                 {
                     Content = JsonContent.Create(new { added = 0, alreadySubscribed = 0, failed = Array.Empty<object>() }),
                 };
+        }
+
+        if (request.RequestUri.AbsolutePath == "/api/subscriptions/export" && request.Method == HttpMethod.Get)
+        {
+            return onExport?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<opml version=\"2.0\"><body/></opml>") };
         }
 
         if (request.RequestUri!.AbsolutePath == "/api/settings/subscription-sort-order" && request.Method == HttpMethod.Put)
@@ -339,5 +346,57 @@ public class SubscriptionsTests : WebTestContext
             .UploadFiles(InputFileContent.CreateFromText("not opml", "subs.txt"));
 
         cut.WaitForAssertion(() => Assert.Contains("couldn't be read as an OPML", cut.Markup));
+    }
+
+    [Fact]
+    public void OpmlExport_HandsBytesToTheBrowserDownloadHelper_OnSuccess()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onExport: _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<opml version=\"2.0\"><body><outline type=\"rss\" xmlUrl=\"https://a.example/feed\" /></body></opml>"),
+        }));
+
+        var cut = RenderComponent<Subscriptions>();
+        cut.WaitForAssertion(() => Assert.Contains("Export OPML", cut.Markup));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Export OPML").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var invocation = JSInterop.VerifyInvoke("kuullaDownloadFile");
+            Assert.Equal("kuulla-subscriptions.opml", invocation.Arguments[0]);
+            Assert.Equal("text/x-opml", invocation.Arguments[1]);
+        });
+    }
+
+    [Fact]
+    public void OpmlExport_ButtonDisabled_WhenNoSubscriptions()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onGetSubscriptions: _ =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) }));
+
+        var cut = RenderComponent<Subscriptions>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var exportButton = cut.FindAll("button").Single(b => b.TextContent.Trim() == "Export OPML");
+            Assert.True(exportButton.HasAttribute("disabled"));
+        });
+    }
+
+    [Fact]
+    public void OpmlExport_ShowsFriendlyError_OnFailure()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(onExport: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<Subscriptions>();
+        cut.WaitForAssertion(() => Assert.Contains("Export OPML", cut.Markup));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Export OPML").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("went wrong exporting", cut.Markup));
     }
 }

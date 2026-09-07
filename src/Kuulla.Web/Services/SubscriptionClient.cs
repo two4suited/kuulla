@@ -64,6 +64,16 @@ public class SubscriptionClient(KuullaApiClient apiClient)
         return await response.Content.ReadFromJsonAsync<OpmlImportResult>(JsonOptions, cancellationToken)
             ?? new OpmlImportResult(0, 0, []);
     }
+
+    // The caller's subscriptions as an OPML 2.0 document (raw bytes, handed to the browser as a
+    // download by the page).
+    public async Task<byte[]> ExportOpmlAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.GetAsync("api/subscriptions/export", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+    }
 }
 
 public class OpmlImportException(string message) : Exception(message);
