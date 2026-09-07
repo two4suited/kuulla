@@ -55,6 +55,15 @@ actor ApiClient {
         return try Self.decoder.decode(T.self, from: data)
     }
 
+    // Raw bytes from a GET, for endpoints that return a file rather than JSON (OPML export).
+    func getData(_ pathComponents: [String]) async throws -> Data {
+        guard let url = Self.components(baseURL: baseURL, pathComponents: pathComponents)?.url else {
+            throw ApiError.requestFailed(statusCode: nil)
+        }
+        let (data, _) = try await send(URLRequest(url: url))
+        return data
+    }
+
     // multipart/form-data upload of a single file, decoding the JSON response (OPML import).
     func upload<T: Decodable>(
         _ pathComponents: [String],

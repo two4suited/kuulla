@@ -152,4 +152,19 @@ final class SubscriptionClientTests: MockedApiTestCase {
         }
     }
 
+    func testExportOpmlGetsTheExportEndpointAndReturnsTheBodyUntouched() async throws {
+        let opml = Data("<opml version=\"2.0\"><body><outline type=\"rss\" xmlUrl=\"https://a.example/feed\" /></body></opml>".utf8)
+        var capturedRequest: URLRequest?
+        MockURLProtocol.stubHandler = { request in
+            capturedRequest = request
+            return .success(.init(statusCode: 200, data: opml, headers: [:]))
+        }
+
+        let data = try await client.exportOpml()
+
+        XCTAssertEqual(data, opml)
+        let request = try XCTUnwrap(capturedRequest)
+        XCTAssertEqual(request.httpMethod ?? "GET", "GET")
+        XCTAssertTrue(try XCTUnwrap(request.url).absoluteString.hasSuffix("/api/subscriptions/export"))
+    }
 }
