@@ -111,10 +111,26 @@ public class ShowService(
         }
     }
 
-    // Deterministic Show.Id for a feed-URL-sourced show: a stable hash of the normalized URL so
-    // every import of the same feed maps to one showsContainer item. Prefixed to keep it visibly
-    // distinct from the numeric iTunes collectionId used for directory-sourced shows.
-    private static string FeedShowId(string normalizedFeedUrl)
+    public async Task<string?> TryGetFeedUrlAsync(string showId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await showsContainer.ReadItemAsync<Show>(
+                showId, new PartitionKey(showId), cancellationToken: cancellationToken);
+            return string.IsNullOrEmpty(response.Resource.FeedUrl) ? null : response.Resource.FeedUrl;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    // Deterministic Show.Id for a feed-URL-sourced show: a stable hash of the normalized URL
+    // (FeedUrl.Normalize) so every import of the same feed maps to one showsContainer item.
+    // Prefixed to keep it visibly distinct from the numeric iTunes collectionId used for
+    // directory-sourced shows. Public so callers that need to address a would-be feed show by id
+    // (e.g. seeding it in tests) don't have to re-derive the scheme.
+    public static string FeedShowId(string normalizedFeedUrl)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedFeedUrl));
         return "feed-" + Convert.ToHexString(bytes)[..32].ToLowerInvariant();

@@ -22,4 +22,9 @@ public record Subscription(
     // (#438). Stamped on subscribe and kept fresh by EpisodeService.CacheEpisodesAsync whenever
     // feed polling discovers newer episodes. Null when unknown (a row that predates this field);
     // callers sort a null as oldest, and the next feed poll backfills it.
-    DateTimeOffset? LatestEpisodePublishedAt = null);
+    DateTimeOffset? LatestEpisodePublishedAt = null,
+    // The show's RSS feed URL, snapshotted on subscribe. Lets OPML import (#421) dedup against
+    // "feeds I'm already subscribed to" and OPML export (#426) emit the feed URL without an
+    // N-way point-read back to the shows container. Null on rows that predate this field;
+    // callers that need it fall back to reading the show.
+    string? FeedUrl = null);
