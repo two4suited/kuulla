@@ -34,6 +34,12 @@ struct SubscriptionClient {
             fileContentType: "text/x-opml")
     }
 
+    // The caller's subscriptions as an OPML 2.0 document (raw bytes, written to a temp file and
+    // handed to a share sheet).
+    func exportOpml() async throws -> Data {
+        try await apiClient.getData(["api", "subscriptions", "export"])
+    }
+
     func getNewEpisodes() async throws -> [NewEpisode] {
         do {
             return try await apiClient.get(["api", "subscriptions", "episodes"])
