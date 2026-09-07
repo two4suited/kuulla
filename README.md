@@ -72,6 +72,9 @@ sequenceDiagram
 ### Shipped
 
 - **Subscriptions** — subscribe/unsubscribe to shows, synced across web and iOS
+- **OPML import & export** — bring your library over from another podcast app by uploading an OPML
+  file (web or iOS); shows you already follow are skipped. Export your subscriptions back out as
+  OPML the same way.
 - **Library** — home screen with a show grid and a playlist shelf
 - **Show detail** — per-show episode list with filters, sort, and progress indicators
 - **Unplayed tracking** — unplayed badges across Library, Subscriptions, and New Episodes
