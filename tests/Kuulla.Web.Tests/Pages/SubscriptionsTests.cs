@@ -32,8 +32,18 @@ public class SubscriptionsTests : WebTestContext
         Func<HttpRequestMessage, HttpResponseMessage>? onDelete = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onGetSettings = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onPutSortOrder = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? onPutManualOrder = null) => new(request =>
+        Func<HttpRequestMessage, HttpResponseMessage>? onPutManualOrder = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onImport = null) => new(request =>
     {
+        if (request.RequestUri!.AbsolutePath == "/api/subscriptions/import" && request.Method == HttpMethod.Post)
+        {
+            return onImport?.Invoke(request) ??
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { added = 0, alreadySubscribed = 0, failed = Array.Empty<object>() }),
+                };
+        }
+
         if (request.RequestUri!.AbsolutePath == "/api/settings/subscription-sort-order" && request.Method == HttpMethod.Put)
         {
             return onPutSortOrder?.Invoke(request) ??
@@ -273,5 +283,61 @@ public class SubscriptionsTests : WebTestContext
             Assert.DoesNotContain("The Daily", cut.Markup);
             Assert.DoesNotContain("Something went wrong", cut.Markup);
         });
+    }
+
+    [Fact]
+    public void OpmlImport_ShowsSummary_AndRefreshesGrid_OnSuccess()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var getSubscriptionsCalls = 0;
+        ConfigureApi(RouteHandler(
+            onGetSubscriptions: _ =>
+            {
+                getSubscriptionsCalls++;
+                var list = getSubscriptionsCalls == 1
+                    ? Subscriptions
+                    : [.. Subscriptions, new Subscription("sub-2", "show-2", "Reply All", "Gimlet", null, DateTimeOffset.UtcNow)];
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(list) };
+            },
+            onImport: _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    added = 1,
+                    alreadySubscribed = 2,
+                    failed = new[] { new { feedUrl = "https://dead.example/feed", reason = "The feed couldn't be fetched or read." } },
+                }),
+            }));
+
+        var cut = RenderComponent<Subscriptions>();
+        cut.WaitForAssertion(() => Assert.Contains("Import OPML", cut.Markup));
+
+        cut.FindComponent<Microsoft.AspNetCore.Components.Forms.InputFile>()
+            .UploadFiles(InputFileContent.CreateFromText("<opml version=\"2.0\"><body/></opml>", "subs.opml"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Added 1, skipped 2 already subscribed, 1 failed.", cut.Markup);
+            Assert.Contains("Reply All", cut.Markup);
+        });
+
+        cut.Find("button.btn-link").Click();
+        cut.WaitForAssertion(() => Assert.Contains("https://dead.example/feed", cut.Markup));
+    }
+
+    [Fact]
+    public void OpmlImport_ShowsFriendlyError_When400()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(RouteHandler(
+            onImport: _ => new HttpResponseMessage(HttpStatusCode.BadRequest)));
+
+        var cut = RenderComponent<Subscriptions>();
+        cut.WaitForAssertion(() => Assert.Contains("Import OPML", cut.Markup));
+
+        cut.FindComponent<Microsoft.AspNetCore.Components.Forms.InputFile>()
+            .UploadFiles(InputFileContent.CreateFromText("not opml", "subs.txt"));
+
+        cut.WaitForAssertion(() => Assert.Contains("couldn't be read as an OPML", cut.Markup));
     }
 }
