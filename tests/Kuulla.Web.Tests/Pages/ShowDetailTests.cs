@@ -127,6 +127,18 @@ public class ShowDetailTests : WebTestContext
                 };
             }
 
+            if ((path == "/api/settings/shows/show-1/auto-skip"
+                 || path == "/api/settings/shows/show-1/playback-speed"
+                 || path == "/api/settings/shows/show-1/smart-speed"
+                 || path == "/api/settings/shows/show-1/notifications")
+                && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(showSettings ?? DefaultShowSettings),
+                };
+            }
+
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
 
@@ -463,6 +475,109 @@ public class ShowDetailTests : WebTestContext
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value"));
         });
+    }
+
+    [Fact]
+    public void AutoSkipSelectors_DefaultToUseGlobalDefault_WhenNoOverrideExists()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("", cut.Find("#show-auto-skip-intro").GetAttribute("value"));
+            Assert.Equal("", cut.Find("#show-auto-skip-outro").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void AutoSkipSelectors_ShowExistingOverride_IncludingSynthesizedCustomRow()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2,
+            AutoSkipIntroSeconds: 15, AutoSkipOutroSeconds: 42);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("15", cut.Find("#show-auto-skip-intro").GetAttribute("value"));
+            Assert.Equal("42", cut.Find("#show-auto-skip-outro").GetAttribute("value"));
+            // 42s isn't a preset, so it gets its own row rather than snapping to the nearest one.
+            Assert.Contains("42s", cut.Find("#show-auto-skip-outro").InnerHtml);
+        });
+    }
+
+    [Fact]
+    public void AutoSkipSelector_SavesOverride_WhenChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Auto-skip intro", cut.Markup));
+
+        cut.Find("#show-auto-skip-intro").Change("30");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void PlaybackSpeedSelector_ShowsExistingOverride()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2, PlaybackSpeed: 1.5f);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("1.5", cut.Find("#show-playback-speed").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void PlaybackSpeedSelector_SavesOverride_WhenChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Playback speed", cut.Markup));
+
+        cut.Find("#show-playback-speed").Change("1.2");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void SmartSpeedSelector_ShowsExistingOverride()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2, SmartSpeed: true);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-smart-speed").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void NotificationsSelector_SavesOverride_WhenChanged()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Notifications", cut.Markup));
+
+        cut.Find("#show-notifications-enabled").Change("false");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
 
     [Fact]

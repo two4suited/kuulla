@@ -139,6 +139,94 @@ else
                             <p class="text-success mt-1 mb-0">Saved.</p>
                         }
                     </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-auto-skip-intro">Auto-skip intro</label>
+                        <select id="show-auto-skip-intro" class="form-select" disabled="@isShowAutoSkipSaving"
+                                value="@ShowAutoSkipIntroSelectValue" @onchange="OnShowAutoSkipIntroChangedAsync">
+                            <option value="">Use global default</option>
+                            @foreach (var option in AutoSkipOptions(showAutoSkipIntroSecondsOverride))
+                            {
+                                <option value="@option">@AutoSkipDurationUi.Format(option)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-auto-skip-outro">Auto-skip outro</label>
+                        <select id="show-auto-skip-outro" class="form-select" disabled="@isShowAutoSkipSaving"
+                                value="@ShowAutoSkipOutroSelectValue" @onchange="OnShowAutoSkipOutroChangedAsync">
+                            <option value="">Use global default</option>
+                            @foreach (var option in AutoSkipOptions(showAutoSkipOutroSecondsOverride))
+                            {
+                                <option value="@option">@AutoSkipDurationUi.Format(option)</option>
+                            }
+                        </select>
+                        @if (showAutoSkipError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showAutoSkipError</p>
+                        }
+                        else if (showAutoSkipSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-playback-speed">Playback speed</label>
+                        <select id="show-playback-speed" class="form-select" disabled="@isShowPlaybackSpeedSaving"
+                                value="@ShowPlaybackSpeedSelectValue" @onchange="OnShowPlaybackSpeedChangedAsync">
+                            <option value="">Use global default</option>
+                            @foreach (var option in PlaybackSpeedOptions(showPlaybackSpeedOverride))
+                            {
+                                <option value="@option.ToString(System.Globalization.CultureInfo.InvariantCulture)">@PlaybackSpeedUi.Format(option)</option>
+                            }
+                        </select>
+                        @if (showPlaybackSpeedError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showPlaybackSpeedError</p>
+                        }
+                        else if (showPlaybackSpeedSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-smart-speed">SmartSpeed</label>
+                        <select id="show-smart-speed" class="form-select" disabled="@isShowSmartSpeedSaving"
+                                value="@ShowSmartSpeedSelectValue" @onchange="OnShowSmartSpeedChangedAsync">
+                            <option value="">Use global default</option>
+                            <option value="true">On</option>
+                            <option value="false">Off</option>
+                        </select>
+                        @if (showSmartSpeedError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showSmartSpeedError</p>
+                        }
+                        else if (showSmartSpeedSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-notifications-enabled">Notifications</label>
+                        <select id="show-notifications-enabled" class="form-select" disabled="@isShowNotificationsSaving"
+                                value="@ShowNotificationsSelectValue" @onchange="OnShowNotificationsEnabledChangedAsync">
+                            <option value="">Use global default</option>
+                            <option value="true">On</option>
+                            <option value="false">Off</option>
+                        </select>
+                        @if (showNotificationsError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showNotificationsError</p>
+                        }
+                        else if (showNotificationsSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
                 </Authorized>
             </AuthorizeView>
         </div>
@@ -307,6 +395,23 @@ else
     private bool isShowAutoAddUpNextSaving;
     private string? showAutoAddUpNextError;
     private bool showAutoAddUpNextSavedConfirmation;
+    private int? showAutoSkipIntroSecondsOverride;
+    private int? showAutoSkipOutroSecondsOverride;
+    private bool isShowAutoSkipSaving;
+    private string? showAutoSkipError;
+    private bool showAutoSkipSavedConfirmation;
+    private float? showPlaybackSpeedOverride;
+    private bool isShowPlaybackSpeedSaving;
+    private string? showPlaybackSpeedError;
+    private bool showPlaybackSpeedSavedConfirmation;
+    private bool? showSmartSpeedOverride;
+    private bool isShowSmartSpeedSaving;
+    private string? showSmartSpeedError;
+    private bool showSmartSpeedSavedConfirmation;
+    private bool? showNotificationsEnabledOverride;
+    private bool isShowNotificationsSaving;
+    private string? showNotificationsError;
+    private bool showNotificationsSavedConfirmation;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
     private readonly HashSet<string> restoringEpisodeIds = [];
     private readonly HashSet<string> togglingEpisodeIds = [];
@@ -331,6 +436,36 @@ else
     };
 
     private string ShowAutoAddUpNextSelectValue => showAutoAddNewEpisodesToUpNextOverride switch
+    {
+        true => "true",
+        false => "false",
+        null => "",
+    };
+
+    private string ShowAutoSkipIntroSelectValue => showAutoSkipIntroSecondsOverride?.ToString() ?? "";
+
+    private string ShowAutoSkipOutroSelectValue => showAutoSkipOutroSecondsOverride?.ToString() ?? "";
+
+    // No stored override means no current value to fold in, so offer just the presets; a stored
+    // value that isn't one of them gets a synthesized row via OptionsIncluding, mirroring iOS's
+    // "Custom (Ns)" entry.
+    private static int[] AutoSkipOptions(int? current) =>
+        current is { } value ? AutoSkipDurationUi.OptionsIncluding(value) : AutoSkipDurationUi.Options;
+
+    private string ShowPlaybackSpeedSelectValue =>
+        showPlaybackSpeedOverride?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+
+    private static float[] PlaybackSpeedOptions(float? current) =>
+        current is { } value ? PlaybackSpeedUi.OptionsIncluding(value) : PlaybackSpeedUi.Options;
+
+    private string ShowSmartSpeedSelectValue => showSmartSpeedOverride switch
+    {
+        true => "true",
+        false => "false",
+        null => "",
+    };
+
+    private string ShowNotificationsSelectValue => showNotificationsEnabledOverride switch
     {
         true => "true",
         false => "false",
@@ -436,6 +571,23 @@ else
         isShowAutoAddUpNextSaving = false;
         showAutoAddUpNextError = null;
         showAutoAddUpNextSavedConfirmation = false;
+        showAutoSkipIntroSecondsOverride = null;
+        showAutoSkipOutroSecondsOverride = null;
+        isShowAutoSkipSaving = false;
+        showAutoSkipError = null;
+        showAutoSkipSavedConfirmation = false;
+        showPlaybackSpeedOverride = null;
+        isShowPlaybackSpeedSaving = false;
+        showPlaybackSpeedError = null;
+        showPlaybackSpeedSavedConfirmation = false;
+        showSmartSpeedOverride = null;
+        isShowSmartSpeedSaving = false;
+        showSmartSpeedError = null;
+        showSmartSpeedSavedConfirmation = false;
+        showNotificationsEnabledOverride = null;
+        isShowNotificationsSaving = false;
+        showNotificationsError = null;
+        showNotificationsSavedConfirmation = false;
         episodeStatesById.Clear();
         restoringEpisodeIds.Clear();
         togglingEpisodeIds.Clear();
@@ -479,6 +631,11 @@ else
             showAutoArchiveRuleOverride = settings.AutoArchiveRule;
             showAutoDownloadNewEpisodesOverride = settings.AutoDownloadNewEpisodes;
             showAutoAddNewEpisodesToUpNextOverride = settings.AutoAddNewEpisodesToUpNext;
+            showAutoSkipIntroSecondsOverride = settings.AutoSkipIntroSeconds;
+            showAutoSkipOutroSecondsOverride = settings.AutoSkipOutroSeconds;
+            showPlaybackSpeedOverride = settings.PlaybackSpeed;
+            showSmartSpeedOverride = settings.SmartSpeed;
+            showNotificationsEnabledOverride = settings.NotificationsEnabled;
         }
         catch (HttpRequestException)
         {
@@ -643,6 +800,189 @@ else
         finally
         {
             isShowAutoAddUpNextSaving = false;
+        }
+    }
+
+    private async Task OnShowAutoSkipIntroChangedAsync(ChangeEventArgs args)
+    {
+        if (!TryParseNullableInt(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        await SaveShowAutoSkipAsync(value, showAutoSkipOutroSecondsOverride);
+    }
+
+    private async Task OnShowAutoSkipOutroChangedAsync(ChangeEventArgs args)
+    {
+        if (!TryParseNullableInt(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        await SaveShowAutoSkipAsync(showAutoSkipIntroSecondsOverride, value);
+    }
+
+    // The API endpoint takes intro and outro together, so a change to either select PUTs both.
+    private async Task SaveShowAutoSkipAsync(int? introSeconds, int? outroSeconds)
+    {
+        var previousIntro = showAutoSkipIntroSecondsOverride;
+        var previousOutro = showAutoSkipOutroSecondsOverride;
+        showAutoSkipIntroSecondsOverride = introSeconds;
+        showAutoSkipOutroSecondsOverride = outroSeconds;
+        isShowAutoSkipSaving = true;
+        showAutoSkipError = null;
+        showAutoSkipSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowAutoSkipAsync(Id, introSeconds, outroSeconds);
+            showAutoSkipSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showAutoSkipIntroSecondsOverride = previousIntro;
+            showAutoSkipOutroSecondsOverride = previousOutro;
+            showAutoSkipError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowAutoSkipSaving = false;
+        }
+    }
+
+    private async Task OnShowPlaybackSpeedChangedAsync(ChangeEventArgs args)
+    {
+        var raw = args.Value?.ToString();
+        float? value;
+        if (string.IsNullOrEmpty(raw))
+        {
+            value = null;
+        }
+        else if (float.TryParse(
+            raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            value = parsed;
+        }
+        else
+        {
+            return;
+        }
+
+        var previous = showPlaybackSpeedOverride;
+        showPlaybackSpeedOverride = value;
+        isShowPlaybackSpeedSaving = true;
+        showPlaybackSpeedError = null;
+        showPlaybackSpeedSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowPlaybackSpeedAsync(Id, value);
+            showPlaybackSpeedSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showPlaybackSpeedOverride = previous;
+            showPlaybackSpeedError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowPlaybackSpeedSaving = false;
+        }
+    }
+
+    private async Task OnShowSmartSpeedChangedAsync(ChangeEventArgs args)
+    {
+        if (!TryParseNullableBool(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        var previous = showSmartSpeedOverride;
+        showSmartSpeedOverride = value;
+        isShowSmartSpeedSaving = true;
+        showSmartSpeedError = null;
+        showSmartSpeedSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowSmartSpeedAsync(Id, value);
+            showSmartSpeedSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showSmartSpeedOverride = previous;
+            showSmartSpeedError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowSmartSpeedSaving = false;
+        }
+    }
+
+    private async Task OnShowNotificationsEnabledChangedAsync(ChangeEventArgs args)
+    {
+        if (!TryParseNullableBool(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        var previous = showNotificationsEnabledOverride;
+        showNotificationsEnabledOverride = value;
+        isShowNotificationsSaving = true;
+        showNotificationsError = null;
+        showNotificationsSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowNotificationsEnabledAsync(Id, value);
+            showNotificationsSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showNotificationsEnabledOverride = previous;
+            showNotificationsError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowNotificationsSaving = false;
+        }
+    }
+
+    private static bool TryParseNullableInt(string? raw, out int? value)
+    {
+        if (string.IsNullOrEmpty(raw))
+        {
+            value = null;
+            return true;
+        }
+
+        if (int.TryParse(raw, out var parsed))
+        {
+            value = parsed;
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    private static bool TryParseNullableBool(string? raw, out bool? value)
+    {
+        switch (raw)
+        {
+            case "" or null:
+                value = null;
+                return true;
+            case "true":
+                value = true;
+                return true;
+            case "false":
+                value = false;
+                return true;
+            default:
+                value = null;
+                return false;
         }
     }
 

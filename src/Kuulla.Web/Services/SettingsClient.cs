@@ -101,6 +101,52 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<ShowSettings> UpdateShowAutoSkipAsync(
+        string showId, int? autoSkipIntroSeconds, int? autoSkipOutroSeconds,
+        CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/auto-skip",
+            new { AutoSkipIntroSeconds = autoSkipIntroSeconds, AutoSkipOutroSeconds = autoSkipOutroSeconds },
+            JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowPlaybackSpeedAsync(
+        string showId, float? playbackSpeed, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/playback-speed",
+            new { PlaybackSpeed = playbackSpeed }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowSmartSpeedAsync(
+        string showId, bool? smartSpeed, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/smart-speed",
+            new { SmartSpeed = smartSpeed }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowNotificationsEnabledAsync(
+        string showId, bool? notificationsEnabled, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/notifications",
+            new { NotificationsEnabled = notificationsEnabled }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<UserSettings> UpdateAutoSkipAsync(
         int autoSkipIntroSeconds, int autoSkipOutroSeconds, CancellationToken cancellationToken = default)
     {
