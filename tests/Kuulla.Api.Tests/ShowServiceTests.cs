@@ -110,6 +110,112 @@ public class ShowServiceTests
     }
 
     [Fact]
+    public async Task GetOrCreateByFeedUrlAsync_ReturnsExistingShowWithAPointReadWhenFeedAlreadyKnown()
+    {
+        var cached = CosmosTestHelpers.MakeShow("feed-abc", feedUrl: "https://feeds.example/show");
+        _showsContainer
+            .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(cached));
+
+        var result = await _sut.GetOrCreateByFeedUrlAsync("https://feeds.example/show", CancellationToken.None);
+
+        Assert.Same(cached, result);
+        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _showsContainer.Verify(
+            c => c.CreateItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetOrCreateByFeedUrlAsync_CreatesShowFromFeedMetadataOnMiss()
+    {
+        _showsContainer
+            .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _feedClient
+            .Setup(c => c.FetchAsync("https://feeds.example/show", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(
+                "A description", [], Title: "The Show", Author: "The Host", ArtworkUrl: "https://art.example/a.png"));
+        _showsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Show s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.GetOrCreateByFeedUrlAsync("https://feeds.example/show/", CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("The Show", result!.Title);
+        Assert.Equal("The Host", result.Author);
+        Assert.Equal("https://art.example/a.png", result.ArtworkUrl);
+        Assert.Equal("A description", result.Description);
+        Assert.Equal("https://feeds.example/show", result.FeedUrl); // normalized (trailing slash gone)
+        Assert.StartsWith("feed-", result.Id);
+    }
+
+    [Fact]
+    public async Task GetOrCreateByFeedUrlAsync_EquivalentFeedUrlsCollapseToTheSameShowId()
+    {
+        _showsContainer
+            .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _feedClient
+            .Setup(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, [], Title: "Show"));
+        var createdIds = new List<string>();
+        _showsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback((Show s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => createdIds.Add(s.Id))
+            .ReturnsAsync((Show s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        await _sut.GetOrCreateByFeedUrlAsync("http://Feeds.Example/show/", CancellationToken.None);
+        await _sut.GetOrCreateByFeedUrlAsync("https://feeds.example:443/show", CancellationToken.None);
+
+        Assert.Equal(2, createdIds.Count);
+        Assert.Equal(createdIds[0], createdIds[1]);
+    }
+
+    [Fact]
+    public async Task GetOrCreateByFeedUrlAsync_ReturnsNullWhenFeedCannotBeFetched()
+    {
+        _showsContainer
+            .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _feedClient
+            .Setup(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("dead host"));
+
+        var result = await _sut.GetOrCreateByFeedUrlAsync("https://dead.example/show", CancellationToken.None);
+
+        Assert.Null(result);
+        _showsContainer.Verify(
+            c => c.CreateItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetOrCreateByFeedUrlAsync_ReturnsNullWhenFeedIsUnparseable()
+    {
+        _showsContainer
+            .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _feedClient
+            .Setup(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PodcastFeedContent?)null);
+
+        var result = await _sut.GetOrCreateByFeedUrlAsync("https://notafeed.example/page", CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetOrCreateByFeedUrlAsync_ReturnsNullWithoutTouchingCosmosWhenFeedUrlIsNotFetchable()
+    {
+        var result = await _sut.GetOrCreateByFeedUrlAsync("not a real url", CancellationToken.None);
+
+        Assert.Null(result);
+        _showsContainer.Verify(
+            c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task GetByIdAsync_ReturnsShowUnchangedWhenFeedHasNoDescription()
     {
         var show = CosmosTestHelpers.MakeShow(description: null);

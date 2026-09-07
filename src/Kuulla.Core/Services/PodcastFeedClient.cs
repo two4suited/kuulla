@@ -38,6 +38,18 @@ public class PodcastFeedClient(
             channel.Element(ItunesNamespace + "summary")?.Value,
             channel.Element("description")?.Value));
 
+        // Channel-level show metadata, for ShowService.GetOrCreateByFeedUrlAsync — an OPML import
+        // has only the feed URL to go on, so unlike the iTunes-sourced path there's no directory
+        // record to take the title/author/artwork from. Ignored by the episode-refresh callers.
+        var title = FirstNonEmpty(channel.Element("title")?.Value);
+        var author = FirstNonEmpty(
+            channel.Element(ItunesNamespace + "author")?.Value,
+            channel.Element(ItunesNamespace + "owner")?.Element(ItunesNamespace + "name")?.Value,
+            channel.Element("managingEditor")?.Value);
+        var artworkUrl = FirstNonEmpty(
+            channel.Element(ItunesNamespace + "image")?.Attribute("href")?.Value,
+            channel.Element("image")?.Element("url")?.Value);
+
         // Cloned rather than referencing the shared XDocument's nodes directly — LINQ-to-XML gives
         // no thread-safety guarantee for concurrent reads across the parallel loop below, and a
         // clone gives each task its own independent tree to read from.
@@ -52,7 +64,7 @@ public class PodcastFeedClient(
             .Where(episode => !string.IsNullOrEmpty(episode.AudioUrl))
             .ToList();
 
-        return new PodcastFeedContent(description, episodes);
+        return new PodcastFeedContent(description, episodes, title, author, artworkUrl);
     }
 
     private async Task<Episode> ParseEpisodeAsync(XElement item, CancellationToken cancellationToken)
