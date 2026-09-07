@@ -10,4 +10,14 @@ public interface ISyncableRecord
     string Id { get; }
 
     DateTimeOffset UpdatedAt { get; }
+
+    // Tombstone marker (#400): a deleted record is kept in storage with Deleted = true and a
+    // fresh server-stamped UpdatedAt, rather than hard-deleted, so the deletion propagates
+    // through sync like any other change — SyncReconciler returns it in the delta and
+    // SyncSummary folds its moved UpdatedAt into the hash. Client adapters apply an incoming
+    // tombstone by removing the local record. A domain with no delete operation (episode state,
+    // settings) never sets this, so it defaults to false and those records are unaffected.
+    // Tombstones are GC'd by the domain adapter once they age past the sync retention window
+    // (docs/sync-conventions.md).
+    bool Deleted => false;
 }

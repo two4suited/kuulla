@@ -13,7 +13,11 @@ public record Playlist(
     DynamicPlaylistConfig? DynamicConfig = null,
     // Curated emoji from PlaylistIcons.Curated, or null for "no icon" (#439).
     string? Icon = null,
-    string? AccentColor = null);
+    string? AccentColor = null,
+    // Tombstone flag (#400). A sync poll's ServerChanges can include a deleted playlist with
+    // Deleted = true; PlaylistDetail.razor treats that as "removed on another device". The plain
+    // GET /api/playlists list never returns tombstoned playlists.
+    bool Deleted = false);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistItem's wire shape.
 public record PlaylistItem(

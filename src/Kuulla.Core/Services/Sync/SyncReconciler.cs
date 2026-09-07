@@ -51,6 +51,16 @@ public class SyncReconciler<TState, TChange>
                 continue;
             }
 
+            if (stored is { Deleted: true })
+            {
+                // Tombstone wins even against a newer incoming change (#400): a client that still
+                // holds a deleted record and edits it locally must not resurrect it server-side.
+                // The stale tombstone is still handed back in the delta below (its UpdatedAt is
+                // newer than that client's lastSyncedAt whenever it had a version to edit), so the
+                // client learns the record is gone on this same round trip.
+                continue;
+            }
+
             accepted.Add(buildAcceptedState(change, stored));
         }
 

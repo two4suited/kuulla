@@ -23,6 +23,11 @@ final class PlaylistRecord: Syncable {
     // SwiftData migration.
     var icon: String?
     var accentColor: String?
+    // Tombstone flag (#400). A sync response entry with deleted == true means the playlist was
+    // deleted on another device; PlaylistSyncAdapter.apply removes the local row instead of
+    // upserting it. Defaulted so adding it is a lightweight SwiftData migration, and so locally
+    // created rows are always live.
+    var deleted: Bool = false
 
     init(
         id: String,
@@ -34,7 +39,8 @@ final class PlaylistRecord: Syncable {
         isDirty: Bool = false,
         dynamicConfig: DynamicPlaylistConfigRecord? = nil,
         icon: String? = nil,
-        accentColor: String? = nil
+        accentColor: String? = nil,
+        deleted: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -46,6 +52,7 @@ final class PlaylistRecord: Syncable {
         self.dynamicConfig = dynamicConfig
         self.icon = icon
         self.accentColor = accentColor
+        self.deleted = deleted
     }
 }
 

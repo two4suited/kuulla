@@ -46,7 +46,8 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 updatedAt: $0.updatedAt,
                 dynamicConfig: $0.dynamicConfig,
                 icon: $0.icon,
-                accentColor: $0.accentColor)
+                accentColor: $0.accentColor,
+                deleted: $0.deleted ?? false)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
     }
@@ -56,6 +57,18 @@ struct PlaylistSyncAdapter: SyncAdapter {
         let existing = try context.fetch(FetchDescriptor<PlaylistRecord>(
             predicate: #Predicate { $0.id == id }
         )).first
+
+        if record.deleted {
+            // Tombstone (#400): the playlist was deleted on another device. Remove the local row
+            // outright rather than keeping a soft-deleted copy — nothing on iOS reads `deleted`,
+            // and the server keeps the tombstone until it GC's it, so a re-push can't resurrect
+            // it. No isDirty guard: a local edit racing the delete loses (tombstone wins), matching
+            // the server-side reconciler.
+            if let existing {
+                context.delete(existing)
+            }
+            return
+        }
 
         if let existing {
             // Last-write-wins, matching EpisodeSyncAdapter.apply — only overwrite (and only clear
@@ -113,4 +126,7 @@ private struct PlaylistSyncDTO: Decodable {
     let dynamicConfig: DynamicPlaylistConfigRecord?
     let icon: String?
     let accentColor: String?
+    // #400 — present and true when this entry is a tombstone for a playlist deleted elsewhere.
+    // Optional for forward/backward compatibility with a server that omits it.
+    let deleted: Bool?
 }

@@ -23,7 +23,13 @@ public record Playlist(
     // Curated emoji from PlaylistIcons.Curated, or null for "no icon" (client falls back to its
     // default glyph). Travels in the sync payload and reconciles last-write-wins like Name (#439).
     [property: JsonProperty("icon")] string? Icon = null,
-    [property: JsonProperty("accentColor")] string? AccentColor = null) : ISyncableRecord
+    [property: JsonProperty("accentColor")] string? AccentColor = null,
+    // Tombstone flag (#400, ISyncableRecord.Deleted). DeletePlaylistAsync flips this instead of
+    // hard-deleting the Cosmos item so the deletion reaches other devices through
+    // POST /api/sync/playlists; GetPlaylistsAsync/GetPlaylistDetailAsync and every mutation path
+    // treat a Deleted playlist as absent. The row is hard-deleted only once it ages past the sync
+    // retention window (PlaylistService.TombstoneRetention).
+    [property: JsonProperty("deleted")] bool Deleted = false) : ISyncableRecord
 {
     // The "Up Next" queue is a regular manual playlist the clients resolve (or create) by this
     // well-known name rather than a distinct backend concept — see UpNext.razor / UpNextView.swift.

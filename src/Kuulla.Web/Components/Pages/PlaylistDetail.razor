@@ -20,6 +20,11 @@ else if (loadError is not null)
 {
     <p class="text-danger">@loadError</p>
 }
+else if (deletedRemotely)
+{
+    <p>This playlist was deleted on another device.</p>
+    <a class="btn btn-outline-primary" href="playlists">Back to playlists</a>
+}
 else if (playlist is null)
 {
     <p>Playlist not found.</p>
@@ -212,6 +217,8 @@ else
     private bool confirmingDelete;
     private bool isDeleting;
     private string? deleteError;
+    // Set when a sync poll reports this playlist was deleted on another device (#400).
+    private bool deletedRemotely;
     private bool editing;
     private string editName = "";
     private string? editIcon;
@@ -260,6 +267,7 @@ else
         confirmingDelete = false;
         isDeleting = false;
         deleteError = null;
+        deletedRemotely = false;
         editing = false;
         isSavingEdit = false;
         editError = null;
@@ -312,8 +320,22 @@ else
 
     private void ApplyServerChanges(IReadOnlyList<Kuulla.Web.Models.Playlist> serverChanges)
     {
-        if (serverChanges.All(change => change.Id != Id))
+        var thisPlaylist = serverChanges.FirstOrDefault(change => change.Id == Id);
+        if (thisPlaylist is null)
         {
+            return;
+        }
+
+        if (thisPlaylist.Deleted)
+        {
+            // Deleted on another device (#400). Drop the view rather than re-fetching — the GET
+            // would 404 anyway — and let the user know why the playlist vanished.
+            _ = InvokeAsync(() =>
+            {
+                playlist = null;
+                deletedRemotely = true;
+                StateHasChanged();
+            });
             return;
         }
 
@@ -330,6 +352,13 @@ else
         try
         {
             playlist = await PlaylistClient.GetPlaylistDetailAsync(Id);
+            if (playlist is null)
+            {
+                // Gone server-side between the poll and this re-fetch (deleted elsewhere, #400).
+                deletedRemotely = true;
+                return;
+            }
+
             if (showOnlyUnplayed)
             {
                 await LoadEpisodeStatesAsync();

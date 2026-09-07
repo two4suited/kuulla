@@ -258,6 +258,48 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void ShowsDeletedMessage_WhenSyncPollReportsThisPlaylistTombstoned()
+    {
+        // #400: a playlist deleted on another device reaches this page as a sync ServerChange with
+        // Deleted = true; ApplyServerChanges drops the view rather than re-fetching (the GET would
+        // 404).
+        var detail = MakeDetail(new PlaylistItemDetail("episode-1", "show-1", "Original Episode", null, DateTimeOffset.UtcNow, "m"));
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/sync/playlists")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { ServerChanges = Array.Empty<Playlist>(), SyncedAt = DateTimeOffset.UtcNow, Hash = "h1" }),
+                };
+            }
+
+            if (request.RequestUri.AbsolutePath == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Dictionary<string, EpisodeState>()) };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) };
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Original Episode", cut.Markup));
+
+        var tombstone = new Playlist(
+            "playlist-1", "Commute", PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Deleted: true);
+        var applyServerChanges = cut.Instance.GetType().GetMethod(
+            "ApplyServerChanges", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        cut.InvokeAsync(() => applyServerChanges.Invoke(cut.Instance, [new[] { tombstone }]));
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("deleted on another device", cut.Markup);
+            Assert.DoesNotContain("Original Episode", cut.Markup);
+        });
+    }
+
+    [Fact]
     public void RemovesItem_WhenRemoveClicked()
     {
         var item = new PlaylistItemDetail("episode-1", "show-1", "Episode One", null, DateTimeOffset.UtcNow, "m");
