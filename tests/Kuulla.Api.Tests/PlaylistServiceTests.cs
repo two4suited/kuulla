@@ -435,16 +435,125 @@ public class PlaylistServiceTests
     }
 
     [Fact]
-    public async Task DeletePlaylistAsync_IsIdempotentWhenAlreadyDeleted()
+    public async Task DeletePlaylistAsync_WritesTombstoneInsteadOfHardDeleting()
+    {
+        var playlist = MakePlaylist(
+            items: [new PlaylistItem("episode-1", ShowId, DateTimeOffset.UtcNow, "m")],
+            updatedAt: DateTimeOffset.UtcNow.AddHours(-1));
+        Playlist? upserted = null;
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => upserted = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        await _sut.DeletePlaylistAsync(UserId, PlaylistId, CancellationToken.None);
+
+        Assert.NotNull(upserted);
+        Assert.True(upserted!.Deleted);
+        Assert.Empty(upserted.Items);
+        Assert.True(upserted.UpdatedAt > playlist.UpdatedAt);
+        _playlistsContainer.Verify(
+            c => c.DeleteItemAsync<Playlist>(It.IsAny<string>(), It.IsAny<PartitionKey>(), It.IsAny<ItemRequestOptions?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task DeletePlaylistAsync_IsIdempotentNoOpWhenAbsentOrAlreadyTombstoned()
     {
         _playlistsContainer
-            .Setup(c => c.DeleteItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
-        SetUpEmptyQuery();
 
-        var exception = await Record.ExceptionAsync(() => _sut.DeletePlaylistAsync(UserId, PlaylistId, CancellationToken.None));
+        await _sut.DeletePlaylistAsync(UserId, PlaylistId, CancellationToken.None);
 
-        Assert.Null(exception);
+        var tombstone = MakePlaylist(updatedAt: DateTimeOffset.UtcNow.AddDays(-1)) with { Deleted = true };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>("already-gone", It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(tombstone));
+
+        await _sut.DeletePlaylistAsync(UserId, "already-gone", CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetPlaylistsAsync_ExcludesTombstonedPlaylists()
+    {
+        var live = MakePlaylist("live", "Live");
+        var dead = MakePlaylist("dead", "Dead") with { Deleted = true };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[live, dead]));
+
+        var results = await _sut.GetPlaylistsAsync(UserId, CancellationToken.None);
+
+        var only = Assert.Single(results);
+        Assert.Equal("live", only.Id);
+    }
+
+    [Fact]
+    public async Task SyncAsync_ReturnsTombstoneAsServerChange()
+    {
+        var tombstone = MakePlaylist(updatedAt: DateTimeOffset.UtcNow) with { Deleted = true };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[tombstone]));
+
+        var result = await _sut.SyncAsync(
+            UserId, "device-1", DateTimeOffset.MinValue, localHash: "stale", [], CancellationToken.None);
+
+        var change = Assert.Single(result.ServerChanges);
+        Assert.Equal(PlaylistId, change.Id);
+        Assert.True(change.Deleted);
+    }
+
+    [Fact]
+    public async Task SyncAsync_DoesNotResurrectTombstonedPlaylistFromClientChange()
+    {
+        var tombstone = MakePlaylist(updatedAt: DateTimeOffset.UtcNow.AddHours(-1)) with { Deleted = true };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(tombstone));
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[tombstone]));
+
+        var resurrect = new PlaylistChange(
+            PlaylistId, "Back From The Dead", PlaylistType.Manual, [], DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow);
+
+        var result = await _sut.SyncAsync(
+            UserId, "device-1", DateTimeOffset.MinValue, localHash: "stale", [resurrect], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+        var change = Assert.Single(result.ServerChanges);
+        Assert.True(change.Deleted);
+    }
+
+    [Fact]
+    public async Task SyncAsync_HardDeletesTombstonesPastRetentionWindow()
+    {
+        var fresh = MakePlaylist("fresh", updatedAt: DateTimeOffset.UtcNow.AddDays(-1)) with { Deleted = true };
+        var expired = MakePlaylist("expired", updatedAt: DateTimeOffset.UtcNow - PlaylistService.TombstoneRetention - TimeSpan.FromDays(1))
+            with { Deleted = true };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[fresh, expired]));
+        _playlistsContainer
+            .Setup(c => c.DeleteItemAsync<Playlist>("expired", It.IsAny<PartitionKey>(), It.IsAny<ItemRequestOptions?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(expired));
+
+        var result = await _sut.SyncAsync(
+            UserId, "device-1", DateTimeOffset.MinValue, localHash: "stale", [], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.DeleteItemAsync<Playlist>("expired", It.IsAny<PartitionKey>(), It.IsAny<ItemRequestOptions?>(), It.IsAny<CancellationToken>()),
+            Times.AtLeastOnce);
+        Assert.DoesNotContain(result.ServerChanges, p => p.Id == "expired");
     }
 
     [Fact]

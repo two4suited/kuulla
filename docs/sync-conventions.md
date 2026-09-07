@@ -66,6 +66,11 @@ and extracted into reusable infrastructure in #84 — see below.
   only the global `UserSettings` document syncs across devices so far. `deviceId` is
   always `null` on `ShowSettings` today: its write paths don't take a deviceId from
   the caller, unlike `UserSettings`'s sync push path.
+- `Playlist` (`src/Kuulla.Core/Models/Playlist.cs`) — per-user collection synced via
+  `POST /api/sync/playlists`. First domain with a user-facing delete, so it's the
+  reference for the tombstone convention below (#400): `DeletePlaylistAsync` writes
+  `Deleted = true` instead of hard-deleting, and `PlaylistService.QueryAllForSyncAsync`
+  GCs aged-out tombstones.
 
 ## Reconciliation framework (`Kuulla.Api.Services.Sync`, #84)
 
@@ -108,6 +113,34 @@ A new domain (e.g. #41 settings sync) implements this by:
 
 See `EpisodeStateService` (`src/Kuulla.Api/Services/EpisodeStateService.cs`) for the
 reference adapter other domains should mirror.
+
+## Deletions / tombstones (#400)
+
+The reconciler's delta is "records changed since `lastSyncedAt`". A hard-deleted row
+drops out of `queryAllAsync` and no client is ever told it went away, so a domain
+with a user-facing delete must **soft-delete** instead:
+
+- **`ISyncableRecord.Deleted`** — a default-`false` interface member. On delete, the
+  domain writes the record back with `Deleted = true` and a fresh server-stamped
+  `UpdatedAt` (payload fields may be dropped), rather than removing the item.
+- **Delta & hash** — the tombstone stays in `queryAllAsync`, so `SyncReconciler`
+  returns it in `ServerChanges` like any other change and `SyncSummary` folds its
+  moved `UpdatedAt` into the hash, so the fast-path hash still converges. Clients
+  store the server's returned hash verbatim (they don't recompute it), so a client
+  that has locally removed the tombstoned record still matches on the next poll.
+- **No resurrection** — `SyncReconciler` discards an incoming client change whose id
+  maps to a stored tombstone, even when the change is newer. Tombstone wins; the
+  stale tombstone is handed back in the same delta so the client converges.
+- **Client adapters** apply an incoming tombstone by deleting the local record
+  (`PlaylistSyncAdapter.apply` on iOS; `PlaylistDetail.razor`'s `ApplyServerChanges`
+  on web drops the view and tells the user). The plain non-sync read paths
+  (`GET /api/playlists`, `GET /api/playlists/{id}`, every mutation) treat a
+  tombstoned row as absent.
+- **GC** — the domain hard-deletes tombstones once they age past the sync retention
+  window (`PlaylistService.TombstoneRetention`, 30 days), run opportunistically from
+  the reconciler's query-all path rather than as a separate job. A device that
+  hasn't synced within that window and still holds the record will re-push and
+  resurrect it — the same staleness bound the protocol already assumes.
 
 ## Web change-detection pattern (`Kuulla.Web.Services.Sync`/`Components.Sync`, #86)
 

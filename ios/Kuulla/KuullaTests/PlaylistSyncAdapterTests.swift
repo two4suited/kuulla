@@ -134,4 +134,58 @@ final class PlaylistSyncAdapterTests: MockedApiTestCase {
         let stored = try XCTUnwrap(try context.fetch(FetchDescriptor<PlaylistRecord>()).first)
         XCTAssertEqual(stored.name, "Local Name")
     }
+
+    // #400: a server change with deleted == true is a tombstone for a playlist removed on another
+    // device — apply(record:in:) deletes the local row outright.
+    func testApplyDeletesLocalRecordOnTombstone() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual, items: [],
+            createdAt: Date(timeIntervalSince1970: 1_000), updatedAt: Date(timeIntervalSince1970: 1_000), isDirty: true))
+        try context.save()
+
+        let adapter = PlaylistSyncAdapter(apiClient: apiClient)
+        let tombstone = PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual, items: [],
+            createdAt: Date(timeIntervalSince1970: 1_000), updatedAt: Date(timeIntervalSince1970: 2_000_000_000),
+            deleted: true)
+
+        try adapter.apply(tombstone, in: context)
+
+        XCTAssertTrue(try context.fetch(FetchDescriptor<PlaylistRecord>()).isEmpty)
+    }
+
+    func testApplyTombstoneForUnknownPlaylistIsANoOp() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let adapter = PlaylistSyncAdapter(apiClient: apiClient)
+        let tombstone = PlaylistRecord(
+            id: "never-seen", name: "Ghost", type: .manual, items: [],
+            createdAt: Date(timeIntervalSince1970: 1_000), updatedAt: Date(timeIntervalSince1970: 2_000_000_000),
+            deleted: true)
+
+        try adapter.apply(tombstone, in: context)
+
+        XCTAssertTrue(try context.fetch(FetchDescriptor<PlaylistRecord>()).isEmpty)
+    }
+
+    func testSyncNowAppliesTombstoneFromServerResponse() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual, items: [],
+            createdAt: Date(timeIntervalSince1970: 1_000), updatedAt: Date(timeIntervalSince1970: 1_000)))
+        try context.save()
+
+        stubSync(serverChanges: """
+        [{"id":"playlist1","name":"Commute","type":0,"items":[],"createdAt":"2020-01-01T00:00:00Z","updatedAt":"2026-08-19T09:00:00Z","dynamicConfig":null,"icon":null,"accentColor":null,"deleted":true}]
+        """)
+
+        let engine = SyncEngine(modelContainer: container, adapter: PlaylistSyncAdapter(apiClient: apiClient), deviceId: "device-1")
+        await engine.syncNow()
+
+        let freshContext = ModelContext(container)
+        XCTAssertTrue(try freshContext.fetch(FetchDescriptor<PlaylistRecord>()).isEmpty)
+    }
 }

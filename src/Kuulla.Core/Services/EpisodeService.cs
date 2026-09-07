@@ -375,7 +375,10 @@ public class EpisodeService(
     private async Task<(Playlist Playlist, string ETag)> ReadOrCreateUpNextPlaylistAsync(
         string userId, CancellationToken cancellationToken)
     {
-        var query = new QueryDefinition("SELECT * FROM c WHERE c.UserId = @userId AND c.Name = @name")
+        // Skip tombstones (#400): a deleted "Up Next" keeps its Name, so without this filter the
+        // auto-add hook would re-populate an invisible playlist and effectively resurrect it.
+        var query = new QueryDefinition(
+                "SELECT * FROM c WHERE c.UserId = @userId AND c.Name = @name AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)")
             .WithParameter("@userId", userId)
             .WithParameter("@name", Playlist.UpNextName);
 
@@ -636,8 +639,12 @@ public class EpisodeService(
         // have DynamicConfig set. Cross-partition (playlists are partitioned by UserId, and a
         // dynamic playlist referencing this show could belong to any user) but off the hot path,
         // same tradeoff GetSubscriberUserIdsAsync below makes.
+        // The deleted = false clause skips tombstones (#400) — DeletePlaylistAsync clears
+        // DynamicConfig so a tombstone shouldn't match ARRAY_CONTAINS anyway, but filter
+        // explicitly so a stale/partial tombstone can't get episodes re-inserted into it.
         var queryDefinition = new QueryDefinition(
-                "SELECT * FROM c WHERE IS_DEFINED(c.DynamicConfig) AND ARRAY_CONTAINS(c.DynamicConfig.ShowIds, @showId)")
+                "SELECT * FROM c WHERE IS_DEFINED(c.DynamicConfig) AND ARRAY_CONTAINS(c.DynamicConfig.ShowIds, @showId) "
+                + "AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)")
             .WithParameter("@showId", showId);
 
         var results = new List<Playlist>();

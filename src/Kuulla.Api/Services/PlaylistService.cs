@@ -15,8 +15,18 @@ public class PlaylistService(
 {
     private readonly SyncReconciler<Playlist, PlaylistChange> _reconciler = new();
 
-    public Task<IReadOnlyList<Playlist>> GetPlaylistsAsync(string userId, CancellationToken cancellationToken) =>
-        QueryAllAsync(userId, cancellationToken);
+    // How long a deleted playlist's tombstone is retained before it's hard-deleted (#400). A
+    // device that hasn't synced within this window and still holds the playlist will re-push it
+    // on its next sync and resurrect it — the same staleness bound the reconciliation protocol
+    // already assumes elsewhere (docs/sync-conventions.md). Kept in sync with any client-side
+    // "drop sync state older than N days" logic.
+    public static readonly TimeSpan TombstoneRetention = TimeSpan.FromDays(30);
+
+    public async Task<IReadOnlyList<Playlist>> GetPlaylistsAsync(string userId, CancellationToken cancellationToken)
+    {
+        var all = await QueryAllAsync(userId, cancellationToken);
+        return all.Where(p => !p.Deleted).ToList();
+    }
 
     public async Task<Playlist> CreatePlaylistAsync(
         string userId, string name, string? icon, string? accentColor, CancellationToken cancellationToken)
@@ -48,7 +58,7 @@ public class PlaylistService(
         string userId, string id, DynamicPlaylistConfig config, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
-        if (playlist is null || playlist.Type != PlaylistType.Dynamic)
+        if (playlist is null or { Deleted: true } || playlist.Type != PlaylistType.Dynamic)
         {
             return null;
         }
@@ -62,7 +72,7 @@ public class PlaylistService(
     public async Task<Playlist?> RecomputeDynamicPlaylistAsync(string userId, string id, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
-        if (playlist is not { Type: PlaylistType.Dynamic, DynamicConfig: not null })
+        if (playlist is not { Type: PlaylistType.Dynamic, DynamicConfig: not null, Deleted: false })
         {
             return null;
         }
@@ -162,7 +172,7 @@ public class PlaylistService(
     public async Task<PlaylistDetail?> GetPlaylistDetailAsync(string userId, string id, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
-        if (playlist is null)
+        if (playlist is null or { Deleted: true })
         {
             return null;
         }
@@ -210,7 +220,7 @@ public class PlaylistService(
         string userId, string id, string name, string? icon, string? accentColor, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
-        if (playlist is null)
+        if (playlist is null or { Deleted: true })
         {
             return null;
         }
@@ -226,29 +236,36 @@ public class PlaylistService(
         return updated;
     }
 
+    // Soft-delete: write a tombstone (Deleted = true, server-stamped UpdatedAt, Items dropped)
+    // rather than hard-deleting the Cosmos item, so the deletion propagates to other devices
+    // through POST /api/sync/playlists (#400). The reconciler returns the tombstone in the delta
+    // and folds its moved UpdatedAt into the summary hash; clients apply it by removing their
+    // local copy. The row is hard-deleted later, once it ages past TombstoneRetention
+    // (QueryAllForSyncAsync). Idempotent — deleting an absent or already-tombstoned playlist is a
+    // no-op that doesn't bump UpdatedAt again.
     public async Task DeletePlaylistAsync(string userId, string id, CancellationToken cancellationToken)
     {
-        try
+        var existing = await ReadAsync(userId, id, cancellationToken);
+        if (existing is null or { Deleted: true })
         {
-            await playlistsContainer.DeleteItemAsync<Playlist>(id, new PartitionKey(userId), cancellationToken: cancellationToken);
-        }
-        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-        {
-            // Already deleted — idempotent no-op.
+            return;
         }
 
-        // Note: the sync reconciler (SyncReconciler<TState,TChange>) has no tombstone concept —
-        // it only ever returns "records changed since lastSyncedAt", so a deletion here won't be
-        // propagated to other devices via POST /api/sync/playlists. That's a pre-existing gap in
-        // the shared framework (EpisodeState has no delete operation to have surfaced it before
-        // now), not something this issue's scope covers fixing.
+        var tombstone = existing with
+        {
+            Deleted = true,
+            Items = [],
+            DynamicConfig = null,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        await UpsertAsync(tombstone, cancellationToken);
     }
 
     public async Task<Playlist?> AddItemAsync(
         string userId, string id, string episodeId, string showId, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
-        if (playlist is null)
+        if (playlist is null or { Deleted: true })
         {
             return null;
         }
@@ -276,7 +293,7 @@ public class PlaylistService(
     public async Task<Playlist?> RemoveItemAsync(string userId, string id, string episodeId, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
-        if (playlist is null)
+        if (playlist is null or { Deleted: true })
         {
             return null;
         }
@@ -301,7 +318,7 @@ public class PlaylistService(
         CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
-        if (playlist is null)
+        if (playlist is null or { Deleted: true })
         {
             return null;
         }
@@ -371,7 +388,7 @@ public class PlaylistService(
                 change.AccentColor),
             readStoredAsync: (id, ct) => ReadAsync(userId, id, ct),
             upsertAsync: UpsertAsync,
-            queryAllAsync: ct => QueryAllAsync(userId, ct),
+            queryAllAsync: ct => QueryAllForSyncAsync(userId, ct),
             cancellationToken);
 
         return new SyncPlaylistsResult(result.ServerChanges, result.SyncedAt, result.Hash);
@@ -405,6 +422,41 @@ public class PlaylistService(
         }
 
         return results;
+    }
+
+    // The reconciler's query-all delegate: returns every row including live tombstones, so a
+    // deletion still appears in the delta and the summary hash (#400). Tombstones past
+    // TombstoneRetention are hard-deleted here and dropped from the result — this is the
+    // domain's tombstone GC, run opportunistically on each sync rather than as a separate job.
+    // A GC delete that races another writer (404/412) is ignored: the row is already gone or
+    // will be re-evaluated next sweep.
+    private async Task<IReadOnlyList<Playlist>> QueryAllForSyncAsync(string userId, CancellationToken cancellationToken)
+    {
+        var all = await QueryAllAsync(userId, cancellationToken);
+
+        var cutoff = DateTimeOffset.UtcNow - TombstoneRetention;
+        var expired = all.Where(p => p.Deleted && p.UpdatedAt < cutoff).ToList();
+        if (expired.Count == 0)
+        {
+            return all;
+        }
+
+        await Task.WhenAll(expired.Select(async p =>
+        {
+            try
+            {
+                await playlistsContainer.DeleteItemAsync<Playlist>(
+                    p.Id, new PartitionKey(userId), cancellationToken: cancellationToken);
+            }
+            catch (CosmosException ex) when (
+                ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.PreconditionFailed)
+            {
+                // Already gone or changed under us — nothing to GC.
+            }
+        }));
+
+        var expiredIds = expired.Select(p => p.Id).ToHashSet();
+        return all.Where(p => !expiredIds.Contains(p.Id)).ToList();
     }
 
     private async Task UpsertAsync(Playlist playlist, CancellationToken cancellationToken)

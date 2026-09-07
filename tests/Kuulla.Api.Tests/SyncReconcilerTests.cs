@@ -10,7 +10,8 @@ public class SyncReconcilerTests
 {
     private const string UserId = "user-1";
 
-    private record TestRecord(string Id, string Value, DateTimeOffset UpdatedAt) : ISyncableRecord;
+    private record TestRecord(string Id, string Value, DateTimeOffset UpdatedAt, bool Deleted = false)
+        : ISyncableRecord;
 
     private record TestChange(string Id, string Value, DateTimeOffset UpdatedAt);
 
@@ -83,6 +84,51 @@ public class SyncReconcilerTests
         var result = await ReconcileAsync(lastSyncedAt, "stale-hash", []);
 
         Assert.Empty(result.ServerChanges);
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_ReturnsTombstoneInDeltaLikeAnyOtherChange()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        _store["w-1"] = new TestRecord("w-1", "", lastSyncedAt.AddHours(1), Deleted: true);
+
+        var result = await ReconcileAsync(lastSyncedAt, "stale-hash", []);
+
+        var tombstone = Assert.Single(result.ServerChanges);
+        Assert.Equal("w-1", tombstone.Id);
+        Assert.True(tombstone.Deleted);
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_TombstoneWinsOverNewerIncomingChange_AndIsReturnedAsDelta()
+    {
+        var deletedAt = DateTimeOffset.UtcNow.AddHours(-1);
+        _store["w-1"] = new TestRecord("w-1", "", deletedAt, Deleted: true);
+        // Client still holds the record and edited it *after* the server-side delete.
+        var resurrect = new TestChange("w-1", "edited-after-delete", DateTimeOffset.UtcNow);
+
+        var result = await ReconcileAsync(deletedAt.AddHours(-1), "stale-hash", [resurrect]);
+
+        Assert.True(_store["w-1"].Deleted);
+        Assert.Equal("", _store["w-1"].Value);
+        var tombstone = Assert.Single(result.ServerChanges);
+        Assert.True(tombstone.Deleted);
+    }
+
+    [Fact]
+    public async Task ReconcileAsync_FastPathHashAccountsForTombstone()
+    {
+        // A client that has removed its local copy of a tombstoned record still stores the
+        // server's returned hash verbatim, so an unchanged collection with a tombstone in it
+        // must hash-match on the next empty poll.
+        _store["w-live"] = new TestRecord("w-live", "x", DateTimeOffset.UtcNow.AddDays(-3));
+        _store["w-gone"] = new TestRecord("w-gone", "", DateTimeOffset.UtcNow.AddDays(-2), Deleted: true);
+        var currentHash = SyncSummary.FromRecords(_store.Values.ToList()).Hash;
+
+        var result = await ReconcileAsync(DateTimeOffset.UtcNow.AddDays(-1), currentHash, []);
+
+        Assert.Empty(result.ServerChanges);
+        Assert.Equal(currentHash, result.Hash);
     }
 
     [Fact]
