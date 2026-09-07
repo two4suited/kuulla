@@ -107,4 +107,49 @@ final class SubscriptionClientTests: MockedApiTestCase {
 
         XCTAssertTrue(ids.isEmpty)
     }
+
+    func testImportOpmlPostsMultipartFileAndDecodesCounts() async throws {
+        let json = """
+        {"added":2,"alreadySubscribed":1,"failed":[{"feedUrl":"https://dead.example/feed","reason":"The feed couldn't be fetched or read."}]}
+        """.data(using: .utf8)!
+        var capturedRequest: URLRequest?
+        MockURLProtocol.stubHandler = { request in
+            capturedRequest = request
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let fileBytes = Data("<opml version=\"2.0\"><body/></opml>".utf8)
+        let result = try await client.importOpml(fileData: fileBytes, fileName: "subs.opml")
+
+        XCTAssertEqual(result, OpmlImportResult(
+            added: 2,
+            alreadySubscribed: 1,
+            failed: [OpmlImportFailure(feedUrl: "https://dead.example/feed", reason: "The feed couldn't be fetched or read.")]))
+
+        let request = try XCTUnwrap(capturedRequest)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertTrue(try XCTUnwrap(request.url).absoluteString.hasSuffix("/api/subscriptions/import"))
+        let contentType = try XCTUnwrap(request.value(forHTTPHeaderField: "Content-Type"))
+        XCTAssertTrue(contentType.hasPrefix("multipart/form-data; boundary="))
+
+        let body = try XCTUnwrap(request.capturedBodyData)
+        let bodyText = try XCTUnwrap(String(data: body, encoding: .utf8))
+        XCTAssertTrue(bodyText.contains("Content-Disposition: form-data; name=\"file\"; filename=\"subs.opml\""))
+        XCTAssertTrue(bodyText.contains("Content-Type: text/x-opml"))
+        XCTAssertTrue(bodyText.contains("<opml version=\"2.0\"><body/></opml>"))
+    }
+
+    func testImportOpmlPropagatesBadRequest() async {
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 400, data: Data(), headers: [:])) }
+
+        do {
+            _ = try await client.importOpml(fileData: Data("nope".utf8), fileName: "x.opml")
+            XCTFail("expected ApiError.requestFailed")
+        } catch ApiError.requestFailed(let statusCode) {
+            XCTAssertEqual(statusCode, 400)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
 }
