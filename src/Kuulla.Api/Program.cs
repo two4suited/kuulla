@@ -1485,6 +1485,32 @@ settings.MapPut("/auto-delete", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/shows/{showId}/auto-delete", async (
+    string showId,
+    UpdateShowAutoDeleteRuleRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.AutoDeleteRule is { } rule && !Enum.IsDefined(rule))
+    {
+        return Results.BadRequest(new { error = "'autoDeleteRule' is not a valid value." });
+    }
+
+    // Validate whenever a day count is supplied (a show can override AutoDeleteAfterDays while
+    // inheriting the global rule), but not require one — null clears the override.
+    if (request.AutoDeleteAfterDays is { } afterDays &&
+        !TryValidateAutoDeleteAfterDays(afterDays, "autoDeleteAfterDays", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowAutoDeleteRuleAsync(
+        userId, showId, request.AutoDeleteRule, request.AutoDeleteAfterDays, ct);
+    return Results.Ok(result);
+});
+
 settings.MapPut("/auto-download", async (
     UpdateAutoDownloadNewEpisodesRequest request,
     ClaimsPrincipal user,

@@ -1,7 +1,7 @@
 namespace Kuulla.Web.Models;
 
-// Shared display options for the AutoDeleteRule selector on the global settings page — no
-// per-show override exists for this field (global only, per docs/downloads-storage-settings.md).
+// Shared display options for the AutoDeleteRule selector — used by the global settings page and
+// the per-show override on the show page (#445).
 public static class AutoDeleteRuleUi
 {
     public static readonly AutoDeleteRule[] Options =

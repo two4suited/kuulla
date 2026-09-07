@@ -511,6 +511,87 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateShowAutoDeleteRuleAsync_SetsOverrideAndIncrementsVersion()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, null, Version: 2);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowAutoDeleteRuleAsync(UserId, showId, AutoDeleteRule.AfterDays, 14, CancellationToken.None);
+
+        Assert.Equal(AutoDeleteRule.AfterDays, result.AutoDeleteRule);
+        Assert.Equal(14, result.AutoDeleteAfterDays);
+        Assert.Equal(3, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowAutoDeleteRuleAsync_ClearsOverrideWhenValuesAreNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(
+            id, UserId, showId, null, Version: 4, AutoDeleteRule: AutoDeleteRule.AfterDays, AutoDeleteAfterDays: 30);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowAutoDeleteRuleAsync(UserId, showId, null, null, CancellationToken.None);
+
+        Assert.Null(result.AutoDeleteRule);
+        Assert.Null(result.AutoDeleteAfterDays);
+        Assert.Equal(5, result.Version);
+    }
+
+    [Fact]
+    public async Task GetEffectiveAutoDeleteRuleAsync_ReturnsShowOverrideWhenBothFieldsSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2, AutoDeleteRule: AutoDeleteRule.AfterDays, AutoDeleteAfterDays: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectiveAutoDeleteRuleAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal((AutoDeleteRule.AfterDays, 3), result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectiveAutoDeleteRuleAsync_FallsBackToUserSettingsPerField()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        // Rule overridden to AfterDays, but the day count inherits the global value.
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2, AutoDeleteRule: AutoDeleteRule.AfterDays);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+        var userSettings = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 21);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveAutoDeleteRuleAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal((AutoDeleteRule.AfterDays, 21), result);
+    }
+
+    [Fact]
     public async Task UpdateAutoSkipAsync_IncrementsVersionOfExistingDocument()
     {
         var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);

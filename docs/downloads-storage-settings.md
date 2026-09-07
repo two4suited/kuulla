@@ -64,12 +64,29 @@ what connection*.
     downloads, and can be layered on later as its own field without reshaping this
     enum. `#186`'s connection-based rules are a separate concern and don't block on
     this decision either.
-- Global-only (`downloadsAndStorage.autoDeleteRule` on `UserSettings`) — no per-show
-  override. Unlike auto-download, which show gets kept offline, a per-show delete
-  policy fragmentation ("some shows auto-delete after play, others never do") adds a
-  second axis of state a user has to track in the downloads list (#178) for little
-  benefit; a show that needs different handling is better served by the user managing
-  it manually from that show's downloads.
+- ~~Global-only (`downloadsAndStorage.autoDeleteRule` on `UserSettings`) — no per-show
+  override.~~ **Reversed by [#445](https://github.com/two4suited/kuulla/issues/445).**
+  The original call was that per-show delete-policy fragmentation ("some shows
+  auto-delete after play, others never do") adds a second axis of state a user has to
+  track in the downloads list (#178) for little benefit. In practice users *do* want
+  per-podcast control over how long downloads are kept — a daily news show can be
+  aggressively cleaned up while a slowly-published interview show is kept forever —
+  and that is exactly the "keep this one downloaded" intent `AutoDownloadNewEpisodes`
+  already carries per show. Per-show overrides now exist:
+  - `AutoDeleteRule? AutoDeleteRule` on `ShowSettings` — `null` = inherit the user's
+    global rule.
+  - `int? AutoDeleteAfterDays` on `ShowSettings` — `null` = inherit; only meaningful
+    when the effective rule is `AfterDays`.
+  - A per-show "never auto-delete this show" is just `AutoDeleteRule.Never` as the
+    override; no separate flag.
+  - The effective rule for a show is
+    `ShowSettings.AutoDeleteRule ?? UserSettings.AutoDeleteRule` (and likewise for the
+    day count), resolved by `ISettingsService.GetEffectiveAutoDeleteRuleAsync`
+    wherever auto-delete runs — the same nullable-override pattern
+    `AutoArchiveRule` / `PlaybackSpeed` / `AutoDownloadNewEpisodes` use.
+  - Endpoint: `PUT /settings/shows/{showId}/auto-delete` with
+    `{ autoDeleteRule, autoDeleteAfterDays }` (both nullable — `null` clears that
+    override), alongside the existing global `PUT /settings/auto-delete`.
 
 ### Storage usage & manual clear
 
@@ -94,6 +111,8 @@ UserSettings                       (id = userId)
 
 ShowSettings   (id = ShowSettings.BuildId(userId, showId))
 ├─ autoDownloadNewEpisodes : bool?           // null = inherit UserSettings default
+├─ autoDeleteRule : (Never|AfterPlayed|AfterDays)?   // null = inherit UserSettings rule (#445)
+├─ autoDeleteAfterDays : int?                // null = inherit; only meaningful when effective rule == AfterDays (#445)
 ```
 
 Synced like every other field in `UserSettings`/`ShowSettings` (per
@@ -111,7 +130,9 @@ preference, not a per-device one, unlike #186's connection-based settings.
   - "Manage Downloads" row navigating to #178's screen.
 - Per-show override: a "Podcast settings" entry on the show page (existing
   `ShowSettingsSheet`/Web equivalent per settings-architecture.md) gains an
-  "Auto-download new episodes" toggle with the same "Using default" / "Reset to
+  "Auto-download new episodes" toggle and a "Delete downloads" picker (Never / After
+  played / After N days, with an inline N control when "After N days" is selected),
+  both with a "Use global default" option — the same "Using default" / "Reset to
   default" behavior every other per-show override field already has.
 
 ## Interaction with the Offline Downloads download manager

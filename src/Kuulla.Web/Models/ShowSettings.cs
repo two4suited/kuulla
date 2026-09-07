@@ -9,6 +9,9 @@ public record ShowSettings(
     // Null means "no override — inherit the user's global PlaybackSpeed".
     float? PlaybackSpeed = null,
     bool? AutoDownloadNewEpisodes = null,
+    // Null means "no override — inherit the user's global AutoDeleteRule / AutoDeleteAfterDays".
+    AutoDeleteRule? AutoDeleteRule = null,
+    int? AutoDeleteAfterDays = null,
     // Null means "no override — inherit the user's global SmartSpeed".
     bool? SmartSpeed = null,
     bool? AutoAddNewEpisodesToUpNext = null,

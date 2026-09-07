@@ -123,6 +123,36 @@ else
                     </div>
 
                     <div class="mt-3" style="max-width: 24rem;">
+                        <label class="form-label" for="show-auto-delete-rule">Delete downloads</label>
+                        <select id="show-auto-delete-rule" class="form-select" disabled="@isShowAutoDeleteSaving"
+                                value="@ShowAutoDeleteRuleSelectValue" @onchange="OnShowAutoDeleteRuleChangedAsync">
+                            <option value="">Use global default</option>
+                            @foreach (var option in AutoDeleteRuleUi.Options)
+                            {
+                                <option value="@option">@AutoDeleteRuleUi.Format(option)</option>
+                            }
+                        </select>
+                        @if (showAutoDeleteRuleOverride == AutoDeleteRule.AfterDays)
+                        {
+                            <div class="mt-2 d-flex align-items-center gap-2">
+                                <label class="form-label mb-0" for="show-auto-delete-after-days">After</label>
+                                <input id="show-auto-delete-after-days" type="number" class="form-control" style="width: 6rem;"
+                                       min="1" max="365" disabled="@isShowAutoDeleteSaving" value="@showAutoDeleteAfterDaysOverride"
+                                       @onchange="OnShowAutoDeleteAfterDaysChangedAsync" />
+                                <span>day(s)</span>
+                            </div>
+                        }
+                        @if (showAutoDeleteError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showAutoDeleteError</p>
+                        }
+                        else if (showAutoDeleteSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="mt-3" style="max-width: 24rem;">
                         <label class="form-label" for="show-auto-add-up-next">Add new episodes to Up Next</label>
                         <select id="show-auto-add-up-next" class="form-select" disabled="@isShowAutoAddUpNextSaving"
                                 value="@ShowAutoAddUpNextSelectValue" @onchange="OnShowAutoAddNewEpisodesToUpNextChangedAsync">
@@ -395,6 +425,11 @@ else
     private bool isShowAutoAddUpNextSaving;
     private string? showAutoAddUpNextError;
     private bool showAutoAddUpNextSavedConfirmation;
+    private AutoDeleteRule? showAutoDeleteRuleOverride;
+    private int? showAutoDeleteAfterDaysOverride;
+    private bool isShowAutoDeleteSaving;
+    private string? showAutoDeleteError;
+    private bool showAutoDeleteSavedConfirmation;
     private int? showAutoSkipIntroSecondsOverride;
     private int? showAutoSkipOutroSecondsOverride;
     private bool isShowAutoSkipSaving;
@@ -441,6 +476,8 @@ else
         false => "false",
         null => "",
     };
+
+    private string ShowAutoDeleteRuleSelectValue => showAutoDeleteRuleOverride?.ToString() ?? "";
 
     private string ShowAutoSkipIntroSelectValue => showAutoSkipIntroSecondsOverride?.ToString() ?? "";
 
@@ -571,6 +608,11 @@ else
         isShowAutoAddUpNextSaving = false;
         showAutoAddUpNextError = null;
         showAutoAddUpNextSavedConfirmation = false;
+        showAutoDeleteRuleOverride = null;
+        showAutoDeleteAfterDaysOverride = null;
+        isShowAutoDeleteSaving = false;
+        showAutoDeleteError = null;
+        showAutoDeleteSavedConfirmation = false;
         showAutoSkipIntroSecondsOverride = null;
         showAutoSkipOutroSecondsOverride = null;
         isShowAutoSkipSaving = false;
@@ -631,6 +673,8 @@ else
             showAutoArchiveRuleOverride = settings.AutoArchiveRule;
             showAutoDownloadNewEpisodesOverride = settings.AutoDownloadNewEpisodes;
             showAutoAddNewEpisodesToUpNextOverride = settings.AutoAddNewEpisodesToUpNext;
+            showAutoDeleteRuleOverride = settings.AutoDeleteRule;
+            showAutoDeleteAfterDaysOverride = settings.AutoDeleteAfterDays;
             showAutoSkipIntroSecondsOverride = settings.AutoSkipIntroSeconds;
             showAutoSkipOutroSecondsOverride = settings.AutoSkipOutroSeconds;
             showPlaybackSpeedOverride = settings.PlaybackSpeed;
@@ -800,6 +844,69 @@ else
         finally
         {
             isShowAutoAddUpNextSaving = false;
+        }
+    }
+
+    private async Task OnShowAutoDeleteRuleChangedAsync(ChangeEventArgs args)
+    {
+        var raw = args.Value?.ToString();
+        AutoDeleteRule? value;
+        if (string.IsNullOrEmpty(raw))
+        {
+            value = null;
+        }
+        else if (Enum.TryParse(raw, out AutoDeleteRule parsed) && Enum.IsDefined(parsed))
+        {
+            value = parsed;
+        }
+        else
+        {
+            return;
+        }
+
+        // Switching to "After N days" with no prior day-count override seeds 7, so the inline
+        // input and the persisted override start from a concrete value (matches iOS).
+        var afterDays = value == AutoDeleteRule.AfterDays
+            ? showAutoDeleteAfterDaysOverride ?? 7
+            : showAutoDeleteAfterDaysOverride;
+        await SaveShowAutoDeleteAsync(value, afterDays);
+    }
+
+    private async Task OnShowAutoDeleteAfterDaysChangedAsync(ChangeEventArgs args)
+    {
+        if (!TryParseNullableInt(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        await SaveShowAutoDeleteAsync(showAutoDeleteRuleOverride, value);
+    }
+
+    // The API endpoint takes the rule and its day count together, so a change to either PUTs both.
+    private async Task SaveShowAutoDeleteAsync(AutoDeleteRule? rule, int? afterDays)
+    {
+        var previousRule = showAutoDeleteRuleOverride;
+        var previousAfterDays = showAutoDeleteAfterDaysOverride;
+        showAutoDeleteRuleOverride = rule;
+        showAutoDeleteAfterDaysOverride = afterDays;
+        isShowAutoDeleteSaving = true;
+        showAutoDeleteError = null;
+        showAutoDeleteSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowAutoDeleteRuleAsync(Id, rule, afterDays);
+            showAutoDeleteSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showAutoDeleteRuleOverride = previousRule;
+            showAutoDeleteAfterDaysOverride = previousAfterDays;
+            showAutoDeleteError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowAutoDeleteSaving = false;
         }
     }
 

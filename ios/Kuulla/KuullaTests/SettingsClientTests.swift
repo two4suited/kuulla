@@ -435,6 +435,61 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertNil(bodyJSON["autoDownloadNewEpisodes"])
     }
 
+    func testGetShowSettingsDecodesNullAutoDeleteOverridesAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":1,"autoDeleteRule":null,"autoDeleteAfterDays":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.autoDeleteRule)
+        XCTAssertNil(settings.autoDeleteAfterDays)
+    }
+
+    func testUpdateShowAutoDeleteRuleSendsPutWithRuleAndAfterDays() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":2,"autoDeleteRule":2,"autoDeleteAfterDays":30}
+        """.data(using: .utf8)!
+        var capturedMethod: String?
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowAutoDeleteRule(showId: "s1", rule: .afterDays, afterDays: 30)
+
+        XCTAssertEqual(updated.autoDeleteRule, .afterDays)
+        XCTAssertEqual(updated.autoDeleteAfterDays, 30)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/auto-delete"))
+        XCTAssertEqual(capturedMethod, "PUT")
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["autoDeleteRule"] as? Int, 2)
+        XCTAssertEqual(bodyJSON["autoDeleteAfterDays"] as? Int, 30)
+    }
+
+    func testUpdateShowAutoDeleteRuleClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"autoDeleteRule":null,"autoDeleteAfterDays":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowAutoDeleteRule(showId: "s1", rule: nil, afterDays: nil)
+
+        XCTAssertNil(updated.autoDeleteRule)
+        XCTAssertNil(updated.autoDeleteAfterDays)
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["autoDeleteRule"])
+        XCTAssertNil(bodyJSON["autoDeleteAfterDays"])
+    }
+
     func testGetSettingsDefaultsAutoAddNewEpisodesToUpNextFieldsWhenAbsent() async throws {
         let json = """
         {"userId":"u1","unlistenedEpisodeCount":5,"version":1}

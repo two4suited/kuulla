@@ -359,6 +359,42 @@ public class SettingsService(
             current => current with { AutoDeleteRule = autoDeleteRule, AutoDeleteAfterDays = autoDeleteAfterDays },
             cancellationToken);
 
+    public async Task<ShowSettings> UpdateShowAutoDeleteRuleAsync(
+        string userId, string showId, AutoDeleteRule? autoDeleteRule, int? autoDeleteAfterDays, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            AutoDeleteRule = autoDeleteRule,
+            AutoDeleteAfterDays = autoDeleteAfterDays,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<(AutoDeleteRule Rule, int AfterDays)> GetEffectiveAutoDeleteRuleAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+
+        // Skip the UserSettings read entirely when both fields are already overridden at the show
+        // level, matching how GetEffectiveAutoSkipAsync short-circuits.
+        if (showSettings.AutoDeleteRule is { } ruleOverride && showSettings.AutoDeleteAfterDays is { } daysOverride)
+        {
+            return (ruleOverride, daysOverride);
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        var rule = showSettings.AutoDeleteRule ?? userSettings.AutoDeleteRule;
+        var afterDays = showSettings.AutoDeleteAfterDays ?? userSettings.AutoDeleteAfterDays;
+        return (rule, afterDays);
+    }
+
     public Task<UserSettings> UpdateAutoDownloadNewEpisodesAsync(
         string userId, bool autoDownloadNewEpisodes, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(

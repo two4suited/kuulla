@@ -13,6 +13,8 @@ struct ShowSettings: Codable, Hashable {
     let autoSkipOutroSeconds: Int?
     let playbackSpeed: Float?
     let autoDownloadNewEpisodes: Bool?
+    let autoDeleteRule: AutoDeleteRule?
+    let autoDeleteAfterDays: Int?
     let smartSpeed: Bool?
     let autoAddNewEpisodesToUpNext: Bool?
     let notificationsEnabled: Bool?
@@ -21,7 +23,8 @@ struct ShowSettings: Codable, Hashable {
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
         version: Int, autoArchiveRule: AutoArchiveRule?,
         autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil,
-        autoDownloadNewEpisodes: Bool? = nil, smartSpeed: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
+        autoDownloadNewEpisodes: Bool? = nil, autoDeleteRule: AutoDeleteRule? = nil, autoDeleteAfterDays: Int? = nil,
+        smartSpeed: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
         notificationsEnabled: Bool? = nil
     ) {
         self.id = id
@@ -34,6 +37,8 @@ struct ShowSettings: Codable, Hashable {
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
         self.playbackSpeed = playbackSpeed
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
+        self.autoDeleteRule = autoDeleteRule
+        self.autoDeleteAfterDays = autoDeleteAfterDays
         self.smartSpeed = smartSpeed
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.notificationsEnabled = notificationsEnabled
@@ -41,7 +46,7 @@ struct ShowSettings: Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDownloadNewEpisodes, smartSpeed, autoAddNewEpisodesToUpNext, notificationsEnabled
+        case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, autoAddNewEpisodesToUpNext, notificationsEnabled
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -58,6 +63,8 @@ struct ShowSettings: Codable, Hashable {
         autoSkipOutroSeconds = try container.decodeIfPresent(Int.self, forKey: .autoSkipOutroSeconds)
         playbackSpeed = try container.decodeIfPresent(Float.self, forKey: .playbackSpeed)
         autoDownloadNewEpisodes = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadNewEpisodes)
+        autoDeleteRule = try container.decodeIfPresent(AutoDeleteRule.self, forKey: .autoDeleteRule)
+        autoDeleteAfterDays = try container.decodeIfPresent(Int.self, forKey: .autoDeleteAfterDays)
         smartSpeed = try container.decodeIfPresent(Bool.self, forKey: .smartSpeed)
         autoAddNewEpisodesToUpNext = try container.decodeIfPresent(Bool.self, forKey: .autoAddNewEpisodesToUpNext)
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)
@@ -78,6 +85,8 @@ struct ShowSettings: Codable, Hashable {
         autoSkipOutroSeconds: Int?? = nil,
         playbackSpeed: Float?? = nil,
         autoDownloadNewEpisodes: Bool?? = nil,
+        autoDeleteRule: AutoDeleteRule?? = nil,
+        autoDeleteAfterDays: Int?? = nil,
         smartSpeed: Bool?? = nil,
         autoAddNewEpisodesToUpNext: Bool?? = nil,
         notificationsEnabled: Bool?? = nil
@@ -91,6 +100,8 @@ struct ShowSettings: Codable, Hashable {
             autoSkipOutroSeconds: autoSkipOutroSeconds ?? self.autoSkipOutroSeconds,
             playbackSpeed: playbackSpeed ?? self.playbackSpeed,
             autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes,
+            autoDeleteRule: autoDeleteRule ?? self.autoDeleteRule,
+            autoDeleteAfterDays: autoDeleteAfterDays ?? self.autoDeleteAfterDays,
             smartSpeed: smartSpeed ?? self.smartSpeed,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled)

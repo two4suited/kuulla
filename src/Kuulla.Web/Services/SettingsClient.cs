@@ -181,6 +181,18 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<ShowSettings> UpdateShowAutoDeleteRuleAsync(
+        string showId, AutoDeleteRule? autoDeleteRule, int? autoDeleteAfterDays, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/auto-delete",
+            new { AutoDeleteRule = autoDeleteRule, AutoDeleteAfterDays = autoDeleteAfterDays },
+            JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<UserSettings> UpdateAutoDownloadNewEpisodesAsync(
         bool autoDownloadNewEpisodes, CancellationToken cancellationToken = default)
     {
