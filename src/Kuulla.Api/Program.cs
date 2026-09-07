@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using Kuulla.Api.Services;
 using Kuulla.Core;
 using Kuulla.Core.Models;
@@ -34,6 +35,7 @@ builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddScoped<IPlaylistService, PlaylistService>();
 builder.Services.AddScoped<ITranscriptService, TranscriptService>();
 builder.Services.AddScoped<IOpmlImportService, OpmlImportService>();
+builder.Services.AddScoped<IOpmlExportService, OpmlExportService>();
 
 // The feed-polling sweep no longer runs in the API — the Kuulla.FeedPoller worker (an ACA
 // scheduled job in production) owns it now, so it runs once per tick instead of once per API
@@ -607,6 +609,14 @@ subscriptions.MapGet("/episodes", async (ClaimsPrincipal user, ISubscriptionServ
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var results = await subscriptionService.GetNewEpisodesAsync(userId, ct);
     return Results.Ok(results);
+});
+
+// Download the caller's subscriptions as an OPML 2.0 file (round-trips with the import endpoint).
+subscriptions.MapGet("/export", async (ClaimsPrincipal user, IOpmlExportService exportService, CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var opml = await exportService.ExportAsync(userId, ct);
+    return Results.File(Encoding.UTF8.GetBytes(opml), "text/x-opml", "kuulla-subscriptions.opml");
 });
 
 // Bulk-subscribe from an uploaded OPML file (another podcast app's exported library). Feeds the
