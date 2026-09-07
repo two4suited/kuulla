@@ -55,7 +55,8 @@ public class SubscriptionService(
             show.Author,
             show.ArtworkUrl,
             DateTimeOffset.UtcNow,
-            latestEpisodePublishedAt);
+            latestEpisodePublishedAt,
+            show.FeedUrl);
 
         try
         {

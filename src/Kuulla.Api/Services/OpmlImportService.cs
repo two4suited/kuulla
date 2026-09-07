@@ -1,0 +1,112 @@
+using Kuulla.Core.Services;
+
+namespace Kuulla.Api.Services;
+
+// One OPML entry that couldn't be imported, with a human-readable reason for the UI to show.
+public record OpmlImportFailure(string FeedUrl, string Reason);
+
+// Outcome of an OPML import. AddedShowIds backs the Added count and lets the endpoint fire the
+// same post-subscribe unlistened-limit enforcement it runs for a single subscribe.
+public record OpmlImportResult(
+    IReadOnlyList<string> AddedShowIds,
+    int AlreadySubscribed,
+    IReadOnlyList<OpmlImportFailure> Failed)
+{
+    public int Added => AddedShowIds.Count;
+}
+
+public interface IOpmlImportService
+{
+    // Throws FormatException (mapped to 400 by the endpoint) when the document as a whole is
+    // invalid; per-entry problems come back in the result's Failed list.
+    Task<OpmlImportResult> ImportAsync(string userId, string opml, CancellationToken cancellationToken);
+}
+
+public class OpmlImportService(ISubscriptionService subscriptionService, IShowService showService)
+    : IOpmlImportService
+{
+    // A 200-feed OPML shouldn't fan out 200 concurrent feed fetches + show creates at the
+    // podcast hosts (or at Cosmos). Small enough to be polite, large enough that a big import
+    // still finishes in a reasonable time.
+    private const int MaxConcurrency = 6;
+
+    public async Task<OpmlImportResult> ImportAsync(string userId, string opml, CancellationToken cancellationToken)
+    {
+        var feeds = OpmlParser.Parse(opml);
+
+        var alreadySubscribedUrls = await ResolveExistingFeedUrlsAsync(userId, cancellationToken);
+
+        var addedShowIds = new List<string>();
+        var failed = new List<OpmlImportFailure>();
+        var alreadySubscribed = 0;
+
+        using var gate = new SemaphoreSlim(MaxConcurrency);
+        var tasks = feeds.Select(async feed =>
+        {
+            // OpmlParser already returns feed URLs normalized, so this matches the same key
+            // ResolveExistingFeedUrlsAsync built. Guarded anyway in case that ever changes.
+            var normalized = FeedUrl.Normalize(feed.FeedUrl);
+            if (alreadySubscribedUrls.Contains(normalized))
+            {
+                Interlocked.Increment(ref alreadySubscribed);
+                return;
+            }
+
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                var show = await showService.GetOrCreateByFeedUrlAsync(normalized, cancellationToken);
+                if (show is null)
+                {
+                    lock (failed)
+                    {
+                        failed.Add(new OpmlImportFailure(normalized, "The feed couldn't be fetched or read."));
+                    }
+
+                    return;
+                }
+
+                var subscription = await subscriptionService.SubscribeAsync(userId, show.Id, cancellationToken);
+                if (subscription is null)
+                {
+                    lock (failed)
+                    {
+                        failed.Add(new OpmlImportFailure(normalized, "The show couldn't be subscribed to."));
+                    }
+
+                    return;
+                }
+
+                lock (addedShowIds)
+                {
+                    addedShowIds.Add(show.Id);
+                }
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks);
+
+        return new OpmlImportResult(addedShowIds, alreadySubscribed, failed);
+    }
+
+    // The user's current subscriptions, resolved to a set of normalized feed URLs. Cheap for the
+    // common case (Subscription.FeedUrl is snapshotted on subscribe); only rows that predate that
+    // field cost a point-read back to the shows container.
+    private async Task<HashSet<string>> ResolveExistingFeedUrlsAsync(string userId, CancellationToken cancellationToken)
+    {
+        var subscriptions = await subscriptionService.GetSubscriptionsAsync(userId, cancellationToken);
+
+        var resolved = await Task.WhenAll(subscriptions.Select(async subscription =>
+            subscription.FeedUrl
+            ?? await showService.TryGetFeedUrlAsync(subscription.ShowId, cancellationToken)));
+
+        return resolved
+            .Where(url => !string.IsNullOrEmpty(url))
+            .Select(url => FeedUrl.Normalize(url!))
+            .ToHashSet();
+    }
+}

@@ -12,6 +12,11 @@ public interface IShowService
     // be fetched or parsed, so the importer can record a per-entry failure.
     Task<Show?> GetOrCreateByFeedUrlAsync(string feedUrl, CancellationToken cancellationToken);
 
+    // A plain point-read for just a show's feed URL — no description enrichment / feed fetch,
+    // unlike GetByIdAsync. Used by OPML import to resolve legacy Subscription rows that predate
+    // Subscription.FeedUrl. Null when the show doesn't exist or has no feed URL.
+    Task<string?> TryGetFeedUrlAsync(string showId, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<Show>> SearchAsync(string query, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Show>> GetTrendingAsync(string? category, CancellationToken cancellationToken);

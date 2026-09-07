@@ -33,6 +33,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IDiscoveryService, DiscoveryService>();
 builder.Services.AddScoped<IPlaylistService, PlaylistService>();
 builder.Services.AddScoped<ITranscriptService, TranscriptService>();
+builder.Services.AddScoped<IOpmlImportService, OpmlImportService>();
 
 // The feed-polling sweep no longer runs in the API — the Kuulla.FeedPoller worker (an ACA
 // scheduled job in production) owns it now, so it runs once per tick instead of once per API
@@ -607,6 +608,77 @@ subscriptions.MapGet("/episodes", async (ClaimsPrincipal user, ISubscriptionServ
     var results = await subscriptionService.GetNewEpisodesAsync(userId, ct);
     return Results.Ok(results);
 });
+
+// Bulk-subscribe from an uploaded OPML file (another podcast app's exported library). Feeds the
+// user is already subscribed to are skipped, not re-subscribed; unreachable / unreadable feeds
+// come back in `failed` rather than failing the whole import.
+subscriptions.MapPost("/import", async (
+    IFormFile? file,
+    ClaimsPrincipal user,
+    IOpmlImportService importService,
+    IServiceScopeFactory scopeFactory,
+    CancellationToken ct) =>
+{
+    if (file is null || file.Length == 0)
+    {
+        return Results.BadRequest(new { error = "Upload an OPML file as form field 'file'." });
+    }
+
+    if (file.Length > OpmlParser.MaxDocumentBytes)
+    {
+        return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+    }
+
+    string opml;
+    using (var reader = new StreamReader(file.OpenReadStream()))
+    {
+        opml = await reader.ReadToEndAsync(ct);
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+
+    OpmlImportResult result;
+    try
+    {
+        result = await importService.ImportAsync(userId, opml, ct);
+    }
+    catch (FormatException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+
+    // Same rationale as the single-subscribe path above: a newly added show's back catalogue was
+    // never run through unlistened-limit enforcement for this user. Fire it per added show in a
+    // detached scope so a large import doesn't block the response on it.
+    if (result.AddedShowIds.Count > 0)
+    {
+        var addedShowIds = result.AddedShowIds.ToArray();
+        _ = Task.Run(async () =>
+        {
+            using var scope = scopeFactory.CreateScope();
+            var episodeService = scope.ServiceProvider.GetRequiredService<IEpisodeService>();
+            foreach (var showId in addedShowIds)
+            {
+                try
+                {
+                    await episodeService.EnforceUnlistenedLimitAsync(userId, showId, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    scope.ServiceProvider.GetRequiredService<ILogger<Program>>()
+                        .LogError(ex, "Failed to enforce unlistened-episode limit for user {UserId} on show {ShowId} after OPML import", userId, showId);
+                }
+            }
+        });
+    }
+
+    return Results.Ok(new
+    {
+        added = result.Added,
+        alreadySubscribed = result.AlreadySubscribed,
+        failed = result.Failed,
+    });
+}).DisableAntiforgery();
 
 var notifications = app.MapGroup("/api/notifications").RequireAuthorization();
 
