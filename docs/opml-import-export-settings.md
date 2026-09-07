@@ -1,5 +1,14 @@
 # OPML import & export
 
+> **Status (milestone #39):** shipped, but the API surface below is the pre-implementation
+> sketch and no longer matches the code. What actually landed: `POST /api/subscriptions/import`
+> and `GET /api/subscriptions/export` (not `/api/opml/*`), reached from the Subscriptions page /
+> screen rather than a Settings section. Feeds are resolved by URL directly —
+> `IShowService.GetOrCreateByFeedUrlAsync` fetches the feed for title/author/artwork and mints a
+> `Show` with a deterministic id — so a podcast that isn't in Kuulla's directory still imports.
+> Dedup skips feeds the user is already subscribed to. See the OPML entry in the README's
+> Features list and the PRs under milestone #39 for the real behaviour.
+
 Spec for [#189](https://github.com/sheridan-apps/kuulla/issues/189)'s "Import &
 Export" settings section, decided against
 [settings-architecture.md](./settings-architecture.md)'s IA, which places this as
