@@ -20,13 +20,14 @@ var builder = DistributedApplication.CreateBuilder(args);
 // leaving Rules empty means ACA falls back to its default HTTP concurrent-requests scale rule,
 // which is what wakes a cold instance on the first inbound request via WithExternalHttpEndpoints.
 // CooldownPeriod is the number of seconds KEDA waits after the last active trigger before
-// scaling down to MinReplicas; ACA defaults it to 300s (5 minutes), so it's raised here to keep
-// containers warm for 30 minutes of inactivity instead.
+// scaling down to MinReplicas; ACA defaults it to 300s (5 minutes), so it's lowered here to
+// scale api/web back to zero after 30 seconds of inactivity. KEDA's polling interval (~30s)
+// still applies on top, so expect the actual scale-down a little after that.
 // This only takes effect in publish/deploy mode; PublishAsAzureContainerApp is a no-op locally.
 static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app)
 {
     app.Template.Scale.MinReplicas = 0;
-    app.Template.Scale.CooldownPeriod = (int)TimeSpan.FromMinutes(30).TotalSeconds;
+    app.Template.Scale.CooldownPeriod = 30;
 }
 
 // Azure Container Apps environment for `aspire deploy`/`aspire publish` (Consumption plan).
