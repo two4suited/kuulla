@@ -791,6 +791,29 @@ public class ShowDetailTests : WebTestContext
     }
 
     [Fact]
+    public void AutoSkipSelector_ClearsOverride_WhenUseGlobalDefaultClicked()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2, AutoSkipIntroSeconds: 15);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
+        cut.WaitForAssertion(
+            () => Assert.Equal("15s", cut.Find("#show-auto-skip-intro .stepper-value").TextContent.Trim()));
+
+        cut.FindAll("#show-auto-skip-intro button").Single(b => b.TextContent.Trim() == "Use global default").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Saved.", cut.Markup);
+            Assert.Empty(cut.FindAll("#show-auto-skip-intro .stepper-value"));
+            Assert.Contains("Override", cut.Find("#show-auto-skip-intro").TextContent);
+        });
+    }
+
+    [Fact]
     public void PlaybackSpeedSelector_ShowsExistingOverride()
     {
         AuthContext.SetAuthorized("user-1");
