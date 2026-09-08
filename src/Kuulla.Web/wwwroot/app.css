@@ -523,6 +523,26 @@ mark {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Per-show settings popover (gear icon on the show detail page)           */
+/* ---------------------------------------------------------------------- */
+
+/* Same hand-rolled popover as .show-display-settings (it reuses that
+   backdrop rule), but the show page holds ~10 override controls, so this
+   panel is wider and scrolls. */
+.show-settings-panel {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 0.25rem);
+    z-index: 1050;
+    width: 22rem;
+    max-width: calc(100vw - 2rem);
+    max-height: min(32rem, calc(100vh - 6rem));
+    overflow-y: auto;
+    background-color: var(--k-surface);
+    border-color: var(--k-border) !important;
+}
+
+/* ---------------------------------------------------------------------- */
 /* Error boundary / connection banners                                     */
 /* ---------------------------------------------------------------------- */
 
