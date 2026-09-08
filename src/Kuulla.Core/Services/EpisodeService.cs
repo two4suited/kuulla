@@ -263,8 +263,8 @@ public class EpisodeService(
             });
     }
 
-    // Appends (or prepends, per each user's UpNextInsertPosition) newly-cached episodes to a
-    // subscriber's "Up Next" playlist when their effective AutoAddNewEpisodesToUpNext is on (#440),
+    // Appends (or prepends, per the effective override-or-global UpNextInsertPosition) newly-cached
+    // episodes to a subscriber's "Up Next" playlist when their effective AutoAddNewEpisodesToUpNext is on (#440),
     // creating that playlist on demand. Per-subscriber, best-effort with a per-user try/catch+log
     // — same shape and rationale as NotifySubscribersAsync above.
     private async Task AutoAddToUpNextAsync(
@@ -292,8 +292,8 @@ public class EpisodeService(
                         return;
                     }
 
-                    var settings = await settingsService.GetSettingsAsync(userId, ct);
-                    await AddToUpNextWithRetryAsync(userId, orderedNewEpisodes, settings.UpNextInsertPosition, ct);
+                    var position = await settingsService.GetEffectiveUpNextInsertPositionAsync(userId, showId, ct);
+                    await AddToUpNextWithRetryAsync(userId, orderedNewEpisodes, position, ct);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

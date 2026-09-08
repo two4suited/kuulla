@@ -1655,6 +1655,23 @@ settings.MapPut("/up-next-insert-position", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/shows/{showId}/up-next-insert-position", async (
+    string showId,
+    UpdateShowUpNextInsertPositionRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.UpNextInsertPosition is { } position && !Enum.IsDefined(position))
+    {
+        return Results.BadRequest(new { error = "'upNextInsertPosition' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowUpNextInsertPositionAsync(userId, showId, request.UpNextInsertPosition, ct);
+    return Results.Ok(result);
+});
+
 settings.MapPut("/smart-speed", async (
     UpdateSmartSpeedRequest request,
     ClaimsPrincipal user,

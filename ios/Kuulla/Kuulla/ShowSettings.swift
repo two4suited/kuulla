@@ -17,6 +17,8 @@ struct ShowSettings: Codable, Hashable {
     let autoDeleteAfterDays: Int?
     let smartSpeed: Bool?
     let autoAddNewEpisodesToUpNext: Bool?
+    // nil means "no override" — inherit the user's global UpNextInsertPosition.
+    let upNextInsertPosition: UpNextInsertPosition?
     let notificationsEnabled: Bool?
 
     init(
@@ -25,6 +27,7 @@ struct ShowSettings: Codable, Hashable {
         autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil,
         autoDownloadNewEpisodes: Bool? = nil, autoDeleteRule: AutoDeleteRule? = nil, autoDeleteAfterDays: Int? = nil,
         smartSpeed: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
+        upNextInsertPosition: UpNextInsertPosition? = nil,
         notificationsEnabled: Bool? = nil
     ) {
         self.id = id
@@ -41,12 +44,14 @@ struct ShowSettings: Codable, Hashable {
         self.autoDeleteAfterDays = autoDeleteAfterDays
         self.smartSpeed = smartSpeed
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
+        self.upNextInsertPosition = upNextInsertPosition
         self.notificationsEnabled = notificationsEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, autoAddNewEpisodesToUpNext, notificationsEnabled
+        case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, autoAddNewEpisodesToUpNext
+        case upNextInsertPosition, notificationsEnabled
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -67,6 +72,7 @@ struct ShowSettings: Codable, Hashable {
         autoDeleteAfterDays = try container.decodeIfPresent(Int.self, forKey: .autoDeleteAfterDays)
         smartSpeed = try container.decodeIfPresent(Bool.self, forKey: .smartSpeed)
         autoAddNewEpisodesToUpNext = try container.decodeIfPresent(Bool.self, forKey: .autoAddNewEpisodesToUpNext)
+        upNextInsertPosition = try container.decodeIfPresent(UpNextInsertPosition.self, forKey: .upNextInsertPosition)
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)
     }
 
@@ -89,6 +95,7 @@ struct ShowSettings: Codable, Hashable {
         autoDeleteAfterDays: Int?? = nil,
         smartSpeed: Bool?? = nil,
         autoAddNewEpisodesToUpNext: Bool?? = nil,
+        upNextInsertPosition: UpNextInsertPosition?? = nil,
         notificationsEnabled: Bool?? = nil
     ) -> ShowSettings {
         ShowSettings(
@@ -104,6 +111,7 @@ struct ShowSettings: Codable, Hashable {
             autoDeleteAfterDays: autoDeleteAfterDays ?? self.autoDeleteAfterDays,
             smartSpeed: smartSpeed ?? self.smartSpeed,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
+            upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled)
     }
 }

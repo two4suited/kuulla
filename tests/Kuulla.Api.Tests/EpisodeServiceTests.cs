@@ -695,6 +695,9 @@ public class EpisodeServiceTests
             .Setup(s => s.GetEffectiveAutoAddNewEpisodesToUpNextAsync(userId, ShowId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         _settingsService
+            .Setup(s => s.GetEffectiveUpNextInsertPositionAsync(userId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(position);
+        _settingsService
             .Setup(s => s.GetSettingsAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserSettings(userId, UnlistenedEpisodeCount.Five, Version: 1, UpNextInsertPosition: position));
         _episodeStateService

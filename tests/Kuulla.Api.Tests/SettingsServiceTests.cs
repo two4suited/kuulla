@@ -938,6 +938,83 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateShowUpNextInsertPositionAsync_SetsOverrideAndIncrementsVersion()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowUpNextInsertPositionAsync(
+            UserId, showId, UpNextInsertPosition.Top, CancellationToken.None);
+
+        Assert.Equal(UpNextInsertPosition.Top, result.UpNextInsertPosition);
+        Assert.Equal(3, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowUpNextInsertPositionAsync_ClearsOverrideWhenValueIsNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(
+            id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2, UpNextInsertPosition: UpNextInsertPosition.Top);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowUpNextInsertPositionAsync(UserId, showId, null, CancellationToken.None);
+
+        Assert.Null(result.UpNextInsertPosition);
+    }
+
+    [Fact]
+    public async Task GetEffectiveUpNextInsertPositionAsync_ReturnsShowOverrideWhenSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2, UpNextInsertPosition: UpNextInsertPosition.Top);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectiveUpNextInsertPositionAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(UpNextInsertPosition.Top, result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectiveUpNextInsertPositionAsync_FallsBackToUserSettingsWhenNoOverride()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        var userSettings = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            UpNextInsertPosition: UpNextInsertPosition.Top);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveUpNextInsertPositionAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(UpNextInsertPosition.Top, result);
+    }
+
+    [Fact]
     public async Task UpdateSmartSpeedAsync_IncrementsVersionOfExistingDocument()
     {
         var existing = new UserSettings(

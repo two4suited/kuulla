@@ -15,6 +15,7 @@ struct ShowSettingsSheet: View {
     @State private var autoDownloadSaveError: String?
     @State private var autoDeleteSaveError: String?
     @State private var autoAddUpNextSaveError: String?
+    @State private var upNextInsertPositionSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
@@ -27,6 +28,7 @@ struct ShowSettingsSheet: View {
     @State private var autoDownloadSaveTask: Task<Void, Never>?
     @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoAddUpNextSaveTask: Task<Void, Never>?
+    @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
@@ -37,6 +39,10 @@ struct ShowSettingsSheet: View {
     // behind their predecessor in savePlaybackSpeedOverride, keeps requests in-order and
     // coalesces away any that are superseded before they'd even be sent.
     @State private var playbackSpeedSaveVersion = 0
+    // The per-show insert-position control only makes sense when new episodes are actually being
+    // auto-added for this show, which can be true purely via the global default — so the sheet
+    // needs the global auto-add value, not just this show's override.
+    @State private var globalAutoAddNewEpisodesToUpNext = false
 
     private let settingsClient = SettingsClient()
 
@@ -154,10 +160,25 @@ struct ShowSettingsSheet: View {
                         Text("Off").tag(Bool?.some(false))
                     }
                     .disabled(settings == nil)
+
+                    if settings?.autoAddNewEpisodesToUpNext ?? globalAutoAddNewEpisodesToUpNext {
+                        Picker("Add to", selection: upNextInsertPositionOverrideBinding) {
+                            Text("Use global default").tag(UpNextInsertPosition?.none)
+                            Text("Top of the queue").tag(UpNextInsertPosition?.some(.top))
+                            Text("Bottom of the queue").tag(UpNextInsertPosition?.some(.bottom))
+                        }
+                        .disabled(settings == nil)
+                    }
                 } footer: {
-                    if let autoAddUpNextSaveError {
-                        Text(autoAddUpNextSaveError)
-                            .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let autoAddUpNextSaveError {
+                            Text(autoAddUpNextSaveError)
+                                .foregroundStyle(.red)
+                        }
+                        if let upNextInsertPositionSaveError {
+                            Text(upNextInsertPositionSaveError)
+                                .foregroundStyle(.red)
+                        }
                     }
                 }
 
@@ -267,12 +288,18 @@ struct ShowSettingsSheet: View {
     private func loadSettings() async {
         isLoading = true
         loadError = nil
+        // Fetched together; the global value only gates whether the per-show insert-position
+        // control is shown, so `try?` — a failure there must not blank out the whole sheet.
+        async let globalSettings = try? settingsClient.getSettings()
         do {
             settings = try await settingsClient.getShowSettings(showId: showId)
         } catch {
             if !Task.isCancelled {
                 loadError = "Something went wrong while loading this podcast's settings. Please try again."
             }
+        }
+        if let globalAutoAdd = await globalSettings?.autoAddNewEpisodesToUpNext {
+            globalAutoAddNewEpisodesToUpNext = globalAutoAdd
         }
         isLoading = false
     }
@@ -484,6 +511,35 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 autoAddUpNextSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var upNextInsertPositionOverrideBinding: Binding<UpNextInsertPosition?> {
+        Binding(
+            get: { settings?.upNextInsertPosition },
+            set: { newValue in
+                upNextInsertPositionSaveTask?.cancel()
+                upNextInsertPositionSaveTask = Task { await updateUpNextInsertPositionOverride(newValue) }
+            }
+        )
+    }
+
+    private func updateUpNextInsertPositionOverride(_ value: UpNextInsertPosition?) async {
+        guard let previous = settings else { return }
+
+        upNextInsertPositionSaveError = nil
+        settings = previous.with(upNextInsertPosition: value)
+
+        do {
+            let updated = try await settingsClient.updateShowUpNextInsertPosition(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                upNextInsertPositionSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

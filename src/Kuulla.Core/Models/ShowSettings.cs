@@ -39,9 +39,11 @@ public record ShowSettings(
     int? AutoDeleteAfterDays = null,
     // Null means "no override — inherit the user's global SmartSpeed".
     bool? SmartSpeed = null,
-    // Null means "no override — inherit the user's global AutoAddNewEpisodesToUpNext". The
-    // insert position (UpNextInsertPosition) is global-only — there's no per-show override for it.
+    // Null means "no override — inherit the user's global AutoAddNewEpisodesToUpNext".
     bool? AutoAddNewEpisodesToUpNext = null,
+    // Null means "no override — inherit the user's global UpNextInsertPosition". Only meaningful
+    // when the effective auto-add (override-or-global) is on.
+    UpNextInsertPosition? UpNextInsertPosition = null,
     // Null means "no override — inherit the user's global NotificationsEnabled".
     bool? NotificationsEnabled = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
@@ -57,7 +59,7 @@ public record ShowSettings(
         new(BuildId(userId, showId), userId, showId, UnlistenedEpisodeCount: null, Version: 1,
             AutoArchiveRule: null, AutoSkipIntroSeconds: null, AutoSkipOutroSeconds: null, PlaybackSpeed: null,
             AutoDownloadNewEpisodes: null, AutoDeleteRule: null, AutoDeleteAfterDays: null, SmartSpeed: null,
-            AutoAddNewEpisodesToUpNext: null, NotificationsEnabled: null,
+            AutoAddNewEpisodesToUpNext: null, UpNextInsertPosition: null, NotificationsEnabled: null,
             UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document

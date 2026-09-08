@@ -168,6 +168,27 @@ else
                         {
                             <p class="text-success mt-1 mb-0">Saved.</p>
                         }
+
+                        @if (showAutoAddNewEpisodesToUpNextOverride ?? globalAutoAddNewEpisodesToUpNext)
+                        {
+                            <div class="mt-2">
+                                <label class="form-label" for="show-up-next-insert-position">Add to</label>
+                                <select id="show-up-next-insert-position" class="form-select" disabled="@isShowUpNextInsertPositionSaving"
+                                        value="@ShowUpNextInsertPositionSelectValue" @onchange="OnShowUpNextInsertPositionChangedAsync">
+                                    <option value="">Use global default</option>
+                                    <option value="@UpNextInsertPosition.Top">Top of the queue</option>
+                                    <option value="@UpNextInsertPosition.Bottom">Bottom of the queue</option>
+                                </select>
+                                @if (showUpNextInsertPositionError is not null)
+                                {
+                                    <p class="text-danger mt-1 mb-0">@showUpNextInsertPositionError</p>
+                                }
+                                else if (showUpNextInsertPositionSavedConfirmation)
+                                {
+                                    <p class="text-success mt-1 mb-0">Saved.</p>
+                                }
+                            </div>
+                        }
                     </div>
 
                     <div class="mt-3" style="max-width: 24rem;">
@@ -425,6 +446,14 @@ else
     private bool isShowAutoAddUpNextSaving;
     private string? showAutoAddUpNextError;
     private bool showAutoAddUpNextSavedConfirmation;
+    private UpNextInsertPosition? showUpNextInsertPositionOverride;
+    private bool isShowUpNextInsertPositionSaving;
+    private string? showUpNextInsertPositionError;
+    private bool showUpNextInsertPositionSavedConfirmation;
+    // The show-position control only makes sense when new episodes are actually being auto-added,
+    // which can be true via the global default with no per-show override — so we need the global
+    // values here, not just the override.
+    private bool globalAutoAddNewEpisodesToUpNext;
     private AutoDeleteRule? showAutoDeleteRuleOverride;
     private int? showAutoDeleteAfterDaysOverride;
     private bool isShowAutoDeleteSaving;
@@ -476,6 +505,8 @@ else
         false => "false",
         null => "",
     };
+
+    private string ShowUpNextInsertPositionSelectValue => showUpNextInsertPositionOverride?.ToString() ?? "";
 
     private string ShowAutoDeleteRuleSelectValue => showAutoDeleteRuleOverride?.ToString() ?? "";
 
@@ -608,6 +639,11 @@ else
         isShowAutoAddUpNextSaving = false;
         showAutoAddUpNextError = null;
         showAutoAddUpNextSavedConfirmation = false;
+        showUpNextInsertPositionOverride = null;
+        isShowUpNextInsertPositionSaving = false;
+        showUpNextInsertPositionError = null;
+        showUpNextInsertPositionSavedConfirmation = false;
+        globalAutoAddNewEpisodesToUpNext = false;
         showAutoDeleteRuleOverride = null;
         showAutoDeleteAfterDaysOverride = null;
         isShowAutoDeleteSaving = false;
@@ -666,13 +702,19 @@ else
 
     private async Task LoadShowSettingsAsync()
     {
+        // Kicked off together: the two reads are independent, and the global one only gates whether
+        // the per-show insert-position control is shown.
+        var showSettingsTask = SettingsClient.GetShowSettingsAsync(Id);
+        var globalSettingsTask = SettingsClient.GetSettingsAsync();
+
         try
         {
-            var settings = await SettingsClient.GetShowSettingsAsync(Id);
+            var settings = await showSettingsTask;
             showUnlistenedEpisodeCountOverride = settings.UnlistenedEpisodeCount;
             showAutoArchiveRuleOverride = settings.AutoArchiveRule;
             showAutoDownloadNewEpisodesOverride = settings.AutoDownloadNewEpisodes;
             showAutoAddNewEpisodesToUpNextOverride = settings.AutoAddNewEpisodesToUpNext;
+            showUpNextInsertPositionOverride = settings.UpNextInsertPosition;
             showAutoDeleteRuleOverride = settings.AutoDeleteRule;
             showAutoDeleteAfterDaysOverride = settings.AutoDeleteAfterDays;
             showAutoSkipIntroSecondsOverride = settings.AutoSkipIntroSeconds;
@@ -684,6 +726,18 @@ else
         catch (HttpRequestException)
         {
             showSettingsError = "Something went wrong while loading this show's settings. Please try again.";
+        }
+
+        // Separate try/catch: a failure here shouldn't block the rest of this show's settings from
+        // loading, since the global value only gates whether the position control is shown.
+        try
+        {
+            globalAutoAddNewEpisodesToUpNext = (await globalSettingsTask).AutoAddNewEpisodesToUpNext;
+        }
+        catch (HttpRequestException)
+        {
+            // Leave globalAutoAddNewEpisodesToUpNext at its default (false); the position control
+            // stays hidden unless this show has its own auto-add override turned on.
         }
     }
 
@@ -844,6 +898,45 @@ else
         finally
         {
             isShowAutoAddUpNextSaving = false;
+        }
+    }
+
+    private async Task OnShowUpNextInsertPositionChangedAsync(ChangeEventArgs args)
+    {
+        var raw = args.Value?.ToString();
+        UpNextInsertPosition? value;
+        if (string.IsNullOrEmpty(raw))
+        {
+            value = null;
+        }
+        else if (Enum.TryParse(raw, out UpNextInsertPosition parsed) && Enum.IsDefined(parsed))
+        {
+            value = parsed;
+        }
+        else
+        {
+            return;
+        }
+
+        var previous = showUpNextInsertPositionOverride;
+        showUpNextInsertPositionOverride = value;
+        isShowUpNextInsertPositionSaving = true;
+        showUpNextInsertPositionError = null;
+        showUpNextInsertPositionSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowUpNextInsertPositionAsync(Id, value);
+            showUpNextInsertPositionSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showUpNextInsertPositionOverride = previous;
+            showUpNextInsertPositionError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowUpNextInsertPositionSaving = false;
         }
     }
 
