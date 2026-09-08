@@ -26,8 +26,8 @@ public class OpmlImportServiceTests
         </body></opml>
         """;
 
-    private static Show ShowWithFeed(string id, string feedUrl) =>
-        new(id, id, id, feedUrl, null, null, []);
+    private static FeedShow ShowWithFeed(string id, string feedUrl, DateTimeOffset? latestEpisodePublishedAt = null) =>
+        new(new Show(id, id, id, feedUrl, null, null, []), latestEpisodePublishedAt);
 
     private static Subscription Sub(string showId, string? feedUrl) =>
         new(showId, UserId, showId, showId, showId, null, DateTimeOffset.UtcNow, null, feedUrl);
@@ -44,7 +44,7 @@ public class OpmlImportServiceTests
             .ReturnsAsync(Sub("show-b", "https://b.example/feed"));
 
         _shows.Setup(s => s.GetOrCreateByFeedUrlAsync("https://c.example/feed", It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Show?)null);
+            .ReturnsAsync((FeedShow?)null);
 
         // Feed A is given http + trailing slash in the file — it must still match the subscribed
         // "https://a.example/feed" after normalization.
@@ -132,6 +132,22 @@ public class OpmlImportServiceTests
         Assert.Equal(new[] { "show-good" }, result.AddedShowIds);
         var failure = Assert.Single(result.Failed);
         Assert.Equal("https://slow.example/feed", failure.FeedUrl);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ForwardsTheFeedsNewestEpisodeDateToSubscribeAsASortKeySeed()
+    {
+        var newest = DateTimeOffset.Parse("2026-04-01T12:00:00Z");
+        _shows.Setup(s => s.GetOrCreateByFeedUrlAsync("https://b.example/feed", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ShowWithFeed("show-b", "https://b.example/feed", newest));
+        _subscriptions.Setup(s => s.SubscribeAsync(
+                UserId, "show-b", It.IsAny<CancellationToken>(), It.IsAny<DateTimeOffset?>()))
+            .ReturnsAsync(Sub("show-b", "https://b.example/feed"));
+
+        var result = await _sut.ImportAsync(UserId, Opml("https://b.example/feed"), CancellationToken.None);
+
+        Assert.Equal(1, result.Added);
+        _subscriptions.Verify(s => s.SubscribeAsync(UserId, "show-b", It.IsAny<CancellationToken>(), newest), Times.Once);
     }
 
     [Fact]

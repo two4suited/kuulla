@@ -43,7 +43,7 @@ public class ShowService(
         }));
     }
 
-    public async Task<Show?> GetOrCreateByFeedUrlAsync(string feedUrl, CancellationToken cancellationToken)
+    public async Task<FeedShow?> GetOrCreateByFeedUrlAsync(string feedUrl, CancellationToken cancellationToken)
     {
         var normalized = FeedUrl.Normalize(feedUrl);
 
@@ -63,7 +63,9 @@ public class ShowService(
         {
             var existing = await showsContainer.ReadItemAsync<Show>(
                 id, new PartitionKey(id), cancellationToken: cancellationToken);
-            return existing.Resource;
+            // Already known — no feed fetched, so there's no newest-episode date to hand back.
+            // SubscribeAsync falls back to whatever GetNewestCachedEpisodePublishedAtAsync knows.
+            return new FeedShow(existing.Resource, LatestEpisodePublishedAt: null);
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
@@ -95,19 +97,25 @@ public class ShowService(
             feed.Description,
             Categories: []);
 
+        // Newest episode date from the feed we just fetched, to seed the "Latest episode" sort
+        // key on subscribe (#501). Max over DateTimeOffset? skips nulls and is null when the feed
+        // has no dated episodes.
+        var latestEpisodePublishedAt = feed.Episodes.Max(e => e.PublishedAt);
+
         try
         {
             var response = await showsContainer.CreateItemAsync(
                 show, new PartitionKey(id), cancellationToken: cancellationToken);
-            return response.Resource;
+            return new FeedShow(response.Resource, latestEpisodePublishedAt);
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
         {
             // A concurrent import of the same feed won the race — read back its record rather
-            // than clobbering it, mirroring CacheAsync's create-only discipline.
+            // than clobbering it, mirroring CacheAsync's create-only discipline. We still fetched
+            // the feed, so the newest-episode date we computed is good to hand back.
             var existing = await showsContainer.ReadItemAsync<Show>(
                 id, new PartitionKey(id), cancellationToken: cancellationToken);
-            return existing.Resource;
+            return new FeedShow(existing.Resource, latestEpisodePublishedAt);
         }
     }
 

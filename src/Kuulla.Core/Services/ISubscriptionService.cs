@@ -6,7 +6,14 @@ public interface ISubscriptionService
 {
     Task<IReadOnlyList<Subscription>> GetSubscriptionsAsync(string userId, CancellationToken cancellationToken);
 
-    Task<Subscription?> SubscribeAsync(string userId, string showId, CancellationToken cancellationToken);
+    // latestEpisodePublishedAtHint lets a caller that already has the show's feed in hand (OPML
+    // import) seed the "Latest episode" sort key (#438, #501) without waiting for a feed poll to
+    // cache episodes. The stamped value is the newer of this hint and whatever's already cached.
+    Task<Subscription?> SubscribeAsync(
+        string userId,
+        string showId,
+        CancellationToken cancellationToken,
+        DateTimeOffset? latestEpisodePublishedAtHint = null);
 
     Task UnsubscribeAsync(string userId, string showId, CancellationToken cancellationToken);
 
