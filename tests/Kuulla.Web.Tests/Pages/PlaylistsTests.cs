@@ -54,6 +54,28 @@ public class PlaylistsTests : WebTestContext
     }
 
     [Fact]
+    public void HidesCreateControls_UntilNewPlaylistClicked()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(TestHttpMessageHandler.Json(new List<Playlist>()));
+
+        var cut = RenderComponent<Playlists>();
+        cut.WaitForAssertion(() => Assert.Contains("haven't created", cut.Markup));
+
+        Assert.Empty(cut.FindAll(".modal"));
+        Assert.DoesNotContain("New playlist name", cut.Markup);
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "New playlist").Click();
+
+        Assert.Single(cut.FindAll(".modal"));
+        Assert.Contains("New playlist name", cut.Markup);
+
+        cut.Find(".modal .btn-close").Click();
+
+        Assert.Empty(cut.FindAll(".modal"));
+    }
+
+    [Fact]
     public void AddsPlaylist_WhenCreateSucceeds()
     {
         AuthContext.SetAuthorized("user-1");
@@ -66,8 +88,9 @@ public class PlaylistsTests : WebTestContext
         var cut = RenderComponent<Playlists>();
         cut.WaitForAssertion(() => Assert.Contains("haven't created", cut.Markup));
 
-        cut.Find("input").Input("New Playlist");
-        cut.Find("button.btn-primary").Click();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "New playlist").Click();
+        cut.Find(".modal input").Input("New Playlist");
+        cut.FindAll(".modal button").Single(b => b.TextContent.Trim() == "Create").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("New Playlist", cut.Markup));
     }
@@ -85,10 +108,11 @@ public class PlaylistsTests : WebTestContext
         var cut = RenderComponent<Playlists>();
         cut.WaitForAssertion(() => Assert.Contains("haven't created", cut.Markup));
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Dynamic").Click();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "New playlist").Click();
+        cut.FindAll(".modal button").Single(b => b.TextContent.Trim() == "Dynamic").Click();
         Assert.Contains("Enter a name", cut.Markup);
 
-        cut.Find("input").Input("Commute Mix");
+        cut.Find(".modal input").Input("Commute Mix");
 
         cut.WaitForAssertion(() => Assert.Contains("Max episodes", cut.Markup));
     }
@@ -116,8 +140,9 @@ public class PlaylistsTests : WebTestContext
         var cut = RenderComponent<Playlists>();
         cut.WaitForAssertion(() => Assert.Contains("haven't created", cut.Markup));
 
-        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Dynamic").Click();
-        cut.Find("input").Input("Commute Mix");
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "New playlist").Click();
+        cut.FindAll(".modal button").Single(b => b.TextContent.Trim() == "Dynamic").Click();
+        cut.Find(".modal input").Input("Commute Mix");
         cut.WaitForAssertion(() => Assert.Contains("Max episodes", cut.Markup));
 
         cut.Find("select").Change("show-1");

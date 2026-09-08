@@ -8,51 +8,10 @@
 
 <AuthorizeView>
     <Authorized>
-        <h1>Playlists</h1>
-
-        <div class="mb-4" style="max-width: 24rem;">
-            <div class="btn-group mb-2" role="group">
-                <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Manual ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SelectPlaylistType(PlaylistType.Manual)">
-                    Manual
-                </button>
-                <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Dynamic ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SelectPlaylistType(PlaylistType.Dynamic)">
-                    Dynamic
-                </button>
-            </div>
-
-            @if (playlistType == PlaylistType.Manual)
-            {
-                <div class="d-flex gap-2 mb-2">
-                    <input class="form-control" placeholder="New playlist name" @bind="newPlaylistName" @bind:event="oninput"
-                           disabled="@isCreating" @onkeydown="OnNewPlaylistNameKeyDownAsync" />
-                    <button class="btn btn-primary text-nowrap" disabled="@(isCreating || string.IsNullOrWhiteSpace(newPlaylistName))"
-                            @onclick="CreateManualPlaylistAsync">
-                        Create
-                    </button>
-                </div>
-                <PlaylistAppearancePicker @bind-Icon="newPlaylistIcon" @bind-AccentColor="newPlaylistAccentColor" />
-            }
-            else
-            {
-                <input class="form-control mb-3" placeholder="New playlist name" @bind="newPlaylistName" @bind:event="oninput" />
-
-                @if (string.IsNullOrWhiteSpace(newPlaylistName))
-                {
-                    <p class="text-muted small">Enter a name to configure this playlist.</p>
-                }
-                else
-                {
-                    <PlaylistAppearancePicker @bind-Icon="newPlaylistIcon" @bind-AccentColor="newPlaylistAccentColor" />
-                    <DynamicPlaylistConfigEditor SaveLabel="Create Dynamic Playlist" OnSave="CreateDynamicPlaylistAsync" />
-                }
-            }
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-4">
+            <h1 class="mb-0">Playlists</h1>
+            <button class="btn btn-primary text-nowrap" @onclick="OpenCreate">New playlist</button>
         </div>
-        @if (createError is not null)
-        {
-            <p class="text-danger">@createError</p>
-        }
 
         @if (isLoading)
         {
@@ -84,6 +43,65 @@
                 }
             </div>
         }
+
+        @if (showCreate)
+        {
+            <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true" aria-label="New playlist">
+                <div class="modal-dialog modal-dialog-scrollable" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">New playlist</h5>
+                            <button type="button" class="btn-close" aria-label="Close" @onclick="CloseCreate"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="btn-group mb-2" role="group">
+                                <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Manual ? "btn-primary" : "btn-outline-primary")"
+                                        @onclick="() => SelectPlaylistType(PlaylistType.Manual)">
+                                    Manual
+                                </button>
+                                <button type="button" class="btn btn-sm @(playlistType == PlaylistType.Dynamic ? "btn-primary" : "btn-outline-primary")"
+                                        @onclick="() => SelectPlaylistType(PlaylistType.Dynamic)">
+                                    Dynamic
+                                </button>
+                            </div>
+
+                            @if (playlistType == PlaylistType.Manual)
+                            {
+                                <div class="d-flex gap-2 mb-2">
+                                    <input class="form-control" placeholder="New playlist name" @bind="newPlaylistName" @bind:event="oninput"
+                                           disabled="@isCreating" @onkeydown="OnNewPlaylistNameKeyDownAsync" />
+                                    <button class="btn btn-primary text-nowrap" disabled="@(isCreating || string.IsNullOrWhiteSpace(newPlaylistName))"
+                                            @onclick="CreateManualPlaylistAsync">
+                                        Create
+                                    </button>
+                                </div>
+                                <PlaylistAppearancePicker @bind-Icon="newPlaylistIcon" @bind-AccentColor="newPlaylistAccentColor" />
+                            }
+                            else
+                            {
+                                <input class="form-control mb-3" placeholder="New playlist name" @bind="newPlaylistName" @bind:event="oninput" />
+
+                                @if (string.IsNullOrWhiteSpace(newPlaylistName))
+                                {
+                                    <p class="text-muted small">Enter a name to configure this playlist.</p>
+                                }
+                                else
+                                {
+                                    <PlaylistAppearancePicker @bind-Icon="newPlaylistIcon" @bind-AccentColor="newPlaylistAccentColor" />
+                                    <DynamicPlaylistConfigEditor SaveLabel="Create Dynamic Playlist" OnSave="CreateDynamicPlaylistAsync" />
+                                }
+                            }
+
+                            @if (createError is not null)
+                            {
+                                <p class="text-danger mt-2">@createError</p>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-backdrop fade show"></div>
+        }
     </Authorized>
     <NotAuthorized>
         <h1>Playlists</h1>
@@ -95,12 +113,34 @@
     private readonly List<Playlist> playlists = [];
     private bool isLoading;
     private string? loadError;
+    private bool showCreate;
     private string newPlaylistName = "";
     private string? newPlaylistIcon;
     private string? newPlaylistAccentColor;
     private bool isCreating;
     private string? createError;
     private PlaylistType playlistType = PlaylistType.Manual;
+
+    private void OpenCreate()
+    {
+        ResetCreateForm();
+        showCreate = true;
+    }
+
+    private void CloseCreate()
+    {
+        showCreate = false;
+        ResetCreateForm();
+    }
+
+    private void ResetCreateForm()
+    {
+        playlistType = PlaylistType.Manual;
+        newPlaylistName = "";
+        newPlaylistIcon = null;
+        newPlaylistAccentColor = null;
+        createError = null;
+    }
 
     private void SelectPlaylistType(PlaylistType type)
     {
@@ -160,6 +200,7 @@
         {
             var created = await PlaylistClient.CreatePlaylistAsync(name, newPlaylistIcon, newPlaylistAccentColor);
             AddCreatedPlaylist(created);
+            CloseCreate();
         }
         catch (HttpRequestException)
         {
@@ -184,15 +225,12 @@
 
         var created = await PlaylistClient.CreateDynamicPlaylistAsync(name, config, newPlaylistIcon, newPlaylistAccentColor);
         AddCreatedPlaylist(created);
-        playlistType = PlaylistType.Manual;
+        CloseCreate();
     }
 
     private void AddCreatedPlaylist(Playlist created)
     {
         playlists.Add(created);
         playlists.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-        newPlaylistName = "";
-        newPlaylistIcon = null;
-        newPlaylistAccentColor = null;
     }
 }
