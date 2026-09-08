@@ -37,7 +37,14 @@
                     <a href="@($"playlists/{playlist.Id}")" class="card text-center text-decoration-none text-body flex-shrink-0"
                        style="width: 8rem; scroll-snap-align: start;">
                         <div class="card-body">
-                            <div class="fs-3">🎵</div>
+                            @if (!string.IsNullOrEmpty(playlist.Icon))
+                            {
+                                <div class="fs-3" style="@PlaylistIcons.AccentColorStyle(playlist.AccentColor)">@playlist.Icon</div>
+                            }
+                            else
+                            {
+                                <div class="fs-3">🎵</div>
+                            }
                             <div class="small mt-1 text-truncate">@playlist.Name</div>
                             <div class="text-muted" style="font-size: 0.7rem;">
                                 @playlist.Items.Count episode@(playlist.Items.Count == 1 ? "" : "s")
