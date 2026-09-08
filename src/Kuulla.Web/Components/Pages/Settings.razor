@@ -4,6 +4,7 @@
 @using Kuulla.Web.Services
 @using Kuulla.Web.Services.Sync
 @inject SettingsClient SettingsClient
+@inject SubscriptionClient SubscriptionClient
 @inject IJSRuntime JS
 
 <PageTitle>Settings</PageTitle>
@@ -249,6 +250,54 @@
                 </div>
             </div>
 
+            <h2 class="h5 mt-4">Import &amp; Export</h2>
+
+            <div class="d-flex flex-column gap-1 mb-3">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <label class="btn btn-outline-secondary btn-sm mb-0 @(isImporting ? "disabled" : null)">
+                        <InputFile OnChange="OnOpmlFileSelectedAsync" accept=".opml,.xml" disabled="@isImporting" class="d-none" />
+                        @(isImporting ? "Importing…" : "Import OPML")
+                    </label>
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            @onclick="OnExportOpmlAsync" disabled="@isExporting">
+                        @(isExporting ? "Exporting…" : "Export OPML")
+                    </button>
+                </div>
+                <div class="form-text">Bring your library over from another podcast app. Shows you already follow are skipped.</div>
+
+                @if (importError is not null)
+                {
+                    <p class="text-danger small mb-0">@importError</p>
+                }
+
+                @if (exportError is not null)
+                {
+                    <p class="text-danger small mb-0">@exportError</p>
+                }
+
+                @if (importResult is not null)
+                {
+                    <p class="small mb-0">
+                        Added @importResult.Added, skipped @importResult.AlreadySubscribed already subscribed@(importResult.Failed.Count > 0 ? $", {importResult.Failed.Count} failed" : string.Empty).
+                        @if (importResult.Failed.Count > 0)
+                        {
+                            <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" @onclick="() => showImportFailures = !showImportFailures">
+                                @(showImportFailures ? "Hide" : "Show") failures
+                            </button>
+                        }
+                    </p>
+                    @if (showImportFailures && importResult.Failed.Count > 0)
+                    {
+                        <ul class="small text-muted mb-0">
+                            @foreach (var failure in importResult.Failed)
+                            {
+                                <li><code>@failure.FeedUrl</code> — @failure.Reason</li>
+                            }
+                        </ul>
+                    }
+                }
+            </div>
+
             @if (saveError is not null)
             {
                 <p class="text-danger">@saveError</p>
@@ -323,6 +372,16 @@
     private bool wifiOnlyStreaming;
     private bool hasLoadedWifiOnlyStreaming;
     private SyncStatusService<UserSettings>? syncStatusService;
+
+    // OPML import/export. MaxOpmlBytes matches OpmlParser.MaxDocumentBytes on the API — guarded
+    // client-side too so an oversized file fails fast without a wasted upload.
+    private const long MaxOpmlBytes = 5 * 1024 * 1024;
+    private bool isImporting;
+    private string? importError;
+    private OpmlImportResult? importResult;
+    private bool showImportFailures;
+    private bool isExporting;
+    private string? exportError;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -840,6 +899,59 @@
         }
 
         await SyncOwnWriteBestEffortAsync();
+    }
+
+    private async Task OnOpmlFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        importError = null;
+        importResult = null;
+        showImportFailures = false;
+
+        if (file.Size > MaxOpmlBytes)
+        {
+            importError = "That file is larger than the 5 MB limit.";
+            return;
+        }
+
+        isImporting = true;
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxOpmlBytes);
+            importResult = await SubscriptionClient.ImportOpmlAsync(stream, file.Name);
+        }
+        catch (OpmlImportException ex)
+        {
+            importError = ex.Message;
+        }
+        catch (HttpRequestException)
+        {
+            importError = "Something went wrong importing that file. Please try again.";
+        }
+        finally
+        {
+            isImporting = false;
+        }
+    }
+
+    private async Task OnExportOpmlAsync()
+    {
+        isExporting = true;
+        exportError = null;
+        try
+        {
+            var opml = await SubscriptionClient.ExportOpmlAsync();
+            await JS.InvokeVoidAsync(
+                "kuullaDownloadFile", "kuulla-subscriptions.opml", "text/x-opml", Convert.ToBase64String(opml));
+        }
+        catch (HttpRequestException)
+        {
+            exportError = "Something went wrong exporting your subscriptions. Please try again.";
+        }
+        finally
+        {
+            isExporting = false;
+        }
     }
 
     private async Task OnWifiOnlyStreamingChangedAsync(ChangeEventArgs args)

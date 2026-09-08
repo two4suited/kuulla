@@ -2,8 +2,10 @@
 
 > **Status (milestone #39):** shipped, but the API surface below is the pre-implementation
 > sketch and no longer matches the code. What actually landed: `POST /api/subscriptions/import`
-> and `GET /api/subscriptions/export` (not `/api/opml/*`), reached from the Subscriptions page /
-> screen rather than a Settings section. Feeds are resolved by URL directly —
+> and `GET /api/subscriptions/export` (not `/api/opml/*`). Both the web (`Settings.razor`) and
+> iOS (`SettingsView.swift`) surface Import/Export OPML from an "Import & Export" section in
+> Settings, per this spec's IA (#488 moved them there from the Subscriptions screen). Feeds are
+> resolved by URL directly —
 > `IShowService.GetOrCreateByFeedUrlAsync` fetches the feed for title/author/artwork and mints a
 > `Show` with a deterministic id — so a podcast that isn't in Kuulla's directory still imports.
 > Dedup skips feeds the user is already subscribed to. See the OPML entry in the README's

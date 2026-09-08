@@ -1,5 +1,7 @@
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
+import UIKit
 
 struct SettingsView: View {
     // Device-local (per docs/data-usage-network-settings.md) — @AppStorage reads/writes the same
@@ -38,7 +40,20 @@ struct SettingsView: View {
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
 
+    @State private var isOpmlImporterPresented = false
+    @State private var isImportingOpml = false
+    @State private var opmlImportResult: OpmlImportResult?
+    @State private var opmlImportError: String?
+    @State private var isExportingOpml = false
+    @State private var exportedOpmlFileURL: URL?
+    @State private var opmlExportError: String?
+
+    // Matches OpmlParser.MaxDocumentBytes on the API — checked here too so an oversized file
+    // fails fast without a wasted upload.
+    private let maxOpmlBytes = 5 * 1024 * 1024
+
     private let settingsClient = SettingsClient()
+    private let subscriptionClient = SubscriptionClient()
 
     var body: some View {
         Form {
@@ -199,8 +214,70 @@ struct SettingsView: View {
             } footer: {
                 Text("Streaming refuses to start off Wi-Fi when enabled. Downloads requested off Wi-Fi wait until Wi-Fi is available, and pause if Wi-Fi is lost mid-download.")
             }
+
+            Section {
+                Button {
+                    opmlImportError = nil
+                    isOpmlImporterPresented = true
+                } label: {
+                    HStack {
+                        Label("Import Subscriptions (OPML)", systemImage: "square.and.arrow.down")
+                        if isImportingOpml {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isImportingOpml)
+
+                Button {
+                    Task { await exportOpml() }
+                } label: {
+                    HStack {
+                        Label("Export Subscriptions (OPML)", systemImage: "square.and.arrow.up")
+                        if isExportingOpml {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isExportingOpml)
+            } header: {
+                Text("Import & Export")
+            } footer: {
+                Text("Bring your library over from another podcast app by importing an OPML file. Shows you already follow are skipped.")
+            }
         }
         .navigationTitle("Settings")
+        .fileImporter(
+            isPresented: $isOpmlImporterPresented,
+            allowedContentTypes: Self.opmlContentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            Task { await importOpml(from: result) }
+        }
+        .alert("Import complete", isPresented: importResultAlertPresented) {
+            Button("OK", role: .cancel) { opmlImportResult = nil }
+        } message: {
+            if let opmlImportResult {
+                Text(Self.importSummary(opmlImportResult))
+            }
+        }
+        .alert("Couldn't import that file", isPresented: importErrorAlertPresented) {
+            Button("OK", role: .cancel) { opmlImportError = nil }
+        } message: {
+            Text(opmlImportError ?? "")
+        }
+        .alert("Couldn't export your subscriptions", isPresented: exportErrorAlertPresented) {
+            Button("OK", role: .cancel) { opmlExportError = nil }
+        } message: {
+            Text(opmlExportError ?? "")
+        }
+        .sheet(isPresented: shareSheetPresented) {
+            if let exportedOpmlFileURL {
+                OpmlShareSheet(fileURL: exportedOpmlFileURL)
+            }
+        }
         .overlay {
             if isLoading && settings == nil {
                 ProgressView()
@@ -601,6 +678,118 @@ struct SettingsView: View {
             }
         }
     }
+
+    // MARK: - OPML import & export
+
+    private static let opmlContentTypes: [UTType] = {
+        var types: [UTType] = [.xml]
+        if let opml = UTType(filenameExtension: "opml") {
+            types.insert(opml, at: 0)
+        }
+        return types
+    }()
+
+    private var importResultAlertPresented: Binding<Bool> {
+        Binding(get: { opmlImportResult != nil }, set: { if !$0 { opmlImportResult = nil } })
+    }
+
+    private var importErrorAlertPresented: Binding<Bool> {
+        Binding(get: { opmlImportError != nil }, set: { if !$0 { opmlImportError = nil } })
+    }
+
+    private var exportErrorAlertPresented: Binding<Bool> {
+        Binding(get: { opmlExportError != nil }, set: { if !$0 { opmlExportError = nil } })
+    }
+
+    private var shareSheetPresented: Binding<Bool> {
+        Binding(get: { exportedOpmlFileURL != nil }, set: { if !$0 { exportedOpmlFileURL = nil } })
+    }
+
+    private static func importSummary(_ result: OpmlImportResult) -> String {
+        var lines = ["Added \(result.added), skipped \(result.alreadySubscribed) already subscribed."]
+        if !result.failed.isEmpty {
+            lines.append("")
+            lines.append("\(result.failed.count) couldn't be added:")
+            lines.append(contentsOf: result.failed.map { "\u{2022} \($0.feedUrl) \u{2014} \($0.reason)" })
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func importOpml(from result: Result<[URL], Error>) async {
+        opmlImportError = nil
+        opmlImportResult = nil
+
+        let url: URL
+        switch result {
+        case .success(let urls):
+            guard let first = urls.first else { return }
+            url = first
+        case .failure:
+            // The user cancelled the picker, or it failed to open — nothing to report.
+            return
+        }
+
+        isImportingOpml = true
+        defer { isImportingOpml = false }
+
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            opmlImportError = "That file couldn't be opened. Please try again."
+            return
+        }
+
+        guard data.count <= maxOpmlBytes else {
+            opmlImportError = "That file is larger than the 5 MB limit."
+            return
+        }
+
+        do {
+            opmlImportResult = try await subscriptionClient.importOpml(
+                fileData: data, fileName: url.lastPathComponent)
+        } catch ApiError.requestFailed(let statusCode) where statusCode == 413 {
+            opmlImportError = "That file is larger than the 5 MB limit."
+        } catch ApiError.requestFailed(let statusCode) where statusCode == 400 {
+            opmlImportError = "That file couldn't be read as an OPML subscription list."
+        } catch {
+            opmlImportError = "Something went wrong importing that file. Please try again."
+        }
+    }
+
+    private func exportOpml() async {
+        guard !isExportingOpml else { return }
+
+        opmlExportError = nil
+        isExportingOpml = true
+        defer { isExportingOpml = false }
+
+        do {
+            let data = try await subscriptionClient.exportOpml()
+            let fileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("kuulla-subscriptions.opml")
+            try data.write(to: fileURL, options: .atomic)
+            exportedOpmlFileURL = fileURL
+        } catch {
+            opmlExportError = "Something went wrong exporting your subscriptions. Please try again."
+        }
+    }
+}
+
+// Wraps UIActivityViewController so the OPML export can be saved to Files, AirDropped, mailed,
+// etc. SwiftUI's ShareLink needs its item up front; export fetches asynchronously first, so the
+// file URL only exists once the download has landed.
+private struct OpmlShareSheet: UIViewControllerRepresentable {
+    let fileURL: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 #Preview {

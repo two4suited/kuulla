@@ -5,7 +5,6 @@
 @inject SubscriptionClient SubscriptionClient
 @inject EpisodeStateClient EpisodeStateClient
 @inject SettingsClient SettingsClient
-@inject IJSRuntime JS
 
 <PageTitle>Subscriptions</PageTitle>
 
@@ -21,55 +20,6 @@
                                      IconSize="iconSize" IconSizeChanged="OnIconSizeChanged" />
             }
         </div>
-
-        @if (!isLoading && loadError is null)
-        {
-            <div class="d-flex flex-column gap-1 mt-3 opml-tools">
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <label class="btn btn-outline-secondary btn-sm mb-0 @(isImporting ? "disabled" : null)">
-                        <InputFile OnChange="OnOpmlFileSelectedAsync" accept=".opml,.xml" disabled="@isImporting" class="d-none" />
-                        @(isImporting ? "Importing…" : "Import OPML")
-                    </label>
-                    <button type="button" class="btn btn-outline-secondary btn-sm"
-                            @onclick="OnExportOpmlAsync" disabled="@(isExporting || subscriptions.Count == 0)">
-                        @(isExporting ? "Exporting…" : "Export OPML")
-                    </button>
-                    <span class="text-muted small">Bring your library over from another podcast app. Shows you already follow are skipped.</span>
-                </div>
-
-                @if (importError is not null)
-                {
-                    <p class="text-danger small mb-0">@importError</p>
-                }
-
-                @if (exportError is not null)
-                {
-                    <p class="text-danger small mb-0">@exportError</p>
-                }
-
-                @if (importResult is not null)
-                {
-                    <p class="small mb-0">
-                        Added @importResult.Added, skipped @importResult.AlreadySubscribed already subscribed@(importResult.Failed.Count > 0 ? $", {importResult.Failed.Count} failed" : string.Empty).
-                        @if (importResult.Failed.Count > 0)
-                        {
-                            <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" @onclick="() => showImportFailures = !showImportFailures">
-                                @(showImportFailures ? "Hide" : "Show") failures
-                            </button>
-                        }
-                    </p>
-                    @if (showImportFailures && importResult.Failed.Count > 0)
-                    {
-                        <ul class="small text-muted mb-0">
-                            @foreach (var failure in importResult.Failed)
-                            {
-                                <li><code>@failure.FeedUrl</code> — @failure.Reason</li>
-                            }
-                        </ul>
-                    }
-                }
-            </div>
-        }
 
         @if (hideCaughtUpShowsError is not null)
         {
@@ -180,16 +130,6 @@
     private string? hideCaughtUpShowsError;
     private bool episodeStateLoaded;
 
-    // OPML import. Matches OpmlParser.MaxDocumentBytes on the API — guarded client-side too so an
-    // oversized file fails fast without a wasted upload.
-    private const long MaxOpmlBytes = 5 * 1024 * 1024;
-    private bool isImporting;
-    private string? importError;
-    private OpmlImportResult? importResult;
-    private bool showImportFailures;
-    private bool isExporting;
-    private string? exportError;
-
     // Shows with at least one unplayed or in-progress episode — the complement of "caught up".
     // Null until the supplementary episode-state fetch has completed, so the grid never hides
     // or re-sinks shows on incomplete data.
@@ -258,64 +198,6 @@
     }
 
     private void OnIconSizeChanged(ShowIconSize size) => iconSize = size;
-
-    private async Task OnOpmlFileSelectedAsync(InputFileChangeEventArgs e)
-    {
-        var file = e.File;
-        importError = null;
-        importResult = null;
-        showImportFailures = false;
-
-        if (file.Size > MaxOpmlBytes)
-        {
-            importError = "That file is larger than the 5 MB limit.";
-            return;
-        }
-
-        isImporting = true;
-        try
-        {
-            await using var stream = file.OpenReadStream(MaxOpmlBytes);
-            importResult = await SubscriptionClient.ImportOpmlAsync(stream, file.Name);
-
-            // Reload so freshly added shows appear without a manual refresh.
-            var refreshed = await SubscriptionClient.GetSubscriptionsAsync();
-            subscriptions.Clear();
-            subscriptions.AddRange(refreshed);
-        }
-        catch (OpmlImportException ex)
-        {
-            importError = ex.Message;
-        }
-        catch (HttpRequestException)
-        {
-            importError = "Something went wrong importing that file. Please try again.";
-        }
-        finally
-        {
-            isImporting = false;
-        }
-    }
-
-    private async Task OnExportOpmlAsync()
-    {
-        isExporting = true;
-        exportError = null;
-        try
-        {
-            var opml = await SubscriptionClient.ExportOpmlAsync();
-            await JS.InvokeVoidAsync(
-                "kuullaDownloadFile", "kuulla-subscriptions.opml", "text/x-opml", Convert.ToBase64String(opml));
-        }
-        catch (HttpRequestException)
-        {
-            exportError = "Something went wrong exporting your subscriptions. Please try again.";
-        }
-        finally
-        {
-            isExporting = false;
-        }
-    }
 
     private async Task OnSortOrderChangedAsync(SubscriptionSortOrder newOrder)
     {
