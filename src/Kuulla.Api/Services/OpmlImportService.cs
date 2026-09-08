@@ -82,6 +82,20 @@ public class OpmlImportService(ISubscriptionService subscriptionService, IShowSe
                     addedShowIds.Add(show.Id);
                 }
             }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // One unreachable or misbehaving feed must not fail the whole import. The feed
+                // fetch reaches out to an arbitrary third-party host through the resilience
+                // pipeline, so beyond the HttpRequestException / XmlException that ShowService
+                // already folds into a null it can still surface a Polly TimeoutRejectedException,
+                // a BrokenCircuitException, an IOException mid-body, etc. Catch the lot here and
+                // record this entry as failed rather than letting it bubble out of Task.WhenAll
+                // and 500 the request.
+                lock (failed)
+                {
+                    failed.Add(new OpmlImportFailure(normalized, "The feed couldn't be fetched or read."));
+                }
+            }
             finally
             {
                 gate.Release();

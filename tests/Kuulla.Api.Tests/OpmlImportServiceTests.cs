@@ -111,6 +111,30 @@ public class OpmlImportServiceTests
     }
 
     [Fact]
+    public async Task ImportAsync_OneFeedThrowing_IsRecordedAsAFailure_WithoutFailingTheWholeImport()
+    {
+        // ShowService only folds HttpRequestException / XmlException / TaskCanceledException into a
+        // null return; a slow feed hitting the resilience pipeline's total-request timeout throws
+        // a Polly TimeoutRejectedException that escapes it. Simulate any such escape here.
+        _shows.Setup(s => s.GetOrCreateByFeedUrlAsync("https://slow.example/feed", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("The operation didn't complete within the allowed timeout."));
+
+        _shows.Setup(s => s.GetOrCreateByFeedUrlAsync("https://good.example/feed", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ShowWithFeed("show-good", "https://good.example/feed"));
+        _subscriptions.Setup(s => s.SubscribeAsync(UserId, "show-good", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Sub("show-good", "https://good.example/feed"));
+
+        var result = await _sut.ImportAsync(
+            UserId,
+            Opml("https://slow.example/feed", "https://good.example/feed"),
+            CancellationToken.None);
+
+        Assert.Equal(new[] { "show-good" }, result.AddedShowIds);
+        var failure = Assert.Single(result.Failed);
+        Assert.Equal("https://slow.example/feed", failure.FeedUrl);
+    }
+
+    [Fact]
     public async Task ImportAsync_PropagatesFormatExceptionForAWholeDocumentThatIsInvalid()
     {
         await Assert.ThrowsAsync<FormatException>(
