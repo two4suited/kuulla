@@ -70,6 +70,60 @@ public class EpisodeStateService(
         }
     }
 
+    // The "Mark all played" action on the Show screen (#490). Reads the show's existing states in
+    // one scoped query (not a point read per episode), then upserts a real user-completed row for
+    // every episode that isn't already user-completed. Each row gets a server-stamped UpdatedAt so
+    // it rides the normal episode-state sync delta to other devices with no special-casing, and
+    // PlayedAt/Archived are preserved-or-initialised exactly like UpdateStateAsync's completed path.
+    public async Task<IReadOnlyList<EpisodeState>> MarkAllPlayedAsync(
+        string userId,
+        string showId,
+        IReadOnlyList<(string EpisodeId, int DurationSeconds)> episodes,
+        string? deviceId,
+        CancellationToken cancellationToken)
+    {
+        if (episodes.Count == 0)
+        {
+            return [];
+        }
+
+        var existingByEpisodeId = (await GetShowStatesAsync(userId, showId, cancellationToken))
+            .ToDictionary(state => state.EpisodeId, StringComparer.Ordinal);
+
+        var updated = new List<EpisodeState>();
+        foreach (var (episodeId, durationSeconds) in episodes)
+        {
+            existingByEpisodeId.TryGetValue(episodeId, out var existing);
+
+            // Idempotent: an episode the user has already marked played is left alone, so a
+            // re-run neither churns its UpdatedAt through sync nor clobbers its stored position.
+            if (existing is { Completed: true, AutoPlayed: false })
+            {
+                continue;
+            }
+
+            var playedAt = existing?.PlayedAt ?? DateTimeOffset.UtcNow;
+            var archived = existing?.Archived ?? false;
+            var state = new EpisodeState(
+                episodeId,
+                userId,
+                episodeId,
+                showId,
+                PositionSeconds: Math.Max(0, durationSeconds),
+                Completed: true,
+                UpdatedAt: DateTimeOffset.UtcNow,
+                DeviceId: deviceId,
+                AutoPlayed: false,
+                PlayedAt: playedAt,
+                Archived: archived);
+
+            await UpsertStateAsync(state, cancellationToken);
+            updated.Add(state);
+        }
+
+        return updated;
+    }
+
     // Used only by the auto-archive enforcement job (#187) — reads every state for a show
     // rather than filtering client-side after QueryAllStatesAsync so enforcement on a show with
     // many episodes doesn't have to pull every other show's states for this user too.

@@ -28,9 +28,13 @@ struct ShowDetailView: View {
     @State private var hasToggledSubscription = false
     @State private var isShowingSettings = false
     @State private var addToPlaylistEpisode: Episode?
+    @State private var isConfirmingMarkAllPlayed = false
+    @State private var isMarkingAllPlayed = false
+    @State private var markAllPlayedError: String?
 
     private let catalogClient = PodcastCatalogClient()
     private let subscriptionClient = SubscriptionClient()
+    private let episodeStateClient = EpisodeStateClient()
 
     var body: some View {
         List {
@@ -121,17 +125,42 @@ struct ShowDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isShowingSettings = true
+                Menu {
+                    Button {
+                        isShowingSettings = true
+                    } label: {
+                        Label("Podcast settings", systemImage: "gearshape")
+                    }
+                    Button {
+                        isConfirmingMarkAllPlayed = true
+                    } label: {
+                        Label("Mark all played", systemImage: "checkmark.circle")
+                    }
+                    .disabled(isMarkingAllPlayed)
                 } label: {
-                    Image(systemName: "gearshape")
+                    Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Podcast settings")
+                .accessibilityLabel("Podcast actions")
                 .disabled(show == nil)
             }
         }
         .sheet(isPresented: $isShowingSettings) {
             ShowSettingsSheet(showId: showId, showTitle: show?.title ?? "Show")
+        }
+        .confirmationDialog(
+            "Mark every episode of this show as played?",
+            isPresented: $isConfirmingMarkAllPlayed,
+            titleVisibility: .visible
+        ) {
+            Button("Mark all played") {
+                Task { await markAllPlayed() }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Couldn't mark episodes played", isPresented: markAllPlayedErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(markAllPlayedError ?? "")
         }
         .sheet(item: $addToPlaylistEpisode) { episode in
             AddToPlaylistSheet(episodeId: episode.id, showId: showId)
@@ -166,6 +195,9 @@ struct ShowDetailView: View {
         isSubscriptionBusy = false
         subscriptionError = nil
         hasToggledSubscription = false
+        isConfirmingMarkAllPlayed = false
+        isMarkingAllPlayed = false
+        markAllPlayedError = nil
 
         isLoadingShow = true
         do {
@@ -248,6 +280,38 @@ struct ShowDetailView: View {
         EpisodeListFilter.apply(
             episodes: episodes, statuses: statusByEpisodeId, filter: selectedFilter, sort: selectedSort,
             archived: archivedEpisodeIds)
+    }
+
+    private var markAllPlayedErrorBinding: Binding<Bool> {
+        Binding(
+            get: { markAllPlayedError != nil },
+            set: { if !$0 { markAllPlayedError = nil } })
+    }
+
+    // Marks the show's whole back catalogue played server-side in one call (#490), then pulls the
+    // authoritative rows into the local store via the sync engine. The on-screen rows are updated
+    // optimistically so the change is visible immediately; episodes on not-yet-loaded pages were
+    // marked server-side too and render correctly once loaded.
+    private func markAllPlayed() async {
+        guard !isMarkingAllPlayed else { return }
+
+        isMarkingAllPlayed = true
+        markAllPlayedError = nil
+
+        do {
+            try await episodeStateClient.markAllPlayed(showId: showId)
+            for episode in episodes {
+                statusByEpisodeId[episode.id] = .played
+                positionSecondsByEpisodeId[episode.id] = Int(episode.duration ?? 0)
+            }
+            await syncEngine?.syncNow()
+        } catch {
+            if !Task.isCancelled {
+                markAllPlayedError = "Something went wrong while marking episodes played. Please try again."
+            }
+        }
+
+        isMarkingAllPlayed = false
     }
 
     private func refreshStatuses() {

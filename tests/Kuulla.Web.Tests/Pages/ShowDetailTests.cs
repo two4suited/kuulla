@@ -68,6 +68,16 @@ public class ShowDetailTests : WebTestContext
                 };
             }
 
+            if (path == "/api/shows/show-1/episode-state/mark-all-played" && request.Method == HttpMethod.Post)
+            {
+                var markedState = new EpisodeState(
+                    "ep-1", "user-1", "ep-1", "show-1", 1200, true, DateTimeOffset.UtcNow, "web", AutoPlayed: false);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new MarkAllPlayedResult(1, 1, [markedState])),
+                };
+            }
+
             if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
             {
                 return new HttpResponseMessage(HttpStatusCode.OK)
@@ -248,6 +258,101 @@ public class ShowDetailTests : WebTestContext
             Assert.Contains("Mark as unplayed", cut.Markup);
             Assert.Contains("Played", cut.Markup);
         });
+    }
+
+    [Fact]
+    public void MarkAllPlayedButton_IsHidden_WhenNotAuthenticated()
+    {
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("The Daily", cut.Markup));
+        Assert.DoesNotContain("Mark all played", cut.Markup);
+    }
+
+    [Fact]
+    public void MarkAllPlayed_MarksLoadedEpisodesPlayed_AfterConfirmation()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Mark all played").Click();
+        cut.WaitForAssertion(() => Assert.Contains("Mark every episode of this show as played?", cut.Markup));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Yes, mark all played").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            // Default filter is "Unfinished", which hides played episodes — the marked episode drops out.
+            Assert.DoesNotContain("Mark every episode of this show as played?", cut.Markup);
+            Assert.DoesNotContain("Monday Edition", cut.Markup);
+        });
+
+        cut.FindAll(".btn-group button").Single(b => b.TextContent.Trim() == "All").Click();
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Monday Edition", cut.Markup);
+            Assert.Contains("Played", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void MarkAllPlayed_ShowsError_WhenRequestFails()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/shows/show-1/episode-state/mark-all-played" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            }
+
+            if (path == "/api/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(TestShow) };
+            }
+
+            if (path == "/api/shows/show-1/episodes" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new EpisodePage([TestEpisode], null)),
+                };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new Dictionary<string, EpisodeState>()),
+                };
+            }
+
+            if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) };
+            }
+
+            if (path == "/api/settings/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultShowSettings) };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Mark all played", cut.Markup));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Mark all played").Click();
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Yes, mark all played").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("Something went wrong while marking episodes played", cut.Markup));
     }
 
     [Fact]

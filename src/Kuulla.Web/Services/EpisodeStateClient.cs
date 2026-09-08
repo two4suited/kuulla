@@ -117,6 +117,18 @@ public class EpisodeStateClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<EpisodeState>(JsonOptions, cancellationToken))!;
     }
 
+    // Marks every episode of a show played for the current user in one request (#490). Returns the
+    // rows the server actually wrote (empty on a no-op re-run); callers merge those and/or refetch.
+    public async Task<MarkAllPlayedResult> MarkAllPlayedAsync(string showId, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var body = new { DeviceId = WebDeviceId };
+        var response = await client.PostAsJsonAsync(
+            $"api/shows/{Uri.EscapeDataString(showId)}/episode-state/mark-all-played", body, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<MarkAllPlayedResult>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<SyncCheckResult<EpisodeState>> SyncAsync(
         string localHash, DateTimeOffset lastSyncedAt, CancellationToken cancellationToken = default)
     {

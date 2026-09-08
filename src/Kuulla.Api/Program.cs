@@ -527,6 +527,52 @@ shows.MapGet("/{id}/episodes/{episodeId}/transcript", async (
     return transcript is not null ? Results.Ok(transcript) : Results.NotFound();
 });
 
+// "Mark all played" on the Show screen (#490): one request marks every episode known for the
+// show played for the caller. The candidate set is every episode in the episode cache for the
+// show (what GET /api/shows/{id}/episodes pages over) — the same back catalog the
+// unlistened-limit enforcement job operates on. Episodes the user has already marked played are
+// skipped, so re-running is a no-op. Each written row is server-stamped and rides the normal
+// episode-state sync delta to the user's other devices.
+shows.MapPost("/{id}/episode-state/mark-all-played", async (
+    string id,
+    MarkAllPlayedRequest? request,
+    ClaimsPrincipal user,
+    IShowService showService,
+    IEpisodeService episodeService,
+    IEpisodeStateService episodeStateService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+
+    var show = await showService.GetByIdAsync(id, ct);
+    if (show is null)
+    {
+        return Results.NotFound();
+    }
+
+    var episodes = await episodeService.GetAllEpisodesOrderedAsync(id, ct);
+    var episodePairs = episodes
+        .Select(e => (EpisodeId: e.Id, DurationSeconds: (int)Math.Round((e.Duration ?? TimeSpan.Zero).TotalSeconds)))
+        .ToList();
+
+    var updated = await episodeStateService.MarkAllPlayedAsync(userId, id, episodePairs, request?.DeviceId, ct);
+
+    // Best-effort, same rationale as the single-episode state PUT: marking a back catalog played
+    // can make many episodes newly eligible for auto-archiving, but a transient failure here
+    // shouldn't turn a successful bulk mark into a 5xx — it self-heals on the next state change
+    // or rule re-evaluation.
+    try
+    {
+        await episodeService.EnforceAutoArchiveRuleAsync(userId, id, ct);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after mark-all-played", userId, id);
+    }
+
+    return Results.Ok(new MarkAllPlayedResult(episodes.Count, updated.Count, updated));
+}).RequireAuthorization();
+
 var discovery = app.MapGroup("/api/discovery");
 
 discovery.MapGet("", async (IDiscoveryService discoveryService, CancellationToken ct) =>
