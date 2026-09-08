@@ -269,26 +269,26 @@ public class SubscriptionsTests : WebTestContext
     }
 
     [Fact]
-    public void RemovesSubscription_WhenUnsubscribeConfirmed()
+    public void GridTiles_AreArtworkOnly_NoTitleOrAuthorOrUnsubscribe()
     {
         AuthContext.SetAuthorized("user-1");
-        ConfigureApi(RouteHandler(onDelete: request =>
-            request.RequestUri!.AbsolutePath == "/api/subscriptions/show-1"
-                ? new HttpResponseMessage(HttpStatusCode.OK)
-                : new HttpResponseMessage(HttpStatusCode.NotFound)));
+        var subs = new List<Subscription>
+        {
+            new("sub-1", "show-1", "The Daily", "The New York Times", "https://art/show-1.jpg", DateTimeOffset.UtcNow),
+        };
+        ConfigureApi(RouteHandler(
+            onGetSubscriptions: _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(subs) }));
 
         var cut = RenderComponent<Subscriptions>();
-        cut.WaitForAssertion(() => Assert.Contains("Unsubscribe", cut.Markup));
-
-        cut.Find("button.btn-outline-danger").Click();
-        cut.WaitForAssertion(() => Assert.Contains("Confirm", cut.Markup));
-
-        cut.Find("button.btn-danger").Click();
 
         cut.WaitForAssertion(() =>
         {
-            Assert.DoesNotContain("The Daily", cut.Markup);
-            Assert.DoesNotContain("Something went wrong", cut.Markup);
+            // Artwork carries the title as its alt text and is the only thing in the tile.
+            var img = cut.Find(".col img.card-img");
+            Assert.Equal("The Daily", img.GetAttribute("alt"));
+            Assert.Empty(cut.FindAll(".col .card-title"));
+            Assert.DoesNotContain("The New York Times", cut.Markup);
+            Assert.DoesNotContain("Unsubscribe", cut.Markup);
         });
     }
 

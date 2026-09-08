@@ -27,11 +27,15 @@ public class SubscriptionUiTests(AppHostFixture fixture)
             await page.GetByRole(AriaRole.Button, new() { Name = "Unsubscribe" }).WaitForAsync();
 
             await page.GotoAsync("/subscriptions");
-            await page.GetByText(show.Title).WaitForAsync();
+            // Grid tiles are artwork-only (#487); unsubscribe now lives on Show Detail, reached by
+            // tapping the tile.
+            await page.GetByText(show.Title).ClickAsync();
+            await page.GetByRole(AriaRole.Heading, new() { Name = show.Title }).WaitForAsync();
 
             await page.GetByRole(AriaRole.Button, new() { Name = "Unsubscribe" }).ClickAsync();
-            await page.GetByRole(AriaRole.Button, new() { Name = "Confirm" }).ClickAsync();
+            await page.GetByRole(AriaRole.Button, new() { Name = "Subscribe" }).WaitForAsync();
 
+            await page.GotoAsync("/subscriptions");
             await page.GetByText("You haven't subscribed to any shows yet.").WaitForAsync();
         }
         finally

@@ -96,6 +96,27 @@ public class HomeTests : WebTestContext
     }
 
     [Fact]
+    public void ShowGridTiles_AreArtworkOnly_WithTitleAsAltText()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var subs = new List<Subscription>
+        {
+            new("sub-1", "show-1", "The Daily", "NYT", "https://art/show-1.jpg", DateTimeOffset.UtcNow),
+        };
+        ConfigureApi(RouteHandler(
+            onGetSubscriptions: _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(subs) }));
+
+        var cut = RenderComponent<Home>();
+
+        cut.WaitForAssertion(() =>
+        {
+            var img = cut.Find(".row .col img.card-img");
+            Assert.Equal("The Daily", img.GetAttribute("alt"));
+            Assert.Empty(cut.FindAll(".row .col .card-title"));
+        });
+    }
+
+    [Fact]
     public void ShowsInProgressBadge_ForShowWithInProgressEpisode()
     {
         AuthContext.SetAuthorized("user-1");
