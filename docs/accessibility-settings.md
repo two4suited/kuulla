@@ -21,7 +21,7 @@ Text rendering already uses SwiftUI's semantic text styles throughout — every
 structurally almost everywhere — this isn't a from-scratch feature. VoiceOver
 labeling is inconsistent: a handful of icon-only controls already set an explicit
 `accessibilityLabel` (`DownloadButton`, `PlaylistsView`'s "New playlist" button,
-`ShowDetailView`'s "Podcast settings" gear, `LibraryView`'s "New Episodes" button),
+`ShowDetailView`'s "Podcast actions" toolbar menu, `LibraryView`'s "New Episodes" button),
 but the player screen (`EpisodeDetailView`) and `SettingsView` have none — icon-only
 controls there (e.g. the playback-speed cycle button) fall back to whatever VoiceOver
 infers from a bare SF Symbol, which is often unhelpful ("circle" instead of "1.5x

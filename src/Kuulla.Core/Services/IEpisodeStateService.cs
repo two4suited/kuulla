@@ -21,6 +21,18 @@ public interface IEpisodeStateService
     Task MarkAutoPlayedAsync(
         string userId, IReadOnlyList<(string EpisodeId, string ShowId)> episodes, CancellationToken cancellationToken);
 
+    // Marks every supplied episode of a show played for the user in one pass — the "start from a
+    // clean slate" action on the Show screen (#490). Distinct from MarkAutoPlayedAsync: this is a
+    // real user action, so the rows land with AutoPlayed = false and PositionSeconds at the
+    // episode duration. Episodes the user has already marked played (Completed && !AutoPlayed) are
+    // left untouched, so a re-run is a no-op. Returns the rows actually written.
+    Task<IReadOnlyList<EpisodeState>> MarkAllPlayedAsync(
+        string userId,
+        string showId,
+        IReadOnlyList<(string EpisodeId, int DurationSeconds)> episodes,
+        string? deviceId,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<EpisodeState>> GetShowStatesAsync(
         string userId, string showId, CancellationToken cancellationToken);
 

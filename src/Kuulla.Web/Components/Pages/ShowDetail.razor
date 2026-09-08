@@ -294,6 +294,34 @@ else
         </select>
     </div>
 
+    <AuthorizeView>
+        <Authorized>
+            <div class="mb-3">
+                @if (markAllConfirming)
+                {
+                    <span class="me-2">Mark every episode of this show as played?</span>
+                    <button class="btn btn-sm btn-primary" disabled="@isMarkingAllPlayed" @onclick="MarkAllPlayedAsync">
+                        Yes, mark all played
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" disabled="@isMarkingAllPlayed"
+                            @onclick="() => markAllConfirming = false">
+                        Cancel
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="StartMarkAllPlayed">
+                        Mark all played
+                    </button>
+                }
+                @if (markAllPlayedError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@markAllPlayedError</p>
+                }
+            </div>
+        </Authorized>
+    </AuthorizeView>
+
     @if (episodeError is not null)
     {
         <p class="text-danger">@episodeError</p>
@@ -451,6 +479,9 @@ else
     private readonly HashSet<string> restoringEpisodeIds = [];
     private readonly HashSet<string> togglingEpisodeIds = [];
     private string? episodeStateError;
+    private bool markAllConfirming;
+    private bool isMarkingAllPlayed;
+    private string? markAllPlayedError;
     private bool isAuthenticated;
     private EpisodeFilter selectedFilter = EpisodeFilter.Unfinished;
     private EpisodeSortOrder selectedSort = EpisodeSortOrder.NewestFirst;
@@ -634,6 +665,9 @@ else
         restoringEpisodeIds.Clear();
         togglingEpisodeIds.Clear();
         episodeStateError = null;
+        markAllConfirming = false;
+        isMarkingAllPlayed = false;
+        markAllPlayedError = null;
         isAuthenticated = false;
         selectedFilter = EpisodeFilter.Unfinished;
         selectedSort = EpisodeSortOrder.NewestFirst;
@@ -1193,6 +1227,45 @@ else
         }
         catch (HttpRequestException)
         {
+        }
+    }
+
+    private void StartMarkAllPlayed()
+    {
+        markAllConfirming = true;
+        markAllPlayedError = null;
+    }
+
+    private async Task MarkAllPlayedAsync()
+    {
+        if (isMarkingAllPlayed)
+        {
+            return;
+        }
+
+        isMarkingAllPlayed = true;
+        markAllPlayedError = null;
+
+        try
+        {
+            var result = await EpisodeStateClient.MarkAllPlayedAsync(Id);
+            foreach (var state in result.UpdatedStates)
+            {
+                episodeStatesById[state.EpisodeId] = state;
+            }
+
+            // Episodes on later, not-yet-loaded pages were marked server-side too; refetch state
+            // for everything currently on screen so no visible row lingers as unplayed.
+            await LoadEpisodeStatesAsync(episodes);
+            markAllConfirming = false;
+        }
+        catch (HttpRequestException)
+        {
+            markAllPlayedError = "Something went wrong while marking episodes played. Please try again.";
+        }
+        finally
+        {
+            isMarkingAllPlayed = false;
         }
     }
 

@@ -25,6 +25,7 @@
 		A1000015 /* EpisodeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
 		A1000016 /* Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
 		A1000017 /* SubscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
+		B1000001 /* EpisodeStateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001; };
 		W1000001 /* SubscriptionSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000001; };
 		W1000002 /* SubscriptionSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000002; };
 		X1000001 /* SubscriptionManualReorderRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2000001; };
@@ -174,6 +175,7 @@
 		A2000016 /* EpisodeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailView.swift; sourceTree = "<group>"; };
 		A2000017 /* Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscription.swift; sourceTree = "<group>"; };
 		A2000018 /* SubscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClient.swift; sourceTree = "<group>"; };
+		B2000001 /* EpisodeStateClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStateClient.swift; sourceTree = "<group>"; };
 		W2000001 /* SubscriptionSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortOrder.swift; sourceTree = "<group>"; };
 		W2000002 /* SubscriptionSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSort.swift; sourceTree = "<group>"; };
 		X2000001 /* SubscriptionManualReorderRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManualReorderRow.swift; sourceTree = "<group>"; };
@@ -318,6 +320,7 @@
 				A2000016 /* EpisodeDetailView.swift */,
 				A2000017 /* Subscription.swift */,
 				A2000018 /* SubscriptionClient.swift */,
+				B2000001 /* EpisodeStateClient.swift */,
 				W2000001 /* SubscriptionSortOrder.swift */,
 				W2000002 /* SubscriptionSort.swift */,
 				X2000001 /* SubscriptionManualReorderRow.swift */,
@@ -568,6 +571,7 @@
 				A1000015,
 				A1000016,
 				A1000017,
+				B1000001,
 				W1000001,
 				W1000002,
 				X1000001,
