@@ -31,7 +31,9 @@ final class SearchAndSubscribeUITests: KuullaUITestCase {
         XCTAssertTrue(app.buttons["Unsubscribe"].waitForExistence(timeout: 15))
 
         app.tabBars.buttons["Subscriptions"].tap()
-        let subscribedTile = app.staticTexts[showTitle].firstMatch
+        // Grid tiles are artwork-only (#487); the show title is the tile's accessibility label,
+        // not visible text, so match the tile as a button rather than a static text.
+        let subscribedTile = app.buttons[showTitle].firstMatch
         XCTAssertTrue(subscribedTile.waitForExistence(timeout: 15))
 
         subscribedTile.tap()
