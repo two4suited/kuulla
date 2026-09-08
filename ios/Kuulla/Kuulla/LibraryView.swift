@@ -56,10 +56,10 @@ struct LibraryView: View {
         .navigationTitle("Library")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                sortMenu
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                ShowIconSizeMenu()
+                ShowDisplaySettingsMenu(
+                    sortOrder: sortOrderBinding,
+                    hideCaughtUpShows: hideCaughtUpBinding,
+                    isDisabled: subscriptions.isEmpty && showsErrorMessage == nil)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(destination: FeedView()) {
@@ -79,22 +79,6 @@ struct LibraryView: View {
             async let playlistsTask: Void = loadPlaylists()
             _ = await (showsTask, playlistsTask)
         }
-    }
-
-    private var sortMenu: some View {
-        Menu {
-            Picker("Sort shows", selection: sortOrderBinding) {
-                ForEach(SubscriptionSortOrder.allCases) { option in
-                    Text(option.label).tag(option)
-                }
-            }
-            Divider()
-            Toggle("Hide caught-up shows", isOn: hideCaughtUpBinding)
-        } label: {
-            Image(systemName: "arrow.up.arrow.down")
-        }
-        .accessibilityLabel("Sort shows")
-        .disabled(subscriptions.isEmpty && showsErrorMessage == nil)
     }
 
     private var hideCaughtUpBinding: Binding<Bool> {

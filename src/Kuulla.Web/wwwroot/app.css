@@ -481,6 +481,48 @@ mark {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Show display settings popover (gear icon on Library / Subscriptions)    */
+/* ---------------------------------------------------------------------- */
+
+/* No Bootstrap JS is loaded, so the gear opens a hand-rolled popover: a
+   transparent full-viewport catcher closes it on an outside click, and the
+   panel floats below the button. */
+.show-display-settings-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1040;
+}
+
+.show-display-settings-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.25rem);
+    z-index: 1050;
+    width: 15rem;
+    background-color: var(--k-surface);
+    border-color: var(--k-border) !important;
+}
+
+.show-display-settings .sort-option {
+    color: var(--k-text);
+}
+
+.show-display-settings .sort-option:hover {
+    background-color: var(--k-surface-2);
+}
+
+.show-display-settings .sort-option.active {
+    background-color: var(--k-accent-soft);
+    color: var(--k-accent-ink);
+}
+
+.show-display-settings .sort-check {
+    display: inline-block;
+    width: 1rem;
+    flex: 0 0 1rem;
+}
+
+/* ---------------------------------------------------------------------- */
 /* Error boundary / connection banners                                     */
 /* ---------------------------------------------------------------------- */
 

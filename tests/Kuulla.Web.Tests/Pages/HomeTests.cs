@@ -14,7 +14,7 @@ public class HomeTests : WebTestContext
 {
     public HomeTests()
     {
-        // Home hosts <ShowIconSizeSelect>, which reads the "showIconSize" localStorage key via JS
+        // Home hosts <ShowDisplaySettings>, which reads the "showIconSize" localStorage key via JS
         // interop on first render. Loose mode auto-stubs that (returns null → the default size).
         JSInterop.Mode = JSRuntimeMode.Loose;
     }

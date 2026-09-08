@@ -110,10 +110,10 @@ struct SubscriptionsView: View {
         .navigationTitle("Subscriptions")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                sortMenu
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                ShowIconSizeMenu()
+                ShowDisplaySettingsMenu(
+                    sortOrder: sortOrderBinding,
+                    hideCaughtUpShows: hideCaughtUpBinding,
+                    isDisabled: subscriptions.isEmpty && errorMessage == nil)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 opmlMenu
@@ -280,22 +280,6 @@ struct SubscriptionsView: View {
         } catch {
             opmlExportError = "Something went wrong exporting your subscriptions. Please try again."
         }
-    }
-
-    private var sortMenu: some View {
-        Menu {
-            Picker("Sort shows", selection: sortOrderBinding) {
-                ForEach(SubscriptionSortOrder.allCases) { option in
-                    Text(option.label).tag(option)
-                }
-            }
-            Divider()
-            Toggle("Hide caught-up shows", isOn: hideCaughtUpBinding)
-        } label: {
-            Image(systemName: "arrow.up.arrow.down")
-        }
-        .accessibilityLabel("Sort shows")
-        .disabled(subscriptions.isEmpty && errorMessage == nil)
     }
 
     private var hideCaughtUpBinding: Binding<Bool> {

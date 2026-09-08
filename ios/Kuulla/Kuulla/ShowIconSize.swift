@@ -44,28 +44,3 @@ enum ShowIconSize: String, CaseIterable, Identifiable {
         ShowIconSize(rawValue: raw) ?? .default
     }
 }
-
-// Toolbar control shared by LibraryView and SubscriptionsView. Binds straight to the device-local
-// UserDefaults key so both screens stay in sync with a single stored value.
-struct ShowIconSizeMenu: View {
-    @AppStorage(ShowIconSize.storageKey) private var iconSizeRaw = ShowIconSize.default.rawValue
-
-    private var selection: Binding<ShowIconSize> {
-        Binding(
-            get: { ShowIconSize.current(iconSizeRaw) },
-            set: { iconSizeRaw = $0.rawValue })
-    }
-
-    var body: some View {
-        Menu {
-            Picker("Icon Size", selection: selection) {
-                ForEach(ShowIconSize.allCases) { size in
-                    Label(size.label, systemImage: size.systemImage).tag(size)
-                }
-            }
-        } label: {
-            Image(systemName: selection.wrappedValue.systemImage)
-        }
-        .accessibilityLabel("Icon Size")
-    }
-}
