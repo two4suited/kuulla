@@ -1,0 +1,88 @@
+@using System.Globalization
+
+@* A range slider for a per-show float override that can also inherit the global default (#504).
+   Used for playback speed, where the underlying setting is a continuous float (0.5–3.0, step
+   0.1, validated API-side) that the old preset <select> could only approximate.
+
+   When there's no override it shows the resolved global value and an "Override" button; once
+   overridden it shows the slider plus its live value and a "Use global default" link.
+   Presentational only — raises ValueChanged and lets the host own optimistic save + rollback. *@
+<div class="inheritable-slider" id="@Id">
+    @if (Value is { } value)
+    {
+        <div class="d-flex align-items-center gap-2">
+            <input type="range" class="form-range" style="max-width: 12rem;"
+                   min="@Min.ToString(CultureInfo.InvariantCulture)"
+                   max="@Max.ToString(CultureInfo.InvariantCulture)"
+                   step="@Step.ToString(CultureInfo.InvariantCulture)"
+                   value="@value.ToString(CultureInfo.InvariantCulture)"
+                   disabled="@Disabled" aria-label="@AriaLabel"
+                   @onchange="OnRangeChangedAsync" />
+            <span class="slider-value" aria-live="polite">@Format(value)</span>
+            <button type="button" class="btn btn-link btn-sm p-0" disabled="@Disabled"
+                    @onclick="() => SetAsync(null)">Use global default</button>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-body-secondary small">Global default@(GlobalValue is { } g ? $" ({Format(g)})" : "")</span>
+            <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@Disabled"
+                    @onclick="() => SetAsync(GlobalValue ?? SeedValue)">Override</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public float? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<float?> ValueChanged { get; set; }
+
+    [Parameter]
+    public float? GlobalValue { get; set; }
+
+    [Parameter]
+    public float SeedValue { get; set; } = 1.0f;
+
+    [Parameter]
+    public float Min { get; set; } = 0.5f;
+
+    [Parameter]
+    public float Max { get; set; } = 3.0f;
+
+    [Parameter]
+    public float Step { get; set; } = 0.1f;
+
+    [Parameter]
+    public Func<float, string> Format { get; set; } = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public string? Id { get; set; }
+
+    private async Task OnRangeChangedAsync(ChangeEventArgs args)
+    {
+        if (float.TryParse(args.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+        {
+            await SetAsync((float)Math.Round(parsed, 2));
+        }
+    }
+
+    private async Task SetAsync(float? value)
+    {
+        if (Nullable.Equals(Value, value))
+        {
+            return;
+        }
+
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+}

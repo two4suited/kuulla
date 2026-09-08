@@ -1,0 +1,64 @@
+@typeparam TValue where TValue : struct
+
+@* A horizontal segmented control for a per-show override that can also inherit the global
+   default (#504). The first segment is always "Use global default" (a null Value); the rest
+   come from Options. Replaces a 3+-row <select> where every option fits on one line — the
+   tri-state On/Off/Default booleans, the Up Next insert position, the unlistened-episode count.
+
+   Presentational only: it raises ValueChanged and lets the host page own the optimistic-save
+   and rollback wiring, exactly as the old <select> @onchange handlers did. *@
+<div class="btn-group btn-group-sm segmented-choice flex-wrap" role="group" aria-label="@AriaLabel" id="@Id">
+    <button type="button"
+            class="btn @(Value is null ? "btn-primary" : "btn-outline-secondary")"
+            aria-pressed="@(Value is null ? "true" : "false")" disabled="@Disabled"
+            @onclick="() => SelectAsync(null)">
+        @DefaultLabel
+    </button>
+    @foreach (var option in Options)
+    {
+        var selected = Value is { } current && EqualityComparer<TValue>.Default.Equals(current, option.Value);
+        <button type="button"
+                class="btn @(selected ? "btn-primary" : "btn-outline-secondary")"
+                aria-pressed="@(selected ? "true" : "false")" disabled="@Disabled"
+                @onclick="() => SelectAsync(option.Value)">
+            @option.Label
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<(TValue Value, string Label)> Options { get; set; } = [];
+
+    // Shown on the inherit segment. "Default" keeps the row short; callers that want the
+    // resolved value pass e.g. "Default (On)".
+    [Parameter]
+    public string DefaultLabel { get; set; } = "Default";
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    // Put on the group wrapper so host-page tests can scope to one control.
+    [Parameter]
+    public string? Id { get; set; }
+
+    private async Task SelectAsync(TValue? value)
+    {
+        if (Nullable.Equals(Value, value))
+        {
+            return;
+        }
+
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+}

@@ -82,16 +82,18 @@ else
                             <div class="show-display-settings-backdrop" @onclick="CloseShowSettings"></div>
                             <div class="show-settings-panel border rounded shadow p-3" role="dialog" aria-label="Podcast settings">
 
-                    <div style="max-width: 24rem;">
-                        <label class="form-label" for="show-unlistened-episode-count">Unlistened episodes to show</label>
-                        <select id="show-unlistened-episode-count" class="form-select" disabled="@isShowSettingsSaving"
-                                value="@ShowSettingsSelectValue" @onchange="OnShowUnlistenedEpisodeCountChangedAsync">
-                            <option value="">Use global default</option>
-                            @foreach (var option in UnlistenedEpisodeCountUi.Options)
-                            {
-                                <option value="@option">@UnlistenedEpisodeCountUi.Format(option)</option>
-                            }
-                        </select>
+                    @* Each control can inherit the user's global default (a null override) or
+                       set a per-show value. Boolean + short-list settings use a segmented
+                       control, longer enums a radio list, and the continuous ones (auto-skip
+                       seconds, playback speed) a stepper / slider over their real range —
+                       replacing the row of look-alike <select>s from #500 (issue #504). *@
+                    <div class="show-setting">
+                        <div class="form-label mb-1">Unlistened episodes to show</div>
+                        <SegmentedChoice TValue="UnlistenedEpisodeCount" Id="show-unlistened-episode-count"
+                                         AriaLabel="Unlistened episodes to show" Disabled="isShowSettingsSaving"
+                                         Options="UnlistenedEpisodeCountOptions"
+                                         Value="showUnlistenedEpisodeCountOverride"
+                                         ValueChanged="OnShowUnlistenedEpisodeCountChangedAsync" />
                         @if (showSettingsError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showSettingsError</p>
@@ -102,16 +104,13 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-auto-archive-rule">Auto-archive played episodes</label>
-                        <select id="show-auto-archive-rule" class="form-select" disabled="@isShowArchiveSettingsSaving"
-                                value="@ShowArchiveSettingsSelectValue" @onchange="OnShowAutoArchiveRuleChangedAsync">
-                            <option value="">Use global default</option>
-                            @foreach (var option in AutoArchiveRuleUi.Options)
-                            {
-                                <option value="@option">@AutoArchiveRuleUi.Format(option)</option>
-                            }
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Auto-archive played episodes</div>
+                        <RadioChoice TValue="AutoArchiveRule" Id="show-auto-archive-rule"
+                                     AriaLabel="Auto-archive played episodes" Disabled="isShowArchiveSettingsSaving"
+                                     Options="AutoArchiveRuleOptions"
+                                     Value="showAutoArchiveRuleOverride"
+                                     ValueChanged="OnShowAutoArchiveRuleChangedAsync" />
                         @if (showArchiveSettingsError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showArchiveSettingsError</p>
@@ -122,14 +121,13 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-auto-download-new-episodes">Auto-download new episodes</label>
-                        <select id="show-auto-download-new-episodes" class="form-select" disabled="@isShowAutoDownloadSaving"
-                                value="@ShowAutoDownloadSelectValue" @onchange="OnShowAutoDownloadNewEpisodesChangedAsync">
-                            <option value="">Use global default</option>
-                            <option value="true">On</option>
-                            <option value="false">Off</option>
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Auto-download new episodes</div>
+                        <SegmentedChoice TValue="bool" Id="show-auto-download-new-episodes"
+                                         AriaLabel="Auto-download new episodes" Disabled="isShowAutoDownloadSaving"
+                                         Options="OnOffOptions"
+                                         Value="showAutoDownloadNewEpisodesOverride"
+                                         ValueChanged="OnShowAutoDownloadNewEpisodesChangedAsync" />
                         @if (showAutoDownloadError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showAutoDownloadError</p>
@@ -140,16 +138,13 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-auto-delete-rule">Delete downloads</label>
-                        <select id="show-auto-delete-rule" class="form-select" disabled="@isShowAutoDeleteSaving"
-                                value="@ShowAutoDeleteRuleSelectValue" @onchange="OnShowAutoDeleteRuleChangedAsync">
-                            <option value="">Use global default</option>
-                            @foreach (var option in AutoDeleteRuleUi.Options)
-                            {
-                                <option value="@option">@AutoDeleteRuleUi.Format(option)</option>
-                            }
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Delete downloads</div>
+                        <RadioChoice TValue="AutoDeleteRule" Id="show-auto-delete-rule"
+                                     AriaLabel="Delete downloads" Disabled="isShowAutoDeleteSaving"
+                                     Options="AutoDeleteRuleOptions"
+                                     Value="showAutoDeleteRuleOverride"
+                                     ValueChanged="OnShowAutoDeleteRuleChangedAsync" />
                         @if (showAutoDeleteRuleOverride == AutoDeleteRule.AfterDays)
                         {
                             <div class="mt-2 d-flex align-items-center gap-2">
@@ -170,14 +165,13 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-auto-add-up-next">Add new episodes to Up Next</label>
-                        <select id="show-auto-add-up-next" class="form-select" disabled="@isShowAutoAddUpNextSaving"
-                                value="@ShowAutoAddUpNextSelectValue" @onchange="OnShowAutoAddNewEpisodesToUpNextChangedAsync">
-                            <option value="">Use global default</option>
-                            <option value="true">On</option>
-                            <option value="false">Off</option>
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Add new episodes to Up Next</div>
+                        <SegmentedChoice TValue="bool" Id="show-auto-add-up-next"
+                                         AriaLabel="Add new episodes to Up Next" Disabled="isShowAutoAddUpNextSaving"
+                                         Options="OnOffOptions"
+                                         Value="showAutoAddNewEpisodesToUpNextOverride"
+                                         ValueChanged="OnShowAutoAddNewEpisodesToUpNextChangedAsync" />
                         @if (showAutoAddUpNextError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showAutoAddUpNextError</p>
@@ -190,13 +184,12 @@ else
                         @if (showAutoAddNewEpisodesToUpNextOverride ?? globalAutoAddNewEpisodesToUpNext)
                         {
                             <div class="mt-2">
-                                <label class="form-label" for="show-up-next-insert-position">Add to</label>
-                                <select id="show-up-next-insert-position" class="form-select" disabled="@isShowUpNextInsertPositionSaving"
-                                        value="@ShowUpNextInsertPositionSelectValue" @onchange="OnShowUpNextInsertPositionChangedAsync">
-                                    <option value="">Use global default</option>
-                                    <option value="@UpNextInsertPosition.Top">Top of the queue</option>
-                                    <option value="@UpNextInsertPosition.Bottom">Bottom of the queue</option>
-                                </select>
+                                <div class="form-label mb-1">Add to</div>
+                                <SegmentedChoice TValue="UpNextInsertPosition" Id="show-up-next-insert-position"
+                                                 AriaLabel="Up Next insert position" Disabled="isShowUpNextInsertPositionSaving"
+                                                 Options="UpNextInsertPositionOptions"
+                                                 Value="showUpNextInsertPositionOverride"
+                                                 ValueChanged="OnShowUpNextInsertPositionChangedAsync" />
                                 @if (showUpNextInsertPositionError is not null)
                                 {
                                     <p class="text-danger mt-1 mb-0">@showUpNextInsertPositionError</p>
@@ -209,28 +202,22 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-auto-skip-intro">Auto-skip intro</label>
-                        <select id="show-auto-skip-intro" class="form-select" disabled="@isShowAutoSkipSaving"
-                                value="@ShowAutoSkipIntroSelectValue" @onchange="OnShowAutoSkipIntroChangedAsync">
-                            <option value="">Use global default</option>
-                            @foreach (var option in AutoSkipOptions(showAutoSkipIntroSecondsOverride))
-                            {
-                                <option value="@option">@AutoSkipDurationUi.Format(option)</option>
-                            }
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Auto-skip intro</div>
+                        <InheritableStepper Id="show-auto-skip-intro" AriaLabel="Auto-skip intro"
+                                            Disabled="isShowAutoSkipSaving" Min="0" Max="600" Step="5"
+                                            Format="AutoSkipDurationUi.Format" GlobalValue="globalAutoSkipIntroSeconds"
+                                            Value="showAutoSkipIntroSecondsOverride"
+                                            ValueChanged="OnShowAutoSkipIntroChangedAsync" />
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-auto-skip-outro">Auto-skip outro</label>
-                        <select id="show-auto-skip-outro" class="form-select" disabled="@isShowAutoSkipSaving"
-                                value="@ShowAutoSkipOutroSelectValue" @onchange="OnShowAutoSkipOutroChangedAsync">
-                            <option value="">Use global default</option>
-                            @foreach (var option in AutoSkipOptions(showAutoSkipOutroSecondsOverride))
-                            {
-                                <option value="@option">@AutoSkipDurationUi.Format(option)</option>
-                            }
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Auto-skip outro</div>
+                        <InheritableStepper Id="show-auto-skip-outro" AriaLabel="Auto-skip outro"
+                                            Disabled="isShowAutoSkipSaving" Min="0" Max="600" Step="5"
+                                            Format="AutoSkipDurationUi.Format" GlobalValue="globalAutoSkipOutroSeconds"
+                                            Value="showAutoSkipOutroSecondsOverride"
+                                            ValueChanged="OnShowAutoSkipOutroChangedAsync" />
                         @if (showAutoSkipError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showAutoSkipError</p>
@@ -241,16 +228,13 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-playback-speed">Playback speed</label>
-                        <select id="show-playback-speed" class="form-select" disabled="@isShowPlaybackSpeedSaving"
-                                value="@ShowPlaybackSpeedSelectValue" @onchange="OnShowPlaybackSpeedChangedAsync">
-                            <option value="">Use global default</option>
-                            @foreach (var option in PlaybackSpeedOptions(showPlaybackSpeedOverride))
-                            {
-                                <option value="@option.ToString(System.Globalization.CultureInfo.InvariantCulture)">@PlaybackSpeedUi.Format(option)</option>
-                            }
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Playback speed</div>
+                        <InheritableSlider Id="show-playback-speed" AriaLabel="Playback speed"
+                                           Disabled="isShowPlaybackSpeedSaving" Min="0.5f" Max="3.0f" Step="0.1f"
+                                           Format="PlaybackSpeedUi.Format" GlobalValue="globalPlaybackSpeed"
+                                           Value="showPlaybackSpeedOverride"
+                                           ValueChanged="OnShowPlaybackSpeedChangedAsync" />
                         @if (showPlaybackSpeedError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showPlaybackSpeedError</p>
@@ -261,14 +245,13 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-smart-speed">SmartSpeed</label>
-                        <select id="show-smart-speed" class="form-select" disabled="@isShowSmartSpeedSaving"
-                                value="@ShowSmartSpeedSelectValue" @onchange="OnShowSmartSpeedChangedAsync">
-                            <option value="">Use global default</option>
-                            <option value="true">On</option>
-                            <option value="false">Off</option>
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">SmartSpeed</div>
+                        <SegmentedChoice TValue="bool" Id="show-smart-speed"
+                                         AriaLabel="SmartSpeed" Disabled="isShowSmartSpeedSaving"
+                                         Options="OnOffOptions"
+                                         Value="showSmartSpeedOverride"
+                                         ValueChanged="OnShowSmartSpeedChangedAsync" />
                         @if (showSmartSpeedError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showSmartSpeedError</p>
@@ -279,14 +262,13 @@ else
                         }
                     </div>
 
-                    <div class="mt-3" style="max-width: 24rem;">
-                        <label class="form-label" for="show-notifications-enabled">Notifications</label>
-                        <select id="show-notifications-enabled" class="form-select" disabled="@isShowNotificationsSaving"
-                                value="@ShowNotificationsSelectValue" @onchange="OnShowNotificationsEnabledChangedAsync">
-                            <option value="">Use global default</option>
-                            <option value="true">On</option>
-                            <option value="false">Off</option>
-                        </select>
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Notifications</div>
+                        <SegmentedChoice TValue="bool" Id="show-notifications-enabled"
+                                         AriaLabel="Notifications" Disabled="isShowNotificationsSaving"
+                                         Options="OnOffOptions"
+                                         Value="showNotificationsEnabledOverride"
+                                         ValueChanged="OnShowNotificationsEnabledChangedAsync" />
                         @if (showNotificationsError is not null)
                         {
                             <p class="text-danger mt-1 mb-0">@showNotificationsError</p>
@@ -504,6 +486,11 @@ else
     // which can be true via the global default with no per-show override — so we need the global
     // values here, not just the override.
     private bool globalAutoAddNewEpisodesToUpNext;
+    // Resolved global values, shown as the "Global default (…)" hint on the stepper / slider and
+    // used as the starting point when the user first overrides. Null until the global read lands.
+    private int? globalAutoSkipIntroSeconds;
+    private int? globalAutoSkipOutroSeconds;
+    private float? globalPlaybackSpeed;
     private AutoDeleteRule? showAutoDeleteRuleOverride;
     private int? showAutoDeleteAfterDaysOverride;
     private bool isShowAutoDeleteSaving;
@@ -542,57 +529,22 @@ else
 
     private enum EpisodeSortOrder { NewestFirst, OldestFirst }
 
-    private string ShowSettingsSelectValue => showUnlistenedEpisodeCountOverride?.ToString() ?? "";
+    // Option lists for the SegmentedChoice / RadioChoice controls. The tri-state booleans all
+    // share OnOffOptions (the "Default" segment is rendered by the component itself).
+    private static readonly IReadOnlyList<(bool Value, string Label)> OnOffOptions =
+        [(true, "On"), (false, "Off")];
 
-    private string ShowArchiveSettingsSelectValue => showAutoArchiveRuleOverride?.ToString() ?? "";
+    private static readonly IReadOnlyList<(UnlistenedEpisodeCount Value, string Label)> UnlistenedEpisodeCountOptions =
+        [.. UnlistenedEpisodeCountUi.Options.Select(o => (o, UnlistenedEpisodeCountUi.Format(o)))];
 
-    private string ShowAutoDownloadSelectValue => showAutoDownloadNewEpisodesOverride switch
-    {
-        true => "true",
-        false => "false",
-        null => "",
-    };
+    private static readonly IReadOnlyList<(AutoArchiveRule Value, string Label)> AutoArchiveRuleOptions =
+        [.. AutoArchiveRuleUi.Options.Select(o => (o, AutoArchiveRuleUi.Format(o)))];
 
-    private string ShowAutoAddUpNextSelectValue => showAutoAddNewEpisodesToUpNextOverride switch
-    {
-        true => "true",
-        false => "false",
-        null => "",
-    };
+    private static readonly IReadOnlyList<(AutoDeleteRule Value, string Label)> AutoDeleteRuleOptions =
+        [.. AutoDeleteRuleUi.Options.Select(o => (o, AutoDeleteRuleUi.Format(o)))];
 
-    private string ShowUpNextInsertPositionSelectValue => showUpNextInsertPositionOverride?.ToString() ?? "";
-
-    private string ShowAutoDeleteRuleSelectValue => showAutoDeleteRuleOverride?.ToString() ?? "";
-
-    private string ShowAutoSkipIntroSelectValue => showAutoSkipIntroSecondsOverride?.ToString() ?? "";
-
-    private string ShowAutoSkipOutroSelectValue => showAutoSkipOutroSecondsOverride?.ToString() ?? "";
-
-    // No stored override means no current value to fold in, so offer just the presets; a stored
-    // value that isn't one of them gets a synthesized row via OptionsIncluding, mirroring iOS's
-    // "Custom (Ns)" entry.
-    private static int[] AutoSkipOptions(int? current) =>
-        current is { } value ? AutoSkipDurationUi.OptionsIncluding(value) : AutoSkipDurationUi.Options;
-
-    private string ShowPlaybackSpeedSelectValue =>
-        showPlaybackSpeedOverride?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
-
-    private static float[] PlaybackSpeedOptions(float? current) =>
-        current is { } value ? PlaybackSpeedUi.OptionsIncluding(value) : PlaybackSpeedUi.Options;
-
-    private string ShowSmartSpeedSelectValue => showSmartSpeedOverride switch
-    {
-        true => "true",
-        false => "false",
-        null => "",
-    };
-
-    private string ShowNotificationsSelectValue => showNotificationsEnabledOverride switch
-    {
-        true => "true",
-        false => "false",
-        null => "",
-    };
+    private static readonly IReadOnlyList<(UpNextInsertPosition Value, string Label)> UpNextInsertPositionOptions =
+        [(UpNextInsertPosition.Top, "Top of the queue"), (UpNextInsertPosition.Bottom, "Bottom of the queue")];
 
     // Filter/sort apply to whatever pages have been fetched so far — the API only supports
     // date-ordered continuation paging, not server-side filtering, so "Load more" always fetches
@@ -702,6 +654,9 @@ else
         showUpNextInsertPositionError = null;
         showUpNextInsertPositionSavedConfirmation = false;
         globalAutoAddNewEpisodesToUpNext = false;
+        globalAutoSkipIntroSeconds = null;
+        globalAutoSkipOutroSeconds = null;
+        globalPlaybackSpeed = null;
         showAutoDeleteRuleOverride = null;
         showAutoDeleteAfterDaysOverride = null;
         isShowAutoDeleteSaving = false;
@@ -794,32 +749,22 @@ else
         // loading, since the global value only gates whether the position control is shown.
         try
         {
-            globalAutoAddNewEpisodesToUpNext = (await globalSettingsTask).AutoAddNewEpisodesToUpNext;
+            var global = await globalSettingsTask;
+            globalAutoAddNewEpisodesToUpNext = global.AutoAddNewEpisodesToUpNext;
+            globalAutoSkipIntroSeconds = global.AutoSkipIntroSeconds;
+            globalAutoSkipOutroSeconds = global.AutoSkipOutroSeconds;
+            globalPlaybackSpeed = global.PlaybackSpeed;
         }
         catch (HttpRequestException)
         {
-            // Leave globalAutoAddNewEpisodesToUpNext at its default (false); the position control
-            // stays hidden unless this show has its own auto-add override turned on.
+            // Leave the global hints null / false; the position control stays hidden unless this
+            // show has its own auto-add override turned on, and the stepper / slider just omit
+            // the "(…)" resolved-value hint.
         }
     }
 
-    private async Task OnShowUnlistenedEpisodeCountChangedAsync(ChangeEventArgs args)
+    private async Task OnShowUnlistenedEpisodeCountChangedAsync(UnlistenedEpisodeCount? value)
     {
-        var raw = args.Value?.ToString();
-        UnlistenedEpisodeCount? value;
-        if (string.IsNullOrEmpty(raw))
-        {
-            value = null;
-        }
-        else if (Enum.TryParse(raw, out UnlistenedEpisodeCount parsed) && Enum.IsDefined(parsed))
-        {
-            value = parsed;
-        }
-        else
-        {
-            return;
-        }
-
         var previous = showUnlistenedEpisodeCountOverride;
         showUnlistenedEpisodeCountOverride = value;
         isShowSettingsSaving = true;
@@ -842,23 +787,8 @@ else
         }
     }
 
-    private async Task OnShowAutoArchiveRuleChangedAsync(ChangeEventArgs args)
+    private async Task OnShowAutoArchiveRuleChangedAsync(AutoArchiveRule? value)
     {
-        var raw = args.Value?.ToString();
-        AutoArchiveRule? value;
-        if (string.IsNullOrEmpty(raw))
-        {
-            value = null;
-        }
-        else if (Enum.TryParse(raw, out AutoArchiveRule parsed) && Enum.IsDefined(parsed))
-        {
-            value = parsed;
-        }
-        else
-        {
-            return;
-        }
-
         var previous = showAutoArchiveRuleOverride;
         showAutoArchiveRuleOverride = value;
         isShowArchiveSettingsSaving = true;
@@ -881,25 +811,8 @@ else
         }
     }
 
-    private async Task OnShowAutoDownloadNewEpisodesChangedAsync(ChangeEventArgs args)
+    private async Task OnShowAutoDownloadNewEpisodesChangedAsync(bool? value)
     {
-        var raw = args.Value?.ToString();
-        bool? value;
-        switch (raw)
-        {
-            case "" or null:
-                value = null;
-                break;
-            case "true":
-                value = true;
-                break;
-            case "false":
-                value = false;
-                break;
-            default:
-                return;
-        }
-
         var previous = showAutoDownloadNewEpisodesOverride;
         showAutoDownloadNewEpisodesOverride = value;
         isShowAutoDownloadSaving = true;
@@ -922,25 +835,8 @@ else
         }
     }
 
-    private async Task OnShowAutoAddNewEpisodesToUpNextChangedAsync(ChangeEventArgs args)
+    private async Task OnShowAutoAddNewEpisodesToUpNextChangedAsync(bool? value)
     {
-        var raw = args.Value?.ToString();
-        bool? value;
-        switch (raw)
-        {
-            case "" or null:
-                value = null;
-                break;
-            case "true":
-                value = true;
-                break;
-            case "false":
-                value = false;
-                break;
-            default:
-                return;
-        }
-
         var previous = showAutoAddNewEpisodesToUpNextOverride;
         showAutoAddNewEpisodesToUpNextOverride = value;
         isShowAutoAddUpNextSaving = true;
@@ -963,23 +859,8 @@ else
         }
     }
 
-    private async Task OnShowUpNextInsertPositionChangedAsync(ChangeEventArgs args)
+    private async Task OnShowUpNextInsertPositionChangedAsync(UpNextInsertPosition? value)
     {
-        var raw = args.Value?.ToString();
-        UpNextInsertPosition? value;
-        if (string.IsNullOrEmpty(raw))
-        {
-            value = null;
-        }
-        else if (Enum.TryParse(raw, out UpNextInsertPosition parsed) && Enum.IsDefined(parsed))
-        {
-            value = parsed;
-        }
-        else
-        {
-            return;
-        }
-
         var previous = showUpNextInsertPositionOverride;
         showUpNextInsertPositionOverride = value;
         isShowUpNextInsertPositionSaving = true;
@@ -1002,23 +883,8 @@ else
         }
     }
 
-    private async Task OnShowAutoDeleteRuleChangedAsync(ChangeEventArgs args)
+    private async Task OnShowAutoDeleteRuleChangedAsync(AutoDeleteRule? value)
     {
-        var raw = args.Value?.ToString();
-        AutoDeleteRule? value;
-        if (string.IsNullOrEmpty(raw))
-        {
-            value = null;
-        }
-        else if (Enum.TryParse(raw, out AutoDeleteRule parsed) && Enum.IsDefined(parsed))
-        {
-            value = parsed;
-        }
-        else
-        {
-            return;
-        }
-
         // Switching to "After N days" with no prior day-count override seeds 7, so the inline
         // input and the persisted override start from a concrete value (matches iOS).
         var afterDays = value == AutoDeleteRule.AfterDays
@@ -1065,27 +931,13 @@ else
         }
     }
 
-    private async Task OnShowAutoSkipIntroChangedAsync(ChangeEventArgs args)
-    {
-        if (!TryParseNullableInt(args.Value?.ToString(), out var value))
-        {
-            return;
-        }
+    private Task OnShowAutoSkipIntroChangedAsync(int? value) =>
+        SaveShowAutoSkipAsync(value, showAutoSkipOutroSecondsOverride);
 
-        await SaveShowAutoSkipAsync(value, showAutoSkipOutroSecondsOverride);
-    }
+    private Task OnShowAutoSkipOutroChangedAsync(int? value) =>
+        SaveShowAutoSkipAsync(showAutoSkipIntroSecondsOverride, value);
 
-    private async Task OnShowAutoSkipOutroChangedAsync(ChangeEventArgs args)
-    {
-        if (!TryParseNullableInt(args.Value?.ToString(), out var value))
-        {
-            return;
-        }
-
-        await SaveShowAutoSkipAsync(showAutoSkipIntroSecondsOverride, value);
-    }
-
-    // The API endpoint takes intro and outro together, so a change to either select PUTs both.
+    // The API endpoint takes intro and outro together, so a change to either stepper PUTs both.
     private async Task SaveShowAutoSkipAsync(int? introSeconds, int? outroSeconds)
     {
         var previousIntro = showAutoSkipIntroSecondsOverride;
@@ -1113,24 +965,8 @@ else
         }
     }
 
-    private async Task OnShowPlaybackSpeedChangedAsync(ChangeEventArgs args)
+    private async Task OnShowPlaybackSpeedChangedAsync(float? value)
     {
-        var raw = args.Value?.ToString();
-        float? value;
-        if (string.IsNullOrEmpty(raw))
-        {
-            value = null;
-        }
-        else if (float.TryParse(
-            raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-        {
-            value = parsed;
-        }
-        else
-        {
-            return;
-        }
-
         var previous = showPlaybackSpeedOverride;
         showPlaybackSpeedOverride = value;
         isShowPlaybackSpeedSaving = true;
@@ -1153,13 +989,8 @@ else
         }
     }
 
-    private async Task OnShowSmartSpeedChangedAsync(ChangeEventArgs args)
+    private async Task OnShowSmartSpeedChangedAsync(bool? value)
     {
-        if (!TryParseNullableBool(args.Value?.ToString(), out var value))
-        {
-            return;
-        }
-
         var previous = showSmartSpeedOverride;
         showSmartSpeedOverride = value;
         isShowSmartSpeedSaving = true;
@@ -1182,13 +1013,8 @@ else
         }
     }
 
-    private async Task OnShowNotificationsEnabledChangedAsync(ChangeEventArgs args)
+    private async Task OnShowNotificationsEnabledChangedAsync(bool? value)
     {
-        if (!TryParseNullableBool(args.Value?.ToString(), out var value))
-        {
-            return;
-        }
-
         var previous = showNotificationsEnabledOverride;
         showNotificationsEnabledOverride = value;
         isShowNotificationsSaving = true;
@@ -1227,25 +1053,6 @@ else
 
         value = null;
         return false;
-    }
-
-    private static bool TryParseNullableBool(string? raw, out bool? value)
-    {
-        switch (raw)
-        {
-            case "" or null:
-                value = null;
-                return true;
-            case "true":
-                value = true;
-                return true;
-            case "false":
-                value = false;
-                return true;
-            default:
-                value = null;
-                return false;
-        }
     }
 
     private async Task LoadSubscriptionStatusAsync()

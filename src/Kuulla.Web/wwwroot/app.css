@@ -542,6 +542,47 @@ mark {
     border-color: var(--k-border) !important;
 }
 
+/* Per-setting control shapes inside the panel (issue #504) — segmented button
+   groups for booleans / short lists, a sort-order-style radio list for longer
+   enums, and a stepper / slider for the continuous values. */
+.show-setting .form-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.segmented-choice .btn {
+    flex: 1 1 auto;
+}
+
+.radio-choice .radio-choice-option {
+    color: var(--k-text);
+}
+
+.radio-choice .radio-choice-option:hover:not(:disabled) {
+    background-color: var(--k-surface-2);
+}
+
+.radio-choice .radio-choice-option.active {
+    background-color: var(--k-accent-soft);
+    color: var(--k-accent-ink);
+}
+
+.radio-choice .radio-choice-check {
+    display: inline-block;
+    width: 1rem;
+    flex: 0 0 1rem;
+}
+
+.inheritable-stepper .stepper-value {
+    min-width: 3.5rem;
+    pointer-events: none;
+}
+
+.inheritable-slider .slider-value {
+    min-width: 3rem;
+    font-variant-numeric: tabular-nums;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Error boundary / connection banners                                     */
 /* ---------------------------------------------------------------------- */

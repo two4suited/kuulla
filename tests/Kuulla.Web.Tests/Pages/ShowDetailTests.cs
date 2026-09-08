@@ -211,6 +211,21 @@ public class ShowDetailTests : WebTestContext
     private static void OpenShowSettings(IRenderedComponent<ShowDetail> cut)
         => cut.WaitForElement("button[aria-label='Podcast settings']").Click();
 
+    // Every per-show control is now a SegmentedChoice / RadioChoice / stepper / slider keyed by
+    // the same #show-* id the old <select> used (issue #504). These helpers pick a labelled
+    // button inside one and report which one is selected.
+    // RadioChoice prefixes the selected row with a "✓" text node; strip it so callers match on
+    // the plain label.
+    private static string ChoiceLabel(AngleSharp.Dom.IElement button)
+        => button.TextContent.Replace("✓", "").Trim();
+
+    private static AngleSharp.Dom.IElement Choice(IRenderedComponent<ShowDetail> cut, string id, string label)
+        => cut.FindAll($"#{id} button").Single(b => ChoiceLabel(b) == label);
+
+    private static string SelectedChoice(IRenderedComponent<ShowDetail> cut, string id)
+        => ChoiceLabel(cut.FindAll($"#{id} button")
+            .Single(b => b.GetAttribute("aria-pressed") == "true" || b.GetAttribute("aria-checked") == "true"));
+
     [Fact]
     public void RendersShowAndEpisodes_WhenLoadSucceeds()
     {
@@ -400,7 +415,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-unlistened-episode-count").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("Default", SelectedChoice(cut, "show-unlistened-episode-count")));
     }
 
     [Fact]
@@ -413,7 +428,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("Ten", cut.Find("#show-unlistened-episode-count").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("10", SelectedChoice(cut, "show-unlistened-episode-count")));
     }
 
     [Fact]
@@ -424,9 +439,9 @@ public class ShowDetailTests : WebTestContext
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
-        cut.WaitForAssertion(() => Assert.Contains("Unlistened episodes to show", cut.Markup));
+        cut.WaitForAssertion(() => Assert.Equal("2", SelectedChoice(cut, "show-unlistened-episode-count")));
 
-        cut.Find("#show-unlistened-episode-count").Change("Two");
+        Choice(cut, "show-unlistened-episode-count", "5").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
@@ -440,7 +455,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-archive-rule").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("Use global default", SelectedChoice(cut, "show-auto-archive-rule")));
     }
 
     [Fact]
@@ -453,7 +468,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("After30Days", cut.Find("#show-auto-archive-rule").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("30 days after played", SelectedChoice(cut, "show-auto-archive-rule")));
     }
 
     [Fact]
@@ -464,9 +479,9 @@ public class ShowDetailTests : WebTestContext
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
-        cut.WaitForAssertion(() => Assert.Contains("Auto-archive played episodes", cut.Markup));
+        cut.WaitForAssertion(() => Assert.Equal("Immediately after played", SelectedChoice(cut, "show-auto-archive-rule")));
 
-        cut.Find("#show-auto-archive-rule").Change("AfterPlayed");
+        Choice(cut, "show-auto-archive-rule", "Never").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
@@ -480,7 +495,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("Default", SelectedChoice(cut, "show-auto-download-new-episodes")));
     }
 
     [Fact]
@@ -493,7 +508,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("On", SelectedChoice(cut, "show-auto-download-new-episodes")));
     }
 
     [Fact]
@@ -504,9 +519,9 @@ public class ShowDetailTests : WebTestContext
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
-        cut.WaitForAssertion(() => Assert.Contains("Auto-download new episodes", cut.Markup));
+        cut.WaitForAssertion(() => Assert.Equal("On", SelectedChoice(cut, "show-auto-download-new-episodes")));
 
-        cut.Find("#show-auto-download-new-episodes").Change("true");
+        Choice(cut, "show-auto-download-new-episodes", "Off").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
@@ -520,7 +535,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-delete-rule").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("Use global default", SelectedChoice(cut, "show-auto-delete-rule")));
     }
 
     [Fact]
@@ -535,7 +550,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("AfterDays", cut.Find("#show-auto-delete-rule").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("After N days", SelectedChoice(cut, "show-auto-delete-rule")));
         cut.WaitForAssertion(() => Assert.Equal("14", cut.Find("#show-auto-delete-after-days").GetAttribute("value")));
     }
 
@@ -549,7 +564,7 @@ public class ShowDetailTests : WebTestContext
         OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Delete downloads", cut.Markup));
 
-        cut.Find("#show-auto-delete-rule").Change("AfterPlayed");
+        Choice(cut, "show-auto-delete-rule", "After played").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
@@ -564,7 +579,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("false", cut.Find("#show-auto-add-up-next").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("Off", SelectedChoice(cut, "show-auto-add-up-next")));
     }
 
     [Fact]
@@ -578,7 +593,7 @@ public class ShowDetailTests : WebTestContext
         OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Add new episodes to Up Next", cut.Markup));
 
-        cut.Find("#show-auto-add-up-next").Change("true");
+        Choice(cut, "show-auto-add-up-next", "On").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
@@ -610,7 +625,7 @@ public class ShowDetailTests : WebTestContext
         OpenShowSettings(cut);
 
         cut.WaitForAssertion(
-            () => Assert.Equal("Top", cut.Find("#show-up-next-insert-position").GetAttribute("value")));
+            () => Assert.Equal("Top of the queue", SelectedChoice(cut, "show-up-next-insert-position")));
     }
 
     [Fact]
@@ -629,7 +644,7 @@ public class ShowDetailTests : WebTestContext
         OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("#show-up-next-insert-position")));
 
-        cut.Find("#show-up-next-insert-position").Change("Top");
+        Choice(cut, "show-up-next-insert-position", "Top of the queue").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
@@ -645,14 +660,14 @@ public class ShowDetailTests : WebTestContext
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
-        cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("On", SelectedChoice(cut, "show-auto-download-new-episodes")));
 
-        cut.Find("#show-auto-download-new-episodes").Change("");
+        Choice(cut, "show-auto-download-new-episodes", "Default").Click();
 
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("Saved.", cut.Markup);
-            Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value"));
+            Assert.Equal("Default", SelectedChoice(cut, "show-auto-download-new-episodes"));
         });
     }
 
@@ -704,14 +719,14 @@ public class ShowDetailTests : WebTestContext
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
-        cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("Default", SelectedChoice(cut, "show-auto-download-new-episodes")));
 
-        cut.Find("#show-auto-download-new-episodes").Change("true");
+        Choice(cut, "show-auto-download-new-episodes", "On").Click();
 
         cut.WaitForAssertion(() =>
         {
             Assert.Contains("Something went wrong", cut.Markup);
-            Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value"));
+            Assert.Equal("Default", SelectedChoice(cut, "show-auto-download-new-episodes"));
         });
     }
 
@@ -724,15 +739,18 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
+        // No override → the stepper shows the resolved global value and an "Override" button
+        // rather than the −/value/+ controls.
         cut.WaitForAssertion(() =>
         {
-            Assert.Equal("", cut.Find("#show-auto-skip-intro").GetAttribute("value"));
-            Assert.Equal("", cut.Find("#show-auto-skip-outro").GetAttribute("value"));
+            Assert.Contains("Override", cut.Find("#show-auto-skip-intro").TextContent);
+            Assert.Empty(cut.FindAll("#show-auto-skip-intro .stepper-value"));
+            Assert.Contains("Override", cut.Find("#show-auto-skip-outro").TextContent);
         });
     }
 
     [Fact]
-    public void AutoSkipSelectors_ShowExistingOverride_IncludingSynthesizedCustomRow()
+    public void AutoSkipSelectors_ShowExistingOverride_AtAnySecondsValue()
     {
         AuthContext.SetAuthorized("user-1");
         var existing = new ShowSettings(
@@ -743,12 +761,11 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
+        // The stepper represents any int directly — no preset list, no synthesized "custom" row.
         cut.WaitForAssertion(() =>
         {
-            Assert.Equal("15", cut.Find("#show-auto-skip-intro").GetAttribute("value"));
-            Assert.Equal("42", cut.Find("#show-auto-skip-outro").GetAttribute("value"));
-            // 42s isn't a preset, so it gets its own row rather than snapping to the nearest one.
-            Assert.Contains("42s", cut.Find("#show-auto-skip-outro").InnerHtml);
+            Assert.Equal("15s", cut.Find("#show-auto-skip-intro .stepper-value").TextContent.Trim());
+            Assert.Equal("42s", cut.Find("#show-auto-skip-outro .stepper-value").TextContent.Trim());
         });
     }
 
@@ -762,9 +779,38 @@ public class ShowDetailTests : WebTestContext
         OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Auto-skip intro", cut.Markup));
 
-        cut.Find("#show-auto-skip-intro").Change("30");
+        // Start overriding, then bump the stepper up one step.
+        cut.FindAll("#show-auto-skip-intro button").Single(b => b.TextContent.Trim() == "Override").Click();
+        cut.WaitForElement("#show-auto-skip-intro button[aria-label='Increase']").Click();
 
-        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Saved.", cut.Markup);
+            Assert.Equal("5s", cut.Find("#show-auto-skip-intro .stepper-value").TextContent.Trim());
+        });
+    }
+
+    [Fact]
+    public void AutoSkipSelector_ClearsOverride_WhenUseGlobalDefaultClicked()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2, AutoSkipIntroSeconds: 15);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
+        cut.WaitForAssertion(
+            () => Assert.Equal("15s", cut.Find("#show-auto-skip-intro .stepper-value").TextContent.Trim()));
+
+        cut.FindAll("#show-auto-skip-intro button").Single(b => b.TextContent.Trim() == "Use global default").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Saved.", cut.Markup);
+            Assert.Empty(cut.FindAll("#show-auto-skip-intro .stepper-value"));
+            Assert.Contains("Override", cut.Find("#show-auto-skip-intro").TextContent);
+        });
     }
 
     [Fact]
@@ -778,7 +824,11 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("1.5", cut.Find("#show-playback-speed").GetAttribute("value")));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("1.5", cut.Find("#show-playback-speed input[type=range]").GetAttribute("value"));
+            Assert.Equal("1.5x", cut.Find("#show-playback-speed .slider-value").TextContent.Trim());
+        });
     }
 
     [Fact]
@@ -791,9 +841,14 @@ public class ShowDetailTests : WebTestContext
         OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Playback speed", cut.Markup));
 
-        cut.Find("#show-playback-speed").Change("1.2");
+        cut.FindAll("#show-playback-speed button").Single(b => b.TextContent.Trim() == "Override").Click();
+        cut.WaitForElement("#show-playback-speed input[type=range]").Change("1.2");
 
-        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Saved.", cut.Markup);
+            Assert.Equal("1.2x", cut.Find("#show-playback-speed .slider-value").TextContent.Trim());
+        });
     }
 
     [Fact]
@@ -807,7 +862,7 @@ public class ShowDetailTests : WebTestContext
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
         OpenShowSettings(cut);
 
-        cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-smart-speed").GetAttribute("value")));
+        cut.WaitForAssertion(() => Assert.Equal("On", SelectedChoice(cut, "show-smart-speed")));
     }
 
     [Fact]
@@ -820,7 +875,7 @@ public class ShowDetailTests : WebTestContext
         OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Notifications", cut.Markup));
 
-        cut.Find("#show-notifications-enabled").Change("false");
+        Choice(cut, "show-notifications-enabled", "Off").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }
