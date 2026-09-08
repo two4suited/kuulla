@@ -23,9 +23,26 @@ public class SettingsTests : WebTestContext
         UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null,
         UserSettings? autoAddUpNextPutResponse = null, UserSettings? upNextInsertPositionPutResponse = null,
         UserSettings? smartSpeedPutResponse = null, UserSettings? sleepTimerDefaultDurationPutResponse = null,
-        Func<HttpRequestMessage, HttpResponseMessage>? onSync = null) =>
+        Func<HttpRequestMessage, HttpResponseMessage>? onSync = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onImport = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onExport = null) =>
         new(request =>
         {
+            if (request.RequestUri!.AbsolutePath == "/api/subscriptions/import" && request.Method == HttpMethod.Post)
+            {
+                return onImport?.Invoke(request) ??
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = JsonContent.Create(new { added = 0, alreadySubscribed = 0, failed = Array.Empty<object>() }),
+                    };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/subscriptions/export" && request.Method == HttpMethod.Get)
+            {
+                return onExport?.Invoke(request) ??
+                    new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<opml version=\"2.0\"><body/></opml>") };
+            }
+
             if (request.RequestUri!.AbsolutePath == "/api/settings" && request.Method == HttpMethod.Get)
             {
                 return new HttpResponseMessage(HttpStatusCode.OK)
@@ -759,5 +776,79 @@ public class SettingsTests : WebTestContext
             Assert.Equal("Unlimited", cut.Find("#unlistened-episode-count").GetAttribute("value"));
             Assert.Equal("After7Days", cut.Find("#auto-archive-rule").GetAttribute("value"));
         });
+    }
+
+    [Fact]
+    public void OpmlImport_ShowsSummary_OnSuccess()
+    {
+        ConfigureApi(CreateHandler(
+            onImport: _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    added = 1,
+                    alreadySubscribed = 2,
+                    failed = new[] { new { feedUrl = "https://dead.example/feed", reason = "The feed couldn't be fetched or read." } },
+                }),
+            }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Import OPML", cut.Markup));
+
+        cut.FindComponent<Microsoft.AspNetCore.Components.Forms.InputFile>()
+            .UploadFiles(InputFileContent.CreateFromText("<opml version=\"2.0\"><body/></opml>", "subs.opml"));
+
+        cut.WaitForAssertion(() => Assert.Contains("Added 1, skipped 2 already subscribed, 1 failed.", cut.Markup));
+
+        cut.Find("button.btn-link").Click();
+        cut.WaitForAssertion(() => Assert.Contains("https://dead.example/feed", cut.Markup));
+    }
+
+    [Fact]
+    public void OpmlImport_ShowsFriendlyError_When400()
+    {
+        ConfigureApi(CreateHandler(onImport: _ => new HttpResponseMessage(HttpStatusCode.BadRequest)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Import OPML", cut.Markup));
+
+        cut.FindComponent<Microsoft.AspNetCore.Components.Forms.InputFile>()
+            .UploadFiles(InputFileContent.CreateFromText("not opml", "subs.txt"));
+
+        cut.WaitForAssertion(() => Assert.Contains("couldn't be read as an OPML", cut.Markup));
+    }
+
+    [Fact]
+    public void OpmlExport_HandsBytesToTheBrowserDownloadHelper_OnSuccess()
+    {
+        ConfigureApi(CreateHandler(onExport: _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<opml version=\"2.0\"><body><outline type=\"rss\" xmlUrl=\"https://a.example/feed\" /></body></opml>"),
+        }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Export OPML", cut.Markup));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Export OPML").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var invocation = JSInterop.VerifyInvoke("kuullaDownloadFile");
+            Assert.Equal("kuulla-subscriptions.opml", invocation.Arguments[0]);
+            Assert.Equal("text/x-opml", invocation.Arguments[1]);
+        });
+    }
+
+    [Fact]
+    public void OpmlExport_ShowsFriendlyError_OnFailure()
+    {
+        ConfigureApi(CreateHandler(onExport: _ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Contains("Export OPML", cut.Markup));
+
+        cut.FindAll("button").Single(b => b.TextContent.Trim() == "Export OPML").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("went wrong exporting", cut.Markup));
     }
 }
