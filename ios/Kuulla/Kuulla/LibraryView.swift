@@ -208,7 +208,9 @@ struct LibraryView: View {
                                     systemImage: "music.note.list",
                                     title: playlist.name,
                                     subtitle: "\(playlist.items.count) episode\(playlist.items.count == 1 ? "" : "s")",
-                                    isEnabled: true)
+                                    isEnabled: true,
+                                    emoji: playlist.icon,
+                                    accentHex: playlist.accentColor)
                             }
                             .buttonStyle(.plain)
                         }
@@ -375,12 +377,21 @@ private struct ShelfTile: View {
     let title: String
     let subtitle: String
     let isEnabled: Bool
+    var emoji: String? = nil
+    var accentHex: String? = nil
 
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.title2)
-                .frame(height: 28)
+            Group {
+                if let emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .foregroundStyle(Color(playlistAccentHex: accentHex) ?? .primary)
+                } else {
+                    Image(systemName: systemImage)
+                }
+            }
+            .font(.title2)
+            .frame(height: 28)
             Text(title)
                 .font(.subheadline)
                 .lineLimit(1)
