@@ -33,7 +33,11 @@ public class SubscriptionService(
         return results;
     }
 
-    public async Task<Subscription?> SubscribeAsync(string userId, string showId, CancellationToken cancellationToken)
+    public async Task<Subscription?> SubscribeAsync(
+        string userId,
+        string showId,
+        CancellationToken cancellationToken,
+        DateTimeOffset? latestEpisodePublishedAtHint = null)
     {
         var show = await showService.GetByIdAsync(showId, cancellationToken);
         if (show is null)
@@ -44,8 +48,11 @@ public class SubscriptionService(
         // Seed the newest-episode date for the "Latest episode" sort mode (#438) from what's
         // already cached — no live feed fetch, so subscribe stays a fast point operation. If
         // nothing is cached yet the value stays null; the first show-open and every feed poll
-        // run CacheEpisodesAsync, which backfills it for all subscribers.
-        var latestEpisodePublishedAt = await episodeService.GetNewestCachedEpisodePublishedAtAsync(showId, cancellationToken);
+        // run CacheEpisodesAsync, which backfills it for all subscribers. OPML import has no
+        // cached episodes at this point (#501), so it passes the newest date from the feed it
+        // already fetched as a hint; take whichever of the two is newer.
+        var cached = await episodeService.GetNewestCachedEpisodePublishedAtAsync(showId, cancellationToken);
+        var latestEpisodePublishedAt = Newest(cached, latestEpisodePublishedAtHint);
 
         var subscription = new Subscription(
             showId,
@@ -73,6 +80,15 @@ public class SubscriptionService(
             return existing.Resource;
         }
     }
+
+    // Newer of two optional dates: nulls lose, and two nulls stay null.
+    private static DateTimeOffset? Newest(DateTimeOffset? a, DateTimeOffset? b) =>
+        (a, b) switch
+        {
+            (null, _) => b,
+            (_, null) => a,
+            _ => a.Value > b.Value ? a : b,
+        };
 
     public async Task UnsubscribeAsync(string userId, string showId, CancellationToken cancellationToken)
     {

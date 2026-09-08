@@ -111,6 +111,41 @@ public class SubscriptionServiceTests
     }
 
     [Fact]
+    public async Task SubscribeAsync_StampsHintWhenNothingIsCachedYet()
+    {
+        // OPML import path: no episodes cached, but the importer passes the feed's newest date.
+        var show = CosmosTestHelpers.MakeShow(ShowId);
+        var fromFeed = new DateTimeOffset(2026, 4, 10, 0, 0, 0, TimeSpan.Zero);
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _subscriptionsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Subscription>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Subscription s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.SubscribeAsync(UserId, ShowId, CancellationToken.None, fromFeed);
+
+        Assert.Equal(fromFeed, result!.LatestEpisodePublishedAt);
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_PrefersCachedDateOverAnOlderHint()
+    {
+        var show = CosmosTestHelpers.MakeShow(ShowId);
+        var cached = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);
+        var olderHint = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _episodeService
+            .Setup(s => s.GetNewestCachedEpisodePublishedAtAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(cached);
+        _subscriptionsContainer
+            .Setup(c => c.CreateItemAsync(It.IsAny<Subscription>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Subscription s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.SubscribeAsync(UserId, ShowId, CancellationToken.None, olderHint);
+
+        Assert.Equal(cached, result!.LatestEpisodePublishedAt);
+    }
+
+    [Fact]
     public async Task SubscribeAsync_ReturnsExistingSubscriptionOnConflictInsteadOfOverwriting()
     {
         var show = CosmosTestHelpers.MakeShow(ShowId);

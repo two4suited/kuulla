@@ -119,7 +119,9 @@ public class ShowServiceTests
 
         var result = await _sut.GetOrCreateByFeedUrlAsync("https://feeds.example/show", CancellationToken.None);
 
-        Assert.Same(cached, result);
+        Assert.Same(cached, result!.Show);
+        // No feed was fetched, so there's no newest-episode date to seed the sort key with.
+        Assert.Null(result.LatestEpisodePublishedAt);
         _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         _showsContainer.Verify(
             c => c.CreateItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
@@ -131,10 +133,14 @@ public class ShowServiceTests
         _showsContainer
             .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
+        var older = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        var newest = DateTimeOffset.Parse("2026-03-15T00:00:00Z");
         _feedClient
             .Setup(c => c.FetchAsync("https://feeds.example/show", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PodcastFeedContent(
-                "A description", [], Title: "The Show", Author: "The Host", ArtworkUrl: "https://art.example/a.png"));
+                "A description",
+                [Episode("ep-old", older), Episode("ep-new", newest), Episode("ep-undated", null)],
+                Title: "The Show", Author: "The Host", ArtworkUrl: "https://art.example/a.png"));
         _showsContainer
             .Setup(c => c.CreateItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default))
             .ReturnsAsync((Show s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
@@ -142,13 +148,18 @@ public class ShowServiceTests
         var result = await _sut.GetOrCreateByFeedUrlAsync("https://feeds.example/show/", CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal("The Show", result!.Title);
-        Assert.Equal("The Host", result.Author);
-        Assert.Equal("https://art.example/a.png", result.ArtworkUrl);
-        Assert.Equal("A description", result.Description);
-        Assert.Equal("https://feeds.example/show", result.FeedUrl); // normalized (trailing slash gone)
-        Assert.StartsWith("feed-", result.Id);
+        Assert.Equal("The Show", result!.Show.Title);
+        Assert.Equal("The Host", result.Show.Author);
+        Assert.Equal("https://art.example/a.png", result.Show.ArtworkUrl);
+        Assert.Equal("A description", result.Show.Description);
+        Assert.Equal("https://feeds.example/show", result.Show.FeedUrl); // normalized (trailing slash gone)
+        Assert.StartsWith("feed-", result.Show.Id);
+        // Newest dated episode from the feed, for seeding the "Latest episode" sort key (#501).
+        Assert.Equal(newest, result.LatestEpisodePublishedAt);
     }
+
+    private static Episode Episode(string id, DateTimeOffset? publishedAt) =>
+        new(id, "show", id, publishedAt, null, "https://audio.example/1.mp3", null, null, null);
 
     [Fact]
     public async Task GetOrCreateByFeedUrlAsync_EquivalentFeedUrlsCollapseToTheSameShowId()

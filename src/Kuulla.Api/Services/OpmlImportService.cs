@@ -55,8 +55,8 @@ public class OpmlImportService(ISubscriptionService subscriptionService, IShowSe
             await gate.WaitAsync(cancellationToken);
             try
             {
-                var show = await showService.GetOrCreateByFeedUrlAsync(normalized, cancellationToken);
-                if (show is null)
+                var feedShow = await showService.GetOrCreateByFeedUrlAsync(normalized, cancellationToken);
+                if (feedShow is null)
                 {
                     lock (failed)
                     {
@@ -66,7 +66,13 @@ public class OpmlImportService(ISubscriptionService subscriptionService, IShowSe
                     return;
                 }
 
-                var subscription = await subscriptionService.SubscribeAsync(userId, show.Id, cancellationToken);
+                var show = feedShow.Show;
+
+                // Seed the "Latest episode" sort key from the feed we just fetched — import
+                // caches no episodes, so SubscribeAsync would otherwise stamp null and the show
+                // would sort as "oldest" until a feed poll sweeps it (#501).
+                var subscription = await subscriptionService.SubscribeAsync(
+                    userId, show.Id, cancellationToken, feedShow.LatestEpisodePublishedAt);
                 if (subscription is null)
                 {
                     lock (failed)
