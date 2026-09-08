@@ -232,6 +232,16 @@ a .card:hover, a.card:hover, .card.h-100:hover {
     font-weight: 700;
 }
 
+/* Podcast artwork isn't always square — some feeds ship wide or tall images.
+   Force every show tile to a 1:1 box and crop the overflow so the grid stays
+   even. */
+.card .card-img,
+.show-card-img {
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    width: 100%;
+}
+
 .card-text, .card-body {
     color: var(--k-text);
 }
