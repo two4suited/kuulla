@@ -19,12 +19,16 @@ public class ShowDetailTests : WebTestContext
 
     private static readonly ShowSettings DefaultShowSettings = new("user-1:show-1", "user-1", "show-1", null, Version: 1);
 
+    private static readonly UserSettings DefaultGlobalSettings = new("user-1", UnlistenedEpisodeCount.Five, Version: 1);
+
     private TestHttpMessageHandler CreateHandler(
         IReadOnlyList<Subscription>? subscriptions = null,
         ShowSettings? showSettings = null,
         EpisodeState? episodeState = null,
         ShowSettings? autoDownloadPutResponse = null,
-        ShowSettings? autoAddUpNextPutResponse = null) =>
+        ShowSettings? autoAddUpNextPutResponse = null,
+        UserSettings? globalSettings = null,
+        ShowSettings? upNextInsertPositionPutResponse = null) =>
         new(request =>
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -134,6 +138,22 @@ public class ShowDetailTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(autoAddUpNextPutResponse ?? showSettings ?? DefaultShowSettings),
+                };
+            }
+
+            if (path == "/api/settings/shows/show-1/up-next-insert-position" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(upNextInsertPositionPutResponse ?? showSettings ?? DefaultShowSettings),
+                };
+            }
+
+            if (path == "/api/settings" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(globalSettings ?? DefaultGlobalSettings),
                 };
             }
 
@@ -540,6 +560,54 @@ public class ShowDetailTests : WebTestContext
         cut.WaitForAssertion(() => Assert.Contains("Add new episodes to Up Next", cut.Markup));
 
         cut.Find("#show-auto-add-up-next").Change("true");
+
+        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void UpNextInsertPositionSelector_Hidden_WhenEffectiveAutoAddIsOff()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler());
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Add new episodes to Up Next", cut.Markup));
+
+        Assert.Empty(cut.FindAll("#show-up-next-insert-position"));
+    }
+
+    [Fact]
+    public void UpNextInsertPositionSelector_ShownWithOverride_WhenGlobalAutoAddIsOn()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2, UpNextInsertPosition: UpNextInsertPosition.Top);
+        ConfigureApi(CreateHandler(
+            showSettings: existing,
+            globalSettings: new("user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoAddNewEpisodesToUpNext: true)));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        cut.WaitForAssertion(
+            () => Assert.Equal("Top", cut.Find("#show-up-next-insert-position").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void UpNextInsertPositionSelector_ShownWhenShowAutoAddOverrideOn_AndSavesOverride()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2, AutoAddNewEpisodesToUpNext: true);
+        ConfigureApi(CreateHandler(
+            showSettings: existing,
+            upNextInsertPositionPutResponse: new(
+                "user-1:show-1", "user-1", "show-1", null, Version: 3,
+                AutoAddNewEpisodesToUpNext: true, UpNextInsertPosition: UpNextInsertPosition.Top)));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("#show-up-next-insert-position")));
+
+        cut.Find("#show-up-next-insert-position").Change("Top");
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
     }

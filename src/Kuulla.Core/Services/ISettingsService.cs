@@ -91,6 +91,12 @@ public interface ISettingsService
     Task<UserSettings> UpdateUpNextInsertPositionAsync(
         string userId, UpNextInsertPosition upNextInsertPosition, CancellationToken cancellationToken);
 
+    Task<ShowSettings> UpdateShowUpNextInsertPositionAsync(
+        string userId, string showId, UpNextInsertPosition? upNextInsertPosition, CancellationToken cancellationToken);
+
+    Task<UpNextInsertPosition> GetEffectiveUpNextInsertPositionAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateSmartSpeedAsync(
         string userId, bool smartSpeed, CancellationToken cancellationToken);
 

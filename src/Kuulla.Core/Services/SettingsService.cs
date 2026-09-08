@@ -470,6 +470,36 @@ public class SettingsService(
         UpdateSettingsWithRetryAsync(
             userId, current => current with { UpNextInsertPosition = upNextInsertPosition }, cancellationToken);
 
+    public async Task<ShowSettings> UpdateShowUpNextInsertPositionAsync(
+        string userId, string showId, UpNextInsertPosition? upNextInsertPosition, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            UpNextInsertPosition = upNextInsertPosition,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<UpNextInsertPosition> GetEffectiveUpNextInsertPositionAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.UpNextInsertPosition is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.UpNextInsertPosition;
+    }
+
     public Task<UserSettings> UpdateSmartSpeedAsync(
         string userId, bool smartSpeed, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(userId, current => current with { SmartSpeed = smartSpeed }, cancellationToken);

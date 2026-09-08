@@ -117,6 +117,12 @@ struct SettingsClient {
             body: UpdateUpNextInsertPositionRequest(upNextInsertPosition: value))
     }
 
+    func updateShowUpNextInsertPosition(showId: String, value: UpNextInsertPosition?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "up-next-insert-position"],
+            body: UpdateShowUpNextInsertPositionRequest(upNextInsertPosition: value))
+    }
+
     func updateSmartSpeed(_ value: Bool) async throws -> UserSettings {
         try await apiClient.put(["api", "settings", "smart-speed"], body: UpdateSmartSpeedRequest(smartSpeed: value))
     }
@@ -220,6 +226,10 @@ private struct UpdateShowAutoAddNewEpisodesToUpNextRequest: Encodable {
 
 private struct UpdateUpNextInsertPositionRequest: Encodable {
     let upNextInsertPosition: UpNextInsertPosition
+}
+
+private struct UpdateShowUpNextInsertPositionRequest: Encodable {
+    let upNextInsertPosition: UpNextInsertPosition?
 }
 
 private struct UpdateSmartSpeedRequest: Encodable {

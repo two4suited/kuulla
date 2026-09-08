@@ -562,6 +562,53 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertNil(bodyJSON["autoAddNewEpisodesToUpNext"])
     }
 
+    func testUpdateShowUpNextInsertPositionSendsPutWithIntegerBody() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"upNextInsertPosition":1}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowUpNextInsertPosition(showId: "s1", value: .top)
+
+        XCTAssertEqual(updated.upNextInsertPosition, .top)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/up-next-insert-position"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["upNextInsertPosition"] as? Int, 1)
+    }
+
+    func testUpdateShowUpNextInsertPositionClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"upNextInsertPosition":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowUpNextInsertPosition(showId: "s1", value: nil)
+
+        XCTAssertNil(updated.upNextInsertPosition)
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["upNextInsertPosition"])
+    }
+
+    func testGetShowSettingsDecodesNullUpNextInsertPositionOverrideAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":2,"upNextInsertPosition":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.upNextInsertPosition)
+    }
+
     func testGetSettingsDefaultsSmartSpeedToFalseWhenAbsent() async throws {
         let json = """
         {"userId":"u1","unlistenedEpisodeCount":5,"version":1}

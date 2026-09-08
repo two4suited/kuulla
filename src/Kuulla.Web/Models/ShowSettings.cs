@@ -15,5 +15,7 @@ public record ShowSettings(
     // Null means "no override — inherit the user's global SmartSpeed".
     bool? SmartSpeed = null,
     bool? AutoAddNewEpisodesToUpNext = null,
+    // Null means "no override — inherit the user's global UpNextInsertPosition".
+    UpNextInsertPosition? UpNextInsertPosition = null,
     // Null means "no override — inherit the user's global NotificationsEnabled".
     bool? NotificationsEnabled = null);
