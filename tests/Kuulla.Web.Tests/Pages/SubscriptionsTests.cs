@@ -10,7 +10,7 @@ public class SubscriptionsTests : WebTestContext
 {
     public SubscriptionsTests()
     {
-        // Subscriptions hosts <ShowIconSizeSelect>, which reads the "showIconSize" localStorage key
+        // Subscriptions hosts <ShowDisplaySettings>, which reads the "showIconSize" localStorage key
         // via JS interop on first render. Loose mode auto-stubs that (returns null → default size).
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
@@ -179,10 +179,12 @@ public class SubscriptionsTests : WebTestContext
 
         var cut = RenderComponent<Subscriptions>();
 
+        // Open the gear popover, then the persisted sort option carries the active marker.
+        cut.WaitForAssertion(() => cut.Find("button[aria-label='Display settings']").Click());
         cut.WaitForAssertion(() =>
         {
-            var select = cut.Find("select.sort-select");
-            Assert.Equal("RecentlyAdded", select.GetAttribute("value"));
+            var active = cut.Find(".sort-option.active");
+            Assert.Contains("Recently added", active.TextContent);
         });
     }
 
@@ -201,9 +203,10 @@ public class SubscriptionsTests : WebTestContext
         }));
 
         var cut = RenderComponent<Subscriptions>();
-        cut.WaitForAssertion(() => Assert.NotNull(cut.Find("select.sort-select")));
+        cut.WaitForAssertion(() => cut.Find("button[aria-label='Display settings']").Click());
 
-        cut.Find("select.sort-select").Change("LatestEpisode");
+        cut.WaitForAssertion(() =>
+            cut.FindAll(".sort-option").Single(b => b.TextContent.Contains("Latest episode")).Click());
 
         cut.WaitForAssertion(() => Assert.Contains("1", putBody ?? ""));
     }

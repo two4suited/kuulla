@@ -1,0 +1,171 @@
+@using Kuulla.Web.Models
+@inject IJSRuntime JS
+
+@* The single gear-icon entry point for the subscribed-shows display settings, shared by the
+   Library "Shows" section (Home.razor) and Subscriptions.razor (#488). Replaces the old inline
+   row of a <select> for sort, a switch, and a separate <select> for icon size.
+
+   Sort order and hide-caught-up are owned by the host page (with its optimistic-save + rollback
+   wiring) and passed in as bound parameters. Icon size is device-local — it never round-trips
+   through UserSettings — so this component reads and writes the ShowIconSizes.StorageKey
+   localStorage key itself, the same way the retired ShowIconSizeSelect did. Mirrors
+   ShowDisplaySettingsMenu in ios/Kuulla/Kuulla/ShowDisplaySettingsMenu.swift. *@
+<div class="show-display-settings position-relative d-inline-block">
+    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Toggle"
+            aria-haspopup="true" aria-expanded="@isOpen" title="Display settings" aria-label="Display settings">
+        <span aria-hidden="true">⚙</span>
+    </button>
+
+    @if (isOpen)
+    {
+        @* A transparent full-viewport layer so a click anywhere else closes the panel — there's
+           no Bootstrap JS loaded to give us a real dropdown. *@
+        <div class="show-display-settings-backdrop" @onclick="Close"></div>
+        <div class="show-display-settings-panel border rounded shadow p-3" role="dialog" aria-label="Display settings">
+            <div class="fw-semibold small mb-1">Sort order</div>
+            <div class="d-flex flex-column mb-3" role="group" aria-label="Sort order">
+                @foreach (var option in SortOptions)
+                {
+                    <button type="button"
+                            class="btn btn-sm text-start d-flex align-items-center gap-2 sort-option @(option == SortOrder ? "active" : null)"
+                            @onclick="() => SetSortAsync(option)" disabled="@IsSavingSortOrder">
+                        <span class="sort-check" aria-hidden="true">@(option == SortOrder ? "✓" : "")</span>
+                        @Label(option)
+                    </button>
+                }
+            </div>
+
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="hideCaughtUpShows"
+                       checked="@HideCaughtUpShows" @onchange="OnHideToggledAsync" disabled="@IsSavingHideCaughtUpShows" />
+                <label class="form-check-label small" for="hideCaughtUpShows">Hide caught-up shows</label>
+            </div>
+
+            <div class="fw-semibold small mb-1">Icon size</div>
+            <div class="btn-group btn-group-sm w-100 icon-size-group" role="group" aria-label="Icon size">
+                @foreach (var size in ShowIconSizes.All)
+                {
+                    <button type="button"
+                            class="btn @(size == IconSize ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => SetIconSizeAsync(size)" disabled="@(!iconSizeLoaded)">
+                        @size.Label()
+                    </button>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly SubscriptionSortOrder[] SortOptions =
+        [SubscriptionSortOrder.Title, SubscriptionSortOrder.LatestEpisode, SubscriptionSortOrder.RecentlyAdded, SubscriptionSortOrder.Manual];
+
+    [Parameter]
+    public SubscriptionSortOrder SortOrder { get; set; }
+
+    [Parameter]
+    public EventCallback<SubscriptionSortOrder> SortOrderChanged { get; set; }
+
+    [Parameter]
+    public bool IsSavingSortOrder { get; set; }
+
+    [Parameter]
+    public bool HideCaughtUpShows { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> HideCaughtUpShowsChanged { get; set; }
+
+    [Parameter]
+    public bool IsSavingHideCaughtUpShows { get; set; }
+
+    [Parameter]
+    public ShowIconSize IconSize { get; set; }
+
+    [Parameter]
+    public EventCallback<ShowIconSize> IconSizeChanged { get; set; }
+
+    private bool isOpen;
+
+    // Stays false until the first localStorage read completes, so a stale default-Large value
+    // can't be committed before the real stored size is known (matches the retired
+    // ShowIconSizeSelect). JS interop isn't available before the first render even with prerender
+    // disabled, so the read happens in OnAfterRenderAsync.
+    private bool iconSizeLoaded;
+
+    private void Toggle() => isOpen = !isOpen;
+
+    private void Close() => isOpen = false;
+
+    private static string Label(SubscriptionSortOrder order) => order switch
+    {
+        SubscriptionSortOrder.Title => "Title (A–Z)",
+        SubscriptionSortOrder.LatestEpisode => "Latest episode",
+        SubscriptionSortOrder.RecentlyAdded => "Recently added",
+        SubscriptionSortOrder.Manual => "Manual",
+        _ => order.ToString(),
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // localStorage access can throw (e.g. private browsing with storage blocked) — fall back
+        // to the default rather than leaving the size buttons stuck disabled forever.
+        ShowIconSize resolved;
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", ShowIconSizes.StorageKey);
+            resolved = ShowIconSizes.Parse(stored);
+        }
+        catch (JSException)
+        {
+            resolved = ShowIconSizes.Default;
+        }
+
+        iconSizeLoaded = true;
+        StateHasChanged();
+        if (resolved != IconSize)
+        {
+            await IconSizeChanged.InvokeAsync(resolved);
+        }
+    }
+
+    private async Task SetSortAsync(SubscriptionSortOrder option)
+    {
+        if (option != SortOrder)
+        {
+            await SortOrderChanged.InvokeAsync(option);
+        }
+    }
+
+    private async Task OnHideToggledAsync(ChangeEventArgs e)
+    {
+        var newValue = e.Value is true;
+        if (newValue != HideCaughtUpShows)
+        {
+            await HideCaughtUpShowsChanged.InvokeAsync(newValue);
+        }
+    }
+
+    private async Task SetIconSizeAsync(ShowIconSize size)
+    {
+        if (size == IconSize)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", ShowIconSizes.StorageKey, size.ToStorageString());
+        }
+        catch (JSException)
+        {
+            // Persisting the choice is best-effort; the grid still updates for this session.
+        }
+
+        await IconSizeChanged.InvokeAsync(size);
+    }
+}

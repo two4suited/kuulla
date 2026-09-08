@@ -59,25 +59,10 @@
             <h2 class="h5 text-muted mb-0">Shows</h2>
             @if (!isLoadingShows && showsLoadError is null && subscriptions.Count > 0)
             {
-                <div class="d-flex align-items-center gap-3 flex-wrap">
-                    <ShowIconSizeSelect Value="iconSize" ValueChanged="OnIconSizeChanged" />
-                    <div class="form-check form-switch mb-0 small text-muted">
-                        <input class="form-check-input" type="checkbox" role="switch" id="hideCaughtUpShows"
-                               checked="@hideCaughtUpShows" @onchange="OnHideCaughtUpShowsChangedAsync"
-                               disabled="@isSavingHideCaughtUpShows" />
-                        <label class="form-check-label" for="hideCaughtUpShows">Hide caught-up shows</label>
-                    </div>
-                    <label class="d-flex align-items-center gap-2 mb-0 small text-muted">
-                        Sort
-                        <select class="form-select form-select-sm w-auto sort-select" value="@sortOrder"
-                                @onchange="OnSortOrderChangedAsync" disabled="@isSavingSortOrder">
-                            <option value="@SubscriptionSortOrder.Title">Title (A–Z)</option>
-                            <option value="@SubscriptionSortOrder.LatestEpisode">Latest episode</option>
-                            <option value="@SubscriptionSortOrder.RecentlyAdded">Recently added</option>
-                            <option value="@SubscriptionSortOrder.Manual">Manual</option>
-                        </select>
-                    </label>
-                </div>
+                <ShowDisplaySettings SortOrder="sortOrder" SortOrderChanged="OnSortOrderChangedAsync" IsSavingSortOrder="isSavingSortOrder"
+                                     HideCaughtUpShows="hideCaughtUpShows" HideCaughtUpShowsChanged="OnHideCaughtUpShowsChangedAsync"
+                                     IsSavingHideCaughtUpShows="isSavingHideCaughtUpShows"
+                                     IconSize="iconSize" IconSizeChanged="OnIconSizeChanged" />
             }
         </div>
         @if (hideCaughtUpShowsError is not null)
@@ -232,9 +217,8 @@
         }
     }
 
-    private async Task OnHideCaughtUpShowsChangedAsync(ChangeEventArgs e)
+    private async Task OnHideCaughtUpShowsChangedAsync(bool newValue)
     {
-        var newValue = e.Value is true;
         if (newValue == hideCaughtUpShows)
         {
             return;
@@ -292,9 +276,9 @@
 
     private void OnIconSizeChanged(ShowIconSize size) => iconSize = size;
 
-    private async Task OnSortOrderChangedAsync(ChangeEventArgs e)
+    private async Task OnSortOrderChangedAsync(SubscriptionSortOrder newOrder)
     {
-        if (!Enum.TryParse<SubscriptionSortOrder>(e.Value?.ToString(), out var newOrder) || newOrder == sortOrder)
+        if (newOrder == sortOrder)
         {
             return;
         }

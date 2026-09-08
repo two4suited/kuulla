@@ -28,6 +28,7 @@
 		W1000001 /* SubscriptionSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000001; };
 		W1000002 /* SubscriptionSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000002; };
 		X1000001 /* SubscriptionManualReorderRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2000001; };
+		Y1000001 /* ShowDisplaySettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y2000001; };
 		W1000003 /* SubscriptionSortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000003; };
 		A1000030 /* DeviceTokenClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000030; };
 		A1000031 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000031; };
@@ -177,6 +178,7 @@
 		W2000001 /* SubscriptionSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortOrder.swift; sourceTree = "<group>"; };
 		W2000002 /* SubscriptionSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSort.swift; sourceTree = "<group>"; };
 		X2000001 /* SubscriptionManualReorderRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManualReorderRow.swift; sourceTree = "<group>"; };
+		Y2000001 /* ShowDisplaySettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDisplaySettingsMenu.swift; sourceTree = "<group>"; };
 		W2000003 /* SubscriptionSortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortTests.swift; sourceTree = "<group>"; };
 		A2000030 /* DeviceTokenClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenClient.swift; sourceTree = "<group>"; };
 		A2000031 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
@@ -321,6 +323,7 @@
 				W2000001 /* SubscriptionSortOrder.swift */,
 				W2000002 /* SubscriptionSort.swift */,
 				X2000001 /* SubscriptionManualReorderRow.swift */,
+				Y2000001 /* ShowDisplaySettingsMenu.swift */,
 				A2000030 /* DeviceTokenClient.swift */,
 				A2000031 /* PushNotificationManager.swift */,
 				A2000032 /* Kuulla.entitlements */,
@@ -571,6 +574,7 @@
 				W1000001,
 				W1000002,
 				X1000001,
+				Y1000001,
 				A1000030,
 				A1000031,
 				A1000040,
