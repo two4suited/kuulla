@@ -64,7 +64,25 @@ else
                         <p class="text-danger mt-2">@subscriptionError</p>
                     }
 
-                    <div class="mt-3" style="max-width: 24rem;">
+                    @* Every per-show override lives behind this single gear, mirroring the iOS
+                       "Podcast settings" toolbar menu (ShowDetailView.swift) and the Library /
+                       Subscriptions gear from #497. No Bootstrap JS is loaded, so it's a
+                       hand-rolled popover: a transparent full-viewport catcher closes it on an
+                       outside click. All the save + optimistic-rollback wiring stays in @code. *@
+                    <div class="show-settings position-relative d-inline-block mt-3">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="ToggleShowSettings"
+                                aria-haspopup="true" aria-expanded="@isShowSettingsOpen"
+                                title="Podcast settings" aria-label="Podcast settings">
+                            <span aria-hidden="true">⚙</span> Podcast settings
+                        </button>
+
+                        @if (isShowSettingsOpen)
+                        {
+                            @* Reuses the #497 backdrop rule — a transparent full-viewport click catcher. *@
+                            <div class="show-display-settings-backdrop" @onclick="CloseShowSettings"></div>
+                            <div class="show-settings-panel border rounded shadow p-3" role="dialog" aria-label="Podcast settings">
+
+                    <div style="max-width: 24rem;">
                         <label class="form-label" for="show-unlistened-episode-count">Unlistened episodes to show</label>
                         <select id="show-unlistened-episode-count" class="form-select" disabled="@isShowSettingsSaving"
                                 value="@ShowSettingsSelectValue" @onchange="OnShowUnlistenedEpisodeCountChangedAsync">
@@ -276,6 +294,10 @@ else
                         else if (showNotificationsSavedConfirmation)
                         {
                             <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                            </div>
                         }
                     </div>
                 </Authorized>
@@ -514,6 +536,7 @@ else
     private bool isAuthenticated;
     private EpisodeFilter selectedFilter = EpisodeFilter.Unfinished;
     private EpisodeSortOrder selectedSort = EpisodeSortOrder.NewestFirst;
+    private bool isShowSettingsOpen;
 
     private enum EpisodeFilter { All, Unfinished, Unplayed, InProgress }
 
@@ -636,6 +659,10 @@ else
         selectedFilter = filter;
     }
 
+    private void ToggleShowSettings() => isShowSettingsOpen = !isShowSettingsOpen;
+
+    private void CloseShowSettings() => isShowSettingsOpen = false;
+
     private void OnSortChanged(ChangeEventArgs args)
     {
         if (Enum.TryParse<EpisodeSortOrder>(args.Value?.ToString(), out var value))
@@ -707,6 +734,7 @@ else
         isAuthenticated = false;
         selectedFilter = EpisodeFilter.Unfinished;
         selectedSort = EpisodeSortOrder.NewestFirst;
+        isShowSettingsOpen = false;
 
         isLoadingShow = true;
         try

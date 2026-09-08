@@ -206,6 +206,11 @@ public class ShowDetailTests : WebTestContext
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
 
+    // The per-show settings now live behind a gear popover (issue #500) instead of rendering
+    // inline, so any test that touches a #show-* control has to open it first.
+    private static void OpenShowSettings(IRenderedComponent<ShowDetail> cut)
+        => cut.WaitForElement("button[aria-label='Podcast settings']").Click();
+
     [Fact]
     public void RendersShowAndEpisodes_WhenLoadSucceeds()
     {
@@ -393,6 +398,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-unlistened-episode-count").GetAttribute("value")));
     }
@@ -405,6 +411,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("Ten", cut.Find("#show-unlistened-episode-count").GetAttribute("value")));
     }
@@ -416,6 +423,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: new("user-1:show-1", "user-1", "show-1", UnlistenedEpisodeCount.Two, Version: 2)));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Unlistened episodes to show", cut.Markup));
 
         cut.Find("#show-unlistened-episode-count").Change("Two");
@@ -430,6 +438,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-archive-rule").GetAttribute("value")));
     }
@@ -442,6 +451,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("After30Days", cut.Find("#show-auto-archive-rule").GetAttribute("value")));
     }
@@ -453,6 +463,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: new("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoArchiveRule.AfterPlayed)));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Auto-archive played episodes", cut.Markup));
 
         cut.Find("#show-auto-archive-rule").Change("AfterPlayed");
@@ -467,6 +478,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
     }
@@ -479,6 +491,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
     }
@@ -490,6 +503,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: new("user-1:show-1", "user-1", "show-1", null, Version: 2, AutoDownloadNewEpisodes: true)));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Auto-download new episodes", cut.Markup));
 
         cut.Find("#show-auto-download-new-episodes").Change("true");
@@ -504,6 +518,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-delete-rule").GetAttribute("value")));
     }
@@ -518,6 +533,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("AfterDays", cut.Find("#show-auto-delete-rule").GetAttribute("value")));
         cut.WaitForAssertion(() => Assert.Equal("14", cut.Find("#show-auto-delete-after-days").GetAttribute("value")));
@@ -530,6 +546,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Delete downloads", cut.Markup));
 
         cut.Find("#show-auto-delete-rule").Change("AfterPlayed");
@@ -545,6 +562,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("false", cut.Find("#show-auto-add-up-next").GetAttribute("value")));
     }
@@ -557,6 +575,7 @@ public class ShowDetailTests : WebTestContext
             autoAddUpNextPutResponse: new("user-1:show-1", "user-1", "show-1", null, Version: 3, AutoAddNewEpisodesToUpNext: true)));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Add new episodes to Up Next", cut.Markup));
 
         cut.Find("#show-auto-add-up-next").Change("true");
@@ -571,6 +590,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Add new episodes to Up Next", cut.Markup));
 
         Assert.Empty(cut.FindAll("#show-up-next-insert-position"));
@@ -587,6 +607,7 @@ public class ShowDetailTests : WebTestContext
             globalSettings: new("user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoAddNewEpisodesToUpNext: true)));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(
             () => Assert.Equal("Top", cut.Find("#show-up-next-insert-position").GetAttribute("value")));
@@ -605,6 +626,7 @@ public class ShowDetailTests : WebTestContext
                 AutoAddNewEpisodesToUpNext: true, UpNextInsertPosition: UpNextInsertPosition.Top)));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("#show-up-next-insert-position")));
 
         cut.Find("#show-up-next-insert-position").Change("Top");
@@ -622,6 +644,7 @@ public class ShowDetailTests : WebTestContext
             autoDownloadPutResponse: new("user-1:show-1", "user-1", "show-1", null, Version: 3, AutoDownloadNewEpisodes: null)));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
 
         cut.Find("#show-auto-download-new-episodes").Change("");
@@ -680,6 +703,7 @@ public class ShowDetailTests : WebTestContext
         }));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Equal("", cut.Find("#show-auto-download-new-episodes").GetAttribute("value")));
 
         cut.Find("#show-auto-download-new-episodes").Change("true");
@@ -698,6 +722,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -716,6 +741,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() =>
         {
@@ -733,6 +759,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Auto-skip intro", cut.Markup));
 
         cut.Find("#show-auto-skip-intro").Change("30");
@@ -749,6 +776,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("1.5", cut.Find("#show-playback-speed").GetAttribute("value")));
     }
@@ -760,6 +788,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Playback speed", cut.Markup));
 
         cut.Find("#show-playback-speed").Change("1.2");
@@ -776,6 +805,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler(showSettings: existing));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("#show-smart-speed").GetAttribute("value")));
     }
@@ -787,6 +817,7 @@ public class ShowDetailTests : WebTestContext
         ConfigureApi(CreateHandler());
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
         cut.WaitForAssertion(() => Assert.Contains("Notifications", cut.Markup));
 
         cut.Find("#show-notifications-enabled").Change("false");
@@ -833,6 +864,7 @@ public class ShowDetailTests : WebTestContext
         }));
 
         var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
 
         cut.WaitForAssertion(() => Assert.Contains("Something went wrong while loading this show's settings", cut.Markup));
     }
