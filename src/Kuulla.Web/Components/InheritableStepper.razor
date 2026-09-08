@@ -1,0 +1,83 @@
+@* A −/value/+ stepper for a per-show integer override that can also inherit the global default
+   (#504). Used for auto-skip intro/outro seconds, where the underlying setting is a free int and
+   the old preset <select> couldn't represent in-between values without a synthesized "custom" row.
+
+   When there's no override it shows the resolved global value and an "Override" button; once
+   overridden it shows the stepper plus a "Use global default" link. Presentational only — raises
+   ValueChanged and lets the host own optimistic save + rollback. *@
+<div class="inheritable-stepper" id="@Id">
+    @if (Value is { } value)
+    {
+        <div class="d-flex align-items-center gap-2">
+            <div class="btn-group btn-group-sm" role="group" aria-label="@AriaLabel">
+                <button type="button" class="btn btn-outline-secondary" aria-label="Decrease"
+                        disabled="@(Disabled || value <= Min)" @onclick="() => StepAsync(-Step)">−</button>
+                <span class="btn btn-outline-secondary disabled stepper-value" aria-live="polite">@Format(value)</span>
+                <button type="button" class="btn btn-outline-secondary" aria-label="Increase"
+                        disabled="@(Disabled || value >= Max)" @onclick="() => StepAsync(Step)">+</button>
+            </div>
+            <button type="button" class="btn btn-link btn-sm p-0" disabled="@Disabled"
+                    @onclick="() => SetAsync(null)">Use global default</button>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-body-secondary small">Global default@(GlobalValue is { } g ? $" ({Format(g)})" : "")</span>
+            <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@Disabled"
+                    @onclick="() => SetAsync(GlobalValue ?? SeedValue)">Override</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<int?> ValueChanged { get; set; }
+
+    // Resolved global value, shown as a hint and used as the starting point when overriding.
+    [Parameter]
+    public int? GlobalValue { get; set; }
+
+    // Fallback starting point if the global value isn't known.
+    [Parameter]
+    public int SeedValue { get; set; }
+
+    [Parameter]
+    public int Min { get; set; }
+
+    [Parameter]
+    public int Max { get; set; } = int.MaxValue;
+
+    [Parameter]
+    public int Step { get; set; } = 1;
+
+    // Formats the numeric value for display (e.g. "15s", "Off").
+    [Parameter]
+    public Func<int, string> Format { get; set; } = v => v.ToString();
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public string? Id { get; set; }
+
+    private Task StepAsync(int delta) =>
+        SetAsync(Math.Clamp((Value ?? 0) + delta, Min, Max));
+
+    private async Task SetAsync(int? value)
+    {
+        if (Nullable.Equals(Value, value))
+        {
+            return;
+        }
+
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+}

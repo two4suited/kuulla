@@ -1,0 +1,60 @@
+@typeparam TValue where TValue : struct
+
+@* A vertical radio-style list for a per-show override that can also inherit the global default
+   (#504). Same shape as SegmentedChoice, but for enums with 3+ options whose labels are too
+   long to sit side by side — auto-archive timing, delete-downloads timing. Styled like the
+   sort-order list in ShowDisplaySettings.razor (a leading ✓ column, no native radios).
+
+   Presentational only: raises ValueChanged; the host page owns optimistic save + rollback. *@
+<div class="d-flex flex-column radio-choice" role="radiogroup" aria-label="@AriaLabel" id="@Id">
+    <button type="button" role="radio" aria-checked="@(Value is null ? "true" : "false")"
+            class="btn btn-sm text-start d-flex align-items-center gap-2 radio-choice-option @(Value is null ? "active" : null)"
+            disabled="@Disabled" @onclick="() => SelectAsync(null)">
+        <span class="radio-choice-check" aria-hidden="true">@(Value is null ? "✓" : "")</span>
+        @DefaultLabel
+    </button>
+    @foreach (var option in Options)
+    {
+        var selected = Value is { } current && EqualityComparer<TValue>.Default.Equals(current, option.Value);
+        <button type="button" role="radio" aria-checked="@(selected ? "true" : "false")"
+                class="btn btn-sm text-start d-flex align-items-center gap-2 radio-choice-option @(selected ? "active" : null)"
+                disabled="@Disabled" @onclick="() => SelectAsync(option.Value)">
+            <span class="radio-choice-check" aria-hidden="true">@(selected ? "✓" : "")</span>
+            @option.Label
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<(TValue Value, string Label)> Options { get; set; } = [];
+
+    [Parameter]
+    public string DefaultLabel { get; set; } = "Use global default";
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public string? AriaLabel { get; set; }
+
+    [Parameter]
+    public string? Id { get; set; }
+
+    private async Task SelectAsync(TValue? value)
+    {
+        if (Nullable.Equals(Value, value))
+        {
+            return;
+        }
+
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+}
