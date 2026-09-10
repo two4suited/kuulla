@@ -47,6 +47,50 @@ public class SubscriptionFlowTests(AppHostFixture fixture)
         Assert.DoesNotContain(listAfterUnsubscribe!, s => s.ShowId == showId);
     }
 
+    // #506: unsubscribing has to clean up the user data created while subscribed. Seed a show,
+    // subscribe, drop one of its episodes into a manual playlist, then unsubscribe — the playlist
+    // must no longer carry that episode.
+    [Fact]
+    public async Task Unsubscribe_RemovesTheShowsEpisodesFromPlaylists()
+    {
+        var showId = $"test-show-{Guid.NewGuid():N}";
+        var episodeId = $"test-episode-{Guid.NewGuid():N}";
+
+        using var client = fixture.CreateApiClient();
+
+        var seedResponse = await client.PostAsJsonAsync("/dev/seed-show", new Show(
+            showId,
+            Title: "Playlist Cleanup Show",
+            Author: "Test Author",
+            FeedUrl: "https://example.com/feed.xml",
+            ArtworkUrl: null,
+            Description: "Seeded directly for integration testing.",
+            Categories: ["Technology"]));
+        Assert.Equal(HttpStatusCode.OK, seedResponse.StatusCode);
+
+        await AuthenticateAsync(client);
+
+        var subscribeResponse = await client.PostAsJsonAsync("/api/subscriptions", new { ShowId = showId });
+        Assert.Equal(HttpStatusCode.OK, subscribeResponse.StatusCode);
+
+        var createPlaylistResponse = await client.PostAsJsonAsync(
+            "/api/playlists", new { Name = "Cleanup Target", Type = PlaylistType.Manual });
+        Assert.Equal(HttpStatusCode.OK, createPlaylistResponse.StatusCode);
+        var playlist = await createPlaylistResponse.Content.ReadFromJsonAsync<PlaylistResponse>();
+
+        var addItemResponse = await client.PostAsJsonAsync(
+            $"/api/playlists/{playlist!.Id}/items", new { EpisodeId = episodeId, ShowId = showId });
+        Assert.Equal(HttpStatusCode.OK, addItemResponse.StatusCode);
+        var withItem = await addItemResponse.Content.ReadFromJsonAsync<PlaylistResponse>();
+        Assert.Contains(withItem!.Items, i => i.EpisodeId == episodeId);
+
+        var unsubscribeResponse = await client.DeleteAsync($"/api/subscriptions/{showId}");
+        Assert.Equal(HttpStatusCode.NoContent, unsubscribeResponse.StatusCode);
+
+        var playlistAfter = await client.GetFromJsonAsync<PlaylistDetailResponse>($"/api/playlists/{playlist.Id}");
+        Assert.DoesNotContain(playlistAfter!.Items, i => i.EpisodeId == episodeId);
+    }
+
     [Fact]
     public async Task Subscribe_UnknownShow_ReturnsNotFound()
     {
@@ -75,4 +119,10 @@ public class SubscriptionFlowTests(AppHostFixture fixture)
     private sealed record TestTokenResponse(string Token);
 
     private sealed record SubscriptionResponse(string Id, string UserId, string ShowId, string ShowTitle, string ShowAuthor, string? ShowArtworkUrl, DateTimeOffset SubscribedAt);
+
+    private sealed record PlaylistResponse(string Id, string Name, IReadOnlyList<PlaylistItemResponse> Items);
+
+    private sealed record PlaylistDetailResponse(string Id, string Name, IReadOnlyList<PlaylistItemResponse> Items);
+
+    private sealed record PlaylistItemResponse(string EpisodeId, string ShowId);
 }

@@ -309,6 +309,60 @@ public class PlaylistService(
         return updated;
     }
 
+    // Unsubscribe cleanup (#506): a `Subscription` delete used to leave everything created while
+    // subscribed behind, so an episode from an unsubscribed show kept showing up in a playlist.
+    // Sweep the user's playlists and pull the show out of each one — matching items from manual
+    // playlists, and the show id from a dynamic playlist's config (then recompute its items from
+    // what's left). Skip tombstoned playlists, and only write a playlist that actually referenced
+    // the show so unaffected playlists don't churn their UpdatedAt / sync hash. This is a single
+    // user's partition (a handful of playlists), so it runs inline on the unsubscribe request
+    // rather than as a background sweep. `EpisodeState` is intentionally out of scope — see the
+    // DELETE /api/subscriptions/{showId} endpoint for the keep-for-resubscribe rationale.
+    public async Task RemoveShowAsync(string userId, string showId, CancellationToken cancellationToken)
+    {
+        var playlists = await QueryAllAsync(userId, cancellationToken);
+
+        foreach (var playlist in playlists)
+        {
+            if (playlist.Deleted)
+            {
+                continue;
+            }
+
+            if (playlist is { Type: PlaylistType.Dynamic, DynamicConfig: { } config })
+            {
+                if (!config.ShowIds.Contains(showId) && !config.PriorityList.Contains(showId))
+                {
+                    continue;
+                }
+
+                var trimmedConfig = config with
+                {
+                    ShowIds = config.ShowIds.Where(id => id != showId).ToList(),
+                    PriorityList = config.PriorityList.Where(id => id != showId).ToList(),
+                };
+                var recomputed = await ComputeDynamicItemsAsync(userId, trimmedConfig, cancellationToken);
+                var updatedDynamic = playlist with
+                {
+                    DynamicConfig = trimmedConfig,
+                    Items = recomputed,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                };
+                await UpsertAsync(updatedDynamic, cancellationToken);
+                continue;
+            }
+
+            if (playlist.Items.All(item => item.ShowId != showId))
+            {
+                continue;
+            }
+
+            var remaining = playlist.Items.Where(item => item.ShowId != showId).ToList();
+            var updated = playlist with { Items = remaining, UpdatedAt = DateTimeOffset.UtcNow };
+            await UpsertAsync(updated, cancellationToken);
+        }
+    }
+
     public async Task<Playlist?> ReorderItemAsync(
         string userId,
         string id,

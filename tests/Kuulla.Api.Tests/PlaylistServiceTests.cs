@@ -706,6 +706,90 @@ public class PlaylistServiceTests
             c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
 
+    [Fact]
+    public async Task RemoveShowAsync_StripsMatchingItemsFromManualPlaylists()
+    {
+        var playlist = MakePlaylist(items:
+        [
+            new PlaylistItem("keep-1", "show-2", DateTimeOffset.UtcNow, "a"),
+            new PlaylistItem("drop-1", ShowId, DateTimeOffset.UtcNow, "b"),
+            new PlaylistItem("keep-2", "show-3", DateTimeOffset.UtcNow, "c"),
+        ]);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[playlist]));
+        Playlist? saved = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => saved = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        await _sut.RemoveShowAsync(UserId, ShowId, CancellationToken.None);
+
+        Assert.NotNull(saved);
+        Assert.Equal(["keep-1", "keep-2"], saved!.Items.Select(i => i.EpisodeId));
+    }
+
+    [Fact]
+    public async Task RemoveShowAsync_LeavesPlaylistsWithoutTheShowUntouched()
+    {
+        var playlist = MakePlaylist(items: [new PlaylistItem("keep-1", "show-2", DateTimeOffset.UtcNow, "a")]);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[playlist]));
+
+        await _sut.RemoveShowAsync(UserId, ShowId, CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveShowAsync_SkipsTombstonedPlaylists()
+    {
+        var tombstone = MakePlaylist(items: [new PlaylistItem("drop-1", ShowId, DateTimeOffset.UtcNow, "a")])
+            with { Deleted = true };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[tombstone]));
+
+        await _sut.RemoveShowAsync(UserId, ShowId, CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveShowAsync_DropsShowFromDynamicConfigAndRecomputesItems()
+    {
+        var config = new DynamicPlaylistConfig(
+            ShowIds: [ShowId, "show-2"], MaxEpisodes: null, PriorityList: [ShowId, "show-2"]);
+        var dynamic = MakePlaylist() with
+        {
+            Type = PlaylistType.Dynamic,
+            DynamicConfig = config,
+            Items = [new PlaylistItem("old-from-show-1", ShowId, DateTimeOffset.UtcNow, "a")],
+        };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[dynamic]));
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync("show-2", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("from-show-2", "show-2")]);
+        Playlist? saved = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => saved = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        await _sut.RemoveShowAsync(UserId, ShowId, CancellationToken.None);
+
+        Assert.NotNull(saved);
+        Assert.Equal(["show-2"], saved!.DynamicConfig!.ShowIds);
+        Assert.Equal(["show-2"], saved.DynamicConfig!.PriorityList);
+        Assert.Equal(["from-show-2"], saved.Items.Select(i => i.EpisodeId));
+        _episodeService.Verify(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private void SetUpEmptyQuery() =>
         _playlistsContainer
             .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))

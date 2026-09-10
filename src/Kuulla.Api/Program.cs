@@ -643,10 +643,20 @@ subscriptions.MapDelete("/{showId}", async (
     string showId,
     ClaimsPrincipal user,
     ISubscriptionService subscriptionService,
+    IPlaylistService playlistService,
     CancellationToken ct) =>
 {
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     await subscriptionService.UnsubscribeAsync(userId, showId, ct);
+
+    // Unsubscribe owns cleanup of the user-scoped data created while subscribed (#506).
+    // Playlists: pull the show's episodes out of every manual and dynamic playlist so nothing
+    // orphaned keeps rendering (the bug that motivated the issue).
+    // EpisodeState (playback position, played / auto-played flags): kept on purpose. It renders
+    // nothing on its own once the episodes are out of every list, and keeping it means a user who
+    // re-subscribes later resumes exactly where they left off instead of losing all progress. The
+    // rows age out through the normal episode-cache lifecycle, not here.
+    await playlistService.RemoveShowAsync(userId, showId, ct);
     return Results.NoContent();
 });
 
