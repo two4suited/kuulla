@@ -96,7 +96,11 @@ struct ShowDetailView: View {
                                 onDownloadDidFinish: refreshStatuses)
                         }
                         .accessibilityIdentifier("episode-row")
-                        .swipeActions(edge: .trailing) {
+                        // allowsFullSwipe: false — a long/fast swipe-left only reveals the
+                        // buttons, it never auto-triggers the first action. Marking an episode
+                        // played is a destructive side effect (feeds auto-archive / auto-delete
+                        // afterPlayed rules) and shouldn't fire from an accidental gesture (#540).
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button {
                                 addToPlaylistEpisode = episode
                             } label: {
