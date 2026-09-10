@@ -299,6 +299,7 @@ struct ShowDetailView: View {
                 // Keep the local catalog cache in step so Library/Subscriptions reflect this
                 // without waiting for the next "Sync Now" (#488).
                 CatalogCache.removeSubscription(showId: showId, in: modelContext)
+                CatalogCache.removeShowFromSnapshot(showId: showId, in: modelContext)
             } else {
                 let created = try await subscriptionClient.subscribe(showId: showId)
                 CatalogCache.upsertSubscription(created, in: modelContext)
