@@ -46,7 +46,7 @@ struct ShowDisplaySettingsMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Image(systemName: "gearshape")
+            Image(systemName: "slider.horizontal.3")
         }
         .accessibilityLabel("Display settings")
         .disabled(isDisabled)

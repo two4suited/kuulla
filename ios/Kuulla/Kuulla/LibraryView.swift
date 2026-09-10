@@ -71,6 +71,12 @@ struct LibraryView: View {
                 }
                 .accessibilityLabel("New Episodes")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: CatalogRoute.settings) {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
+            }
         }
         .task {
             async let showsTask: Void = loadShows()
