@@ -293,6 +293,18 @@ struct ShowDetailView: View {
         }
 
         isLoadingEpisodes = false
+
+        // Once the rows are on screen, reconcile episode state from the server so a playback
+        // position set on another device (e.g. Web) populates the in-progress progress bar
+        // (#513) — ShowDetail.razor does the equivalent with a per-page LoadEpisodeStatesAsync.
+        // refreshStatuses() above only sees what the app-level background sync has already
+        // pulled into the local store, which on a fresh launch or a just-updated episode it
+        // may not have yet. requestFollowUpIfSyncing: false — we only need local state to be
+        // fresh, not to force a second POST behind an in-flight sync.
+        guard episodeError == nil else { return }
+        await syncEngine?.syncNow(requestFollowUpIfSyncing: false)
+        guard !Task.isCancelled else { return }
+        refreshStatuses()
     }
 
     private var displayedEpisodes: [Episode] {
