@@ -1,11 +1,17 @@
+import SwiftData
 import SwiftUI
 
 struct SubscriptionsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.settingsSyncEngine) private var settingsSyncEngine
+    @Environment(\.catalogRefresh) private var catalogRefresh
+
     @State private var subscriptions: [Subscription] = []
     @State private var unplayedCounts: [String: UnplayedCounts.Count] = [:]
     @State private var inProgressShowIds: Set<String> = []
     @State private var episodeStateLoaded = false
-    @State private var isLoading = false
+    // Stays false only until the first (synchronous) read of the local catalog cache lands.
+    @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var sortOrder: SubscriptionSortOrder = .title
     @State private var sortSaveTask: Task<Void, Never>?
@@ -32,7 +38,6 @@ struct SubscriptionsView: View {
 
     @AppStorage(ShowIconSize.storageKey) private var iconSizeRaw = ShowIconSize.default.rawValue
 
-    private let subscriptionClient = SubscriptionClient()
     private let settingsClient = SettingsClient()
 
     private var columns: [GridItem] {
@@ -67,7 +72,7 @@ struct SubscriptionsView: View {
                 Text(errorMessage)
                     .foregroundStyle(.red)
                     .padding()
-            } else if isLoading {
+            } else if !hasLoaded {
                 ProgressView()
                     .padding()
             } else if subscriptions.isEmpty {
@@ -104,12 +109,23 @@ struct SubscriptionsView: View {
             }
         }
         .task {
-            async let subscriptionsTask: Void = loadSubscriptions()
-            async let sortTask: Void = loadSortOrder()
-            _ = await (subscriptionsTask, sortTask)
+            // Local-only paint (#488) — see LibraryView. Refresh is cold launch / pull-to-
+            // refresh / Settings → "Sync Now".
+            await loadSortOrder()
+            readLocalSubscriptions()
         }
         .refreshable {
-            await loadSubscriptions()
+            await catalogRefresh?.refreshAll()
+            await loadSortOrder()
+            readLocalSubscriptions()
+        }
+        .onAppear {
+            readLocalSubscriptions()
+        }
+        .onChange(of: catalogRefresh?.isRefreshing) { _, _ in
+            // Reflect a cold-launch or Settings "Sync Now" refresh landing while this screen
+            // is already on-screen.
+            readLocalSubscriptions()
         }
     }
 
@@ -203,56 +219,29 @@ struct SubscriptionsView: View {
             })
     }
 
+    // Locally-synced settings mirror rather than GET /api/settings (#488) — see LibraryView.
     private func loadSortOrder() async {
-        guard let settings = try? await settingsClient.getSettings(), !Task.isCancelled else { return }
+        guard let engine = settingsSyncEngine else { return }
+        let id = UserSettingsRecord.localId
+        let record = try? await engine.read { context in
+            try context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
+        }
+        guard let settings = (record ?? nil)?.asUserSettings, !Task.isCancelled else { return }
         sortOrder = settings.subscriptionSortOrder
         manualOrder = settings.subscriptionManualOrder
         hideCaughtUpShows = settings.hideCaughtUpShows
         subscriptions = sortedSubscriptions(subscriptions, by: sortOrder, manualOrder: manualOrder)
     }
 
-    private func loadSubscriptions() async {
-        guard !isLoading else { return }
-
-        isLoading = true
+    // Synchronous paint from the on-device catalog cache (#488) — no network.
+    private func readLocalSubscriptions() {
+        subscriptions = sortedSubscriptions(
+            CatalogCache.subscriptions(in: modelContext), by: sortOrder, manualOrder: manualOrder)
+        unplayedCounts = CatalogCache.unplayedCounts(in: modelContext)
+        inProgressShowIds = CatalogCache.inProgressShowIds(in: modelContext)
+        episodeStateLoaded = true
+        hasLoaded = true
         errorMessage = nil
-
-        do {
-            let results = sortedSubscriptions(
-                try await subscriptionClient.getSubscriptions(), by: sortOrder, manualOrder: manualOrder)
-            if !Task.isCancelled {
-                subscriptions = results
-            }
-        } catch {
-            if !Task.isCancelled {
-                errorMessage = "Something went wrong while loading your subscriptions. Please try again."
-            }
-        }
-
-        // Always clears the flag, even if cancelled — mirrors LibraryView.loadShows(): the
-        // best-effort badge fetch below must run after loading state clears, not only at the end.
-        isLoading = false
-        guard !Task.isCancelled, errorMessage == nil else { return }
-
-        // Best-effort, run after the grid has already rendered: unplayed badges are supplementary,
-        // so a failure here shouldn't hide the already-loaded subscriptions grid behind an error.
-        // The same data also drives the caught-up hide/sink, gated on episodeStateLoaded so
-        // nothing is hidden until both fetches have actually landed. Fetched concurrently —
-        // neither depends on the other.
-        async let newEpisodesTask = subscriptionClient.getNewEpisodes()
-        async let inProgressTask = subscriptionClient.getInProgressShowIds()
-        let newEpisodes = try? await newEpisodesTask
-        let inProgress = try? await inProgressTask
-        guard !Task.isCancelled else { return }
-        if let newEpisodes {
-            unplayedCounts = UnplayedCounts.compute(from: newEpisodes)
-        }
-        if let inProgress {
-            inProgressShowIds = inProgress
-        }
-        if newEpisodes != nil, inProgress != nil {
-            episodeStateLoaded = true
-        }
     }
 
 }

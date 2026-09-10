@@ -5,6 +5,7 @@ struct ShowDetailView: View {
     let showId: String
 
     @Environment(\.episodeSyncEngine) private var syncEngine
+    @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.modelContext) private var modelContext
 
     @State private var show: Show?
@@ -192,6 +193,14 @@ struct ShowDetailView: View {
         .task(id: showId) {
             await loadShow()
         }
+        .refreshable {
+            await catalogRefresh?.refreshShow(showId: showId)
+            // Pull cross-device episode state too so in-progress bars are current (#513).
+            await syncEngine?.syncNow(requestFollowUpIfSyncing: false)
+            readLocalShow()
+            // Network subscription check last so it wins over the cached value in readLocalShow().
+            await loadSubscriptionStatus()
+        }
         .onAppear {
             // Cheap local-only re-derivation (no network), mirroring FeedView, so a badge changed
             // from EpisodeDetailView isn't left stale when popping back to this screen.
@@ -218,30 +227,61 @@ struct ShowDetailView: View {
         isMarkingAllPlayed = false
         markAllPlayedError = nil
 
-        isLoadingShow = true
-        do {
-            show = try await catalogClient.getShow(id: showId)
-        } catch {
-            if !Task.isCancelled {
-                showError = "Something went wrong while loading this show. Please try again."
-            }
-        }
-        isLoadingShow = false
+        // Paint from the on-device catalog cache first (#488) — instant, offline-capable.
+        readLocalShow()
 
-        if show != nil {
-            await loadMoreEpisodes()
+        // Only hit the network when the cache has nothing for this show yet (first-ever visit,
+        // or a show reached from Search/Discovery that isn't subscribed). Otherwise the cache
+        // copy stands until the user pulls to refresh or runs Settings → "Sync Now".
+        if show == nil {
+            isLoadingShow = true
+            do {
+                if let fetched = try await catalogClient.getShow(id: showId) {
+                    show = fetched
+                    CatalogCache.upsertShow(fetched, in: modelContext)
+                }
+            } catch {
+                if !Task.isCancelled {
+                    showError = "Something went wrong while loading this show. Please try again."
+                }
+            }
+            isLoadingShow = false
+
+            // This show wasn't in our subscription cache (reached from Search/Discovery, or
+            // subscribed on another device since the last sync) — confirm its real state from
+            // the server. Shows already in the cache trust readLocalShow()'s value, no network.
             await loadSubscriptionStatus()
+        }
+
+        if show != nil, episodes.isEmpty, continuationToken == nil {
+            await loadMoreEpisodes()
         }
     }
 
+    // Best-effort network check of whether this show is subscribed, used when the local cache
+    // can't answer. Leaves the button in its current state on failure.
     private func loadSubscriptionStatus() async {
         do {
             let subscriptions = try await subscriptionClient.getSubscriptions()
             guard !Task.isCancelled, !hasToggledSubscription else { return }
             isSubscribed = subscriptions.contains { $0.showId == showId }
         } catch {
-            // Not authenticated or the call failed; leave the subscribe button in its default state.
+            // Not authenticated or the call failed; leave the subscribe button as it was.
         }
+    }
+
+    // Synchronous read of the cached show + episode list + subscription state.
+    private func readLocalShow() {
+        show = CatalogCache.show(id: showId, in: modelContext) ?? show
+        let cached = CatalogCache.episodes(showId: showId, in: modelContext)
+        if !cached.isEmpty {
+            episodes = cached
+            continuationToken = CatalogCache.continuationToken(showId: showId, in: modelContext)
+        }
+        if !hasToggledSubscription {
+            isSubscribed = CatalogCache.subscriptions(in: modelContext).contains { $0.showId == showId }
+        }
+        refreshStatuses()
     }
 
     private func toggleSubscription() async {
@@ -256,8 +296,12 @@ struct ShowDetailView: View {
         do {
             if previouslySubscribed {
                 try await subscriptionClient.unsubscribe(showId: showId)
+                // Keep the local catalog cache in step so Library/Subscriptions reflect this
+                // without waiting for the next "Sync Now" (#488).
+                CatalogCache.removeSubscription(showId: showId, in: modelContext)
             } else {
-                _ = try await subscriptionClient.subscribe(showId: showId)
+                let created = try await subscriptionClient.subscribe(showId: showId)
+                CatalogCache.upsertSubscription(created, in: modelContext)
             }
         } catch {
             if !Task.isCancelled {
@@ -282,8 +326,17 @@ struct ShowDetailView: View {
         episodeError = nil
 
         do {
+            let isFirstPage = continuationToken == nil
             let page = try await catalogClient.getEpisodes(showId: showId, continuationToken: continuationToken)
-            episodes.append(contentsOf: page.items)
+            if isFirstPage {
+                episodes = page.items
+                CatalogCache.replaceEpisodes(
+                    showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+            } else {
+                episodes.append(contentsOf: page.items)
+                CatalogCache.appendEpisodes(
+                    showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+            }
             continuationToken = page.continuationToken
             refreshStatuses()
         } catch {

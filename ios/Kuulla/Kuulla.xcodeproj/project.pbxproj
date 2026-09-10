@@ -137,6 +137,14 @@
 		Z1000003 /* Transcript.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000003 /* Transcript.swift */; };
 		Z1000004 /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000004 /* TranscriptView.swift */; };
 		Z1000005 /* TranscriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000005 /* TranscriptTests.swift */; };
+		CA100001 /* SubscriptionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200001 /* SubscriptionRecord.swift */; };
+		CA100002 /* ShowRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200002 /* ShowRecord.swift */; };
+		CA100003 /* CachedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200003 /* CachedEpisodeRecord.swift */; };
+		CA100004 /* CatalogCacheState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200004 /* CatalogCacheState.swift */; };
+		CA100005 /* CatalogCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200005 /* CatalogCache.swift */; };
+		CA100006 /* CatalogRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200006 /* CatalogRefreshService.swift */; };
+		CA100007 /* CatalogRefreshEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200007 /* CatalogRefreshEnvironment.swift */; };
+		CA100008 /* CatalogCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200008 /* CatalogCacheTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -291,6 +299,14 @@
 		Z2000003 /* Transcript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcript.swift; sourceTree = "<group>"; };
 		Z2000004 /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptView.swift; sourceTree = "<group>"; };
 		Z2000005 /* TranscriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptTests.swift; sourceTree = "<group>"; };
+		CA200001 /* SubscriptionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionRecord.swift; sourceTree = "<group>"; };
+		CA200002 /* ShowRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowRecord.swift; sourceTree = "<group>"; };
+		CA200003 /* CachedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedEpisodeRecord.swift; sourceTree = "<group>"; };
+		CA200004 /* CatalogCacheState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheState.swift; sourceTree = "<group>"; };
+		CA200005 /* CatalogCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCache.swift; sourceTree = "<group>"; };
+		CA200006 /* CatalogRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshService.swift; sourceTree = "<group>"; };
+		CA200007 /* CatalogRefreshEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshEnvironment.swift; sourceTree = "<group>"; };
+		CA200008 /* CatalogCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -422,6 +438,13 @@
 				A2000065 /* Fonts/LICENSES/JetBrainsMono-OFL.txt */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
+				CA200001 /* SubscriptionRecord.swift */,
+				CA200002 /* ShowRecord.swift */,
+				CA200003 /* CachedEpisodeRecord.swift */,
+				CA200004 /* CatalogCacheState.swift */,
+				CA200005 /* CatalogCache.swift */,
+				CA200006 /* CatalogRefreshService.swift */,
+				CA200007 /* CatalogRefreshEnvironment.swift */,
 			);
 			path = Kuulla;
 			sourceTree = "<group>";
@@ -477,6 +500,7 @@
 				T2000003 /* SleepTimerSheetTests.swift */,
 				Z2000002 /* ChapterScrubberTests.swift */,
 				Z2000005 /* TranscriptTests.swift */,
+				CA200008 /* CatalogCacheTests.swift */,
 			);
 			path = KuullaTests;
 			sourceTree = "<group>";
@@ -684,6 +708,13 @@
 				Z1000003 /* Transcript.swift in Sources */,
 				Z1000004 /* TranscriptView.swift in Sources */,
 				V1000001 /* SafariView.swift in Sources */,
+				CA100001 /* SubscriptionRecord.swift in Sources */,
+				CA100002 /* ShowRecord.swift in Sources */,
+				CA100003 /* CachedEpisodeRecord.swift in Sources */,
+				CA100004 /* CatalogCacheState.swift in Sources */,
+				CA100005 /* CatalogCache.swift in Sources */,
+				CA100006 /* CatalogRefreshService.swift in Sources */,
+				CA100007 /* CatalogRefreshEnvironment.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -729,6 +760,7 @@
 				T1000003 /* SleepTimerSheetTests.swift in Sources */,
 				Z1000002 /* ChapterScrubberTests.swift in Sources */,
 				Z1000005 /* TranscriptTests.swift in Sources */,
+				CA100008 /* CatalogCacheTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
