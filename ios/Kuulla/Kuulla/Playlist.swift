@@ -83,3 +83,49 @@ struct DynamicPlaylistConfigRecord: Codable {
     var maxEpisodes: Int?
     var priorityList: [String]
 }
+
+// An immutable, value-type snapshot of a playlist for list rendering (#511). PlaylistsView and
+// LibraryView's playlist shelf build these straight from the local PlaylistRecord sync store so
+// they paint instantly and refresh behind the visible list, instead of blocking on a live
+// PlaylistClient fetch — and being a plain struct keeps the ordering/filtering logic below
+// unit-testable without a ModelContext or the network.
+struct PlaylistSummary: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let icon: String?
+    let accentColor: String?
+    let itemCount: Int
+
+    init(id: String, name: String, icon: String?, accentColor: String?, itemCount: Int) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.accentColor = accentColor
+        self.itemCount = itemCount
+    }
+
+    init(record: PlaylistRecord) {
+        self.init(
+            id: record.id, name: record.name, icon: record.icon,
+            accentColor: record.accentColor, itemCount: record.items.count)
+    }
+
+    // For the optimistic append after PlaylistClient.createPlaylist, before the next sync pulls
+    // the server's authoritative row into SwiftData.
+    init(playlist: Playlist) {
+        self.init(
+            id: playlist.id, name: playlist.name, icon: playlist.icon,
+            accentColor: playlist.accentColor, itemCount: playlist.items.count)
+    }
+
+    // Local-store rows → the ordered list the UI shows: drop tombstoned rows (#400), optionally
+    // drop the "Up Next" queue playlist (LibraryView gives it a dedicated shelf tile), and sort
+    // by name to match the ordering the API-fed list used.
+    static func list(from records: [PlaylistRecord], excludingUpNext: Bool) -> [PlaylistSummary] {
+        records
+            .filter { !$0.deleted }
+            .filter { !excludingUpNext || $0.name != UpNextView.upNextPlaylistName }
+            .map(PlaylistSummary.init(record:))
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}

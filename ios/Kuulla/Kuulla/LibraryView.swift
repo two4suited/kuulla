@@ -1,15 +1,20 @@
+import SwiftData
 import SwiftUI
 
 struct LibraryView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.playlistSyncEngine) private var playlistSyncEngine
+
     @State private var subscriptions: [Subscription] = []
-    @State private var playlists: [Playlist] = []
+    @State private var playlists: [PlaylistSummary] = []
     @State private var unplayedCounts: [String: UnplayedCounts.Count] = [:]
     @State private var inProgressShowIds: Set<String> = []
     @State private var episodeStateLoaded = false
     @State private var isLoadingShows = false
-    @State private var isLoadingPlaylists = false
+    @State private var isSyncingPlaylists = false
+    // Stays false only until the first (synchronous) read of the local playlist store lands.
+    @State private var hasLoadedLocalPlaylists = false
     @State private var showsErrorMessage: String?
-    @State private var playlistsErrorMessage: String?
     @State private var sortOrder: SubscriptionSortOrder = .title
     @State private var sortSaveTask: Task<Void, Never>?
     @State private var sortSaveError: String?
@@ -38,7 +43,6 @@ struct LibraryView: View {
     @AppStorage(ShowIconSize.storageKey) private var iconSizeRaw = ShowIconSize.default.rawValue
 
     private let subscriptionClient = SubscriptionClient()
-    private let playlistClient = PlaylistClient()
     private let settingsClient = SettingsClient()
 
     private var columns: [GridItem] {
@@ -78,6 +82,12 @@ struct LibraryView: View {
             async let showsTask: Void = loadShows()
             async let playlistsTask: Void = loadPlaylists()
             _ = await (showsTask, playlistsTask)
+        }
+        .onAppear {
+            // Cheap local re-read on every return to the tab — the shared TabView keeps this view
+            // alive so `.task` runs only once, and a sync triggered elsewhere won't otherwise
+            // reach this shelf.
+            readLocalPlaylists()
         }
     }
 
@@ -171,12 +181,8 @@ struct LibraryView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
 
-            if isLoadingPlaylists {
+            if !hasLoadedLocalPlaylists {
                 ProgressView()
-                    .padding(.horizontal)
-            } else if let playlistsErrorMessage {
-                Text(playlistsErrorMessage)
-                    .foregroundStyle(.red)
                     .padding(.horizontal)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -191,7 +197,7 @@ struct LibraryView: View {
                                 ShelfTile(
                                     systemImage: "music.note.list",
                                     title: playlist.name,
-                                    subtitle: "\(playlist.items.count) episode\(playlist.items.count == 1 ? "" : "s")",
+                                    subtitle: "\(playlist.itemCount) episode\(playlist.itemCount == 1 ? "" : "s")",
                                     isEnabled: true,
                                     emoji: playlist.icon,
                                     accentHex: playlist.accentColor)
@@ -334,25 +340,25 @@ struct LibraryView: View {
         }
     }
 
+    // Paint the playlist shelf from the local sync store immediately, then let the playlist
+    // SyncEngine refresh from the server behind the already-visible tiles (#511).
     private func loadPlaylists() async {
-        guard !isLoadingPlaylists else { return }
-        isLoadingPlaylists = true
-        playlistsErrorMessage = nil
-        defer { isLoadingPlaylists = false }
+        readLocalPlaylists()
+        guard !isSyncingPlaylists else { return }
+        isSyncingPlaylists = true
+        defer { isSyncingPlaylists = false }
+        await playlistSyncEngine?.syncNow()
+        guard !Task.isCancelled else { return }
+        readLocalPlaylists()
+    }
 
-        do {
-            // Excludes "Up Next" — it's a regular playlist under the hood (see UpNextView), but
-            // it already has its own dedicated shelf tile above, so listing it again here would
-            // show a duplicate "Up Next" entry once the queue playlist gets created.
-            let results = try await playlistClient.getPlaylists()
-                .filter { $0.name != UpNextView.upNextPlaylistName }
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            guard !Task.isCancelled else { return }
-            playlists = results
-        } catch {
-            guard !Task.isCancelled else { return }
-            playlistsErrorMessage = "Something went wrong while loading your playlists. Please try again."
-        }
+    private func readLocalPlaylists() {
+        // Excludes "Up Next" — it's a regular playlist under the hood (see UpNextView), but it
+        // already has its own dedicated shelf tile above, so listing it again here would show a
+        // duplicate "Up Next" entry once the queue playlist gets created.
+        let records = (try? modelContext.fetch(FetchDescriptor<PlaylistRecord>())) ?? []
+        playlists = PlaylistSummary.list(from: records, excludingUpNext: true)
+        hasLoadedLocalPlaylists = true
     }
 }
 

@@ -1,9 +1,15 @@
+import SwiftData
 import SwiftUI
 
 struct PlaylistsView: View {
-    @State private var playlists: [Playlist] = []
-    @State private var isLoading = false
-    @State private var errorMessage: String?
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.playlistSyncEngine) private var playlistSyncEngine
+
+    @State private var playlists: [PlaylistSummary] = []
+    // Stays false only until the first (synchronous, instant) read of the local store lands, so a
+    // cold launch shows a spinner rather than flashing the "no playlists" empty state first.
+    @State private var hasLoadedLocal = false
+    @State private var isSyncing = false
     @State private var deleteError: String?
     @State private var isShowingCreateSheet = false
 
@@ -11,10 +17,7 @@ struct PlaylistsView: View {
 
     var body: some View {
         List {
-            if let errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-            } else if isLoading && playlists.isEmpty {
+            if !hasLoadedLocal {
                 HStack {
                     Spacer()
                     ProgressView()
@@ -39,7 +42,7 @@ struct PlaylistsView: View {
                             }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(playlist.name)
-                                Text("\(playlist.items.count) episode\(playlist.items.count == 1 ? "" : "s")")
+                                Text("\(playlist.itemCount) episode\(playlist.itemCount == 1 ? "" : "s")")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -67,36 +70,62 @@ struct PlaylistsView: View {
                 .presentationDetents([.medium, .large])
         }
         .task {
-            await loadPlaylists()
+            await refresh()
         }
         .refreshable {
-            await loadPlaylists()
+            await refresh()
+        }
+        .onAppear {
+            // A cheap re-read each time the tab is revisited — the shared TabView keeps this view
+            // alive, so `.task` only runs once, and a sync triggered elsewhere (scenePhase
+            // .active in KuullaApp, a mutation on another screen) won't otherwise reach the list.
+            readLocalPlaylists()
         }
     }
 
-    private func loadPlaylists() async {
-        guard !isLoading else { return }
-
-        isLoading = true
-        errorMessage = nil
+    // Paint from the local sync store immediately, then let the playlist SyncEngine refresh from
+    // the server behind the already-visible list (#511). The engine owns the network round trip
+    // and persists what it pulls into SwiftData; this view only ever reads that store.
+    private func refresh() async {
         deleteError = nil
-        defer { isLoading = false }
+        readLocalPlaylists()
+        await reconcileWithServer()
+    }
 
-        do {
-            let results = try await playlistClient.getPlaylists()
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            guard !Task.isCancelled else { return }
-            playlists = results
-        } catch {
-            guard !Task.isCancelled else { return }
-            errorMessage = "Something went wrong while loading your playlists. Please try again."
-        }
+    // Sync, then re-read — with no pre-sync `readLocalPlaylists()`. The mutation helpers use this
+    // instead of `refresh()`: right after a create the server's row isn't in the local store yet,
+    // and right after a delete the local row is still there (the tombstone arrives with the next
+    // pull), so re-reading before the sync completes would drop the just-created row / resurrect
+    // the just-deleted one until the round trip finishes.
+    private func reconcileWithServer() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        await playlistSyncEngine?.syncNow()
+        guard !Task.isCancelled else { return }
+        readLocalPlaylists()
+    }
+
+    private func readLocalPlaylists() {
+        let records = (try? modelContext.fetch(FetchDescriptor<PlaylistRecord>())) ?? []
+        playlists = PlaylistSummary.list(from: records, excludingUpNext: false)
+        hasLoadedLocal = true
+    }
+
+    private func deleteLocalRecord(id: String) {
+        let descriptor = FetchDescriptor<PlaylistRecord>(predicate: #Predicate { $0.id == id })
+        guard let record = try? modelContext.fetch(descriptor).first else { return }
+        modelContext.delete(record)
+        try? modelContext.save()
     }
 
     private func createPlaylist(name: String, icon: String?, accentColor: String?) async throws {
         let created = try await playlistClient.createPlaylist(name: name, icon: icon, accentColor: accentColor)
-        playlists.append(created)
-        playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // Optimistic — show it now; the sync then pulls the server's authoritative row into the
+        // local store so it persists across launches and reaches every other PlaylistRecord reader.
+        playlists = (playlists + [PlaylistSummary(playlist: created)])
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        Task { await reconcileWithServer() }
     }
 
     private func deletePlaylists(at offsets: IndexSet) async {
@@ -107,14 +136,27 @@ struct PlaylistsView: View {
 
         // One at a time (not all-or-nothing) so a failure partway through only restores the
         // playlists that actually failed — mirrors PlaylistDetailView.removeItems(at:).
+        var anyDeleted = false
         for playlist in deleted {
             do {
                 try await playlistClient.deletePlaylist(id: playlist.id)
+                // Drop the local row through this view's own ModelContext too (mirrors
+                // DownloadCleanup.delete): the sync tombstone that removes it in the engine's
+                // context arrives on the next pull, and until then a re-read here would show the
+                // deleted playlist again.
+                deleteLocalRecord(id: playlist.id)
+                anyDeleted = true
             } catch {
-                playlists.append(playlist)
-                playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                playlists = (playlists + [playlist])
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 deleteError = "Something went wrong while deleting this playlist. Please try again."
             }
+        }
+
+        // Sync so the local store drops the now-tombstoned rows too, keeping this list and every
+        // other PlaylistRecord reader consistent without waiting for the next natural trigger.
+        if anyDeleted {
+            await reconcileWithServer()
         }
     }
 }
