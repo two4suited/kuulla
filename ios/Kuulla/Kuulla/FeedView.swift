@@ -3,6 +3,7 @@ import SwiftUI
 
 struct FeedView: View {
     @Environment(\.episodeSyncEngine) private var syncEngine
+    @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.modelContext) private var modelContext
 
     @State private var feedItems: [NewEpisode] = []
@@ -12,6 +13,9 @@ struct FeedView: View {
     @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
     @State private var downloadStatusByEpisodeId: [String: DownloadStatus] = [:]
     @State private var isLoading = false
+    // Flips true after the first (synchronous) read of the local cache — the spinner only shows
+    // until then, mirroring SubscriptionsView (#488, #534).
+    @State private var hasLoaded = false
     @State private var errorMessage: String?
 
     private let subscriptionClient = SubscriptionClient()
@@ -23,10 +27,12 @@ struct FeedView: View {
         // button below) from the row's own NavigationLink activation, which a plain LazyVStack
         // does not reliably do.
         List {
-            if let errorMessage {
+            if let errorMessage, feedItems.isEmpty {
                 Text(errorMessage)
                     .foregroundStyle(.red)
-            } else if isLoading {
+            } else if !hasLoaded || (isLoading && feedItems.isEmpty) {
+                // Spinner only when there's nothing cached to show yet — a background refresh
+                // over an already-populated list stays silent.
                 HStack {
                     Spacer()
                     ProgressView()
@@ -52,18 +58,31 @@ struct FeedView: View {
         .listStyle(.plain)
         .navigationTitle("New Episodes")
         .task {
+            // Paint instantly from the local cache (#534), then refresh from the network.
+            readLocalFeed()
             await load()
         }
         .onAppear {
-            // Cheap local-only re-derivation (no network) so a badge marked played/in-progress from
-            // the detail screen isn't left stale when popping back here — SwiftUI doesn't re-run
-            // .task just because a pushed NavigationLink destination was popped.
-            refreshStatuses()
+            // Cheap local-only re-read (no network) so a badge marked played/in-progress from the
+            // detail screen — or a cold-launch / Settings "Sync Now" refresh landing while this
+            // screen was pushed away — isn't left stale. SwiftUI doesn't re-run .task just
+            // because a pushed NavigationLink destination was popped.
+            readLocalFeed()
+        }
+        .onChange(of: catalogRefresh?.isRefreshing) { _, _ in
+            readLocalFeed()
         }
         .refreshable {
             await syncEngine?.syncNow()
             await load()
         }
+    }
+
+    // Synchronous paint from the on-device catalog cache (#534) — no network.
+    private func readLocalFeed() {
+        feedItems = Self.displayItems(from: CatalogCache.newEpisodes(in: modelContext))
+        hasLoaded = true
+        refreshStatuses()
     }
 
     private func load() async {
@@ -74,20 +93,30 @@ struct FeedView: View {
         defer { isLoading = false }
 
         do {
-            // Excludes autoPlayed episodes — they're already marked played by the unlistened-episode
-            // limit, so they shouldn't clutter the "New Episodes" list (mirrors NewEpisodes.razor on
-            // Web). A restore path for those still exists via ShowDetailView's status filter chips.
             let results = try await subscriptionClient.getNewEpisodes()
-                .filter { !$0.autoPlayed }
-                .sorted { ($0.episode.publishedAt ?? .distantPast) > ($1.episode.publishedAt ?? .distantPast) }
             guard !Task.isCancelled else { return }
-            feedItems = results
+            CatalogCache.replaceNewEpisodes(results, in: modelContext)
+            feedItems = Self.displayItems(from: results)
+            hasLoaded = true
             refreshStatuses()
             await triggerAutoDownloads()
         } catch {
             guard !Task.isCancelled else { return }
-            errorMessage = "Something went wrong while loading your new episodes. Please try again."
+            // Keep any cached rows on screen — only surface the error when there's nothing to show.
+            if feedItems.isEmpty {
+                errorMessage = "Something went wrong while loading your new episodes. Please try again."
+            }
         }
+    }
+
+    // Excludes autoPlayed episodes — they're already marked played by the unlistened-episode
+    // limit, so they shouldn't clutter the "New Episodes" list (mirrors NewEpisodes.razor on
+    // Web). A restore path for those still exists via ShowDetailView's status filter chips.
+    // Pulled out as a pure function for testability, matching `shouldAutoDownload`.
+    static func displayItems(from items: [NewEpisode]) -> [NewEpisode] {
+        items
+            .filter { !$0.autoPlayed }
+            .sorted { ($0.episode.publishedAt ?? .distantPast) > ($1.episode.publishedAt ?? .distantPast) }
     }
 
     // #270: no new episode-detection mechanism — this reuses getNewEpisodes(), the same

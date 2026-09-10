@@ -7,7 +7,7 @@ final class CatalogCacheTests: XCTestCase {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: SubscriptionRecord.self, ShowRecord.self, CachedEpisodeRecord.self,
-            ShowEpisodePageRecord.self, CatalogCacheState.self,
+            CachedNewEpisodeRecord.self, ShowEpisodePageRecord.self, CatalogCacheState.self,
             configurations: configuration)
         return ModelContext(container)
     }
@@ -24,6 +24,54 @@ final class CatalogCacheTests: XCTestCase {
             publishedAt: Date(timeIntervalSince1970: 1_700_000_000), duration: 2_730,
             audioUrl: "https://example.com/\(id).mp3", description: "desc", bitrateKbps: 128,
             fileSizeBytes: 1_234, chapters: nil, transcriptUrl: nil, transcriptType: nil)
+    }
+
+    private func newEpisode(id: String, showId: String, autoPlayed: Bool = false) -> NewEpisode {
+        NewEpisode(
+            episode: episode(id: id, showId: showId), autoPlayed: autoPlayed,
+            showTitle: "Show \(showId)", showArtworkUrl: "https://img/\(showId).jpg")
+    }
+
+    func testReplaceNewEpisodesKeepsServerOrderAndRoundTripsFields() throws {
+        let context = try makeContext()
+
+        CatalogCache.replaceNewEpisodes(
+            [
+                newEpisode(id: "e1", showId: "show1"),
+                newEpisode(id: "e2", showId: "show2", autoPlayed: true),
+                newEpisode(id: "e3", showId: "show1"),
+            ],
+            in: context)
+
+        let cached = CatalogCache.newEpisodes(in: context)
+        XCTAssertEqual(cached.map(\.episode.id), ["e1", "e2", "e3"])
+        XCTAssertEqual(cached.map(\.autoPlayed), [false, true, false])
+        XCTAssertEqual(cached[1].showTitle, "Show show2")
+        XCTAssertEqual(cached[1].showArtworkUrl, "https://img/show2.jpg")
+        XCTAssertEqual(cached[0].episode.duration, 2_730)
+    }
+
+    func testReplaceNewEpisodesDropsStaleRows() throws {
+        let context = try makeContext()
+
+        CatalogCache.replaceNewEpisodes(
+            [newEpisode(id: "e1", showId: "show1"), newEpisode(id: "e2", showId: "show1")], in: context)
+        CatalogCache.replaceNewEpisodes([newEpisode(id: "e9", showId: "show2")], in: context)
+
+        XCTAssertEqual(CatalogCache.newEpisodes(in: context).map(\.episode.id), ["e9"])
+    }
+
+    // The common refresh path: the new list overlaps the old one (same episode ids). Delete +
+    // re-insert of a unique id must survive a single save, and re-ordering must take effect.
+    func testReplaceNewEpisodesHandlesOverlappingIdsAndReorders() throws {
+        let context = try makeContext()
+
+        CatalogCache.replaceNewEpisodes(
+            [newEpisode(id: "e1", showId: "show1"), newEpisode(id: "e2", showId: "show1")], in: context)
+        CatalogCache.replaceNewEpisodes(
+            [newEpisode(id: "e2", showId: "show1"), newEpisode(id: "e1", showId: "show1")], in: context)
+
+        XCTAssertEqual(CatalogCache.newEpisodes(in: context).map(\.episode.id), ["e2", "e1"])
     }
 
     func testReplaceSubscriptionsUpsertsAndPrunes() throws {
