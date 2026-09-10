@@ -52,6 +52,40 @@ cd ios/Kuulla
 xcodebuild build -project Kuulla.xcodeproj -scheme Kuulla -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO
 ```
 
+### Run on a physical device (for CarPlay / on-device testing — issue #119)
+
+Signing is committed: `DEVELOPMENT_TEAM = 96VJBK4H9P` (Kuulla paid team) with
+`CODE_SIGN_STYLE = Automatic`. Requires that team's Apple ID signed into Xcode
+(Settings → Accounts) so Xcode can mint the Apple Development certificate.
+
+One-time device setup:
+- On the phone: Settings → Privacy & Security → **Developer Mode** on, then reboot.
+- First build must register the device with the account — pass both flags below.
+  `-allowProvisioningDeviceRegistration` is what adds an unregistered device to the
+  team profile (`-allowProvisioningUpdates` alone fails with "isn't registered").
+
+```sh
+cd ios/Kuulla
+# Find the device id: xcrun xctrace list devices
+xcodebuild build -project Kuulla.xcodeproj -scheme Kuulla \
+  -destination 'platform=iOS,id=<device-udid>' \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration
+
+APP=$(xcodebuild -project Kuulla.xcodeproj -scheme Kuulla -destination 'platform=iOS,id=<device-udid>' -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{d=$2} / FULL_PRODUCT_NAME /{n=$2} END{print d"/"n}')
+xcrun devicectl device install app --device <device-udid> "$APP"
+xcrun devicectl device process launch --device <device-udid> com.kuulla.app
+```
+
+On-device API target: physical devices can't reach the Mac's `localhost`, and Xcode
+scheme env vars (`KUULLA_API_BASE_URL`) aren't injected into on-device runs. A Debug
+build on a device therefore talks to the deployed API (`https://api.kuulla.us`);
+`KUULLA_API_BASE_URL` and `localhost:5245` still apply in the Simulator. See
+`ApiConfiguration.baseURL` in `ios/Kuulla/Kuulla/ApiClient.swift`.
+
+CarPlay on-device additionally needs the `com.apple.developer.carplay-audio`
+entitlement approved on the account (developer.apple.com/contact/request/carplay,
+tracked in #115) — automatic signing silently omits it until then.
+
 ## Architecture
 
 ### Service Orchestration (Aspire AppHost)
