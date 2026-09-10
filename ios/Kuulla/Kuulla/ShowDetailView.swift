@@ -103,6 +103,17 @@ struct ShowDetailView: View {
                                 Label("Add to Playlist", systemImage: "text.badge.plus")
                             }
                             .tint(.blue)
+
+                            Button {
+                                Task { await toggleCompleted(episode: episode) }
+                            } label: {
+                                if status == .played {
+                                    Label("Mark as Unplayed", systemImage: "circle")
+                                } else {
+                                    Label("Mark as Played", systemImage: "checkmark.circle")
+                                }
+                            }
+                            .tint(.green)
                         }
                     }
 
