@@ -148,6 +148,14 @@ struct ShowDetailView: View {
                         Label("Mark all played", systemImage: "checkmark.circle")
                     }
                     .disabled(isMarkingAllPlayed)
+                    if isSubscribed {
+                        Button(role: .destructive) {
+                            Task { await toggleSubscription() }
+                        } label: {
+                            Label("Unsubscribe", systemImage: "bell.slash")
+                        }
+                        .disabled(isSubscriptionBusy)
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -448,18 +456,22 @@ private struct ShowHeader: View {
                 }
             }
 
-            Button(action: onSubscribeTapped) {
-                if isSubscriptionBusy {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                } else {
-                    Text(isSubscribed ? "Unsubscribe" : "Subscribe")
-                        .frame(maxWidth: .infinity)
+            // Only the "Subscribe" affordance lives in the header; "Unsubscribe" moves into the
+            // ⋯ menu (see the toolbar Menu above) as a destructive action.
+            if !isSubscribed {
+                Button(action: onSubscribeTapped) {
+                    if isSubscriptionBusy {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Subscribe")
+                            .frame(maxWidth: .infinity)
+                    }
                 }
+                .buttonStyle(.bordered)
+                .tint(.accentColor)
+                .disabled(isSubscriptionBusy)
             }
-            .buttonStyle(.bordered)
-            .tint(isSubscribed ? .red : .accentColor)
-            .disabled(isSubscriptionBusy)
 
             if let subscriptionError {
                 Text(subscriptionError)
