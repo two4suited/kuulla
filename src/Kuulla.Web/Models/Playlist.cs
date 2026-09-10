@@ -32,6 +32,14 @@ public enum PlaylistType
     Dynamic,
 }
 
+// The Overcast-style "Up Next" queue is a regular Manual playlist the app resolves (or creates)
+// by this well-known name (see UpNext.razor) — there's no distinct backend "default playlist"
+// concept. PlaylistDetail.razor keys its queue-behaviour settings section off the same name.
+public static class WellKnownPlaylists
+{
+    public const string UpNextName = "Up Next";
+}
+
 // Web-side mirror of Kuulla.Api.Models.DynamicPlaylistConfig's wire shape. MaxEpisodes is nullable
 // — null means unlimited.
 public record DynamicPlaylistConfig(
