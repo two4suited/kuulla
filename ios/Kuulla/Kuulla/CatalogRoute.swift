@@ -7,4 +7,5 @@ enum CatalogRoute: Hashable {
     case upNext
     case downloads
     case discoveryCategory(id: String)
+    case settings
 }

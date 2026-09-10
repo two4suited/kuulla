@@ -49,7 +49,7 @@ Launch arguments (all `#if DEBUG`, ignored in Release):
 | Arg | Effect |
 |-----|--------|
 | `-KuullaAutoTestSignIn` | signs in via the API's `/dev/test-token` — no Google flow, no taps |
-| `-KuullaInitialTab <library\|search\|discovery\|subscriptions\|playlists\|settings>` | opening tab |
+| `-KuullaInitialTab <library\|search\|discovery\|subscriptions\|playlists\|settings>` | opening tab (`settings` is not a tab — it pushes Settings onto Library's stack) |
 | `-KuullaInitialShow <showId>` | deep-links to a show detail on launch |
 | `-KuullaInitialEpisode <showId> <episodeId>` | deep-links to an episode detail on launch |
 
