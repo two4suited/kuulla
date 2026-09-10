@@ -17,6 +17,9 @@ struct DownloadsView: View {
     @Query(sort: \DownloadedEpisodeRecord.downloadedAt, order: .reverse)
     private var allRecords: [DownloadedEpisodeRecord]
     @State private var episodesById: [String: Episode] = [:]
+    // Show artwork keyed by showId, read from the on-device catalog cache (no artwork URL is
+    // stored on DownloadedEpisodeRecord itself — #535). Nil for a show that isn't cached.
+    @State private var artworkUrlByShowId: [String: URL] = [:]
     @State private var deleteError: String?
 
     private let catalogClient = PodcastCatalogClient()
@@ -37,7 +40,10 @@ struct DownloadsView: View {
             } else {
                 Section {
                     ForEach(records) { record in
-                        DownloadRow(record: record, episode: episodesById[record.id])
+                        DownloadRow(
+                            record: record,
+                            episode: episodesById[record.id],
+                            artworkUrl: artworkUrlByShowId[record.showId])
                     }
                     .onDelete { offsets in
                         deleteRecords(at: offsets)
@@ -69,6 +75,7 @@ struct DownloadsView: View {
             }
         }
         .task(id: records.map(\.id)) {
+            loadArtwork()
             await loadEpisodeMetadata()
         }
     }
@@ -79,11 +86,23 @@ struct DownloadsView: View {
         return formatter
     }()
 
-    // Best-effort: episode titles/artwork are a display nicety fetched from the catalog, not
-    // something stored on DownloadedEpisodeRecord itself (#174's schema is deliberately minimal —
-    // just enough to locate/manage the file). A fetch failure leaves that row showing its
-    // fallback rather than blocking the rest of the list. Bounded to a small concurrency window
-    // rather than firing one request per download at once — a large downloads list shouldn't
+    // Show artwork is read straight from the on-device catalog cache — a synchronous SwiftData
+    // read, no network. A show that was never cached (or whose cache was cleared) simply has no
+    // thumbnail here, matching the best-effort stance of the episode-title lookup below (#535).
+    private func loadArtwork() {
+        for showId in Set(records.map(\.showId)) where artworkUrlByShowId[showId] == nil {
+            if let urlString = CatalogCache.show(id: showId, in: modelContext)?.artworkUrl,
+               let url = URL(string: urlString) {
+                artworkUrlByShowId[showId] = url
+            }
+        }
+    }
+
+    // Best-effort: episode titles are a display nicety fetched from the catalog, not something
+    // stored on DownloadedEpisodeRecord itself (#174's schema is deliberately minimal — just
+    // enough to locate/manage the file). A fetch failure leaves that row showing its fallback
+    // rather than blocking the rest of the list. Bounded to a small concurrency window rather
+    // than firing one request per download at once — a large downloads list shouldn't
     // burst-request the API for every row simultaneously. Looks up by plain (id, showId) pairs,
     // not the DownloadedEpisodeRecord itself, so no @Model instance crosses into a child task.
     private func loadEpisodeMetadata() async {
@@ -185,15 +204,41 @@ enum DownloadCleanup {
 private struct DownloadRow: View {
     let record: DownloadedEpisodeRecord
     let episode: Episode?
+    let artworkUrl: URL?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(episode?.title ?? "Episode \(record.id)")
-                .lineLimit(2)
-            Text(DownloadsView.byteCountFormatter.string(fromByteCount: Int64(record.fileSizeBytes)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            ShowArtworkThumbnail(url: artworkUrl)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(episode?.title ?? "Episode \(record.id)")
+                    .lineLimit(2)
+                Text(DownloadsView.byteCountFormatter.string(fromByteCount: Int64(record.fileSizeBytes)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+}
+
+// Small square show-artwork thumbnail, mirroring FeedView's treatment for visual consistency
+// across episode lists (#535). A missing or still-loading URL falls back to a tinted
+// placeholder rather than a broken image.
+private struct ShowArtworkThumbnail: View {
+    let url: URL?
+
+    var body: some View {
+        AsyncImage(url: url) { image in
+            image.resizable().aspectRatio(contentMode: .fill)
+        } placeholder: {
+            ZStack {
+                Color.secondary.opacity(0.2)
+                Image(systemName: "mic")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 48, height: 48)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
