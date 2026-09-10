@@ -10,6 +10,9 @@ import SwiftUI
 struct EpisodeDetailView: View {
     let showId: String
     let episodeId: String
+    // Non-nil when this screen was reached from a manual playlist — starting playback here arms
+    // PlaybackQueue so finishing the episode auto-advances to the next playlist item (#532).
+    var playlistId: String?
 
     @Environment(\.episodeSyncEngine) private var syncEngine
     @Environment(\.modelContext) private var modelContext
@@ -640,6 +643,16 @@ struct EpisodeDetailView: View {
         // A fresh session on this device: let the handoff banner (#242) surface again if another
         // device takes over later, even if it was dismissed during the previous session.
         handoffDismissed = false
+
+        // Arm (or disarm) Overcast-style playlist auto-advance for this session (#532): when this
+        // screen came from a manual playlist, finishing the episode should remove it and play the
+        // next item; started from anywhere else, forget any queue a previous session armed.
+        if let playlistId {
+            Task { await PlaybackQueue.shared.begin(playlistId: playlistId, currentEpisodeId: episodeId) }
+        } else {
+            PlaybackQueue.shared.clear()
+        }
+
         // Assigned only when actually starting playback for this URL (not merely on screen
         // appearance) — AudioPlayer has one completion-callback slot shared across the app, and
         // starting playback here always fully replaces whatever was playing before, so tying
@@ -648,7 +661,12 @@ struct EpisodeDetailView: View {
         audioPlayer.onDidFinishPlaying = { finishedURL in
             guard finishedURL == url else { return }
             self.stopProgressTracking()
-            Task { await self.persistProgress(completed: true) }
+            Task {
+                await self.persistProgress(completed: true)
+                // No-op unless this session was started from a manual playlist — then it removes
+                // the finished episode and starts the next one (#532).
+                await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: self.episodeId)
+            }
         }
         audioPlayer.play(
             url: url, startPosition: startPosition,
