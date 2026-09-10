@@ -4,13 +4,16 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.playlistSyncEngine) private var playlistSyncEngine
+    @Environment(\.settingsSyncEngine) private var settingsSyncEngine
+    @Environment(\.catalogRefresh) private var catalogRefresh
 
     @State private var subscriptions: [Subscription] = []
     @State private var playlists: [PlaylistSummary] = []
     @State private var unplayedCounts: [String: UnplayedCounts.Count] = [:]
     @State private var inProgressShowIds: Set<String> = []
     @State private var episodeStateLoaded = false
-    @State private var isLoadingShows = false
+    // Stays false only until the first (synchronous) read of the local catalog cache lands.
+    @State private var hasLoadedLocalShows = false
     @State private var isSyncingPlaylists = false
     // Stays false only until the first (synchronous) read of the local playlist store lands.
     @State private var hasLoadedLocalPlaylists = false
@@ -26,7 +29,7 @@ struct LibraryView: View {
     @State private var hideCaughtUpSaveError: String?
 
     // Shows with at least one unplayed or in-progress episode — the complement of "caught up".
-    // Nil until the best-effort episode-state fetch in loadShows() completes, so the grid never
+    // Nil until the local catalog snapshot has been read in readLocalShows(), so the grid never
     // hides or re-sinks shows on incomplete data.
     private var activeShowIds: Set<String>? {
         episodeStateLoaded ? Set(unplayedCounts.keys).union(inProgressShowIds) : nil
@@ -42,7 +45,6 @@ struct LibraryView: View {
 
     @AppStorage(ShowIconSize.storageKey) private var iconSizeRaw = ShowIconSize.default.rawValue
 
-    private let subscriptionClient = SubscriptionClient()
     private let settingsClient = SettingsClient()
 
     private var columns: [GridItem] {
@@ -79,21 +81,29 @@ struct LibraryView: View {
             }
         }
         .task {
-            async let showsTask: Void = loadShows()
-            async let playlistsTask: Void = loadPlaylists()
-            async let sortTask: Void = loadSortOrder()
-            _ = await (showsTask, playlistsTask, sortTask)
+            // Local-only paint (#488): no network here. The catalog is refreshed on cold
+            // launch (KuullaApp), by pull-to-refresh below, or by Settings → "Sync Now".
+            await loadSortOrder()
+            readLocalShows()
+            await loadPlaylists()
         }
         .refreshable {
-            async let showsTask: Void = loadShows()
-            async let playlistsTask: Void = loadPlaylists()
-            _ = await (showsTask, playlistsTask)
+            await catalogRefresh?.refreshAll()
+            await loadSortOrder()
+            readLocalShows()
+            readLocalPlaylists()
         }
         .onAppear {
             // Cheap local re-read on every return to the tab — the shared TabView keeps this view
             // alive so `.task` runs only once, and a sync triggered elsewhere won't otherwise
-            // reach this shelf.
+            // reach these shelves.
+            readLocalShows()
             readLocalPlaylists()
+        }
+        .onChange(of: catalogRefresh?.isRefreshing) { _, _ in
+            // The cold-launch refresh (or a "Sync Now" run from Settings) finishing needs to
+            // reach this already-visible screen — re-read the cache when isRefreshing flips.
+            readLocalShows()
         }
     }
 
@@ -133,8 +143,15 @@ struct LibraryView: View {
             })
     }
 
+    // Reads the locally-synced settings mirror (UserSettingsRecord) rather than GET /api/settings
+    // (#488) — the settings sync domain is refreshed on cold launch and by "Sync Now".
     private func loadSortOrder() async {
-        guard let settings = try? await settingsClient.getSettings(), !Task.isCancelled else { return }
+        guard let engine = settingsSyncEngine else { return }
+        let id = UserSettingsRecord.localId
+        let record = try? await engine.read { context in
+            try context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
+        }
+        guard let settings = (record ?? nil)?.asUserSettings, !Task.isCancelled else { return }
         sortOrder = settings.subscriptionSortOrder
         manualOrder = settings.subscriptionManualOrder
         hideCaughtUpShows = settings.hideCaughtUpShows
@@ -248,7 +265,7 @@ struct LibraryView: View {
                     .padding(.horizontal)
             }
 
-            if isLoadingShows {
+            if !hasLoadedLocalShows {
                 ProgressView()
                     .padding(.horizontal)
             } else if let showsErrorMessage {
@@ -302,48 +319,17 @@ struct LibraryView: View {
         }
     }
 
-    private func loadShows() async {
-        guard !isLoadingShows else { return }
-        isLoadingShows = true
+    // Synchronous paint from the on-device catalog cache (#488) — no network. The cache is
+    // filled by CatalogRefreshService on cold launch, pull-to-refresh, and Settings → "Sync Now".
+    private func readLocalShows() {
+        subscriptions = sortedSubscriptions(
+            CatalogCache.subscriptions(in: modelContext), by: sortOrder, manualOrder: manualOrder)
+        unplayedCounts = CatalogCache.unplayedCounts(in: modelContext)
+        inProgressShowIds = CatalogCache.inProgressShowIds(in: modelContext)
+        // The caught-up sink/hide keys off this; the cache always has a (possibly empty) snapshot.
+        episodeStateLoaded = true
+        hasLoadedLocalShows = true
         showsErrorMessage = nil
-
-        do {
-            let results = sortedSubscriptions(
-                try await subscriptionClient.getSubscriptions(), by: sortOrder, manualOrder: manualOrder)
-            if !Task.isCancelled {
-                subscriptions = results
-            }
-        } catch {
-            if !Task.isCancelled {
-                showsErrorMessage = "Something went wrong while loading your shows. Please try again."
-            }
-        }
-
-        // Always clears the flag, even if cancelled — mirrors loadPlaylists()'s defer, just
-        // spelled out here because isLoadingShows must go false before the best-effort fetch
-        // below, not only at the very end of the method.
-        isLoadingShows = false
-        guard !Task.isCancelled, showsErrorMessage == nil else { return }
-
-        // Best-effort, run after the grid has already rendered: unplayed badges are supplementary,
-        // so a failure here shouldn't hide the already-loaded show grid behind an error. The same
-        // data also drives the caught-up hide/sink, gated on episodeStateLoaded so nothing is
-        // hidden until both fetches have actually landed. Fetched concurrently — neither depends
-        // on the other.
-        async let newEpisodesTask = subscriptionClient.getNewEpisodes()
-        async let inProgressTask = subscriptionClient.getInProgressShowIds()
-        let newEpisodes = try? await newEpisodesTask
-        let inProgress = try? await inProgressTask
-        guard !Task.isCancelled else { return }
-        if let newEpisodes {
-            unplayedCounts = UnplayedCounts.compute(from: newEpisodes)
-        }
-        if let inProgress {
-            inProgressShowIds = inProgress
-        }
-        if newEpisodes != nil, inProgress != nil {
-            episodeStateLoaded = true
-        }
     }
 
     // Paint the playlist shelf from the local sync store immediately, then let the playlist

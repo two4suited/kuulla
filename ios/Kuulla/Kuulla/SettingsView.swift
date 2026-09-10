@@ -13,6 +13,7 @@ struct SettingsView: View {
     // foreground/background refresh; this view mirrors its own successful writes into the same
     // record (see mirrorAcceptedWrite) so the local store stays authoritative between syncs.
     @Environment(\.settingsSyncEngine) private var syncEngine
+    @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var settings: UserSettings?
@@ -246,6 +247,34 @@ struct SettingsView: View {
                 Text("Import & Export")
             } footer: {
                 Text("Bring your library over from another podcast app by importing an OPML file. Shows you already follow are skipped.")
+            }
+
+            Section {
+                Button {
+                    Task { await catalogRefresh?.refreshAll() }
+                } label: {
+                    HStack {
+                        Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                        if catalogRefresh?.isRefreshing == true {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(catalogRefresh == nil || catalogRefresh?.isRefreshing == true)
+            } header: {
+                Text("Sync")
+            } footer: {
+                // The app pulls your library on launch and in the background; use this to pull
+                // the latest shows, episodes and playlists on demand.
+                if let syncError = catalogRefresh?.lastError {
+                    Text(syncError)
+                        .foregroundStyle(.red)
+                } else if let lastSynced = catalogRefresh?.lastRefreshedAt {
+                    Text("Last synced \(lastSynced.formatted(.relative(presentation: .named))).")
+                } else {
+                    Text("Pull the latest shows, episodes and playlists from the server.")
+                }
             }
 
             Section {

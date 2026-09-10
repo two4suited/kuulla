@@ -24,6 +24,37 @@ struct Episode: Decodable, Identifiable {
         case transcriptUrl, transcriptType
     }
 
+    // Memberwise init, used to rebuild an Episode from the on-device catalog cache
+    // (CachedEpisodeRecord) without re-parsing the wire format. The Decodable initializer
+    // below stays the single source of truth for decoding the API response.
+    init(
+        id: String,
+        showId: String,
+        title: String,
+        publishedAt: Date?,
+        duration: TimeInterval?,
+        audioUrl: String,
+        description: String?,
+        bitrateKbps: Int?,
+        fileSizeBytes: Int?,
+        chapters: [EpisodeChapter]?,
+        transcriptUrl: String?,
+        transcriptType: String?
+    ) {
+        self.id = id
+        self.showId = showId
+        self.title = title
+        self.publishedAt = publishedAt
+        self.duration = duration
+        self.audioUrl = audioUrl
+        self.description = description
+        self.bitrateKbps = bitrateKbps
+        self.fileSizeBytes = fileSizeBytes
+        self.chapters = chapters
+        self.transcriptUrl = transcriptUrl
+        self.transcriptType = transcriptType
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -92,6 +123,14 @@ struct EpisodeChapter: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case startTime, title, imageUrl, url
+    }
+
+    // Memberwise init for rebuilding from the catalog cache (see Episode's equivalent).
+    init(startTime: TimeInterval, title: String, imageUrl: String?, url: String?) {
+        self.startTime = startTime
+        self.title = title
+        self.imageUrl = imageUrl
+        self.url = url
     }
 
     init(from decoder: Decoder) throws {

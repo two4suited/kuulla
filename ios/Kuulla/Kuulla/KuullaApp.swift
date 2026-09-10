@@ -13,11 +13,15 @@ struct KuullaApp: App {
     let episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>
     let playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>
     let settingsSyncEngine: SyncEngine<SettingsSyncAdapter>
+    let catalogRefreshService: CatalogRefreshService
 
     init() {
         let container = try! ModelContainer(
             for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self, DownloadedEpisodeRecord.self,
-            UserSettingsRecord.self
+            UserSettingsRecord.self,
+            // Read-through catalog cache (not sync domains) — see CatalogCache.
+            SubscriptionRecord.self, ShowRecord.self, CachedEpisodeRecord.self,
+            ShowEpisodePageRecord.self, CatalogCacheState.self
         )
         modelContainer = container
         let episodeEngine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter())
@@ -26,6 +30,15 @@ struct KuullaApp: App {
         playlistSyncEngine = playlistEngine
         let settingsEngine = SyncEngine(modelContainer: container, adapter: SettingsSyncAdapter())
         settingsSyncEngine = settingsEngine
+        // App.init() runs on the main actor; assumeIsolated lets us build the @MainActor
+        // CatalogRefreshService here without hopping.
+        catalogRefreshService = MainActor.assumeIsolated {
+            CatalogRefreshService(
+                modelContainer: container,
+                episodeSyncEngine: episodeEngine,
+                playlistSyncEngine: playlistEngine,
+                settingsSyncEngine: settingsEngine)
+        }
         // Must happen before the app finishes launching (BGTaskScheduler's requirement) — App
         // init runs before the first scene appears, so this is the earliest SwiftUI hook for it.
         episodeEngine.registerBackgroundTask()
@@ -48,20 +61,21 @@ struct KuullaApp: App {
                 .environment(\.episodeSyncEngine, episodeSyncEngine)
                 .environment(\.playlistSyncEngine, playlistSyncEngine)
                 .environment(\.settingsSyncEngine, settingsSyncEngine)
+                .environment(\.catalogRefresh, catalogRefreshService)
                 .task {
                     await AuthManager.shared.restorePreviousSignIn()
                     if AuthManager.shared.isSignedIn {
-                        // Independent domains with no data dependency between them — run
-                        // concurrently so cold-start latency is the slowest one, not their sum,
-                        // matching the scenePhase .active handler below.
-                        async let episodes: Void = episodeSyncEngine.syncNow()
-                        async let playlists: Void = playlistSyncEngine.syncNow()
-                        async let settings: Void = settingsSyncEngine.syncNow()
+                        // Cold launch is the one automatic full sync (#488): the browsing
+                        // catalog (subscriptions/shows/episodes) and the three bidirectional
+                        // sync domains all refresh once here. After this, refreshing is manual
+                        // — the "Sync Now" button in Settings, or pull-to-refresh on a list —
+                        // except for the ~15-min background pull scheduled on .background below.
+                        async let catalog: Void = catalogRefreshService.refreshAll()
                         // Catches notification permission having been revoked in Settings since
-                        // this device last registered (#217) — not part of the concurrent group
-                        // above since it's unrelated to sync and shouldn't gate cold-start on it.
+                        // this device last registered (#217) — kept separate so it doesn't gate
+                        // cold-start on the catalog refresh.
                         async let notifications: Void = PushNotificationManager.shared.syncAuthorizationStatus()
-                        _ = await (episodes, playlists, settings, notifications)
+                        _ = await (catalog, notifications)
                     }
                 }
                 .onOpenURL { url in
@@ -73,9 +87,10 @@ struct KuullaApp: App {
             switch newPhase {
             case .active:
                 if AuthManager.shared.isSignedIn {
-                    Task { await episodeSyncEngine.syncNow() }
-                    Task { await playlistSyncEngine.syncNow() }
-                    Task { await settingsSyncEngine.syncNow() }
+                    // No sync on every foreground anymore (#488) — that's what put the app on
+                    // the network each time it was opened. Sync is manual now (Settings →
+                    // "Sync Now", or pull-to-refresh); cold launch and the scheduled background
+                    // refresh still cover the automatic cases.
                     Task { await PushNotificationManager.shared.syncAuthorizationStatus() }
                 }
             case .background:

@@ -38,4 +38,17 @@ enum UnplayedCounts {
             Count(unplayed: unplayedCount, hitCap: unplayedCount >= newEpisodesPerShowCap)
         }
     }
+
+    // Rebuilds the badge map from the flat [showId: unplayedCount] dictionary persisted by the
+    // catalog cache — the same shape `compute` produces before it wraps each value in `Count`.
+    static func counts(fromUnplayedByShow unplayedByShow: [String: Int]) -> [String: Count] {
+        unplayedByShow.mapValues { unplayedCount in
+            Count(unplayed: unplayedCount, hitCap: unplayedCount >= newEpisodesPerShowCap)
+        }
+    }
+
+    // The inverse of `counts(fromUnplayedByShow:)` — flattens the badge map for persistence.
+    static func unplayedByShow(from counts: [String: Count]) -> [String: Int] {
+        counts.mapValues(\.unplayed)
+    }
 }
