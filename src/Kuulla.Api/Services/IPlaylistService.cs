@@ -42,6 +42,14 @@ public interface IPlaylistService
 
     Task<Playlist?> RemoveItemAsync(string userId, string id, string episodeId, CancellationToken cancellationToken);
 
+    // Strips a show out of every one of the user's playlists — the cleanup unsubscribe owns for
+    // the playlist data created while subscribed (#506). Manual playlists lose any items for that
+    // show; dynamic playlists lose it from DynamicConfig.ShowIds / PriorityList and are
+    // recomputed. Playlists that don't reference the show are left untouched (no UpdatedAt / sync
+    // churn). EpisodeState is deliberately not in scope here — see the unsubscribe endpoint for
+    // the keep-for-resubscribe policy.
+    Task RemoveShowAsync(string userId, string showId, CancellationToken cancellationToken);
+
     Task<Playlist?> ReorderItemAsync(
         string userId,
         string id,
