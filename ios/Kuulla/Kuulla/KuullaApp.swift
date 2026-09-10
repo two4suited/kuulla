@@ -21,7 +21,7 @@ struct KuullaApp: App {
             UserSettingsRecord.self,
             // Read-through catalog cache (not sync domains) — see CatalogCache.
             SubscriptionRecord.self, ShowRecord.self, CachedEpisodeRecord.self,
-            ShowEpisodePageRecord.self, CatalogCacheState.self
+            CachedNewEpisodeRecord.self, ShowEpisodePageRecord.self, CatalogCacheState.self
         )
         modelContainer = container
         let episodeEngine = SyncEngine(modelContainer: container, adapter: EpisodeSyncAdapter())

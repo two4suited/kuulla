@@ -175,6 +175,32 @@ enum CatalogCache {
         }
     }
 
+    // MARK: New Episodes feed
+
+    // The whole cached feed in the server's returned order. FeedView filters out `autoPlayed`
+    // rows for display; they're kept here so the cache stays a faithful mirror of the endpoint
+    // (and feeds UnplayedCounts, which needs them).
+    static func newEpisodes(in context: ModelContext) -> [NewEpisode] {
+        let records = (try? context.fetch(
+            FetchDescriptor<CachedNewEpisodeRecord>(sortBy: [SortDescriptor(\.sortIndex)])
+        )) ?? []
+        return records.map(\.newEpisode)
+    }
+
+    // Replaces the whole cached feed: drops every existing row and re-seeds from `newEpisodes`,
+    // starting `sortIndex` at 0. Mirrors replaceEpisodes — writes always take the server's copy
+    // as authoritative.
+    static func replaceNewEpisodes(_ newEpisodes: [NewEpisode], in context: ModelContext) {
+        let stale = (try? context.fetch(FetchDescriptor<CachedNewEpisodeRecord>())) ?? []
+        for record in stale {
+            context.delete(record)
+        }
+        for (offset, newEpisode) in newEpisodes.enumerated() {
+            context.insert(CachedNewEpisodeRecord(from: newEpisode, sortIndex: offset))
+        }
+        try? context.save()
+    }
+
     // MARK: Snapshot state (unplayed badges, caught-up sink, last-synced)
 
     // Nil when nothing has been written yet — read helpers below must not create the row, so a

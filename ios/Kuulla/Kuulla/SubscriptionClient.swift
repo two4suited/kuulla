@@ -94,6 +94,16 @@ struct NewEpisode: Decodable {
         case episode, autoPlayed, showTitle, showArtworkUrl
     }
 
+    // Memberwise init, used to rebuild a NewEpisode from the on-device catalog cache
+    // (CachedNewEpisodeRecord). The Decodable initializer below stays the single source of
+    // truth for decoding the API response.
+    init(episode: Episode, autoPlayed: Bool, showTitle: String, showArtworkUrl: String?) {
+        self.episode = episode
+        self.autoPlayed = autoPlayed
+        self.showTitle = showTitle
+        self.showArtworkUrl = showArtworkUrl
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         episode = try container.decode(Episode.self, forKey: .episode)

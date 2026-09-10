@@ -64,7 +64,12 @@ final class CatalogRefreshService {
             let subscriptions = try await subscriptionsTask
             CatalogCache.replaceSubscriptions(subscriptions, in: context)
 
-            let unplayed = await newEpisodesTask.map(UnplayedCounts.compute(from:))
+            // Warm the New Episodes feed cache so FeedView paints instantly on cold launch (#534).
+            let newEpisodes = await newEpisodesTask
+            if let newEpisodes {
+                CatalogCache.replaceNewEpisodes(newEpisodes, in: context)
+            }
+            let unplayed = newEpisodes.map(UnplayedCounts.compute(from:))
             let inProgress = await inProgressTask
 
             // Re-pull a subscribed show when we've never cached its metadata (ShowRecord) or its

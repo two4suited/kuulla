@@ -142,6 +142,7 @@
 		CA100001 /* SubscriptionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200001 /* SubscriptionRecord.swift */; };
 		CA100002 /* ShowRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200002 /* ShowRecord.swift */; };
 		CA100003 /* CachedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200003 /* CachedEpisodeRecord.swift */; };
+		CA100009 /* CachedNewEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200009 /* CachedNewEpisodeRecord.swift */; };
 		CA100004 /* CatalogCacheState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200004 /* CatalogCacheState.swift */; };
 		CA100005 /* CatalogCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200005 /* CatalogCache.swift */; };
 		CA100006 /* CatalogRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200006 /* CatalogRefreshService.swift */; };
@@ -306,6 +307,7 @@
 		CA200001 /* SubscriptionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionRecord.swift; sourceTree = "<group>"; };
 		CA200002 /* ShowRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowRecord.swift; sourceTree = "<group>"; };
 		CA200003 /* CachedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedEpisodeRecord.swift; sourceTree = "<group>"; };
+		CA200009 /* CachedNewEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedNewEpisodeRecord.swift; sourceTree = "<group>"; };
 		CA200004 /* CatalogCacheState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheState.swift; sourceTree = "<group>"; };
 		CA200005 /* CatalogCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCache.swift; sourceTree = "<group>"; };
 		CA200006 /* CatalogRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshService.swift; sourceTree = "<group>"; };
@@ -446,6 +448,7 @@
 				CA200001 /* SubscriptionRecord.swift */,
 				CA200002 /* ShowRecord.swift */,
 				CA200003 /* CachedEpisodeRecord.swift */,
+				CA200009 /* CachedNewEpisodeRecord.swift */,
 				CA200004 /* CatalogCacheState.swift */,
 				CA200005 /* CatalogCache.swift */,
 				CA200006 /* CatalogRefreshService.swift */,
@@ -718,6 +721,7 @@
 				CA100001 /* SubscriptionRecord.swift in Sources */,
 				CA100002 /* ShowRecord.swift in Sources */,
 				CA100003 /* CachedEpisodeRecord.swift in Sources */,
+				CA100009 /* CachedNewEpisodeRecord.swift in Sources */,
 				CA100004 /* CatalogCacheState.swift in Sources */,
 				CA100005 /* CatalogCache.swift in Sources */,
 				CA100006 /* CatalogRefreshService.swift in Sources */,
