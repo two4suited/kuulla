@@ -8,5 +8,18 @@
 	     archives for the APNs sandbox, which production devices can't receive pushes through. -->
 	<key>aps-environment</key>
 	<string>$(APS_ENVIRONMENT)</string>
+
+	<!-- Restricted entitlement — Apple must grant it to team 96VJBK4H9P via
+	     https://developer.apple.com/contact/request/carplay, then it must be enabled on the
+	     com.kuulla.app App ID, before a build can carry it. Staged here (in a draft PR) so that
+	     once approval lands the entitlements file needs no further change.
+	       - Simulator / CarPlay Simulator builds apply no provisioning profile, so this key is
+	         ignored — CI (xcodebuild ... CODE_SIGNING_ALLOWED=NO) is unaffected.
+	       - An on-device build with CODE_SIGN_STYLE = Automatic may FAIL to sign while the
+	         capability is not enabled on the App ID ("provisioning profile doesn't include the
+	         com.apple.developer.carplay-audio entitlement"). Don't merge this to main until the
+	         portal side is done. See docs/carplay-entitlement-runbook.md and #522. -->
+	<key>com.apple.developer.carplay-audio</key>
+	<true/>
 </dict>
 </plist>

@@ -84,7 +84,11 @@ build on a device therefore talks to the deployed API (`https://api.kuulla.us`);
 
 CarPlay on-device additionally needs the `com.apple.developer.carplay-audio`
 entitlement approved on the account (developer.apple.com/contact/request/carplay,
-tracked in #115) — automatic signing silently omits it until then.
+tracked in #522). The key is already in `Kuulla.entitlements` but stays inert —
+automatic signing silently omits a restricted entitlement Apple hasn't granted, so
+the app won't appear on the CarPlay home screen until approval lands. The browse →
+Now Playing flow can still be exercised without it via Xcode's CarPlay Simulator.
+See [docs/carplay-entitlement-runbook.md](docs/carplay-entitlement-runbook.md).
 
 ## Architecture
 
