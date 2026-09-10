@@ -129,6 +129,7 @@
 		W1000001 /* SubscriptionSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000001 /* SubscriptionSortOrder.swift */; };
 		W1000002 /* SubscriptionSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000002 /* SubscriptionSort.swift */; };
 		W1000003 /* SubscriptionSortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000003 /* SubscriptionSortTests.swift */; };
+		J1000020 /* PlaylistSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000020 /* PlaylistSummaryTests.swift */; };
 		X1000001 /* SubscriptionManualReorderRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2000001 /* SubscriptionManualReorderRow.swift */; };
 		Y1000001 /* ShowDisplaySettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y2000001 /* ShowDisplaySettingsMenu.swift */; };
 		Z1000001 /* ChapterScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000001 /* ChapterScrubber.swift */; };
@@ -282,6 +283,7 @@
 		W2000001 /* SubscriptionSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortOrder.swift; sourceTree = "<group>"; };
 		W2000002 /* SubscriptionSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSort.swift; sourceTree = "<group>"; };
 		W2000003 /* SubscriptionSortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortTests.swift; sourceTree = "<group>"; };
+		J2000020 /* PlaylistSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSummaryTests.swift; sourceTree = "<group>"; };
 		X2000001 /* SubscriptionManualReorderRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManualReorderRow.swift; sourceTree = "<group>"; };
 		Y2000001 /* ShowDisplaySettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDisplaySettingsMenu.swift; sourceTree = "<group>"; };
 		Z2000001 /* ChapterScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubber.swift; sourceTree = "<group>"; };
@@ -442,6 +444,7 @@
 				D2000003 /* PodcastCatalogClientTests.swift */,
 				D2000004 /* SubscriptionClientTests.swift */,
 				W2000003 /* SubscriptionSortTests.swift */,
+				J2000020 /* PlaylistSummaryTests.swift */,
 				D2000020 /* DeviceTokenClientTests.swift */,
 				D2000021 /* PushNotificationManagerTests.swift */,
 				D2000050 /* PushNotificationRoutingTests.swift */,
@@ -693,6 +696,7 @@
 				D1000003 /* PodcastCatalogClientTests.swift in Sources */,
 				D1000004 /* SubscriptionClientTests.swift in Sources */,
 				W1000003 /* SubscriptionSortTests.swift in Sources */,
+				J1000020 /* PlaylistSummaryTests.swift in Sources */,
 				D1000020 /* DeviceTokenClientTests.swift in Sources */,
 				D1000021 /* PushNotificationManagerTests.swift in Sources */,
 				D1000050 /* PushNotificationRoutingTests.swift in Sources */,
