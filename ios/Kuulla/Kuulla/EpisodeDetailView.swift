@@ -131,14 +131,12 @@ struct EpisodeDetailView: View {
             HStack(spacing: 12) {
                 if let showArtworkUrl {
                     EpisodeArtworkImage(urlString: showArtworkUrl)
-                        .frame(width: 96, height: 96)
                 }
 
                 // Alongside (not replacing) the episode artwork — falls back to nothing extra
                 // shown when the active chapter has no image of its own.
                 if let chapterArtworkUrl {
                     EpisodeArtworkImage(urlString: chapterArtworkUrl)
-                        .frame(width: 96, height: 96)
                 }
             }
         }
@@ -906,6 +904,10 @@ private struct EpisodeArtworkImage: View {
         } placeholder: {
             Color.secondary.opacity(0.2)
         }
+        // Square frame + clip must live here (before any caller-applied .frame): clipping at the
+        // AsyncImage's natural size and letting the caller size it afterwards leaves tall source
+        // art overflowing a nominally square slot (#519).
+        .frame(width: 96, height: 96)
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

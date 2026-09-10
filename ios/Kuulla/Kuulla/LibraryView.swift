@@ -404,13 +404,19 @@ private struct ShowTile: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            AsyncImage(url: subscription.showArtworkUrl.flatMap(URL.init)) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Color.secondary.opacity(0.2)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            // Drive the square off a zero-intrinsic-size Color.clear box rather than putting
+            // .aspectRatio directly on the AsyncImage: a tall source image otherwise stretches
+            // the tile vertically because AsyncImage reports the loaded image's own size (#519).
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    AsyncImage(url: subscription.showArtworkUrl.flatMap(URL.init)) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Color.secondary.opacity(0.2)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
             if let unplayedCount, unplayedCount.unplayed > 0 {
                 Text(unplayedCount.hitCap ? "\(unplayedCount.unplayed)+" : "\(unplayedCount.unplayed)")
