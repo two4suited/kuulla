@@ -232,4 +232,22 @@ enum CatalogCache {
         }
         try? context.save()
     }
+
+    // Drop a single show from the snapshot blobs so a just-unsubscribed show stops showing a
+    // stale unplayed badge / counting as "active" before the next full refresh (#533).
+    static func removeShowFromSnapshot(showId: String, in context: ModelContext) {
+        guard let row = existingState(in: context) else { return }
+        if let data = row.unplayedCountsData,
+           var byShow = try? JSONDecoder().decode([String: Int].self, from: data),
+           byShow.removeValue(forKey: showId) != nil {
+            row.unplayedCountsData = try? JSONEncoder().encode(byShow)
+        }
+        if let data = row.inProgressShowIdsData,
+           var ids = try? JSONDecoder().decode([String].self, from: data),
+           let index = ids.firstIndex(of: showId) {
+            ids.remove(at: index)
+            row.inProgressShowIdsData = try? JSONEncoder().encode(ids)
+        }
+        try? context.save()
+    }
 }

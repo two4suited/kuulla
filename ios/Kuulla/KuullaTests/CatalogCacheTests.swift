@@ -137,6 +137,30 @@ final class CatalogCacheTests: XCTestCase {
         XCTAssertEqual(CatalogCache.lastRefreshedAt(in: context), first)
     }
 
+    func testRemoveShowFromSnapshotDropsBadgeAndInProgressEntries() throws {
+        let context = try makeContext()
+
+        CatalogCache.storeSnapshot(
+            unplayedCounts: [
+                "show1": .init(unplayed: 3, hitCap: false),
+                "show2": .init(unplayed: 5, hitCap: false),
+            ],
+            inProgressShowIds: ["show1", "show2"],
+            refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.removeShowFromSnapshot(showId: "show1", in: context)
+
+        XCTAssertNil(CatalogCache.unplayedCounts(in: context)["show1"])
+        XCTAssertEqual(CatalogCache.unplayedCounts(in: context)["show2"]?.unplayed, 5)
+        XCTAssertEqual(CatalogCache.inProgressShowIds(in: context), ["show2"])
+    }
+
+    func testRemoveShowFromSnapshotWithNoStateRowIsHarmless() throws {
+        let context = try makeContext()
+        CatalogCache.removeShowFromSnapshot(showId: "show1", in: context)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<CatalogCacheState>()), 0)
+    }
+
     func testEpisodeStalenessHelpers() throws {
         let context = try makeContext()
         XCTAssertFalse(CatalogCache.hasEpisodes(showId: "show1", in: context))
