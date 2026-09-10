@@ -10,35 +10,30 @@ struct PlaylistDetailView: View {
     @State private var loadError: String?
     @State private var mutationError: String?
     @State private var isShowingEditSheet = false
+    @State private var isShowingRulesSheet = false
 
     private let playlistClient = PlaylistClient()
 
     var body: some View {
         List {
             if let playlist {
-                if playlist.type == .dynamic {
-                    DynamicPlaylistConfigEditorView(playlist: Binding(
-                        get: { playlist },
-                        set: { updated in self.playlist = updated }
-                    )) { config in
-                        _ = try await playlistClient.updateDynamicPlaylistConfig(id: playlistId, config: config)
-                        await load()
-                    }
-                } else if playlist.items.isEmpty {
-                    Text("This playlist is empty. Add episodes to it from a show or episode page.")
+                if playlist.items.isEmpty {
+                    Text(playlist.type == .dynamic
+                        ? "This dynamic playlist currently resolves to no episodes. Adjust its rules to add podcasts or raise the episode limit."
+                        : "This playlist is empty. Add episodes to it from a show or episode page.")
                         .foregroundStyle(.secondary)
+                } else if playlist.type == .dynamic {
+                    // A dynamic playlist's items are server-computed from its rules — not
+                    // user-editable in place, so no onDelete/onMove here (edit the rules instead).
+                    ForEach(playlist.items) { item in itemLink(item) }
                 } else {
-                    ForEach(playlist.items) { item in
-                        NavigationLink(value: CatalogRoute.episode(showId: item.showId, episodeId: item.episodeId)) {
-                            PlaylistItemRow(item: item)
+                    ForEach(playlist.items) { item in itemLink(item) }
+                        .onDelete { offsets in
+                            Task { await removeItems(at: offsets) }
                         }
-                    }
-                    .onDelete { offsets in
-                        Task { await removeItems(at: offsets) }
-                    }
-                    .onMove { source, destination in
-                        Task { await moveItem(from: source, to: destination) }
-                    }
+                        .onMove { source, destination in
+                            Task { await moveItem(from: source, to: destination) }
+                        }
                 }
             } else if let loadError {
                 Text(loadError)
@@ -71,6 +66,16 @@ struct PlaylistDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if let playlist, playlist.type == .manual, playlist.items.count > 1 {
                     EditButton()
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if let playlist, playlist.type == .dynamic {
+                    Button {
+                        isShowingRulesSheet = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .accessibilityLabel("Edit playlist rules")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -112,6 +117,17 @@ struct PlaylistDetailView: View {
                 .presentationDetents([.medium, .large])
             }
         }
+        .sheet(isPresented: $isShowingRulesSheet) {
+            if let loaded = playlist {
+                DynamicPlaylistRulesSheet(playlist: Binding(
+                    get: { self.playlist ?? loaded },
+                    set: { self.playlist = $0 }
+                )) { config in
+                    _ = try await playlistClient.updateDynamicPlaylistConfig(id: playlistId, config: config)
+                    await load()
+                }
+            }
+        }
         .task(id: playlistId) {
             await load()
         }
@@ -128,6 +144,13 @@ struct PlaylistDetailView: View {
             // device's own pending local writes — no need to duplicate that call here.
             guard newPhase == .active, playlist != nil else { return }
             Task { await load() }
+        }
+    }
+
+    @ViewBuilder
+    private func itemLink(_ item: PlaylistItemDetail) -> some View {
+        NavigationLink(value: CatalogRoute.episode(showId: item.showId, episodeId: item.episodeId)) {
+            PlaylistItemRow(item: item)
         }
     }
 
@@ -195,7 +218,12 @@ struct PlaylistDetailView: View {
     }
 }
 
-private struct DynamicPlaylistConfigEditorView: View {
+// The dynamic-playlist rule editor (max episodes / podcast picker / priority order), presented as
+// a sheet off PlaylistDetailView's "rules" toolbar button (#512) — the detail view itself now
+// always lists the playlist's resolved episodes, for dynamic and manual playlists alike.
+private struct DynamicPlaylistRulesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
     @Binding var playlist: PlaylistDetail
     let onSave: (DynamicPlaylistConfig) async throws -> Void
 
@@ -224,21 +252,15 @@ private struct DynamicPlaylistConfigEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Max episodes")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Stepper(value: $maxEpisodes, in: 1...100) {
-                    Text("\(maxEpisodes)")
+        NavigationStack {
+            Form {
+                Section("Max episodes") {
+                    Stepper(value: $maxEpisodes, in: 1...100) {
+                        Text("\(maxEpisodes)")
+                    }
                 }
-            }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Add a podcast")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                HStack {
+                Section("Add a podcast") {
                     Picker("Podcast", selection: $pendingShowId) {
                         Text("Choose a podcast")
                             .tag("")
@@ -247,7 +269,6 @@ private struct DynamicPlaylistConfigEditorView: View {
                                 .tag(subscription.showId)
                         }
                     }
-                    .frame(maxWidth: .infinity)
 
                     Button("Add") {
                         guard !pendingShowId.isEmpty else { return }
@@ -258,17 +279,14 @@ private struct DynamicPlaylistConfigEditorView: View {
                     }
                     .disabled(pendingShowId.isEmpty)
                 }
-            }
 
-            if priorityList.isEmpty {
-                Text("No podcasts selected yet. Episodes are pulled from the highest-priority podcast first.")
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Priority order")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    List {
+                if priorityList.isEmpty {
+                    Section {
+                        Text("No podcasts selected yet. Episodes are pulled from the highest-priority podcast first.")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section("Priority order") {
                         ForEach(priorityList, id: \.self) { showId in
                             HStack {
                                 Text(showTitle(for: showId))
@@ -280,42 +298,44 @@ private struct DynamicPlaylistConfigEditorView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            .padding(.vertical, 4)
                         }
                         .onMove { source, destination in
                             priorityList.move(fromOffsets: source, toOffset: destination)
                         }
                     }
-                    .frame(maxHeight: 260)
-                    .listStyle(.plain)
+                }
+
+                if let subscriptionsError {
+                    Text(subscriptionsError)
+                        .foregroundStyle(.red)
+                }
+
+                if let saveError {
+                    Text(saveError)
+                        .foregroundStyle(.red)
                 }
             }
-
-            if let subscriptionsError {
-                Text(subscriptionsError)
-                    .foregroundStyle(.red)
-            }
-
-            if let saveError {
-                Text(saveError)
-                    .foregroundStyle(.red)
-            }
-
-            Button(action: save) {
-                if isSaving {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, alignment: .center)
-                } else {
-                    Text("Save")
-                        .frame(maxWidth: .infinity)
+            .navigationTitle("Playlist rules")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if priorityList.count > 1 {
+                        EditButton()
+                    }
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save", action: save)
+                            .disabled(priorityList.isEmpty)
+                    }
                 }
             }
-            .disabled(isSaving || priorityList.isEmpty)
-            .buttonStyle(.borderedProminent)
-        }
-        .padding(.vertical, 8)
-        .task {
-            await loadSubscriptions()
+            .task {
+                await loadSubscriptions()
+            }
         }
     }
 
@@ -342,6 +362,7 @@ private struct DynamicPlaylistConfigEditorView: View {
                 let config = DynamicPlaylistConfig(showIds: priorityList, maxEpisodes: maxEpisodes, priorityList: priorityList)
                 try await onSave(config)
                 playlist.dynamicConfig = config
+                dismiss()
             } catch {
                 saveError = "Something went wrong while saving. Please try again."
             }
