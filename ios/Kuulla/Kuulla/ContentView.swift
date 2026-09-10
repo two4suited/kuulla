@@ -88,6 +88,15 @@ struct ContentView: View {
                     .tabItem { Label("Playlists", systemImage: "music.note.list") }
                     .tag(AppTab.playlists)
             }
+            // Pinned above the tab bar on every tab whenever AudioPlayer has something loaded
+            // (#542). Tapping it pushes the episode onto whichever tab is active — the bar has no
+            // navigation stack of its own — threading playlist context so #532 auto-advance stays
+            // armed when the episode is reopened this way.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                NowPlayingBar { route in
+                    tabPaths[selectedTab, default: NavigationPath()].append(route)
+                }
+            }
             .onChange(of: deepLinkRouter.pendingRoute) { _, _ in applyPendingDeepLinkIfNeeded() }
             .onAppear { applyPendingDeepLinkIfNeeded() }
         } else {

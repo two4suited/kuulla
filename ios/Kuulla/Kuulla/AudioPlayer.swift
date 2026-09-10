@@ -11,6 +11,16 @@ struct NowPlayingMetadata {
     let artworkURL: URL?
 }
 
+// Identity of the currently loaded episode plus the playlist it was started from. Read by the
+// in-app now-playing bar (#542) to deep-link back to the right EpisodeDetailView — threading
+// playlistId keeps playlist auto-advance (#532) armed when the episode is reopened from the bar.
+// Kept separate from NowPlayingMetadata, which is purely the lock screen / CarPlay display payload.
+struct NowPlayingContext: Equatable {
+    let showId: String
+    let episodeId: String
+    let playlistId: String?
+}
+
 @Observable
 final class AudioPlayer {
     // A single shared instance so playback survives navigation between episode screens
@@ -122,7 +132,10 @@ final class AudioPlayer {
     // Backs the lock screen / Control Center / CarPlay Now Playing surfaces. Nil whenever nothing
     // is loaded, so updateNowPlayingInfo() can clear MPNowPlayingInfoCenter instead of showing
     // stale metadata for a session that's already gone.
-    private var nowPlayingMetadata: NowPlayingMetadata?
+    private(set) var nowPlayingMetadata: NowPlayingMetadata?
+    // Set by play() alongside nowPlayingMetadata; read by the in-app now-playing bar (#542) to
+    // route back to this episode. nil until the first play() of the process.
+    private(set) var nowPlayingContext: NowPlayingContext?
     private var artwork: MPMediaItemArtwork?
     // Tracks which artwork URL the in-flight (or most recently completed) fetch was for, so a
     // second play() call for the same show doesn't re-download artwork already fetched, and a
@@ -148,7 +161,8 @@ final class AudioPlayer {
     func play(
         url: URL, startPosition: TimeInterval = 0,
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
-        playbackSpeed: Float = 1.0, smartSpeed: Bool = false, metadata: NowPlayingMetadata? = nil
+        playbackSpeed: Float = 1.0, smartSpeed: Bool = false,
+        context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
     ) {
         streamBlockedMessage = nil
         streamBlockedURL = nil
@@ -226,6 +240,7 @@ final class AudioPlayer {
             newPlayer.rate = playbackSpeed
         }
         isPlaying = true
+        nowPlayingContext = context
         applyMetadata(metadata)
 
         timeObserverToken = newPlayer.addPeriodicTimeObserver(

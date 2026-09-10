@@ -672,6 +672,7 @@ struct EpisodeDetailView: View {
             url: url, startPosition: startPosition,
             autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
             playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+            context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: episode.map { episode in
                 NowPlayingMetadata(
                     title: episode.title, showTitle: show?.title,

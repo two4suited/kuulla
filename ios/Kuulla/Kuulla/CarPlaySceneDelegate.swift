@@ -187,6 +187,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 url: audioUrl, startPosition: startPosition,
                 autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
                 playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+                context: NowPlayingContext(showId: showId, episodeId: episode.id, playlistId: nil),
                 metadata: NowPlayingMetadata(
                     title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))))
 
