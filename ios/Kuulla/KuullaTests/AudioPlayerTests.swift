@@ -46,6 +46,40 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertNil(MPNowPlayingInfoCenter.default().nowPlayingInfo)
     }
 
+    // MARK: - Now Playing context / in-app bar (#542)
+
+    func testPlayWithContextExposesItForTheNowPlayingBar() {
+        let player = AudioPlayer()
+
+        player.play(
+            url: URL(string: "https://example.com/audio.mp3")!,
+            context: NowPlayingContext(showId: "show-1", episodeId: "ep-1", playlistId: "pl-1"),
+            metadata: NowPlayingMetadata(title: "Episode", showTitle: "Show", artworkURL: nil))
+
+        XCTAssertEqual(player.nowPlayingContext, NowPlayingContext(showId: "show-1", episodeId: "ep-1", playlistId: "pl-1"))
+        XCTAssertEqual(player.nowPlayingMetadata?.title, "Episode")
+    }
+
+    func testPlayWithoutContextLeavesNowPlayingContextNil() {
+        let player = AudioPlayer()
+
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        XCTAssertNil(player.nowPlayingContext)
+    }
+
+    func testNowPlayingBarRouteUsesPlaylistEpisodeWhenStartedFromAPlaylist() {
+        let route = NowPlayingBar.route(for: NowPlayingContext(showId: "s", episodeId: "e", playlistId: "p"))
+
+        XCTAssertEqual(route, .playlistEpisode(playlistId: "p", showId: "s", episodeId: "e"))
+    }
+
+    func testNowPlayingBarRouteUsesPlainEpisodeWithoutAPlaylist() {
+        let route = NowPlayingBar.route(for: NowPlayingContext(showId: "s", episodeId: "e", playlistId: nil))
+
+        XCTAssertEqual(route, .episode(showId: "s", episodeId: "e"))
+    }
+
     func testPlaySetsPlayingStateAndCurrentURL() {
         let player = AudioPlayer()
         let url = URL(string: "https://example.com/audio.mp3")!

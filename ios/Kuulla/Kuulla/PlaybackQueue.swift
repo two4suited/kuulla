@@ -180,6 +180,7 @@ final class PlaybackQueue {
             url: audioUrl, startPosition: startPosition,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
             playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+            context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: NowPlayingMetadata(
                 title: episode.title, showTitle: show?.title,
                 artworkURL: show?.artworkUrl.flatMap(URL.init(string:))))
