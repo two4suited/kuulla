@@ -93,7 +93,6 @@ struct ShowDetailView: View {
                                         duration: episode.duration)
                                     : nil,
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
-                                onToggleCompleted: { Task { await toggleCompleted(episode: episode) } },
                                 onDownloadDidFinish: refreshStatuses)
                         }
                         .accessibilityIdentifier("episode-row")
@@ -555,7 +554,6 @@ private struct EpisodeRow: View {
     let downloadStatus: DownloadStatus?
     let progressFraction: Double?
     let onRestore: () -> Void
-    let onToggleCompleted: () -> Void
     let onDownloadDidFinish: () -> Void
 
     var body: some View {
@@ -601,9 +599,6 @@ private struct EpisodeRow: View {
                     StatusBadgeWithRestore(status: status, onRestore: onRestore)
                 } else {
                     StatusBadge(status: status)
-                    Button(status == .played ? "Mark as Unplayed" : "Mark as Played", action: onToggleCompleted)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                 }
                 DownloadButton(episode: episode, status: downloadStatus, onDidFinish: onDownloadDidFinish)
             }
