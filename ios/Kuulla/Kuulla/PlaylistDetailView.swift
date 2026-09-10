@@ -90,7 +90,7 @@ struct PlaylistDetailView: View {
             }
             ToolbarItem(placement: .bottomBar) {
                 if let firstItem = playlist?.items.first {
-                    NavigationLink(value: CatalogRoute.episode(showId: firstItem.showId, episodeId: firstItem.episodeId)) {
+                    NavigationLink(value: route(for: firstItem)) {
                         Label("Play", systemImage: "play.fill")
                     }
                 }
@@ -149,9 +149,19 @@ struct PlaylistDetailView: View {
 
     @ViewBuilder
     private func itemLink(_ item: PlaylistItemDetail) -> some View {
-        NavigationLink(value: CatalogRoute.episode(showId: item.showId, episodeId: item.episodeId)) {
+        NavigationLink(value: route(for: item)) {
             PlaylistItemRow(item: item)
         }
+    }
+
+    // Manual playlists route through `.playlistEpisode` so EpisodeDetailView arms PlaybackQueue
+    // for auto-advance (#532); dynamic playlists (rule-computed, not editable in place) stay on
+    // the plain `.episode` route and don't auto-advance/auto-remove.
+    private func route(for item: PlaylistItemDetail) -> CatalogRoute {
+        if playlist?.type == .manual {
+            return .playlistEpisode(playlistId: playlistId, showId: item.showId, episodeId: item.episodeId)
+        }
+        return .episode(showId: item.showId, episodeId: item.episodeId)
     }
 
     private func load() async {

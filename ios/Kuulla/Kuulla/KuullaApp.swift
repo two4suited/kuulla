@@ -47,6 +47,10 @@ struct KuullaApp: App {
         DownloadManager.shared.configure(modelContainer: container)
         CarPlaySceneDelegate.modelContainer = container
         CarPlaySceneDelegate.episodeSyncEngine = episodeEngine
+        // Overcast-style playlist auto-advance (#532) — same out-of-SwiftUI wiring as CarPlay,
+        // since the queue starts follow-on episodes from AudioPlayer's finish callback.
+        PlaybackQueue.modelContainer = container
+        PlaybackQueue.episodeSyncEngine = episodeEngine
     }
 
     var body: some Scene {

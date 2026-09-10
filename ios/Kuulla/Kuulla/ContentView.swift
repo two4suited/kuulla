@@ -120,6 +120,8 @@ struct ContentView: View {
                         ShowDetailView(showId: id)
                     case .episode(let showId, let episodeId):
                         EpisodeDetailView(showId: showId, episodeId: episodeId)
+                    case .playlistEpisode(let playlistId, let showId, let episodeId):
+                        EpisodeDetailView(showId: showId, episodeId: episodeId, playlistId: playlistId)
                     case .playlist(let id):
                         PlaylistDetailView(playlistId: id)
                     case .upNext:

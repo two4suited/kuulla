@@ -170,6 +170,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // restarting the AVPlayerItem from scratch (which a quick double-tap would otherwise do).
         if AudioPlayer.shared.currentURL != audioUrl {
             progressTrackingTask?.cancel()
+            // Picking an episode from CarPlay browse isn't playlist playback — forget any queue a
+            // phone session armed so it doesn't auto-advance off this pick (#532).
+            PlaybackQueue.shared.clear()
 
             let episodeId = episode.id
             let duration = episode.duration
