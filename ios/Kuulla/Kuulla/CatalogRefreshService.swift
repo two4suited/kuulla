@@ -67,11 +67,14 @@ final class CatalogRefreshService {
             let unplayed = await newEpisodesTask.map(UnplayedCounts.compute(from:))
             let inProgress = await inProgressTask
 
-            // Only re-pull a show's episode list when we've never cached it, or its
-            // subscription says a newer episode exists than the newest one we hold. A routine
-            // "Sync Now" with nothing new therefore makes zero episode requests, instead of one
-            // per subscribed show every time.
+            // Re-pull a subscribed show when we've never cached its metadata (ShowRecord) or its
+            // episodes, or when its subscription says a newer episode exists than the newest one
+            // we hold. Caching the show itself — not just the episode list — is what lets
+            // ShowDetailView paint (and stay usable offline) for a subscribed show the user
+            // hasn't opened since the cache was seeded. A routine "Sync Now" with nothing new
+            // still makes zero requests once every subscribed show is fully cached.
             let showIdsToRefresh = subscriptions.filter { subscription in
+                guard CatalogCache.show(id: subscription.showId, in: context) != nil else { return true }
                 guard CatalogCache.hasEpisodes(showId: subscription.showId, in: context) else { return true }
                 guard let latest = subscription.latestEpisodePublishedAt else { return true }
                 guard let cached = CatalogCache.newestEpisodeDate(showId: subscription.showId, in: context)
@@ -87,17 +90,20 @@ final class CatalogRefreshService {
             while index < showIdsToRefresh.count {
                 let batch = Array(showIdsToRefresh[index..<min(index + maxConcurrent, showIdsToRefresh.count)])
                 index += maxConcurrent
-                await withTaskGroup(of: (String, EpisodePage)?.self) { group in
+                await withTaskGroup(of: (String, Show?, EpisodePage?).self) { group in
                     for showId in batch {
                         group.addTask { [catalogClient] in
-                            guard let page = try? await catalogClient.getEpisodes(
+                            async let show = try? await catalogClient.getShow(id: showId)
+                            async let page = try? await catalogClient.getEpisodes(
                                 showId: showId, continuationToken: nil)
-                            else { return nil }
-                            return (showId, page)
+                            return (showId, await show ?? nil, await page)
                         }
                     }
-                    for await result in group {
-                        guard let (showId, page) = result else {
+                    for await (showId, show, page) in group {
+                        if let show {
+                            CatalogCache.upsertShow(show, in: context)
+                        }
+                        guard let page else {
                             episodesComplete = false
                             continue
                         }
