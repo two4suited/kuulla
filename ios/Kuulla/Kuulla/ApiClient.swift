@@ -189,7 +189,15 @@ enum ApiConfiguration {
            let url = URL(string: override) {
             return url
         }
+#if targetEnvironment(simulator)
         return URL(string: "http://localhost:5245")!
+#else
+        // A physical device can't reach the Mac's localhost, and Xcode scheme
+        // environment variables (KUULLA_API_BASE_URL above) aren't injected into
+        // on-device runs — so a Debug build installed on a phone talks to the
+        // deployed API. See docs: "Run on a physical device" in CLAUDE.md.
+        return URL(string: "https://api.kuulla.us")!
+#endif
 #else
         fatalError("ApiConfiguration.baseURL needs a production API URL configured before Release builds can run.")
 #endif
