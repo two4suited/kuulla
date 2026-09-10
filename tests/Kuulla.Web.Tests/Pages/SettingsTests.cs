@@ -21,7 +21,6 @@ public class SettingsTests : WebTestContext
         UserSettings? getResponse = null, UserSettings? putResponse = null, UserSettings? archivePutResponse = null,
         UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null,
         UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null,
-        UserSettings? autoAddUpNextPutResponse = null, UserSettings? upNextInsertPositionPutResponse = null,
         UserSettings? smartSpeedPutResponse = null, UserSettings? sleepTimerDefaultDurationPutResponse = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onSync = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onImport = null,
@@ -96,22 +95,6 @@ public class SettingsTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(autoDownloadPutResponse ?? DefaultSettings),
-                };
-            }
-
-            if (request.RequestUri!.AbsolutePath == "/api/settings/auto-add-up-next" && request.Method == HttpMethod.Put)
-            {
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = JsonContent.Create(autoAddUpNextPutResponse ?? DefaultSettings),
-                };
-            }
-
-            if (request.RequestUri!.AbsolutePath == "/api/settings/up-next-insert-position" && request.Method == HttpMethod.Put)
-            {
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = JsonContent.Create(upNextInsertPositionPutResponse ?? DefaultSettings),
                 };
             }
 
@@ -367,72 +350,6 @@ public class SettingsTests : WebTestContext
         {
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.False(cut.Find("#auto-download-new-episodes").HasAttribute("checked"));
-        });
-    }
-
-    [Fact]
-    public void RendersCurrentAutoAddNewEpisodesToUpNext_WhenLoadSucceeds()
-    {
-        ConfigureApi(CreateHandler(getResponse: new(
-            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
-            AutoAddNewEpisodesToUpNext: true, UpNextInsertPosition: UpNextInsertPosition.Top)));
-
-        var cut = RenderComponent<Settings>();
-
-        cut.WaitForAssertion(() =>
-        {
-            Assert.True(cut.Find("#auto-add-up-next").HasAttribute("checked"));
-            Assert.Equal("Top", cut.Find("#up-next-insert-position").GetAttribute("value"));
-        });
-    }
-
-    [Fact]
-    public void SavesAndConfirmsAutoAddNewEpisodesToUpNext_WhenToggled()
-    {
-        ConfigureApi(CreateHandler(autoAddUpNextPutResponse: new(
-            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
-            AutoAddNewEpisodesToUpNext: true)));
-
-        var cut = RenderComponent<Settings>();
-        cut.WaitForAssertion(() => Assert.Contains("Add new episodes to Up Next", cut.Markup));
-
-        cut.Find("#auto-add-up-next").Change(true);
-
-        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
-    }
-
-    [Fact]
-    public void SavesAndConfirmsUpNextInsertPosition_WhenChanged()
-    {
-        ConfigureApi(CreateHandler(upNextInsertPositionPutResponse: new(
-            "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never,
-            UpNextInsertPosition: UpNextInsertPosition.Top)));
-
-        var cut = RenderComponent<Settings>();
-        cut.WaitForAssertion(() => Assert.Contains("Add to", cut.Markup));
-
-        cut.Find("#up-next-insert-position").Change("Top");
-
-        cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
-    }
-
-    [Fact]
-    public void ShowsErrorAndRevertsAutoAddNewEpisodesToUpNext_WhenSaveFails()
-    {
-        ConfigureApi(new TestHttpMessageHandler(request =>
-            request.RequestUri!.AbsolutePath == "/api/settings/auto-add-up-next" && request.Method == HttpMethod.Put
-                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
-
-        var cut = RenderComponent<Settings>();
-        cut.WaitForAssertion(() => Assert.False(cut.Find("#auto-add-up-next").HasAttribute("checked")));
-
-        cut.Find("#auto-add-up-next").Change(true);
-
-        cut.WaitForAssertion(() =>
-        {
-            Assert.Contains("Something went wrong", cut.Markup);
-            Assert.False(cut.Find("#auto-add-up-next").HasAttribute("checked"));
         });
     }
 

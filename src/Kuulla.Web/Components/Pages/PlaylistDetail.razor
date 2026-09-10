@@ -7,6 +7,7 @@
 @using Kuulla.Web.Services.Sync
 @inject PlaylistClient PlaylistClient
 @inject EpisodeStateClient EpisodeStateClient
+@inject SettingsClient SettingsClient
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 
@@ -156,6 +157,52 @@ else
             <label class="form-label small">Playlist name</label>
             <input class="form-control mb-2" @bind="editName" @bind:event="oninput" disabled="@isSavingEdit" />
             <PlaylistAppearancePicker @bind-Icon="editIcon" @bind-AccentColor="editAccentColor" />
+
+            @if (isUpNext)
+            {
+                @* The Up Next queue's behaviour settings live here rather than on the global
+                   Settings page (#510) — they only make sense in the context of this one
+                   playlist. They still map to the same UserSettings fields and SettingsClient
+                   calls, and save on change like every other settings control in the app; the
+                   Save/Cancel buttons below apply only to the name and appearance. *@
+                <hr class="my-3" />
+                <p class="form-label small mb-2">Queue behaviour</p>
+
+                <div class="form-check form-switch mb-1">
+                    <input class="form-check-input" type="checkbox" role="switch" id="up-next-auto-add"
+                           disabled="@isUpNextAutoAddSaving" checked="@upNextAutoAdd"
+                           @onchange="OnUpNextAutoAddChangedAsync" />
+                    <label class="form-check-label" for="up-next-auto-add">Add new episodes to Up Next</label>
+                </div>
+                <div class="form-text">
+                    New episodes from your subscriptions are added to your Up Next queue automatically.
+                    You can override this per show from a show's page.
+                </div>
+                @if (upNextAutoAddError is not null)
+                {
+                    <p class="text-danger small mt-1 mb-0">@upNextAutoAddError</p>
+                }
+                else if (upNextAutoAddSaved)
+                {
+                    <p class="text-success small mt-1 mb-0">Saved.</p>
+                }
+
+                <label class="form-label mt-3" for="up-next-insert-position">Add to</label>
+                <select id="up-next-insert-position" class="form-select" disabled="@isUpNextInsertPositionSaving"
+                        value="@upNextInsertPosition" @onchange="OnUpNextInsertPositionChangedAsync">
+                    <option value="@UpNextInsertPosition.Bottom">Bottom of the queue</option>
+                    <option value="@UpNextInsertPosition.Top">Top of the queue</option>
+                </select>
+                @if (upNextInsertPositionError is not null)
+                {
+                    <p class="text-danger small mt-1 mb-0">@upNextInsertPositionError</p>
+                }
+                else if (upNextInsertPositionSaved)
+                {
+                    <p class="text-success small mt-1 mb-0">Saved.</p>
+                }
+            }
+
             <div class="d-flex gap-2 mt-2">
                 <button class="btn btn-sm btn-primary" disabled="@(isSavingEdit || string.IsNullOrWhiteSpace(editName))"
                         @onclick="SaveEditAsync">
@@ -225,6 +272,22 @@ else
     private string? editAccentColor;
     private bool isSavingEdit;
     private string? editError;
+
+    // Up Next queue-behaviour settings (#510) — loaded and shown only when this playlist is the
+    // well-known Up Next queue. Backed by the same UserSettings fields / SettingsClient calls the
+    // global Settings page used to own. SyncOwnWriteBestEffortAsync here is playlist-scoped, so
+    // these writes deliberately don't touch it — a Settings page open on another tab reconciles
+    // its own settings hash on its next poll.
+    private bool isUpNext;
+    private bool upNextAutoAdd;
+    private UpNextInsertPosition upNextInsertPosition;
+    private bool isUpNextAutoAddSaving;
+    private string? upNextAutoAddError;
+    private bool upNextAutoAddSaved;
+    private bool isUpNextInsertPositionSaving;
+    private string? upNextInsertPositionError;
+    private bool upNextInsertPositionSaved;
+
     private bool showOnlyUnplayed;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
 
@@ -271,6 +334,11 @@ else
         editing = false;
         isSavingEdit = false;
         editError = null;
+        isUpNext = false;
+        upNextAutoAddError = null;
+        upNextAutoAddSaved = false;
+        upNextInsertPositionError = null;
+        upNextInsertPositionSaved = false;
         busyEpisodeIds.Clear();
         episodeStatesById.Clear();
         showOnlyUnplayed = true;
@@ -296,6 +364,38 @@ else
         if (playlist is not null)
         {
             await InitializeSyncStatusAsync();
+            await LoadUpNextSettingsAsync();
+        }
+    }
+
+    // #510: the Up Next queue's behaviour settings render inside this page's edit panel rather
+    // than on the global Settings page — detected by the same well-known name UpNext.razor
+    // resolves the queue by. Non-fatal on failure, matching InitializeSyncStatusAsync's
+    // supplementary-feature stance: the playlist still renders, the section just stays hidden.
+    private async Task LoadUpNextSettingsAsync()
+    {
+        if (playlist is not { Type: PlaylistType.Manual, Name: WellKnownPlaylists.UpNextName })
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = await SettingsClient.GetSettingsAsync();
+            upNextAutoAdd = settings.AutoAddNewEpisodesToUpNext;
+            upNextInsertPosition = settings.UpNextInsertPosition;
+            isUpNext = true;
+        }
+        catch (HttpRequestException)
+        {
+        }
+        catch (OperationCanceledException)
+        {
+            // Navigating away mid-load cancels the in-flight request — surfaces as this (or the
+            // derived TaskCanceledException), same rationale as LoadEpisodeStatesAsync's catch.
+        }
+        catch (JsonException)
+        {
         }
     }
 
@@ -510,6 +610,12 @@ else
         editIcon = playlist.Icon;
         editAccentColor = playlist.AccentColor;
         editError = null;
+        // Clear any stale save feedback from a previous edit session on this same page instance
+        // (the routed component is reused across navigations — see OnParametersSetAsync).
+        upNextAutoAddError = null;
+        upNextAutoAddSaved = false;
+        upNextInsertPositionError = null;
+        upNextInsertPositionSaved = false;
         editing = true;
     }
 
@@ -549,6 +655,62 @@ else
         finally
         {
             isSavingEdit = false;
+        }
+    }
+
+    // Mirrors Settings.razor's former OnAutoAddNewEpisodesToUpNextChangedAsync: saves on change,
+    // reverts and reports on failure. No SyncOwnWriteBestEffortAsync — see the field comment.
+    private async Task OnUpNextAutoAddChangedAsync(ChangeEventArgs args)
+    {
+        var value = args.Value is bool boolValue && boolValue;
+        var previous = upNextAutoAdd;
+        upNextAutoAdd = value;
+        isUpNextAutoAddSaving = true;
+        upNextAutoAddError = null;
+        upNextAutoAddSaved = false;
+
+        try
+        {
+            await SettingsClient.UpdateAutoAddNewEpisodesToUpNextAsync(value);
+            upNextAutoAddSaved = true;
+        }
+        catch (HttpRequestException)
+        {
+            upNextAutoAdd = previous;
+            upNextAutoAddError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isUpNextAutoAddSaving = false;
+        }
+    }
+
+    private async Task OnUpNextInsertPositionChangedAsync(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<UpNextInsertPosition>(args.Value?.ToString(), out var value))
+        {
+            return;
+        }
+
+        var previous = upNextInsertPosition;
+        upNextInsertPosition = value;
+        isUpNextInsertPositionSaving = true;
+        upNextInsertPositionError = null;
+        upNextInsertPositionSaved = false;
+
+        try
+        {
+            await SettingsClient.UpdateUpNextInsertPositionAsync(value);
+            upNextInsertPositionSaved = true;
+        }
+        catch (HttpRequestException)
+        {
+            upNextInsertPosition = previous;
+            upNextInsertPositionError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isUpNextInsertPositionSaving = false;
         }
     }
 

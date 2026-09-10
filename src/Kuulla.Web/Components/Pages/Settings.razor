@@ -151,46 +151,6 @@
                 }
             </div>
 
-            <h2 class="h5 mt-4">Up Next</h2>
-
-            <div class="mb-3" style="max-width: 24rem;">
-                <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" role="switch" id="auto-add-up-next"
-                           disabled="@isAutoAddUpNextSaving" checked="@selectedAutoAddNewEpisodesToUpNext"
-                           @onchange="OnAutoAddNewEpisodesToUpNextChangedAsync" />
-                    <label class="form-check-label" for="auto-add-up-next">Add new episodes to Up Next</label>
-                </div>
-                <div class="form-text">
-                    New episodes from your subscriptions are added to your Up Next queue automatically.
-                    You can override this per show from a show's page.
-                </div>
-                @if (autoAddUpNextSaveError is not null)
-                {
-                    <p class="text-danger mt-1 mb-0">@autoAddUpNextSaveError</p>
-                }
-                else if (autoAddUpNextSaveSavedConfirmation)
-                {
-                    <p class="text-success mt-1 mb-0">Saved.</p>
-                }
-            </div>
-
-            <div class="mb-3" style="max-width: 24rem;">
-                <label class="form-label" for="up-next-insert-position">Add to</label>
-                <select id="up-next-insert-position" class="form-select" disabled="@isUpNextInsertPositionSaving"
-                        value="@selectedUpNextInsertPosition" @onchange="OnUpNextInsertPositionChangedAsync">
-                    <option value="@UpNextInsertPosition.Bottom">Bottom of the queue</option>
-                    <option value="@UpNextInsertPosition.Top">Top of the queue</option>
-                </select>
-                @if (upNextInsertPositionSaveError is not null)
-                {
-                    <p class="text-danger mt-1 mb-0">@upNextInsertPositionSaveError</p>
-                }
-                else if (upNextInsertPositionSaveSavedConfirmation)
-                {
-                    <p class="text-success mt-1 mb-0">Saved.</p>
-                }
-            </div>
-
             <h2 class="h5 mt-4">Downloads &amp; Storage</h2>
 
             <div class="mb-3" style="max-width: 24rem;">
@@ -348,14 +308,6 @@
     private bool isAutoDownloadSaving;
     private string? autoDownloadSaveError;
     private bool autoDownloadSaveSavedConfirmation;
-    private bool selectedAutoAddNewEpisodesToUpNext;
-    private bool isAutoAddUpNextSaving;
-    private string? autoAddUpNextSaveError;
-    private bool autoAddUpNextSaveSavedConfirmation;
-    private UpNextInsertPosition selectedUpNextInsertPosition;
-    private bool isUpNextInsertPositionSaving;
-    private string? upNextInsertPositionSaveError;
-    private bool upNextInsertPositionSaveSavedConfirmation;
     private AutoDeleteRule selectedAutoDeleteRule;
     private int selectedAutoDeleteAfterDays;
     private bool isAutoDeleteSaving;
@@ -433,8 +385,6 @@
             selectedSmartSpeed = settings.SmartSpeed;
             selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
             selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
-            selectedAutoAddNewEpisodesToUpNext = settings.AutoAddNewEpisodesToUpNext;
-            selectedUpNextInsertPosition = settings.UpNextInsertPosition;
             selectedAutoDeleteRule = settings.AutoDeleteRule;
             selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
         }
@@ -486,8 +436,6 @@
         selectedSmartSpeed = settings.SmartSpeed;
         selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
         selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
-        selectedAutoAddNewEpisodesToUpNext = settings.AutoAddNewEpisodesToUpNext;
-        selectedUpNextInsertPosition = settings.UpNextInsertPosition;
         selectedAutoDeleteRule = settings.AutoDeleteRule;
         selectedAutoDeleteAfterDays = settings.AutoDeleteAfterDays;
 
@@ -765,64 +713,6 @@
         finally
         {
             isAutoDownloadSaving = false;
-        }
-
-        await SyncOwnWriteBestEffortAsync();
-    }
-
-    private async Task OnAutoAddNewEpisodesToUpNextChangedAsync(ChangeEventArgs args)
-    {
-        var value = args.Value is bool boolValue && boolValue;
-        var previous = selectedAutoAddNewEpisodesToUpNext;
-        selectedAutoAddNewEpisodesToUpNext = value;
-        isAutoAddUpNextSaving = true;
-        autoAddUpNextSaveError = null;
-        autoAddUpNextSaveSavedConfirmation = false;
-
-        try
-        {
-            await SettingsClient.UpdateAutoAddNewEpisodesToUpNextAsync(value);
-            autoAddUpNextSaveSavedConfirmation = true;
-        }
-        catch (HttpRequestException)
-        {
-            selectedAutoAddNewEpisodesToUpNext = previous;
-            autoAddUpNextSaveError = "Something went wrong while saving. Please try again.";
-        }
-        finally
-        {
-            isAutoAddUpNextSaving = false;
-        }
-
-        await SyncOwnWriteBestEffortAsync();
-    }
-
-    private async Task OnUpNextInsertPositionChangedAsync(ChangeEventArgs args)
-    {
-        if (!Enum.TryParse<UpNextInsertPosition>(args.Value?.ToString(), out var value))
-        {
-            return;
-        }
-
-        var previous = selectedUpNextInsertPosition;
-        selectedUpNextInsertPosition = value;
-        isUpNextInsertPositionSaving = true;
-        upNextInsertPositionSaveError = null;
-        upNextInsertPositionSaveSavedConfirmation = false;
-
-        try
-        {
-            await SettingsClient.UpdateUpNextInsertPositionAsync(value);
-            upNextInsertPositionSaveSavedConfirmation = true;
-        }
-        catch (HttpRequestException)
-        {
-            selectedUpNextInsertPosition = previous;
-            upNextInsertPositionSaveError = "Something went wrong while saving. Please try again.";
-        }
-        finally
-        {
-            isUpNextInsertPositionSaving = false;
         }
 
         await SyncOwnWriteBestEffortAsync();

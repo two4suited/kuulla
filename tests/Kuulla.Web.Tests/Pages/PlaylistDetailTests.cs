@@ -20,6 +20,51 @@ public class PlaylistDetailTests : WebTestContext
     private static PlaylistDetail MakeDetail(params PlaylistItemDetail[] items) =>
         new("playlist-1", "Commute", PlaylistType.Manual, items, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
 
+    private static PlaylistDetail MakeUpNextDetail(params PlaylistItemDetail[] items) =>
+        new("up-next-1", "Up Next", PlaylistType.Manual, items, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+    private static readonly UserSettings DefaultSettings =
+        new("user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never);
+
+    // Serves an Up Next playlist plus the settings GET/PUTs its edit panel now drives (#510).
+    private static TestHttpMessageHandler UpNextHandler(
+        PlaylistDetail detail, UserSettings? settings = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onSettingsPut = null) => new(request =>
+    {
+        var path = request.RequestUri!.AbsolutePath;
+
+        if (path == "/api/playlists/up-next-1" && request.Method == HttpMethod.Get)
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) };
+        }
+
+        if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Dictionary<string, EpisodeState>()) };
+        }
+
+        if (path == "/api/sync/playlists")
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { ServerChanges = Array.Empty<Playlist>(), SyncedAt = DateTimeOffset.UtcNow, Hash = "h1" }),
+            };
+        }
+
+        if (path == "/api/settings" && request.Method == HttpMethod.Get)
+        {
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(settings ?? DefaultSettings) };
+        }
+
+        if (path.StartsWith("/api/settings/") && request.Method == HttpMethod.Put)
+        {
+            return onSettingsPut?.Invoke(request)
+                ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(settings ?? DefaultSettings) };
+        }
+
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
+    });
+
     [Fact]
     public void RendersPlaylistItems_WhenLoadSucceeds()
     {
@@ -315,6 +360,113 @@ public class PlaylistDetailTests : WebTestContext
         cut.Find("button.btn-outline-danger").Click();
 
         cut.WaitForAssertion(() => Assert.DoesNotContain("Episode One", cut.Markup));
+    }
+
+    [Fact]
+    public void RendersUpNextQueueSettings_InEditPanel_WhenPlaylistIsUpNext()
+    {
+        var detail = MakeUpNextDetail(new PlaylistItemDetail("ep-1", "show-1", "Monday Edition", null, DateTimeOffset.UtcNow, "m"));
+        ConfigureApi(UpNextHandler(detail, settings: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            AutoAddNewEpisodesToUpNext: true, UpNextInsertPosition: UpNextInsertPosition.Top)));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "up-next-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Edit playlist")).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Queue behaviour", cut.Markup);
+            Assert.True(cut.Find("#up-next-auto-add").HasAttribute("checked"));
+            Assert.Equal("Top", cut.Find("#up-next-insert-position").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void DoesNotRenderQueueSettings_WhenPlaylistIsNotUpNext()
+    {
+        ConfigureApi(TestHttpMessageHandler.Json(MakeDetail()));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Edit playlist", cut.Markup));
+
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Edit playlist")).Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("Playlist name", cut.Markup));
+        Assert.DoesNotContain("Queue behaviour", cut.Markup);
+        Assert.Empty(cut.FindAll("#up-next-auto-add"));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsAutoAdd_WhenToggledInEditPanel()
+    {
+        var detail = MakeUpNextDetail();
+        string? putPath = null;
+        ConfigureApi(UpNextHandler(detail, onSettingsPut: request =>
+        {
+            putPath = request.RequestUri!.AbsolutePath;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) };
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "up-next-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Edit playlist", cut.Markup));
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Edit playlist")).Click();
+
+        cut.WaitForAssertion(() => cut.Find("#up-next-auto-add"));
+        cut.Find("#up-next-auto-add").Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("/api/settings/auto-add-up-next", putPath);
+            Assert.Contains("Saved.", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void SavesAndConfirmsInsertPosition_WhenChangedInEditPanel()
+    {
+        var detail = MakeUpNextDetail();
+        string? putPath = null;
+        ConfigureApi(UpNextHandler(detail, onSettingsPut: request =>
+        {
+            putPath = request.RequestUri!.AbsolutePath;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) };
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "up-next-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Edit playlist", cut.Markup));
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Edit playlist")).Click();
+
+        cut.WaitForAssertion(() => cut.Find("#up-next-insert-position"));
+        cut.Find("#up-next-insert-position").Change("Top");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("/api/settings/up-next-insert-position", putPath);
+            Assert.Contains("Saved.", cut.Markup);
+        });
+    }
+
+    [Fact]
+    public void ShowsErrorAndRevertsAutoAdd_WhenSaveFailsInEditPanel()
+    {
+        var detail = MakeUpNextDetail();
+        ConfigureApi(UpNextHandler(detail, onSettingsPut: _ =>
+            new HttpResponseMessage(HttpStatusCode.InternalServerError)));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "up-next-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Edit playlist", cut.Markup));
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Edit playlist")).Click();
+
+        cut.WaitForAssertion(() => Assert.False(cut.Find("#up-next-auto-add").HasAttribute("checked")));
+        cut.Find("#up-next-auto-add").Change(true);
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.False(cut.Find("#up-next-auto-add").HasAttribute("checked"));
+        });
     }
 
     [Fact]

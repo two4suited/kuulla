@@ -34,7 +34,7 @@
     // by this well-known name, rather than a separate backend concept — there's no per-user
     // "default playlist" notion in the API, and the Playlist/PlaylistItem domain from milestone
     // #14 already covers everything a manually-managed reorderable queue needs.
-    private const string UpNextPlaylistName = "Up Next";
+    private const string UpNextPlaylistName = WellKnownPlaylists.UpNextName;
 
     private bool isResolving;
     private string? resolveError;
