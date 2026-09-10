@@ -2,14 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>GIDClientID</key>
-	<string>163850683765-f001fg94vqrnjsh2m2gnmuees0ddhnhd.apps.googleusercontent.com</string>
-	<key>UIAppFonts</key>
-	<array>
-		<string>Manrope.ttf</string>
-		<string>SpaceGrotesk.ttf</string>
-		<string>JetBrainsMono.ttf</string>
-	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.kuulla.app.sync.episodes</string>
@@ -25,24 +17,32 @@
 			</array>
 		</dict>
 	</array>
+	<key>GIDClientID</key>
+	<string>163850683765-f001fg94vqrnjsh2m2gnmuees0ddhnhd.apps.googleusercontent.com</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Manrope.ttf</string>
+		<string>SpaceGrotesk.ttf</string>
+		<string>JetBrainsMono.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<true/>
 		<key>UISceneConfigurations</key>
 		<dict>
-			<key>UIWindowSceneSessionRoleApplication</key>
-			<array>
-				<dict>
-					<key>UISceneConfigurationName</key>
-					<string>Default Configuration</string>
-				</dict>
-			</array>
 			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
 			<array>
 				<dict>
 					<key>UISceneConfigurationName</key>
 					<string>CarPlay Configuration</string>
+				</dict>
+			</array>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
 				</dict>
 			</array>
 		</dict>
