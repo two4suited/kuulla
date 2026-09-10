@@ -61,6 +61,43 @@ final class DownloadCleanupTests: XCTestCase {
         XCTAssertTrue(try context.fetch(descriptor).isEmpty)
     }
 
+    // Regression (#517): DownloadsView lists rows by fetching every DownloadedEpisodeRecord
+    // sorted by downloadedAt desc and filtering to .complete in Swift (it used to fetch only
+    // .complete in a one-shot #Predicate that never re-ran when a download finished on screen).
+    // This locks in that a record flipping .downloading -> .complete on a *separate*
+    // ModelContext — exactly what DownloadManager's background-session callback does — becomes
+    // visible to a fresh fetch on another context of the same container, newest first.
+    func testCompletedDownloadBecomesVisibleAndSortsNewestFirst() throws {
+        let container = try makeContainer()
+        let writeContext = ModelContext(container)
+
+        let older = makeRecord(id: "old", fileSizeBytes: 10, localFilePath: "old.mp3")
+        older.downloadedAt = Date(timeIntervalSince1970: 1_000)
+        let pending = makeRecord(id: "new", fileSizeBytes: 0, localFilePath: "")
+        pending.status = .downloading
+        pending.downloadedAt = Date(timeIntervalSince1970: 2_000)
+        writeContext.insert(older)
+        writeContext.insert(pending)
+        try writeContext.save()
+
+        func completeRows(in context: ModelContext) throws -> [DownloadedEpisodeRecord] {
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(
+                sortBy: [SortDescriptor(\.downloadedAt, order: .reverse)])
+            return try context.fetch(descriptor).filter { $0.status == .complete }
+        }
+
+        XCTAssertEqual(try completeRows(in: ModelContext(container)).map(\.id), ["old"])
+
+        // Simulate the download finishing on the writer's context.
+        pending.status = .complete
+        pending.fileSizeBytes = 5_000
+        try writeContext.save()
+
+        let visible = try completeRows(in: ModelContext(container))
+        XCTAssertEqual(visible.map(\.id), ["new", "old"])
+        XCTAssertEqual(DownloadCleanup.totalBytes(for: visible), 5_010)
+    }
+
     // Regression: a localFilePath containing ".." must not let deletion escape the sandboxed
     // downloads directory onto some other file on disk.
     func testDeleteWithPathTraversalLocalFilePathDoesNotEscapeDownloadsDirectory() throws {

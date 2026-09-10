@@ -8,11 +8,22 @@ import SwiftUI
 struct DownloadsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.editMode) private var editMode
-    @State private var records: [DownloadedEpisodeRecord] = []
+    // @Query (rather than a one-shot fetch in .task) so a download that finishes while this
+    // screen is already on screen shows up without a relaunch — SwiftData re-runs the query
+    // when DownloadManager's background-session callback saves the .complete record on its own
+    // ModelContext, and likewise when a download is deleted from an episode screen (#517).
+    // Status is filtered in Swift, not the #Predicate, to sidestep SwiftData's flaky enum
+    // comparison in compiled predicates.
+    @Query(sort: \DownloadedEpisodeRecord.downloadedAt, order: .reverse)
+    private var allRecords: [DownloadedEpisodeRecord]
     @State private var episodesById: [String: Episode] = [:]
     @State private var deleteError: String?
 
     private let catalogClient = PodcastCatalogClient()
+
+    private var records: [DownloadedEpisodeRecord] {
+        allRecords.filter { $0.status == .complete }
+    }
 
     private var totalBytes: Int {
         DownloadCleanup.totalBytes(for: records)
@@ -57,8 +68,7 @@ struct DownloadsView: View {
                 }
             }
         }
-        .task {
-            load()
+        .task(id: records.map(\.id)) {
             await loadEpisodeMetadata()
         }
     }
@@ -69,15 +79,6 @@ struct DownloadsView: View {
         return formatter
     }()
 
-    private func load() {
-        let completeStatus = DownloadStatus.complete
-        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(
-            predicate: #Predicate { $0.status == completeStatus },
-            sortBy: [SortDescriptor(\.downloadedAt, order: .reverse)]
-        )
-        records = (try? modelContext.fetch(descriptor)) ?? []
-    }
-
     // Best-effort: episode titles/artwork are a display nicety fetched from the catalog, not
     // something stored on DownloadedEpisodeRecord itself (#174's schema is deliberately minimal —
     // just enough to locate/manage the file). A fetch failure leaves that row showing its
@@ -86,7 +87,12 @@ struct DownloadsView: View {
     // burst-request the API for every row simultaneously. Looks up by plain (id, showId) pairs,
     // not the DownloadedEpisodeRecord itself, so no @Model instance crosses into a child task.
     private func loadEpisodeMetadata() async {
-        let lookups = records.map { (id: $0.id, showId: $0.showId) }
+        // Only fetch rows we don't already have metadata for — this runs again every time a new
+        // download appears, and re-requesting every existing row's episode each time would
+        // burst the API on an unrelated change.
+        let lookups = records
+            .filter { episodesById[$0.id] == nil }
+            .map { (id: $0.id, showId: $0.showId) }
         let maxConcurrentRequests = 4
         var nextIndex = 0
 
@@ -113,13 +119,15 @@ struct DownloadsView: View {
         }
     }
 
+    // No manual list mutation on success — @Query re-runs off the same ModelContext save and
+    // drops the deleted rows on its own.
     private func deleteRecords(at offsets: IndexSet) {
         deleteError = nil
-        guard DownloadCleanup.delete(offsets.map { records[$0] }, from: modelContext) else {
+        let current = records
+        guard DownloadCleanup.delete(offsets.map { current[$0] }, from: modelContext) else {
             deleteError = "Something went wrong while deleting. Please try again."
             return
         }
-        records.remove(atOffsets: offsets)
     }
 
     private func deleteAll() {
@@ -128,7 +136,6 @@ struct DownloadsView: View {
             deleteError = "Something went wrong while deleting. Please try again."
             return
         }
-        records = []
     }
 }
 
