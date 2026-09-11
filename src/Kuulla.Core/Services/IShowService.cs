@@ -9,9 +9,10 @@ public interface IShowService
     // Get (or lazily create) a Show from just its RSS feed URL — the only identifier an OPML
     // entry carries. The Show.Id is derived deterministically from the normalized feed URL so
     // repeated imports of the same feed collapse to one show. Returns null when the feed can't
-    // be fetched or parsed, so the importer can record a per-entry failure. When a feed was
-    // actually fetched, FeedShow.LatestEpisodePublishedAt carries its newest episode date so the
-    // importer can seed the "Latest episode" sort key without a second fetch (#501).
+    // be fetched or parsed, so the importer can record a per-entry failure — but only for a
+    // brand-new feed; when the show already exists a fetch failure still returns it, just with a
+    // null date. The feed is fetched even for an already-known show so FeedShow.LatestEpisodePublishedAt
+    // can seed the "Latest episode" sort key on subscribe (#501, #516).
     Task<FeedShow?> GetOrCreateByFeedUrlAsync(string feedUrl, CancellationToken cancellationToken);
 
     // A plain point-read for just a show's feed URL — no description enrichment / feed fetch,
