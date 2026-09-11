@@ -35,9 +35,6 @@ static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app)
 // explicit .WithComputeEnvironment(...) calls.
 var aca = builder.AddAzureContainerAppEnvironment("aca");
 
-// Purge old CI-built image tags so the auto-provisioned ACR (Basic tier, 10 GB) doesn't grow into
-// a storage-overage charge as releases accumulate — currently at ~9% of the limit, but each tagged
-// release (api/web/feed-poller) adds a new image. Runs weekly (Sunday 03:00 UTC, low-traffic);
 // keeps only the 5 most recent tags per repo regardless of age (ago omitted = 0d, so nothing is
 // exempt by age), so a rollback to a recent release tag always has something to roll back to.
 // Publish-mode only: the ACR task itself is a deployed Azure resource, nothing to do locally.
