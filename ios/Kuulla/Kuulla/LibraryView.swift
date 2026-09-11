@@ -286,7 +286,10 @@ struct LibraryView: View {
                 LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(displayedSubscriptions) { subscription in
                         NavigationLink(value: CatalogRoute.show(id: subscription.showId)) {
-                            ShowTile(subscription: subscription, unplayedCount: unplayedCounts[subscription.showId])
+                            ShowTile(
+                            subscription: subscription,
+                            unplayedCount: unplayedCounts[subscription.showId],
+                            isInProgress: inProgressShowIds.contains(subscription.showId))
                         }
                         .buttonStyle(.plain)
                     }
@@ -308,7 +311,9 @@ struct LibraryView: View {
             List {
                 ForEach(subscriptions) { subscription in
                     SubscriptionManualReorderRow(
-                        subscription: subscription, unplayedCount: unplayedCounts[subscription.showId])
+                        subscription: subscription,
+                        unplayedCount: unplayedCounts[subscription.showId],
+                        isInProgress: inProgressShowIds.contains(subscription.showId))
                 }
                 .onMove(perform: moveSubscription)
             }
@@ -393,6 +398,7 @@ private struct ShelfTile: View {
 private struct ShowTile: View {
     let subscription: Subscription
     let unplayedCount: UnplayedCounts.Count?
+    var isInProgress = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -421,8 +427,14 @@ private struct ShowTile: View {
                     .padding(4)
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            if isInProgress {
+                InProgressShowBadge()
+                    .padding(4)
+            }
+        }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(subscription.showTitle)
+        .accessibilityLabel(isInProgress ? "\(subscription.showTitle), in progress" : subscription.showTitle)
     }
 }
 
