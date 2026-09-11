@@ -15,6 +15,7 @@ public class PlaylistServiceTests
     private readonly Mock<Container> _playlistsContainer = new();
     private readonly Mock<IEpisodeService> _episodeService = new();
     private readonly Mock<IEpisodeStateService> _episodeStateService = new();
+    private readonly Mock<ISettingsService> _settingsService = new();
     private readonly Mock<IShowService> _showService = new();
     private readonly PlaylistService _sut;
 
@@ -26,8 +27,15 @@ public class PlaylistServiceTests
             .Setup(s => s.GetShowStatesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((IReadOnlyList<EpisodeState>)[]);
 
+        // Default: no unlistened-episode limit, so the whole (unplayed) back catalogue is eligible —
+        // tests that exercise the limit override this per show.
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Unlimited);
+
         _sut = new PlaylistService(
-            _playlistsContainer.Object, _episodeService.Object, _episodeStateService.Object, _showService.Object);
+            _playlistsContainer.Object, _episodeService.Object, _episodeStateService.Object,
+            _settingsService.Object, _showService.Object);
     }
 
     private static Playlist MakePlaylist(
@@ -188,6 +196,60 @@ public class PlaylistServiceTests
         var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, null, null, CancellationToken.None);
 
         Assert.Equal(["in-progress", "fresh"], result.Items.Select(i => i.EpisodeId));
+    }
+
+    [Fact]
+    public async Task CreateDynamicPlaylistAsync_RespectsUnlistenedEpisodeLimit()
+    {
+        var config = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: null, PriorityList: [ShowId]);
+
+        var epoch = DateTimeOffset.UnixEpoch;
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("newest", ShowId, epoch.AddDays(4)),
+                MakeEpisode("second", ShowId, epoch.AddDays(3)),
+                MakeEpisode("old", ShowId, epoch.AddDays(2)),
+                MakeEpisode("ancient", ShowId, epoch.AddDays(1))]);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Two);
+        SetUpEmptyQuery();
+
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, null, null, CancellationToken.None);
+
+        Assert.Equal(["newest", "second"], result.Items.Select(i => i.EpisodeId));
+    }
+
+    [Fact]
+    public async Task CreateDynamicPlaylistAsync_KeepsBeyondLimitEpisodeThatHasState()
+    {
+        var config = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: null, PriorityList: [ShowId]);
+
+        var epoch = DateTimeOffset.UnixEpoch;
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[
+                MakeEpisode("newest", ShowId, epoch.AddDays(3)),
+                MakeEpisode("second", ShowId, epoch.AddDays(2)),
+                MakeEpisode("old-in-progress", ShowId, epoch.AddDays(1))]);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[MakeState("old-in-progress", positionSeconds: 300)]);
+        _settingsService
+            .Setup(s => s.GetEffectiveUnlistenedEpisodeCountAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(UnlistenedEpisodeCount.Two);
+        SetUpEmptyQuery();
+
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.CreateDynamicPlaylistAsync(UserId, "Dynamic Playlist", config, null, null, CancellationToken.None);
+
+        Assert.Equal(["newest", "second", "old-in-progress"], result.Items.Select(i => i.EpisodeId));
     }
 
     private static EpisodeState MakeState(

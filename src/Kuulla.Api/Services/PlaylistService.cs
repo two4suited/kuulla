@@ -11,6 +11,7 @@ public class PlaylistService(
     [FromKeyedServices("playlists")] Container playlistsContainer,
     IEpisodeService episodeService,
     IEpisodeStateService episodeStateService,
+    ISettingsService settingsService,
     IShowService showService) : IPlaylistService
 {
     private readonly SyncReconciler<Playlist, PlaylistChange> _reconciler = new();
@@ -99,6 +100,12 @@ public class PlaylistService(
     // with played episodes and the "N episodes total" count dwarfs the handful actually left to
     // hear (#433). An in-progress episode (a saved position but not Completed) is deliberately
     // kept so a partially-heard episode isn't dropped before it's finished.
+    // The show's effective unlistened-episode limit (#97) is also applied here: only the N
+    // most-recent episodes of a show are eligible, matching what EnforceUnlistenedLimitAsync
+    // would eventually auto-mark played on the next feed sweep. Without this, adding a show with
+    // a large unplayed back catalogue to a dynamic playlist dumps the whole archive in before
+    // enforcement has run. Episodes past the limit that already carry a state (in-progress, or a
+    // manual "mark unplayed") are left in, exactly as the enforcement job leaves them alone.
     private async Task<IReadOnlyList<PlaylistItem>> ComputeDynamicItemsAsync(
         string userId, DynamicPlaylistConfig config, CancellationToken cancellationToken)
     {
@@ -114,15 +121,34 @@ public class PlaylistService(
         {
             var episodesTask = episodeService.GetAllEpisodesOrderedAsync(showId, cancellationToken);
             var statesTask = episodeStateService.GetShowStatesAsync(userId, showId, cancellationToken);
-            await Task.WhenAll(episodesTask, statesTask);
-            return (showId, episodes: episodesTask.Result, states: statesTask.Result);
+            var limitTask = settingsService.GetEffectiveUnlistenedEpisodeCountAsync(userId, showId, cancellationToken);
+            await Task.WhenAll(episodesTask, statesTask, limitTask);
+            return (showId, episodes: episodesTask.Result, states: statesTask.Result, limit: limitTask.Result);
         }));
 
-        var playedEpisodeIds = perShow
-            .SelectMany(x => x.states)
-            .Where(state => state.Completed || state.AutoPlayed)
-            .Select(state => state.EpisodeId)
-            .ToHashSet();
+        var excludedEpisodeIds = new HashSet<string>();
+        foreach (var show in perShow)
+        {
+            var episodeIdsWithState = show.states.Select(state => state.EpisodeId).ToHashSet();
+
+            foreach (var state in show.states.Where(state => state.Completed || state.AutoPlayed))
+            {
+                excludedEpisodeIds.Add(state.EpisodeId);
+            }
+
+            // show.episodes is newest-first (GetAllEpisodesOrderedAsync). Everything past the
+            // effective limit is dropped unless it already has a play state — see the doc comment.
+            if (show.limit != UnlistenedEpisodeCount.Unlimited)
+            {
+                foreach (var episode in show.episodes.Skip((int)show.limit))
+                {
+                    if (!episodeIdsWithState.Contains(episode.Id))
+                    {
+                        excludedEpisodeIds.Add(episode.Id);
+                    }
+                }
+            }
+        }
 
         var addedAt = DateTimeOffset.UtcNow;
 
@@ -131,7 +157,7 @@ public class PlaylistService(
         var ordered = perShow
             .OrderBy(x => showRank.TryGetValue(x.showId, out var rank) ? rank : int.MaxValue)
             .SelectMany(x => x.episodes.Select(episode => (x.showId, episode)))
-            .Where(x => !playedEpisodeIds.Contains(x.episode.Id))
+            .Where(x => !excludedEpisodeIds.Contains(x.episode.Id))
             .Take(config.MaxEpisodes ?? PlaylistRankGenerator.UnboundedSafetyCap);
 
         var items = new List<PlaylistItem>();
