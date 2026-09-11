@@ -87,6 +87,20 @@ struct StatusBadge: View {
     }
 }
 
+// Small corner indicator for a show tile / row telling the user they have an episode of this
+// show partway through. Mirrors EpisodeStatus.inProgress's warning tint so the "in progress"
+// meaning stays consistent between the episode lists and the show grid.
+struct InProgressShowBadge: View {
+    var body: some View {
+        Image(systemName: "waveform")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(5)
+            .background(KuullaColor.warning, in: Circle())
+            .overlay(Circle().stroke(.white, lineWidth: 1.5))
+    }
+}
+
 // Trailing status indicator for an episode row: the badge, plus a "Restore" action when the
 // episode was auto-marked played (#100). Shared by FeedView and ShowDetailView's episode rows.
 struct StatusBadgeWithRestore: View {

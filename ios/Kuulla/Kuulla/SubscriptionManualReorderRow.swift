@@ -5,6 +5,7 @@ import SwiftUI
 struct SubscriptionManualReorderRow: View {
     let subscription: Subscription
     let unplayedCount: UnplayedCounts.Count?
+    var isInProgress = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -21,6 +22,13 @@ struct SubscriptionManualReorderRow: View {
                 .lineLimit(2)
 
             Spacer(minLength: 0)
+
+            if isInProgress {
+                Image(systemName: "waveform")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(KuullaColor.warning)
+                    .accessibilityLabel("In progress")
+            }
 
             if let unplayedCount, unplayedCount.unplayed > 0 {
                 Text(unplayedCount.hitCap ? "\(unplayedCount.unplayed)+" : "\(unplayedCount.unplayed)")

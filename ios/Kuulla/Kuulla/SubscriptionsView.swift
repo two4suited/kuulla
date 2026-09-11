@@ -91,7 +91,8 @@ struct SubscriptionsView: View {
                         NavigationLink(value: CatalogRoute.show(id: subscription.showId)) {
                             SubscriptionTile(
                                 subscription: subscription,
-                                unplayedCount: unplayedCounts[subscription.showId])
+                                unplayedCount: unplayedCounts[subscription.showId],
+                                isInProgress: inProgressShowIds.contains(subscription.showId))
                         }
                         .buttonStyle(.plain)
                     }
@@ -163,7 +164,9 @@ struct SubscriptionsView: View {
             List {
                 ForEach(subscriptions) { subscription in
                     SubscriptionManualReorderRow(
-                        subscription: subscription, unplayedCount: unplayedCounts[subscription.showId])
+                        subscription: subscription,
+                        unplayedCount: unplayedCounts[subscription.showId],
+                        isInProgress: inProgressShowIds.contains(subscription.showId))
                 }
                 .onMove(perform: moveSubscription)
             }
@@ -249,6 +252,7 @@ struct SubscriptionsView: View {
 private struct SubscriptionTile: View {
     let subscription: Subscription
     let unplayedCount: UnplayedCounts.Count?
+    var isInProgress = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -277,8 +281,14 @@ private struct SubscriptionTile: View {
                     .padding(4)
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            if isInProgress {
+                InProgressShowBadge()
+                    .padding(4)
+            }
+        }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(subscription.showTitle)
+        .accessibilityLabel(isInProgress ? "\(subscription.showTitle), in progress" : subscription.showTitle)
     }
 }
 
