@@ -35,6 +35,18 @@ static void ScaleToZero(AzureResourceInfrastructure _, ContainerApp app)
 // explicit .WithComputeEnvironment(...) calls.
 var aca = builder.AddAzureContainerAppEnvironment("aca");
 
+// Purge old CI-built image tags so the auto-provisioned ACR (Basic tier, 10 GB) doesn't grow into
+// a storage-overage charge as releases accumulate — currently at ~9% of the limit, but each tagged
+// release (api/web/feed-poller) adds a new image. Runs weekly (Sunday 03:00 UTC, low-traffic);
+// keeps the 10 most recent tags per repo and only purges beyond that among images older than 30
+// days, so a rollback to a recent release tag always has something to roll back to. Publish-mode
+// only: the ACR task itself is a deployed Azure resource, nothing to do locally.
+if (builder.ExecutionContext.IsPublishMode)
+{
+    aca.GetAzureContainerRegistry()
+        .WithPurgeTask("0 3 * * 0", keep: 10, ago: TimeSpan.FromDays(30));
+}
+
 // Production telemetry backend (issue #366): ServiceDefaults' OTel wiring already exports to
 // the Aspire dashboard locally via OTLP; WithReference below sets APPLICATIONINSIGHTS_CONNECTION_STRING
 // on api/web so Azure.Monitor.OpenTelemetry.AspNetCore additionally exports there once deployed.
