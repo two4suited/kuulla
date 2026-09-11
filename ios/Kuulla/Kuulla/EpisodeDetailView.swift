@@ -182,17 +182,18 @@ struct EpisodeDetailView: View {
         .foregroundStyle(KuullaColor.textMuted)
 
         if let audioURL {
-            HStack {
-                Button {
-                    togglePlayback(url: audioURL)
-                } label: {
-                    Label(isPlaying(audioURL) ? "Pause" : "Play", systemImage: isPlaying(audioURL) ? "pause.fill" : "play.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-
-                DownloadButton(episode: episode, status: downloadStatus, onDidFinish: loadLocalState)
+            // Play is the one large, prominent action (docs/brand.md §9 — lime is reserved for
+            // it). Everything else — download, speed, sleep, mark-played, add-to-playlist — sits
+            // in a compact icon row below at a deliberately smaller visual weight.
+            Button {
+                togglePlayback(url: audioURL)
+            } label: {
+                Label(isPlaying(audioURL) ? "Pause" : "Play", systemImage: isPlaying(audioURL) ? "pause.fill" : "play.fill")
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+
+            episodeControlRow(episode)
 
             // AudioPlayer.shared is a single global instance, so the message must be
             // matched against this screen's own audioURL — otherwise a message left
@@ -259,53 +260,91 @@ struct EpisodeDetailView: View {
         }
     }
 
+    // Compact secondary-action row shown directly under Play: speed (a value pill), download,
+    // sleep timer, mark-played, add-to-playlist. Deliberately low visual weight next to the
+    // full-width lime Play button — icon-only, neutral chrome, lime tint only on the one or two
+    // that are genuinely in an active state (docs/brand.md §9).
     @ViewBuilder
-    private func episodeActions(_ episode: Episode) -> some View {
-        Button {
-            cyclePlaybackSpeed()
-        } label: {
-            Label("\(playbackSpeedLabel) speed", systemImage: "speedometer")
-                .frame(maxWidth: .infinity)
+    private func episodeControlRow(_ episode: Episode) -> some View {
+        HStack(spacing: Space.sm) {
+            Button {
+                cyclePlaybackSpeed()
+            } label: {
+                Text(playbackSpeedLabel)
+                    .font(.kuullaMono(13))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .foregroundStyle(playbackSpeed == 1.0 ? KuullaColor.textMuted : KuullaColor.signalInk)
+            }
+            .buttonStyle(.plain)
+            // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
+            // resolved from settings yet — cycling from an unresolved value would itself get
+            // overwritten the moment that fetch lands.
+            .disabled(isLoading)
+            .modifier(EpisodeControlChrome(isActive: playbackSpeed != 1.0))
+            .accessibilityLabel("Playback speed, \(playbackSpeedLabel)")
+            .accessibilityHint("Cycles to the next speed")
+
+            DownloadButton(episode: episode, status: downloadStatus, onDidFinish: loadLocalState, fillsContainer: true)
+                .modifier(EpisodeControlChrome())
+
+            Button {
+                isShowingSleepTimer = true
+            } label: {
+                Image(systemName: sleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
+                    .font(.system(size: 16))
+                    .foregroundStyle(sleepTimerActive ? KuullaColor.signalInk : KuullaColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .modifier(EpisodeControlChrome(isActive: sleepTimerActive))
+            .accessibilityLabel(sleepTimerButtonTitle)
+
+            Button {
+                Task { await handleCompletedButtonTapped() }
+            } label: {
+                Image(systemName: isCompletedState ? "checkmark.circle.fill" : "checkmark.circle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(isCompletedState ? KuullaColor.signalInk : KuullaColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .modifier(EpisodeControlChrome(isActive: isCompletedState))
+            .accessibilityLabel(completedButtonTitle)
+
+            Button {
+                isShowingAddToPlaylist = true
+            } label: {
+                Image(systemName: "text.badge.plus")
+                    .font(.system(size: 16))
+                    .foregroundStyle(KuullaColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .modifier(EpisodeControlChrome())
+            .accessibilityLabel("Add to Playlist")
         }
-        .buttonStyle(.bordered)
-        // Secondary actions stay neutral — lime is reserved for the one primary
-        // action (Play) per docs/brand.md §9.
-        .tint(KuullaColor.textMuted)
-        // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
-        // resolved from settings yet — cycling from an unresolved value here would
-        // itself get overwritten the moment that fetch lands.
-        .disabled(isLoading)
+
         if let playbackSpeedSaveError {
             Text(playbackSpeedSaveError)
                 .font(.caption)
                 .foregroundStyle(KuullaColor.danger)
         }
+    }
 
-        Button {
-            isShowingSleepTimer = true
-        } label: {
-            Label(sleepTimerButtonTitle, systemImage: "moon.zzz")
-                .frame(maxWidth: .infinity)
+    // True whenever this episode is marked played (manually or auto-played) — drives the
+    // checkmark's filled/lime treatment, the state the old text button carried in its label.
+    private var isCompletedState: Bool {
+        switch status {
+        case .played, .autoPlayed: true
+        case .new, .inProgress: false
         }
-        .buttonStyle(.bordered)
-        .tint(KuullaColor.textMuted)
+    }
 
-        Button(completedButtonTitle) {
-            Task { await handleCompletedButtonTapped() }
-        }
-        .buttonStyle(.bordered)
-        .tint(KuullaColor.textMuted)
-        .frame(maxWidth: .infinity)
+    // Any sleep timer mode running — a countdown or end-of-episode.
+    private var sleepTimerActive: Bool {
+        audioPlayer.sleepTimerEndOfEpisodeEnabled || audioPlayer.sleepTimerRemainingSeconds != nil
+    }
 
-        Button {
-            isShowingAddToPlaylist = true
-        } label: {
-            Label("Add to Playlist", systemImage: "text.badge.plus")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .tint(KuullaColor.textMuted)
-
+    @ViewBuilder
+    private func episodeShowNotes(_ episode: Episode) -> some View {
         if let description = episode.description, !description.isEmpty {
             Text("Show notes")
                 .font(.kuullaTitle(17, relativeTo: .headline))
@@ -322,7 +361,7 @@ struct EpisodeDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let episode {
                     episodeHeader(episode)
-                    episodeActions(episode)
+                    episodeShowNotes(episode)
                 } else if let loadError {
                     Text(loadError)
                         .foregroundStyle(KuullaColor.danger)
@@ -911,6 +950,26 @@ struct EpisodeDetailView: View {
         // still present and downloadStatus must keep showing .complete, not go stale as nil.
         guard DownloadCleanup.delete([record], from: modelContext) else { return }
         downloadStatus = nil
+    }
+}
+
+// Shared chrome for the episode control row's compact buttons: an equal-width, ~40pt-tall
+// neutral raised square. `isActive` swaps in the lime-soft fill + lime hairline for buttons
+// that are in a live/enabled state (non-default speed, running sleep timer, marked played).
+private struct EpisodeControlChrome: ViewModifier {
+    var isActive = false
+
+    func body(content: Content) -> some View {
+        content
+            // 44pt keeps every cell at the HIG minimum tap target even though the glyphs are small.
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+            .background(isActive ? KuullaColor.signalSoft : KuullaColor.surfaceRaised)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.sm)
+                    .stroke(isActive ? KuullaColor.signal : KuullaColor.line, lineWidth: 0.5)
+            )
     }
 }
 

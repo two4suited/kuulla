@@ -16,6 +16,11 @@ struct DownloadButton: View {
     // download of the same episode) until the parent screen happens to reload for some other
     // reason.
     var onDidFinish: (() -> Void)?
+    // When true the button stretches to fill its container and hit-tests across the whole area,
+    // rather than staying a 22pt glyph. Used by the episode screen's control row, where it sits
+    // in an equal-width 44pt cell alongside other icon buttons; the compact episode rows leave
+    // it false so the trailing glyph keeps its natural size.
+    var fillsContainer = false
 
     @Environment(\.modelContext) private var modelContext
     @State private var downloadManager = DownloadManager.shared
@@ -41,6 +46,8 @@ struct DownloadButton: View {
         Button(action: performAction) {
             icon
                 .frame(width: 22, height: 22)
+                .frame(maxWidth: fillsContainer ? .infinity : nil, maxHeight: fillsContainer ? .infinity : nil)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
