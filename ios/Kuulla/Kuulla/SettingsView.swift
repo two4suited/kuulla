@@ -473,19 +473,18 @@ struct SettingsView: View {
     }
 
     private func loadSettings() async {
-        isLoading = true
         loadError = nil
 
-        // Pulls any change made on another device first (#43), so the very first render already
-        // reflects the latest last-write-wins state rather than momentarily showing a stale local
-        // value that then flips once sync catches up.
-        await syncEngine?.syncNow()
-
+        // Local-first: paint the on-device mirror immediately so Settings is interactive right
+        // away. The cross-device pull (#43) then runs in the background below and folds in any
+        // newer last-write-wins state — a brief flip to a synced value is a better trade than a
+        // blocking spinner that leaves every control disabled until the network round trip lands.
         if let local = await fetchLocalRecord() {
             settings = local
         } else {
-            // No local mirror yet (first launch, or nothing has ever been synced/saved) — fall
-            // back to a plain GET, same as before #43, and seed the mirror from it.
+            // No local mirror yet (first launch, or nothing has ever been synced/saved) — there's
+            // nothing to show, so block on a plain GET (same as before #43) and seed the mirror.
+            isLoading = true
             do {
                 let fetched = try await settingsClient.getSettings()
                 settings = fetched
@@ -495,9 +494,12 @@ struct SettingsView: View {
                     loadError = "Something went wrong while loading your settings. Please try again."
                 }
             }
+            isLoading = false
         }
 
-        isLoading = false
+        // Background pull of another device's changes; updates `settings` in place if LWW moved
+        // the local mirror. A cheap no-op poll when we just seeded from the GET above.
+        await refreshFromRemote()
     }
 
     // Re-pulls remote changes and, if the local mirror moved (another device's write landed),
