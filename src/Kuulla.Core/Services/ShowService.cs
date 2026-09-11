@@ -59,19 +59,24 @@ public class ShowService(
 
         var id = FeedShowId(normalized);
 
+        Show? existingShow = null;
         try
         {
             var existing = await showsContainer.ReadItemAsync<Show>(
                 id, new PartitionKey(id), cancellationToken: cancellationToken);
-            // Already known — no feed fetched, so there's no newest-episode date to hand back.
-            // SubscribeAsync falls back to whatever GetNewestCachedEpisodePublishedAtAsync knows.
-            return new FeedShow(existing.Resource, LatestEpisodePublishedAt: null);
+            existingShow = existing.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
             // First time this feed has been seen — fall through and create it from the feed.
         }
 
+        // Fetch the feed for the newest-episode date that seeds the "Latest episode" sort key
+        // (#501, #516). This runs even when the show already exists globally: OPML import caches
+        // no episodes, so a known show with an empty episode cache would otherwise subscribe with
+        // a null sort key and clump at the bottom of "Latest episode". The only caller filters
+        // out feeds the user is already subscribed to, so this fetch is one-per-newly-added show
+        // and gated by the import's own concurrency limit.
         PodcastFeedContent? feed;
         try
         {
@@ -79,8 +84,19 @@ public class ShowService(
         }
         catch (Exception ex) when (ex is HttpRequestException or XmlException or TaskCanceledException)
         {
-            // Unreachable, timed out, or not valid XML — the caller records a per-entry failure.
-            return null;
+            // Unreachable, timed out, or not valid XML. For a brand-new feed the caller records a
+            // per-entry failure (null below); for a show we already have, the subscribe still
+            // succeeds — just without a fresh sort key.
+            feed = null;
+        }
+
+        // Max over DateTimeOffset? skips nulls and is null when the feed has no dated episodes
+        // (or couldn't be fetched).
+        var latestEpisodePublishedAt = feed?.Episodes.Max(e => e.PublishedAt);
+
+        if (existingShow is not null)
+        {
+            return new FeedShow(existingShow, latestEpisodePublishedAt);
         }
 
         if (feed is null)
@@ -96,11 +112,6 @@ public class ShowService(
             feed.ArtworkUrl,
             feed.Description,
             Categories: []);
-
-        // Newest episode date from the feed we just fetched, to seed the "Latest episode" sort
-        // key on subscribe (#501). Max over DateTimeOffset? skips nulls and is null when the feed
-        // has no dated episodes.
-        var latestEpisodePublishedAt = feed.Episodes.Max(e => e.PublishedAt);
 
         try
         {

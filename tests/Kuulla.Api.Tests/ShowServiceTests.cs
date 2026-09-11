@@ -110,21 +110,45 @@ public class ShowServiceTests
     }
 
     [Fact]
-    public async Task GetOrCreateByFeedUrlAsync_ReturnsExistingShowWithAPointReadWhenFeedAlreadyKnown()
+    public async Task GetOrCreateByFeedUrlAsync_ReturnsExistingShowAndSeedsSortKeyFromFeedWhenFeedAlreadyKnown()
     {
         var cached = CosmosTestHelpers.MakeShow("feed-abc", feedUrl: "https://feeds.example/show");
         _showsContainer
             .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(cached));
+        var newest = DateTimeOffset.Parse("2026-03-15T00:00:00Z");
+        _feedClient
+            .Setup(c => c.FetchAsync("https://feeds.example/show", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(
+                "A description",
+                [Episode("ep-old", DateTimeOffset.Parse("2026-01-01T00:00:00Z")), Episode("ep-new", newest)]));
 
         var result = await _sut.GetOrCreateByFeedUrlAsync("https://feeds.example/show", CancellationToken.None);
 
         Assert.Same(cached, result!.Show);
-        // No feed was fetched, so there's no newest-episode date to seed the sort key with.
-        Assert.Null(result.LatestEpisodePublishedAt);
-        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        // The feed is fetched even for a known show so the "Latest episode" sort key gets seeded
+        // on subscribe — OPML import caches no episodes to fall back on (#516).
+        Assert.Equal(newest, result.LatestEpisodePublishedAt);
         _showsContainer.Verify(
             c => c.CreateItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetOrCreateByFeedUrlAsync_ReturnsExistingShowWithNullDateWhenFeedFetchFails()
+    {
+        var cached = CosmosTestHelpers.MakeShow("feed-abc", feedUrl: "https://feeds.example/show");
+        _showsContainer
+            .Setup(c => c.ReadItemAsync<Show>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(cached));
+        _feedClient
+            .Setup(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("down"));
+
+        var result = await _sut.GetOrCreateByFeedUrlAsync("https://feeds.example/show", CancellationToken.None);
+
+        // A dead feed must not fail the subscribe when we already have the show.
+        Assert.Same(cached, result!.Show);
+        Assert.Null(result.LatestEpisodePublishedAt);
     }
 
     [Fact]
