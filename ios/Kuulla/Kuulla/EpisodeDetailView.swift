@@ -72,6 +72,7 @@ struct EpisodeDetailView: View {
 
     private let catalogClient = PodcastCatalogClient()
     private let settingsClient = SettingsClient()
+    private let playlistClient = PlaylistClient()
 
     private var status: EpisodeStatus { EpisodeStatus(record: stateRecord) }
 
@@ -867,6 +868,13 @@ struct EpisodeDetailView: View {
         }
         let position = newCompleted ? Int(episode?.duration ?? 0) : (stateRecord?.positionSeconds ?? 0)
         await persist(positionSeconds: position, completed: newCompleted)
+        // #569: persist() is shared with the natural-finish path (persistProgress(completed:
+        // true), called right before PlaybackQueue.handleNaturalFinish's own removal), so the
+        // playlist cleanup lives here rather than in persist() itself — this manual toggle is the
+        // only path that needs it, and putting it in persist() would double the network work on
+        // every natural finish for no benefit.
+        await PlaylistCleanup.removeFromManualPlaylists(
+            episodeId: episodeId, completed: newCompleted, playlistClient: playlistClient)
     }
 
     private func persistProgress(completed: Bool) async {

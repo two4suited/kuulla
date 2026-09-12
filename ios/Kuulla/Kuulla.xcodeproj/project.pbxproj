@@ -86,6 +86,7 @@
 		J1000007 /* AddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000007 /* AddToPlaylistSheet.swift */; };
 		J1000008 /* PlaylistSyncAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000008 /* PlaylistSyncAdapterTests.swift */; };
 		J1000009 /* PlaylistClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000009 /* PlaylistClientTests.swift */; };
+		J1000021 /* PlaylistCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000021 /* PlaylistCleanupTests.swift */; };
 		J1000010 /* UpNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000010 /* UpNextView.swift */; };
 		J1000011 /* PlaylistIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000011 /* PlaylistIcons.swift */; };
 		K1000001 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000001 /* LibraryView.swift */; };
@@ -254,6 +255,7 @@
 		J2000007 /* AddToPlaylistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPlaylistSheet.swift; sourceTree = "<group>"; };
 		J2000008 /* PlaylistSyncAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncAdapterTests.swift; sourceTree = "<group>"; };
 		J2000009 /* PlaylistClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistClientTests.swift; sourceTree = "<group>"; };
+		J2000021 /* PlaylistCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistCleanupTests.swift; sourceTree = "<group>"; };
 		J2000010 /* UpNextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextView.swift; sourceTree = "<group>"; };
 		J2000011 /* PlaylistIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistIcons.swift; sourceTree = "<group>"; };
 		K2000001 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
@@ -503,6 +505,7 @@
 				J2000008 /* PlaylistSyncAdapterTests.swift */,
 				Q2000004 /* SettingsSyncAdapterTests.swift */,
 				J2000009 /* PlaylistClientTests.swift */,
+				J2000021 /* PlaylistCleanupTests.swift */,
 				K2000003 /* UnplayedCountsTests.swift */,
 				L2000003 /* EpisodeProgressTests.swift */,
 				L2000004 /* EpisodeListFilterTests.swift */,
@@ -768,6 +771,7 @@
 				H1000002 /* CarPlaySceneDelegateTests.swift in Sources */,
 				J1000008 /* PlaylistSyncAdapterTests.swift in Sources */,
 				J1000009 /* PlaylistClientTests.swift in Sources */,
+				J1000021 /* PlaylistCleanupTests.swift in Sources */,
 				Q1000004 /* SettingsSyncAdapterTests.swift in Sources */,
 				K1000003 /* UnplayedCountsTests.swift in Sources */,
 				L1000003 /* EpisodeProgressTests.swift in Sources */,

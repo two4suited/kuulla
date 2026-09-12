@@ -534,6 +534,9 @@ struct ShowDetailView: View {
             ) {
                 downloadStatusByEpisodeId[deletedId] = nil
             }
+            // #569: same rule as the per-episode toggle above, scoped to the whole show for this
+            // bulk action.
+            await PlaylistCleanup.removeAllFromManualPlaylists(forShowId: showId, playlistClient: playlistClient)
             await syncEngine?.syncNow()
         } catch {
             if !Task.isCancelled {
@@ -605,6 +608,10 @@ struct ShowDetailView: View {
             ) {
                 downloadStatusByEpisodeId[episodeId] = nil
             }
+            // #569: swipe-to-mark-played bypassed EpisodeDetailView.persist()'s playlist-removal
+            // rule too — shares the same PlaylistCleanup entry point so both paths stay in sync.
+            await PlaylistCleanup.removeFromManualPlaylists(
+                episodeId: episodeId, completed: shouldComplete, playlistClient: playlistClient)
         } catch {
             assertionFailure("Failed to toggle episode completion: \(episodeId): \(error)")
         }
