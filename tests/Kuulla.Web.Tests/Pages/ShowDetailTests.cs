@@ -1110,4 +1110,82 @@ public class ShowDetailTests : WebTestContext
             Assert.DoesNotContain("Auto-marked played", cut.Markup);
         });
     }
+
+    // #617: the API only paginates the raw, unfiltered episode list, while the default
+    // "Unfinished" filter is applied client-side afterward. A show whose entire back catalogue is
+    // already played (e.g. via "Mark all played") used to leave "Load more" showing forever — each
+    // click fetched another raw page that the filter dropped just as completely, with no way for
+    // the user to tell whether one more click would ever reveal anything. The fix auto-continues
+    // fetching raw pages, bounded, until either something becomes visible under the filter or the
+    // raw pagination is actually exhausted.
+    [Fact]
+    public void LoadMore_AutoContinuesPastPagesTheFilterDrops_UntilPaginationIsExhausted()
+    {
+        AuthContext.SetAuthorized("user-1");
+
+        var episodeA = new Episode("ep-a", "show-1", "Episode A", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(20), "https://audio-a", null, null, null);
+        var episodeB = new Episode("ep-b", "show-1", "Episode B", DateTimeOffset.UtcNow.AddDays(-1), TimeSpan.FromMinutes(20), "https://audio-b", null, null, null);
+        var episodeC = new Episode("ep-c", "show-1", "Episode C", DateTimeOffset.UtcNow.AddDays(-2), TimeSpan.FromMinutes(20), "https://audio-c", null, null, null);
+
+        var states = new Dictionary<string, EpisodeState>
+        {
+            ["ep-a"] = new("s-a", "user-1", "ep-a", "show-1", 1200, true, DateTimeOffset.UtcNow, "web", AutoPlayed: false),
+            ["ep-b"] = new("s-b", "user-1", "ep-b", "show-1", 1200, true, DateTimeOffset.UtcNow, "web", AutoPlayed: false),
+            ["ep-c"] = new("s-c", "user-1", "ep-c", "show-1", 1200, true, DateTimeOffset.UtcNow, "web", AutoPlayed: false),
+        };
+
+        var episodesRequestCount = 0;
+        var handler = new TestHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(TestShow) };
+            }
+
+            if (path == "/api/shows/show-1/episodes" && request.Method == HttpMethod.Get)
+            {
+                episodesRequestCount++;
+                var query = request.RequestUri!.Query;
+                var page = !query.Contains("continuationToken=")
+                    ? new EpisodePage([episodeA], "page-2")
+                    : query.Contains("continuationToken=page-2")
+                        ? new EpisodePage([episodeB], "page-3")
+                        : query.Contains("continuationToken=page-3")
+                            ? new EpisodePage([episodeC], null)
+                            : new EpisodePage([], null);
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(page) };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(states) };
+            }
+
+            if (path == "/api/subscriptions" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new List<Subscription>()) };
+            }
+
+            if (path == "/api/settings/shows/show-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultShowSettings) };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        ConfigureApi(handler);
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+
+        // Default filter is "Unfinished" — every episode on every page is already played, so it
+        // should keep paging through show-1's whole (3-page) back catalogue on its own and land on
+        // "no more raw pages" rather than stopping after the first empty page.
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("No episodes match this filter.", cut.Markup);
+            Assert.DoesNotContain("Load more", cut.Markup);
+        });
+        Assert.Equal(3, episodesRequestCount);
+    }
 }

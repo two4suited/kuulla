@@ -1112,6 +1112,15 @@ else
         }
     }
 
+    // The API only paginates the raw, unfiltered episode list — DisplayedEpisodes applies the
+    // active filter client-side afterward. Without this loop, a single "Load more" click can
+    // fetch a page that the current filter drops entirely (e.g. a show marked all-played, viewed
+    // under "Unfinished"), leaving the button visible with nothing new on screen and no way to
+    // tell whether another click would ever help (#617). Keep fetching bounded, additional raw
+    // pages until either something becomes visible under the filter or the raw pagination is
+    // genuinely exhausted, so the button only lingers when there really is more to try.
+    private const int MaxPagesPerLoadMore = 5;
+
     private async Task LoadMoreEpisodesAsync()
     {
         if (isLoadingEpisodes)
@@ -1124,13 +1133,22 @@ else
 
         try
         {
-            var page = await CatalogClient.GetEpisodesAsync(Id, continuationToken, pageSize: 20);
-            episodes.AddRange(page.Items);
-            continuationToken = page.ContinuationToken;
-
-            if (isAuthenticated)
+            for (var i = 0; i < MaxPagesPerLoadMore; i++)
             {
-                await LoadEpisodeStatesAsync(page.Items);
+                var visibleCountBefore = DisplayedEpisodes.Count;
+                var page = await CatalogClient.GetEpisodesAsync(Id, continuationToken, pageSize: 20);
+                episodes.AddRange(page.Items);
+                continuationToken = page.ContinuationToken;
+
+                if (isAuthenticated)
+                {
+                    await LoadEpisodeStatesAsync(page.Items);
+                }
+
+                if (DisplayedEpisodes.Count > visibleCountBefore || continuationToken is null)
+                {
+                    break;
+                }
             }
         }
         catch (HttpRequestException)
