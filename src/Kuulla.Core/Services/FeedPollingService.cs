@@ -13,9 +13,11 @@ public class FeedPollingService(
 {
     // Bounds the *outer* degree of concurrency: each show polled here can itself spawn up to
     // CacheEpisodesAsync's own internal fan-out (5, lowered from 20 in #558) worth of concurrent
-    // Cosmos writes/enforcement calls, so this level keeps total concurrent outbound HTTP + Cosmos
-    // load reasonable rather than multiplying the two together.
-    private const int MaxDegreeOfParallelism = 5;
+    // Cosmos writes/enforcement calls. Raised 5 -> 15 after #579 (conditional-GET + watermark
+    // short-circuit) made most polls skip CacheEpisodesAsync's Cosmos fan-out entirely — a
+    // production sweep at 5 showed 0% Cosmos throttling and ~36 RU/show, meaning outbound HTTP to
+    // feed servers, not Cosmos, was the bottleneck. Revisit if Cosmos throttling reappears.
+    private const int MaxDegreeOfParallelism = 15;
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
