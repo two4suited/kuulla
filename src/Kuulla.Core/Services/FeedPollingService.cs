@@ -66,19 +66,38 @@ public class FeedPollingService(
                 return true;
             }
 
-            var feed = await feedClient.FetchAsync(show.FeedUrl, cancellationToken);
-            if (feed is not { Episodes.Count: > 0 })
+            // Conditional GET + watermark short-circuit (#579): send back whatever cursor the
+            // last successful poll of this show saved, plus the newest PublishedAt already
+            // cached, so an unchanged feed costs one 304 round trip and a changed one only pays
+            // for parsing (and podcast:chapters-fetching) episodes newer than what's already
+            // known — not the whole back catalog, every 15 minutes, forever.
+            var watermark = await episodeService.GetNewestCachedEpisodePublishedAtAsync(showId, cancellationToken);
+            var cursor = new FeedPollCursor(show.FeedEtag, show.FeedLastModified, watermark);
+            var result = await feedClient.PollAsync(show.FeedUrl, cursor, cancellationToken);
+
+            if (result.NotModified)
             {
                 return true;
             }
 
-            // Create-only under the hood (CacheEpisodesAsync), so re-polling a feed with no new
-            // episodes is a cheap no-op — every item it sees already exists and is skipped on the
-            // Cosmos Conflict path. New episodes flow through the same insertedEpisodes fan-out
-            // GetEpisodesAsync's client-driven path already uses (unlistened-limit enforcement,
-            // dynamic-playlist auto-insert), which is also the choke point #216's push-send hooks
-            // into — no separate "is this new" bookkeeping needed here.
-            await episodeService.CacheEpisodesAsync(showId, feed.Episodes, cancellationToken);
+            if (result.Content is { Episodes.Count: > 0 } feed)
+            {
+                // Create-only under the hood (CacheEpisodesAsync) and pre-filtered by the
+                // watermark above, so this only ever writes genuinely new episodes. New episodes
+                // flow through the same insertedEpisodes fan-out GetEpisodesAsync's client-driven
+                // path already uses (unlistened-limit enforcement, dynamic-playlist auto-insert),
+                // which is also the choke point #216's push-send hooks into — no separate "is
+                // this new" bookkeeping needed here.
+                await episodeService.CacheEpisodesAsync(showId, feed.Episodes, cancellationToken);
+            }
+
+            // Only persisted once the fetch actually succeeded (not on an exception below) — an
+            // ETag/Last-Modified pair is only meaningful paired with the response it came from.
+            if (result.ETag != show.FeedEtag || result.LastModified != show.FeedLastModified)
+            {
+                await showService.UpdateFeedPollCursorAsync(showId, result.ETag, result.LastModified, cancellationToken);
+            }
+
             return true;
         }
         catch (Exception ex) when (

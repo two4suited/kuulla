@@ -150,9 +150,22 @@ public class EpisodeService(
     // writes against the container's provisioned RU/s, routinely tripping 429 (RUBudgetExceeded).
     public async Task CacheEpisodesAsync(string showId, IReadOnlyList<Episode> episodes, CancellationToken cancellationToken)
     {
+        // Existence check before write, not after (#579): a single batched query for which of
+        // these ids are already cached, so an unchanged episode never generates a Cosmos write
+        // attempt at all — the old approach of firing CreateItemAsync for every episode and
+        // swallowing 409 Conflict cost one write attempt per already-known episode, every sweep,
+        // forever. The per-item Conflict catch below stays as a safety net for a genuine race
+        // (e.g. two overlapping polls of the same show), not as the primary dedup mechanism.
+        var existingIds = await GetExistingEpisodeIdsAsync(showId, episodes.Select(e => e.Id).ToList(), cancellationToken);
+        var candidates = episodes.Where(e => !existingIds.Contains(e.Id)).ToList();
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
         var insertedEpisodes = new ConcurrentBag<Episode>();
         await Parallel.ForEachAsync(
-            episodes,
+            candidates,
             new ParallelOptions { MaxDegreeOfParallelism = 5, CancellationToken = cancellationToken },
             async (episode, ct) =>
             {
@@ -785,6 +798,33 @@ public class EpisodeService(
         }
 
         return items;
+    }
+
+    // Single-partition query for which of the given ids already exist, used by CacheEpisodesAsync
+    // to skip write attempts for episodes it already has instead of relying on Cosmos 409s.
+    private async Task<HashSet<string>> GetExistingEpisodeIdsAsync(
+        string showId, IReadOnlyList<string> episodeIds, CancellationToken cancellationToken)
+    {
+        if (episodeIds.Count == 0)
+        {
+            return [];
+        }
+
+        var queryDefinition = new QueryDefinition(
+                "SELECT VALUE c.id FROM c WHERE c.ShowId = @showId AND ARRAY_CONTAINS(@episodeIds, c.id)")
+            .WithParameter("@showId", showId)
+            .WithParameter("@episodeIds", episodeIds);
+        var requestOptions = new QueryRequestOptions { PartitionKey = new PartitionKey(showId) };
+
+        var existingIds = new HashSet<string>();
+        using var iterator = episodesContainer.GetItemQueryIterator<string>(queryDefinition, requestOptions: requestOptions);
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            existingIds.UnionWith(page);
+        }
+
+        return existingIds;
     }
 
     public async Task<DateTimeOffset?> GetNewestCachedEpisodePublishedAtAsync(string showId, CancellationToken cancellationToken)

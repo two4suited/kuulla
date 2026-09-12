@@ -36,6 +36,12 @@ public class EpisodeServiceTests
             _notificationService.Object,
             NullLogger<EpisodeService>.Instance);
 
+        // No episode already exists by default (#579's existence-check-before-write) — tests
+        // covering the "already cached" path opt in with their own SetupSequence/Setup.
+        _episodesContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator(Array.Empty<string>()));
+
         // No subscribers by default so the backfill tests (which trigger CacheEpisodesAsync)
         // don't need to stub enforcement — tests that care about it opt in explicitly.
         _subscriptionsContainer
@@ -585,6 +591,45 @@ public class EpisodeServiceTests
 
         await _sut.GetEpisodesAsync(ShowId, continuationToken: null, pageSize: 20, CancellationToken.None);
 
+        _subscriptionsContainer.Verify(
+            c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null), Times.Never);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_SkipsCreateAttemptForEpisodeTheExistenceCheckAlreadyFound()
+    {
+        var alreadyCached = MakeEpisode("already-cached");
+        var brandNew = MakeEpisode("brand-new");
+        _episodesContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator(["already-cached"]));
+
+        await _sut.CacheEpisodesAsync(ShowId, [alreadyCached, brandNew], CancellationToken.None);
+
+        // The existence check found "already-cached" up front — CreateItemAsync must never even
+        // be attempted for it, unlike the old create-and-swallow-409 approach.
+        _episodesContainer.Verify(
+            c => c.CreateItemAsync(
+                It.Is<Episode>(e => e.Id == "already-cached"), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()),
+            Times.Never);
+        _episodesContainer.Verify(
+            c => c.CreateItemAsync(
+                It.Is<Episode>(e => e.Id == "brand-new"), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task CacheEpisodesAsync_ReturnsWithoutAnyContainerCallsWhenEveryEpisodeAlreadyExists()
+    {
+        var episode = MakeEpisode("already-cached");
+        _episodesContainer
+            .Setup(c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator(["already-cached"]));
+
+        await _sut.CacheEpisodesAsync(ShowId, [episode], CancellationToken.None);
+
+        _episodesContainer.Verify(
+            c => c.CreateItemAsync(It.IsAny<Episode>(), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()), Times.Never);
         _subscriptionsContainer.Verify(
             c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null), Times.Never);
     }

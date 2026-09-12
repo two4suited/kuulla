@@ -23,4 +23,9 @@ public interface IShowService
     Task<IReadOnlyList<Show>> SearchAsync(string query, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Show>> GetTrendingAsync(string? category, CancellationToken cancellationToken);
+
+    // Persists the conditional-GET cursor (#579) FeedPollingService got back from
+    // IPodcastFeedClient.PollAsync, so the next sweep of this show can send it as
+    // If-None-Match/If-Modified-Since. A no-op if the show has since been deleted.
+    Task UpdateFeedPollCursorAsync(string showId, string? feedEtag, string? feedLastModified, CancellationToken cancellationToken);
 }

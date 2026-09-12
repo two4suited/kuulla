@@ -26,7 +26,41 @@ public class PodcastFeedClient(
 
     public async Task<PodcastFeedContent?> FetchAsync(string feedUrl, CancellationToken cancellationToken)
     {
-        await using var stream = await httpClient.GetStreamAsync(feedUrl, cancellationToken);
+        using var response = await httpClient.GetAsync(feedUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await ParseFeedAsync(response, watermarkPublishedAt: null, cancellationToken);
+    }
+
+    public async Task<FeedPollResult> PollAsync(string feedUrl, FeedPollCursor cursor, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, feedUrl);
+        if (!string.IsNullOrEmpty(cursor.ETag))
+        {
+            request.Headers.TryAddWithoutValidation("If-None-Match", cursor.ETag);
+        }
+
+        if (!string.IsNullOrEmpty(cursor.LastModified))
+        {
+            request.Headers.TryAddWithoutValidation("If-Modified-Since", cursor.LastModified);
+        }
+
+        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotModified)
+        {
+            return new FeedPollResult(NotModified: true, Content: null, cursor.ETag, cursor.LastModified);
+        }
+
+        response.EnsureSuccessStatusCode();
+        var content = await ParseFeedAsync(response, cursor.WatermarkPublishedAt, cancellationToken);
+        var etag = response.Headers.ETag?.ToString();
+        var lastModified = response.Content.Headers.LastModified?.ToString("R");
+        return new FeedPollResult(NotModified: false, content, etag, lastModified);
+    }
+
+    private async Task<PodcastFeedContent?> ParseFeedAsync(
+        HttpResponseMessage response, DateTimeOffset? watermarkPublishedAt, CancellationToken cancellationToken)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken);
         var channel = document.Root?.Element("channel");
         if (channel is null)
@@ -54,6 +88,34 @@ public class PodcastFeedClient(
         // no thread-safety guarantee for concurrent reads across the parallel loop below, and a
         // clone gives each task its own independent tree to read from.
         var items = channel.Elements("item").Select(item => new XElement(item)).ToList();
+
+        // Watermark short-circuit (#579): podcast feeds are (almost always) emitted newest-first,
+        // and PollAsync's caller passes the newest PublishedAt it already has cached for this show.
+        // Walk the feed in document order and stop at the first item strictly *before* that
+        // watermark — everything after it is already known, so there's no reason to parse it, let
+        // alone fire its podcast:chapters HTTP fetch. Strictly-before, not at-or-before: two
+        // episodes can share the exact same PublishedAt (a common batch-release pattern), and using
+        // <= here would silently and permanently drop a genuinely new episode that happens to land
+        // on the same timestamp as the already-cached newest one — the item exactly at the
+        // watermark gets re-parsed (and its chapters re-fetched) each sweep, but CacheEpisodesAsync's
+        // own existence check already makes that a cheap no-op if it turns out not to be new. An
+        // item with no parseable pubDate can't be judged safe to drop either, so it's kept too.
+        if (watermarkPublishedAt is { } watermark)
+        {
+            var newItemCount = 0;
+            foreach (var item in items)
+            {
+                if (ParsePublishedAt(item) is { } publishedAt && publishedAt < watermark)
+                {
+                    break;
+                }
+
+                newItemCount++;
+            }
+
+            items = items.Take(newItemCount).ToList();
+        }
+
         var parsedEpisodes = new Episode[items.Count];
         await Parallel.ForEachAsync(
             Enumerable.Range(0, items.Count),
@@ -67,6 +129,9 @@ public class PodcastFeedClient(
         return new PodcastFeedContent(description, episodes, title, author, artworkUrl);
     }
 
+    private static DateTimeOffset? ParsePublishedAt(XElement item) =>
+        DateTimeOffset.TryParse(item.Element("pubDate")?.Value, out var pubDate) ? pubDate : null;
+
     private async Task<Episode> ParseEpisodeAsync(XElement item, CancellationToken cancellationToken)
     {
         var enclosure = item.Element("enclosure");
@@ -79,9 +144,7 @@ public class PodcastFeedClient(
         var description = StripHtml(FirstNonEmpty(
             item.Element(ItunesNamespace + "summary")?.Value,
             item.Element("description")?.Value));
-        var publishedAt = DateTimeOffset.TryParse(item.Element("pubDate")?.Value, out var pubDate)
-            ? pubDate
-            : (DateTimeOffset?)null;
+        var publishedAt = ParsePublishedAt(item);
         var duration = ParseDuration(item.Element(ItunesNamespace + "duration")?.Value);
         var bitrateKbps = fileSizeBytes is not null && duration is { TotalSeconds: > 0 }
             ? (int)(fileSizeBytes.Value * 8 / 1000 / duration.Value.TotalSeconds)

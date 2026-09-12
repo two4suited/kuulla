@@ -155,6 +155,29 @@ public class ShowService(
         return "feed-" + Convert.ToHexString(bytes)[..32].ToLowerInvariant();
     }
 
+    public async Task UpdateFeedPollCursorAsync(
+        string showId, string? feedEtag, string? feedLastModified, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Patch rather than read-modify-write upsert — this runs once per polled show every
+            // sweep and only ever touches these two fields, so a single PATCH request (no read,
+            // no ETag/concurrency dance) is both cheaper and can't race a concurrent enrichment
+            // write to Description elsewhere in this class.
+            var patchOperations = new List<PatchOperation>
+            {
+                PatchOperation.Set("/FeedEtag", feedEtag),
+                PatchOperation.Set("/FeedLastModified", feedLastModified),
+            };
+            await showsContainer.PatchItemAsync<Show>(
+                showId, new PartitionKey(showId), patchOperations, cancellationToken: cancellationToken);
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // Show was deleted between the poll and this write — nothing left to update.
+        }
+    }
+
     public async Task<Show?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         Show show;

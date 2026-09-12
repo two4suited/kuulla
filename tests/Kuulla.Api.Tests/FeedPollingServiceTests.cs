@@ -54,10 +54,10 @@ public class FeedPollingServiceTests
         _showService.Setup(s => s.GetByIdAsync("show-b", It.IsAny<CancellationToken>())).ReturnsAsync(MakeShow("show-b", "https://feed.example/b"));
         var episodesA = new[] { MakeEpisode("ep-a", "show-a") };
         var episodesB = new[] { MakeEpisode("ep-b", "show-b") };
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/a", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PodcastFeedContent(null, episodesA));
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/b", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PodcastFeedContent(null, episodesB));
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/a", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, episodesA), null, null));
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/b", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, episodesB), null, null));
 
         await _sut.PollOnceAsync(CancellationToken.None);
 
@@ -76,7 +76,7 @@ public class FeedPollingServiceTests
 
         await _sut.PollOnceAsync(CancellationToken.None);
 
-        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _feedClient.Verify(c => c.PollAsync(It.IsAny<string>(), It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()), Times.Never);
         _episodeService.Verify(
             s => s.CacheEpisodesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -95,7 +95,7 @@ public class FeedPollingServiceTests
         // every other show still in flight in the same Parallel.ForEachAsync batch.
         await _sut.PollOnceAsync(CancellationToken.None);
 
-        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _feedClient.Verify(c => c.PollAsync(It.IsAny<string>(), It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class FeedPollingServiceTests
 
         await _sut.PollOnceAsync(CancellationToken.None);
 
-        _feedClient.Verify(c => c.FetchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _feedClient.Verify(c => c.PollAsync(It.IsAny<string>(), It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -121,10 +121,10 @@ public class FeedPollingServiceTests
             .ReturnsAsync(MakeShow("show-a", "https://feed.example/a"));
         _showService.Setup(s => s.GetByIdAsync("show-b", It.IsAny<CancellationToken>()))
             .ReturnsAsync(MakeShow("show-b", "https://feed.example/b"));
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/a", It.IsAny<CancellationToken>()))
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/a", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("feed unreachable"));
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/b", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep-b", "show-b")]));
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/b", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, [MakeEpisode("ep-b", "show-b")]), null, null));
 
         await _sut.PollOnceAsync(CancellationToken.None);
 
@@ -144,10 +144,10 @@ public class FeedPollingServiceTests
             .ReturnsAsync(MakeShow("show-a", "https://feed.example/a"));
         _showService.Setup(s => s.GetByIdAsync("show-b", It.IsAny<CancellationToken>()))
             .ReturnsAsync(MakeShow("show-b", "https://feed.example/b"));
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/a", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep-a", "show-a")]));
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/b", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep-b", "show-b")]));
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/a", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, [MakeEpisode("ep-a", "show-a")]), null, null));
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/b", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, [MakeEpisode("ep-b", "show-b")]), null, null));
         // A 429 that exhausts CacheEpisodesAsync's own retries (#558) shouldn't crash the whole
         // sweep — same isolation an unreachable feed already gets.
         _episodeService
@@ -173,9 +173,9 @@ public class FeedPollingServiceTests
             .ReturnsAsync(MakeShow("broken", "https://feed.example/broken"));
         _showService.Setup(s => s.GetByIdAsync("skipped", It.IsAny<CancellationToken>()))
             .ReturnsAsync(MakeShow("skipped", feedUrl: ""));
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/ok", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep", "ok")]));
-        _feedClient.Setup(c => c.FetchAsync("https://feed.example/broken", It.IsAny<CancellationToken>()))
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/ok", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, [MakeEpisode("ep", "ok")]), null, null));
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/broken", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("feed unreachable"));
 
         await _sut.PollOnceAsync(CancellationToken.None);
@@ -183,5 +183,97 @@ public class FeedPollingServiceTests
         // Only the unreachable feed counts as a failure; the empty-FeedUrl show is an intentional skip.
         Assert.Contains(_logger.Messages, m => m == "Feed-poll sweep starting: 3 subscribed show(s)");
         Assert.Contains(_logger.Messages, m => m.StartsWith("Feed-poll sweep complete: 3 show(s), 1 unreachable/malformed,"));
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_SkipsCachingAndCursorUpdateWhenFeedIsNotModified()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        var show = MakeShow("show-a", "https://feed.example/a") with { FeedEtag = "\"etag-1\"" };
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/a", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(true, null, "\"etag-1\"", null));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _episodeService.Verify(
+            s => s.CacheEpisodesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _showService.Verify(
+            s => s.UpdateFeedPollCursorAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_PassesSavedCursorAndCachedWatermarkToPollAsync()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        var show = MakeShow("show-a", "https://feed.example/a") with
+        {
+            FeedEtag = "\"etag-1\"",
+            FeedLastModified = "Wed, 01 Jan 2025 00:00:00 GMT",
+        };
+        var watermark = DateTimeOffset.Parse("2025-06-01T00:00:00Z");
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _episodeService.Setup(s => s.GetNewestCachedEpisodePublishedAtAsync("show-a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(watermark);
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/a", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(true, null, "\"etag-1\"", "Wed, 01 Jan 2025 00:00:00 GMT"));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _feedClient.Verify(
+            c => c.PollAsync(
+                "https://feed.example/a",
+                It.Is<FeedPollCursor>(cursor =>
+                    cursor.ETag == "\"etag-1\""
+                    && cursor.LastModified == "Wed, 01 Jan 2025 00:00:00 GMT"
+                    && cursor.WatermarkPublishedAt == watermark),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_PersistsNewCursorAfterASuccessfulFetch()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        var show = MakeShow("show-a", "https://feed.example/a") with { FeedEtag = "\"old-etag\"" };
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>())).ReturnsAsync(show);
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/a", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, [MakeEpisode("ep-a", "show-a")]), "\"new-etag\"", "Thu, 02 Jan 2025 00:00:00 GMT"));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _showService.Verify(
+            s => s.UpdateFeedPollCursorAsync(
+                "show-a", "\"new-etag\"", "Thu, 02 Jan 2025 00:00:00 GMT", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_DoesNotCacheEpisodesWhenPollReturnsNoEpisodes()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("show-a", "https://feed.example/a"));
+        _feedClient.Setup(c => c.PollAsync("https://feed.example/a", It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FeedPollResult(false, new PodcastFeedContent(null, []), "\"etag\"", null));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _episodeService.Verify(
+            s => s.CacheEpisodesAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        // Still worth saving — the ETag changed even though every item was already known.
+        _showService.Verify(
+            s => s.UpdateFeedPollCursorAsync("show-a", "\"etag\"", null, It.IsAny<CancellationToken>()), Times.Once);
     }
 }
