@@ -180,30 +180,37 @@ final class AudioPlayer {
                   let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: typeValue)
             else { return }
+            self.handleInterruption(type: type)
+        }
+    }
 
-            switch type {
-            case .began:
-                // The system has already paused the player and deactivated the session; mirror
-                // that in our own state so the UI (play/pause button, lock screen controls)
-                // reflects it instead of still claiming isPlaying.
-                self.wasPlayingBeforeInterruption = self.isPlaying
-                self.isPlaying = false
-                self.updateNowPlayingInfo()
-            case .ended:
-                let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
-                let options = optionsValue.map { AVAudioSession.InterruptionOptions(rawValue: $0) } ?? []
-                // Both conditions matter: .shouldResume alone doesn't account for the user having
-                // tapped pause before or during the interruption, and pendingSeekPlayer != nil
-                // means play()'s saved-position seek hasn't landed yet — resuming here would race
-                // it and could start playback from the wrong position (mirrors pause()'s own
-                // pendingSeekPlayer-clearing guard above).
-                guard self.wasPlayingBeforeInterruption, options.contains(.shouldResume),
-                      self.pendingSeekPlayer == nil
-                else { return }
-                self.resume()
-            @unknown default:
-                break
-            }
+    // Pulled out as an internal test seam (mirroring completeGoverningSeek / tickSleepTimer) —
+    // AVAudioSession.interruptionNotification can't be posted deterministically in a unit test.
+    //
+    // Deliberately ignores AVAudioSessionInterruptionOptionKey/.shouldResume entirely (#612): that
+    // option is documented as advisory and in practice is inconsistently set by the system for
+    // exactly the short, ambient interruptions most likely to fire right around a screen lock
+    // (e.g. a notification's system sound) — a real phone call reliably sets it, but plenty of
+    // brief system sounds don't, even though resuming afterward is exactly correct. Our own
+    // wasPlayingBeforeInterruption is a more reliable signal of user intent than that flag, so
+    // .ended resumes whenever we were actually playing, regardless of what the system suggests.
+    func handleInterruption(type: AVAudioSession.InterruptionType) {
+        switch type {
+        case .began:
+            // The system has already paused the player and deactivated the session; mirror
+            // that in our own state so the UI (play/pause button, lock screen controls)
+            // reflects it instead of still claiming isPlaying.
+            wasPlayingBeforeInterruption = isPlaying
+            isPlaying = false
+            updateNowPlayingInfo()
+        case .ended:
+            // pendingSeekPlayer != nil means play()'s saved-position seek hasn't landed yet —
+            // resuming here would race it and could start playback from the wrong position
+            // (mirrors pause()'s own pendingSeekPlayer-clearing guard above).
+            guard wasPlayingBeforeInterruption, pendingSeekPlayer == nil else { return }
+            resume()
+        @unknown default:
+            break
         }
     }
 
@@ -325,6 +332,11 @@ final class AudioPlayer {
         // Cancels a saved-position seek's pending rate-apply, if one is outstanding — otherwise
         // that completion could still land after this pause and resume playback unexpectedly.
         pendingSeekPlayer = nil
+        // A manual pause always wins, including one that happens mid-interruption (Control Center
+        // is still reachable during some interruption types): without this, handleInterruption's
+        // .ended case would still see wasPlayingBeforeInterruption == true from before the
+        // interruption began and resume playback the user just explicitly paused.
+        wasPlayingBeforeInterruption = false
         updateNowPlayingInfo()
     }
 
