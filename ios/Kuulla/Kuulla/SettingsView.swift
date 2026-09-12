@@ -797,8 +797,12 @@ struct SettingsView: View {
         }
 
         do {
-            opmlImportResult = try await subscriptionClient.importOpml(
+            let importResult = try await subscriptionClient.importOpml(
                 fileData: data, fileName: url.lastPathComponent)
+            opmlImportResult = importResult
+            if importResult.added > 0 {
+                await catalogRefresh?.refreshAll()
+            }
         } catch ApiError.requestFailed(let statusCode) where statusCode == 413 {
             opmlImportError = "That file is larger than the 5 MB limit."
         } catch ApiError.requestFailed(let statusCode) where statusCode == 400 {
