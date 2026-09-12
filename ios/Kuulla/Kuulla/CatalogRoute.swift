@@ -12,3 +12,9 @@ enum CatalogRoute: Hashable {
     case discoveryCategory(id: String)
     case settings
 }
+
+extension CatalogRoute: Identifiable {
+    // Hashable already gives every case structural equality, so the case itself is a fine id —
+    // no need for a synthesized UUID or a separate switch to a string key.
+    var id: Self { self }
+}
