@@ -200,13 +200,7 @@ final class AudioPlayer {
                 guard self.wasPlayingBeforeInterruption, options.contains(.shouldResume),
                       self.pendingSeekPlayer == nil
                 else { return }
-                DispatchQueue.global(qos: .userInitiated).async {
-                    try? AVAudioSession.sharedInstance().setActive(true)
-                    DispatchQueue.main.async {
-                        guard self.wasPlayingBeforeInterruption, self.pendingSeekPlayer == nil else { return }
-                        self.resume()
-                    }
-                }
+                self.resume()
             @unknown default:
                 break
             }
@@ -335,6 +329,18 @@ final class AudioPlayer {
     }
 
     func resume() {
+        // Reactivates the session alongside setting the rate, not just on the automatic
+        // post-interruption path — an interruption that ends without .shouldResume, or a route
+        // change, can leave AVAudioSession inactive while isPlaying is still false. Without this,
+        // a manual resume (Lock Screen, Control Center, in-app button) sets .rate and flips
+        // isPlaying, which keeps the periodic time observer (and Now Playing progress) advancing
+        // normally, but with the session inactive no audio reaches the hardware (#612). Dispatched
+        // off main since setActive(true) is synchronous and can block (mirrors
+        // configureAudioSession()); firing it alongside rather than gating on it avoids making
+        // every resume() call asynchronous, since the session is already active in the common case.
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? AVAudioSession.sharedInstance().setActive(true)
+        }
         // .rate rather than .play() so resuming doesn't silently reset speed back to 1.0.
         player?.rate = playbackSpeed
         isPlaying = true
