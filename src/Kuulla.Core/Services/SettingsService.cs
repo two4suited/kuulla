@@ -163,10 +163,13 @@ public class SettingsService(
                 // UserSettingsChange) — keep whatever's stored rather than clobbering it.
                 change.AutoAddNewEpisodesToUpNext ?? stored?.AutoAddNewEpisodesToUpNext ?? false,
                 change.UpNextInsertPosition ?? stored?.UpNextInsertPosition ?? UpNextInsertPosition.Bottom,
-                // Keep the stored set unless the change carries a non-empty one — same
-                // null/empty-means-keep-stored rationale as SubscriptionManualOrder above.
-                change.LeadingSwipeActions is { Count: > 0 } ? change.LeadingSwipeActions : stored?.LeadingSwipeActions,
-                change.TrailingSwipeActions is { Count: > 0 } ? change.TrailingSwipeActions : stored?.TrailingSwipeActions,
+                // Null means the pushing client doesn't send these fields yet (see
+                // UserSettingsChange.LeadingSwipeActions) — keep the stored value rather than
+                // clobbering it. Unlike SubscriptionManualOrder, an explicit empty list ([]) IS
+                // honored here — a user can deliberately clear every swipe action on a side, and
+                // that intent must be able to reach the store (#571).
+                change.LeadingSwipeActions ?? stored?.LeadingSwipeActions,
+                change.TrailingSwipeActions ?? stored?.TrailingSwipeActions,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),

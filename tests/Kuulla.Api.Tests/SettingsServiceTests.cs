@@ -349,6 +349,37 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task SyncAsync_AppliesExplicitEmptyLeadingSwipeActionsFromChange()
+    {
+        // Unlike SubscriptionManualOrder (SyncAsync_KeepsStoredManualOrderWhenChangeSendsAnEmptyList
+        // above), a change that explicitly sends [] for swipe actions is a deliberate "no actions
+        // on this side" and must be allowed to clear a non-empty stored value (#571) — only a
+        // genuinely omitted (null) field falls back to what's stored, per
+        // SyncAsync_PreservesStoredSwipeActionsWhenChangeOmitsThem above.
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            LeadingSwipeActions: [EpisodeSwipeAction.Download], TrailingSwipeActions: [EpisodeSwipeAction.MarkPlayed]);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var change = MakeChange(DateTimeOffset.UtcNow, leadingSwipeActions: [], trailingSwipeActions: [EpisodeSwipeAction.AddToUpNext]);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s =>
+                    s.LeadingSwipeActions!.Count == 0 &&
+                    s.TrailingSwipeActions!.SequenceEqual(new[] { EpisodeSwipeAction.AddToUpNext })),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task SyncAsync_PreservesStoredHideCaughtUpShowsWhenChangeOmitsIt()
     {
         var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
