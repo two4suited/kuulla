@@ -58,6 +58,38 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertNil(PlaybackQueue.nextItem(after: "a", in: [], behavior: .topOfList))
     }
 
+    func testTopOfListAdvancesThroughTheWholeListAcrossRepeatedHopsInsteadOfOscillating() {
+        // A static snapshot (never re-fetched mid-session, unlike the web client which reloads
+        // its list on every episode navigation) means each hop must exclude every episode
+        // finished so far, not just the one that just finished — otherwise .topOfList settles
+        // into ping-ponging between the snapshot's first two items forever. Simulates
+        // handleNaturalFinish's own bookkeeping: each hop's `consumed` accumulates the previous
+        // hop's finished id.
+        let all = items(["a", "b", "c", "d"])
+        var consumed: Set<String> = []
+
+        var finished = "d"
+        var next = PlaybackQueue.nextItem(after: finished, in: all, behavior: .topOfList, consumed: consumed)
+        XCTAssertEqual(next, PlaybackQueue.QueueItem(showId: "show-a", episodeId: "a"))
+
+        consumed.insert(finished)
+        finished = next!.episodeId
+        next = PlaybackQueue.nextItem(after: finished, in: all, behavior: .topOfList, consumed: consumed)
+        XCTAssertEqual(next, PlaybackQueue.QueueItem(showId: "show-b", episodeId: "b"))
+
+        consumed.insert(finished)
+        finished = next!.episodeId
+        next = PlaybackQueue.nextItem(after: finished, in: all, behavior: .topOfList, consumed: consumed)
+        // Without accumulating `consumed`, this would return "a" again (oscillating a/b forever)
+        // instead of progressing to the list's remaining item.
+        XCTAssertEqual(next, PlaybackQueue.QueueItem(showId: "show-c", episodeId: "c"))
+
+        consumed.insert(finished)
+        finished = next!.episodeId
+        next = PlaybackQueue.nextItem(after: finished, in: all, behavior: .topOfList, consumed: consumed)
+        XCTAssertNil(next, "every item has now finished once — the list is exhausted")
+    }
+
     // MARK: - .stop
 
     func testStopNeverAdvances() {

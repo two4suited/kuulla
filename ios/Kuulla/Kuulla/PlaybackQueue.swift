@@ -58,6 +58,13 @@ final class PlaybackQueue {
     // CarPlay Now Playing pick, a stale screen).
     private(set) var source: PlaybackListSource?
     private var orderedItems: [QueueItem] = []
+    // Every episode finished during this session (including the one that just triggered the
+    // current handleNaturalFinish call) — .topOfList needs the whole history, not just the latest
+    // finish: orderedItems is a static snapshot that's never re-fetched mid-session, so without
+    // this a multi-hop .topOfList chain would ping-pong forever between the snapshot's first two
+    // items (each hop only knowing to skip the single episode that *just* finished) instead of
+    // working through the rest of the list.
+    private var consumedEpisodeIds: Set<String> = []
     var playlistId: String? { source?.playlistId }
     // The episode currently playing as a queue item — guards a stale begin() (from a playlist
     // screen the user opened then backed out of without pressing Play) against advancing when
@@ -90,18 +97,24 @@ final class PlaybackQueue {
     // step with PlayNext.NextItem on the web — the same list can be finished on either client.
     // .nextInList: the item after `finishedEpisodeId`, or nil at the end of the list — or if the
     // finished episode isn't in the snapshot at all (a reorder/removal race), which is likewise
-    // "stop" rather than a guess. .topOfList: the first item that isn't the one that just finished
-    // (the list may or may not have dropped it yet), so an exhausted single-item list also stops.
-    // Played state isn't consulted here — the snapshot already reflects the list's own filters
-    // (a show list under "Unfinished", a dynamic playlist's pruned rules).
+    // "stop" rather than a guess. .topOfList: the first item that isn't one already finished this
+    // session (the list may or may not have dropped them yet), so an exhausted list also stops —
+    // `consumed` must include every episode finished so far, not just the latest one, or a
+    // multi-hop chain re-settles on the snapshot's first couple of items forever instead of
+    // working through the rest (finishedEpisodeId is included automatically, so a caller on its
+    // first hop can pass the default empty set). Played state is otherwise not consulted here —
+    // the snapshot already reflects the list's own filters (a show list under "Unfinished", a
+    // dynamic playlist's pruned rules) as of when playback began.
     nonisolated static func nextItem(
-        after finishedEpisodeId: String, in items: [QueueItem], behavior: PlayNextBehavior
+        after finishedEpisodeId: String, in items: [QueueItem], behavior: PlayNextBehavior,
+        consumed: Set<String> = []
     ) -> QueueItem? {
         switch behavior {
         case .stop:
             return nil
         case .topOfList:
-            return items.first { $0.episodeId != finishedEpisodeId }
+            let consumed = consumed.union([finishedEpisodeId])
+            return items.first { !consumed.contains($0.episodeId) }
         case .nextInList:
             guard let index = items.firstIndex(where: { $0.episodeId == finishedEpisodeId }),
                   index + 1 < items.count
@@ -152,6 +165,7 @@ final class PlaybackQueue {
         self.source = source
         self.currentEpisodeId = currentEpisodeId
         self.orderedItems = []
+        self.consumedEpisodeIds = []
         // A fresh session is taking over playback (EpisodeDetailView's Play, or a re-arm on a
         // different item) — the queue's own periodic-save loop for the previously auto-advanced
         // episode is now stale.
@@ -165,6 +179,7 @@ final class PlaybackQueue {
         source = nil
         currentEpisodeId = nil
         orderedItems = []
+        consumedEpisodeIds = []
         progressTrackingTask?.cancel()
         progressTrackingTask = nil
     }
@@ -186,8 +201,11 @@ final class PlaybackQueue {
             try? await playlistClient.removeItem(playlistId: playlistId, episodeId: finishedEpisodeId)
         }
 
+        consumedEpisodeIds.insert(finishedEpisodeId)
         let behavior = await resolvePlayNextBehavior(source: source, showId: finishedShowId)
-        guard let next = Self.nextItem(after: finishedEpisodeId, in: orderedItems, behavior: behavior) else {
+        guard let next = Self.nextItem(
+            after: finishedEpisodeId, in: orderedItems, behavior: behavior, consumed: consumedEpisodeIds)
+        else {
             clear()
             return
         }
@@ -200,16 +218,22 @@ final class PlaybackQueue {
     // it can't be fetched; the global value falls back to the locally-synced UserSettingsRecord
     // (a downloaded episode can finish offline) and finally to the app default.
     private func resolvePlayNextBehavior(source: PlaybackListSource, showId: String?) async -> PlayNextBehavior {
-        var playlistOverride: PlayNextBehavior?
-        if case .playlist(let playlistId, _) = source {
-            playlistOverride = (try? await playlistClient.getPlaylistDetail(id: playlistId))?.playNextBehavior
-        }
-        var showOverride: PlayNextBehavior?
-        if let showId {
-            showOverride = (try? await settingsClient.getShowSettings(showId: showId))?.playNextBehavior
-        }
-        let global = (try? await settingsClient.getSettings())?.playNextBehavior ?? localGlobalPlayNextBehavior() ?? .nextInList
-        return Self.resolve(playlistOverride: playlistOverride, showOverride: showOverride, global: global)
+        // Independent fetches — run concurrently (mirrors playItem's own async let below) rather
+        // than serially, since this runs on every episode finish and each round trip otherwise
+        // adds to the gap before the next episode's audio starts.
+        async let playlistDetail: PlaylistDetail? = {
+            guard case .playlist(let playlistId, _) = source else { return nil }
+            return try? await playlistClient.getPlaylistDetail(id: playlistId)
+        }()
+        async let showSettings: ShowSettings? = {
+            guard let showId else { return nil }
+            return try? await settingsClient.getShowSettings(showId: showId)
+        }()
+        async let userSettings = try? settingsClient.getSettings()
+
+        let (playlist, show, user) = await (playlistDetail, showSettings, userSettings)
+        let global = user?.playNextBehavior ?? localGlobalPlayNextBehavior() ?? .nextInList
+        return Self.resolve(playlistOverride: playlist?.playNextBehavior, showOverride: show?.playNextBehavior, global: global)
     }
 
     private func localGlobalPlayNextBehavior() -> PlayNextBehavior? {
