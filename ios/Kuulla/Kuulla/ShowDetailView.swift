@@ -9,7 +9,7 @@ struct ShowDetailView: View {
     @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.modelContext) private var modelContext
 
-    // Set by a row's play button (#597) — a Button rather than a NavigationLink (unlike the row
+    // Set by a row's play button — a Button rather than a NavigationLink (unlike the row
     // itself), since List gives a second nested NavigationLink its own disclosure chevron, which
     // renders as a confusing duplicate next to the row's own. Routed through this separate
     // item-based destination instead.

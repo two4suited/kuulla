@@ -13,7 +13,7 @@ struct EpisodeDetailView: View {
     // Non-nil when this screen was reached from a manual playlist — starting playback here arms
     // PlaybackQueue so finishing the episode auto-advances to the next playlist item (#532).
     var playlistId: String?
-    // Set when this screen was reached via a list row's play button (#597) rather than a plain
+    // Set when this screen was reached via a list row's play button rather than a plain
     // row tap — starts playback as soon as load() resolves, instead of requiring a second tap
     // here.
     var autoPlayOnAppear = false
