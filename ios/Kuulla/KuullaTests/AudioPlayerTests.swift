@@ -251,6 +251,52 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertTrue(player.isPlaying)
     }
 
+    // MARK: - Interruptions (#612)
+
+    // Regression test for #612 staying broken after the first fix (#613): an interruption ending
+    // without AVAudioSessionInterruptionOptionKey's .shouldResume flag set — which the system does
+    // for plenty of brief, ambient interruptions (e.g. a notification's system sound), not just
+    // ones where resuming would be wrong — must still resume playback that was actually playing
+    // beforehand. handleInterruption is the internal seam standing in for a real
+    // AVAudioSession.interruptionNotification post, which can't be triggered deterministically here.
+    func testInterruptionEndResumesEvenWithoutShouldResumeOption() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        player.handleInterruption(type: .began)
+        XCTAssertFalse(player.isPlaying)
+
+        player.handleInterruption(type: .ended)
+
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    func testInterruptionEndDoesNotResumeIfNotPlayingBeforehand() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+        player.pause()
+
+        player.handleInterruption(type: .began)
+        player.handleInterruption(type: .ended)
+
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    // Control Center remains reachable during some interruption types, so a manual pause can land
+    // between .began and .ended. That pause must stick — without clearing
+    // wasPlayingBeforeInterruption, .ended would still see it as true (from before the
+    // interruption began) and resume playback the user just explicitly stopped.
+    func testManualPauseDuringInterruptionIsNotOverriddenByInterruptionEnd() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+
+        player.handleInterruption(type: .began)
+        player.pause()
+        player.handleInterruption(type: .ended)
+
+        XCTAssertFalse(player.isPlaying)
+    }
+
     // A saved-position seek never completes against a fake URL (no real asset loads), so the
     // window right after this play() call is deterministically "seek still pending" — exactly
     // the window setPlaybackSpeed() must not apply a rate in, since play() hasn't actually
