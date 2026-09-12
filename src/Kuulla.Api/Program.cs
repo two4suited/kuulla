@@ -27,7 +27,7 @@ builder.AddKeyedAzureCosmosContainer("devicetokens");
 // Domain services (feed polling, episodes, shows, subscriptions, settings, episode state, device
 // tokens, the podcast directory/feed HTTP clients and the SSRF-guarded resource fetcher) now live
 // in Kuulla.Core so the Kuulla.FeedPoller worker can share the exact same registrations (#38).
-builder.Services.AddKuullaCore();
+builder.Services.AddKuullaCore(builder.Configuration);
 
 // API-only services that stayed behind: they front HTTP endpoints rather than the feed-poll path.
 builder.Services.AddScoped<IUserService, UserService>();

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Xml;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Options;
 
 namespace Kuulla.Core.Services;
 
@@ -9,16 +10,9 @@ public class FeedPollingService(
     IShowService showService,
     IPodcastFeedClient feedClient,
     IEpisodeService episodeService,
+    IOptions<FeedPollingOptions> options,
     ILogger<FeedPollingService> logger) : IFeedPollingService
 {
-    // Bounds the *outer* degree of concurrency: each show polled here can itself spawn up to
-    // CacheEpisodesAsync's own internal fan-out (5, lowered from 20 in #558) worth of concurrent
-    // Cosmos writes/enforcement calls. Raised 5 -> 15 after #579 (conditional-GET + watermark
-    // short-circuit) made most polls skip CacheEpisodesAsync's Cosmos fan-out entirely — a
-    // production sweep at 5 showed 0% Cosmos throttling and ~36 RU/show, meaning outbound HTTP to
-    // feed servers, not Cosmos, was the bottleneck. Revisit if Cosmos throttling reappears.
-    private const int MaxDegreeOfParallelism = 15;
-
     public async Task PollOnceAsync(CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -33,7 +27,11 @@ public class FeedPollingService(
         var failures = 0;
         await Parallel.ForEachAsync(
             showIds,
-            new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism, CancellationToken = cancellationToken },
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = options.Value.MaxDegreeOfParallelism,
+                CancellationToken = cancellationToken,
+            },
             async (showId, ct) =>
             {
                 if (!await PollShowAsync(showId, ct))

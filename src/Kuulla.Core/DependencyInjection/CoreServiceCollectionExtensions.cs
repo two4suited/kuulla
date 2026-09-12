@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using Kuulla.Core.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Kuulla.Core;
@@ -11,8 +12,10 @@ namespace Kuulla.Core;
 // AddKeyedAzureCosmosContainer(...) and picks an INotificationService itself.
 public static class CoreServiceCollectionExtensions
 {
-    public static IServiceCollection AddKuullaCore(this IServiceCollection services)
+    public static IServiceCollection AddKuullaCore(this IServiceCollection services, IConfiguration configuration)
     {
+        services.Configure<FeedPollingOptions>(configuration.GetSection("FeedPolling"));
+
         services.AddScoped<IShowService, ShowService>();
         services.AddScoped<IEpisodeService, EpisodeService>();
         services.AddScoped<ISubscriptionService, SubscriptionService>();
