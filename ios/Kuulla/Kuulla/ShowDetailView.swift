@@ -272,8 +272,13 @@ struct ShowDetailView: View {
 
     // Best-effort: a failure here just leaves auto-delete-after-played disabled for this view's
     // lifetime, same fallback EpisodeDetailView.loadPlaybackSettings uses for the same setting.
+    // Resolves show-override-else-global via the same helper as EpisodeDetailView, so a per-show
+    // override (set via ShowSettingsSheet) is honored here too rather than only the global default.
     private func loadAutoDeleteRule() async {
-        autoDeleteRule = (try? await settingsClient.getSettings())?.autoDeleteRule ?? .never
+        async let userSettings = try? settingsClient.getSettings()
+        async let showSettings = try? settingsClient.getShowSettings(showId: showId)
+        let (user, show) = await (userSettings, showSettings)
+        autoDeleteRule = EpisodeDetailView.resolvedAutoDeleteRule(show: show, user: user)
     }
 
     // Best-effort network check of whether this show is subscribed, used when the local cache

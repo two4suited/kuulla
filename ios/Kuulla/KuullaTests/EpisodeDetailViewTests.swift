@@ -81,4 +81,34 @@ final class EpisodeDetailViewTests: XCTestCase {
         // AfterPlayed case; a scheduled AfterDays sweep is separate, unimplemented follow-up work.
         XCTAssertFalse(DownloadCleanup.shouldAutoDelete(completed: true, autoDeleteRule: .afterDays))
     }
+
+    // MARK: - Auto-delete rule resolution (show override vs. global default)
+
+    private func makeUserSettings(autoDeleteRule: AutoDeleteRule) -> UserSettings {
+        UserSettings(
+            userId: "u1", unlistenedEpisodeCount: .ten, version: 1, autoArchiveRule: .never,
+            autoDeleteRule: autoDeleteRule)
+    }
+
+    private func makeShowSettings(autoDeleteRule: AutoDeleteRule?) -> ShowSettings {
+        ShowSettings(
+            id: "show:u1:s1", userId: "u1", showId: "s1", unlistenedEpisodeCount: nil,
+            version: 1, autoArchiveRule: nil, autoDeleteRule: autoDeleteRule)
+    }
+
+    func testResolvedAutoDeleteRulePrefersShowOverrideOverGlobalDefault() {
+        let show = makeShowSettings(autoDeleteRule: .afterPlayed)
+        let user = makeUserSettings(autoDeleteRule: .never)
+        XCTAssertEqual(EpisodeDetailView.resolvedAutoDeleteRule(show: show, user: user), .afterPlayed)
+    }
+
+    func testResolvedAutoDeleteRuleFallsBackToGlobalDefaultWhenShowHasNoOverride() {
+        let show = makeShowSettings(autoDeleteRule: nil)
+        let user = makeUserSettings(autoDeleteRule: .afterPlayed)
+        XCTAssertEqual(EpisodeDetailView.resolvedAutoDeleteRule(show: show, user: user), .afterPlayed)
+    }
+
+    func testResolvedAutoDeleteRuleFallsBackToNeverWhenNeitherSettingIsAvailable() {
+        XCTAssertEqual(EpisodeDetailView.resolvedAutoDeleteRule(show: nil, user: nil), .never)
+    }
 }

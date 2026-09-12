@@ -611,7 +611,7 @@ struct EpisodeDetailView: View {
         // which have the same "resolved-after-play-already-started" limitation and no live fix
         // either — accepted, not something this diff introduces.
         smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
-        autoDeleteRule = user?.autoDeleteRule ?? .never
+        autoDeleteRule = Self.resolvedAutoDeleteRule(show: show, user: user)
 
         // This fetch races the play button: a tap before it resolves starts playback at the
         // 1.0 fallback (audioPlayer.play's own default), since togglePlayback reads whatever
@@ -944,6 +944,12 @@ struct EpisodeDetailView: View {
         ) {
             downloadStatus = nil
         }
+    }
+
+    // Per-show override wins over the global default, matching autoSkipIntroSeconds/
+    // autoSkipOutroSeconds/playbackSpeed/smartSpeed's resolution in loadPlaybackSettings().
+    nonisolated static func resolvedAutoDeleteRule(show: ShowSettings?, user: UserSettings?) -> AutoDeleteRule {
+        show?.autoDeleteRule ?? user?.autoDeleteRule ?? .never
     }
 }
 
