@@ -500,7 +500,12 @@ final class AudioPlayer {
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .spokenAudio)
-        try? session.setActive(true)
+        // setActive(true) is synchronous and can block the calling thread (AVFoundation warns about
+        // this at runtime when called on the main thread). AVAudioSession has no async activation
+        // API on iOS — only on watchOS — so the fix is to hop off the main thread before calling it.
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? session.setActive(true)
+        }
     }
 
     // Guards against registering more than once per process — MPRemoteCommandCenter.shared() is a
