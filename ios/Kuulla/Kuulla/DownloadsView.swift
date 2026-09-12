@@ -188,6 +188,42 @@ enum DownloadCleanup {
         return true
     }
 
+    // #532: shared entry point for the "auto-delete this episode's download once it's marked
+    // played" policy, so every place that can change an episode's completed state — natural
+    // finish, the manual toggle in EpisodeDetailView, swipe-to-mark-played in ShowDetailView —
+    // goes through the same rule check instead of each reimplementing (or forgetting) it.
+    @discardableResult
+    static func deleteIfAutoDeleteEligible(
+        episodeId: String, completed: Bool, autoDeleteRule: AutoDeleteRule, in context: ModelContext
+    ) -> Bool {
+        guard shouldAutoDelete(completed: completed, autoDeleteRule: autoDeleteRule) else { return false }
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
+        guard let record = try? context.fetch(descriptor).first, record.status == .complete else { return false }
+        return delete([record], from: context)
+    }
+
+    // Bulk counterpart for "mark all played" (#532): that action marks a show's *entire* back
+    // catalogue played server-side regardless of how much of it is paged into the caller's
+    // @State episode list, so cleanup must be scoped the same way — a single fetch of every
+    // downloaded episode for the show, not a loop over whatever page happens to be loaded (which
+    // would silently strand downloads on not-yet-paginated episodes). Returns the ids actually
+    // deleted so callers can clear their own per-episode UI state.
+    @discardableResult
+    static func deleteAllEligible(
+        forShowId showId: String, autoDeleteRule: AutoDeleteRule, in context: ModelContext
+    ) -> [String] {
+        guard shouldAutoDelete(completed: true, autoDeleteRule: autoDeleteRule) else { return [] }
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.showId == showId })
+        let records = ((try? context.fetch(descriptor)) ?? []).filter { $0.status == .complete }
+        guard !records.isEmpty, delete(records, from: context) else { return [] }
+        return records.map(\.id)
+    }
+
+    // Pulled out as a pure function for testability, mirroring resolvedPlaybackURL's pattern.
+    nonisolated static func shouldAutoDelete(completed: Bool, autoDeleteRule: AutoDeleteRule) -> Bool {
+        completed && autoDeleteRule == .afterPlayed
+    }
+
     private static func removeFile(for record: DownloadedEpisodeRecord) {
         guard !record.localFilePath.isEmpty, let directory = DownloadManager.downloadsDirectory() else { return }
         let fileURL = directory.appendingPathComponent(record.localFilePath)
