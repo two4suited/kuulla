@@ -6,7 +6,7 @@ final class ShowSettingsTests: XCTestCase {
         id: "show:u1:s1", userId: "u1", showId: "s1", unlistenedEpisodeCount: .ten,
         version: 1, autoArchiveRule: .after7Days, autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20,
         playbackSpeed: 1.5, autoDownloadNewEpisodes: true, autoDeleteRule: .afterDays, autoDeleteAfterDays: 14,
-        smartSpeed: true, autoAddNewEpisodesToUpNext: true)
+        smartSpeed: true, autoAddNewEpisodesToUpNext: true, playNextBehavior: .topOfList)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -24,6 +24,17 @@ final class ShowSettingsTests: XCTestCase {
         XCTAssertEqual(updated.autoAddNewEpisodesToUpNext, base.autoAddNewEpisodesToUpNext)
         XCTAssertEqual(updated.autoDeleteRule, base.autoDeleteRule)
         XCTAssertEqual(updated.autoDeleteAfterDays, base.autoDeleteAfterDays)
+        XCTAssertEqual(updated.playNextBehavior, base.playNextBehavior)
+    }
+
+    func testWithExplicitNilClearsThePlayNextBehaviorOverride() {
+        let updated = base.with(playNextBehavior: PlayNextBehavior?.none)
+        XCTAssertNil(updated.playNextBehavior)
+    }
+
+    func testWithSetsThePlayNextBehaviorOverride() {
+        let updated = base.with(playNextBehavior: PlayNextBehavior?.some(.stop))
+        XCTAssertEqual(updated.playNextBehavior, .stop)
     }
 
     func testWithChangingAutoDeleteRuleAndAfterDaysTogether() {

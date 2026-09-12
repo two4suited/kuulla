@@ -609,6 +609,72 @@ final class SettingsClientTests: MockedApiTestCase {
         XCTAssertNil(settings.upNextInsertPosition)
     }
 
+    func testUpdatePlayNextBehaviorSendsPutWithIntegerBody() async throws {
+        let json = """
+        {"userId":"u1","unlistenedEpisodeCount":5,"version":2,"playNextBehavior":1}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updatePlayNextBehavior(.topOfList)
+
+        XCTAssertEqual(updated.playNextBehavior, .topOfList)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/play-next"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["playNextBehavior"] as? Int, 1)
+    }
+
+    func testUpdateShowPlayNextBehaviorSendsPutWithIntegerBody() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"playNextBehavior":2}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowPlayNextBehavior(showId: "s1", value: .stop)
+
+        XCTAssertEqual(updated.playNextBehavior, .stop)
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/settings/shows/s1/play-next"))
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["playNextBehavior"] as? Int, 2)
+    }
+
+    func testUpdateShowPlayNextBehaviorClearsOverrideWithNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":3,"playNextBehavior":null}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let updated = try await client.updateShowPlayNextBehavior(showId: "s1", value: nil)
+
+        XCTAssertNil(updated.playNextBehavior)
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertNil(bodyJSON["playNextBehavior"])
+    }
+
+    func testGetShowSettingsDecodesNullPlayNextBehaviorOverrideAsNil() async throws {
+        let json = """
+        {"id":"show:u1:s1","userId":"u1","showId":"s1","unlistenedEpisodeCount":null,"version":2,"playNextBehavior":null}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: json, headers: [:])) }
+
+        let settings = try await client.getShowSettings(showId: "s1")
+
+        XCTAssertNil(settings.playNextBehavior)
+    }
+
     func testGetSettingsDefaultsSmartSpeedToFalseWhenAbsent() async throws {
         let json = """
         {"userId":"u1","unlistenedEpisodeCount":5,"version":1}

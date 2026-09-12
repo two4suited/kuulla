@@ -26,6 +26,7 @@ struct SettingsView: View {
     @State private var autoDownloadSaveError: String?
     @State private var autoAddUpNextSaveError: String?
     @State private var upNextInsertPositionSaveError: String?
+    @State private var playNextBehaviorSaveError: String?
     @State private var leadingSwipeActionsSaveError: String?
     @State private var trailingSwipeActionsSaveError: String?
     @State private var smartSpeedSaveError: String?
@@ -40,6 +41,7 @@ struct SettingsView: View {
     @State private var autoDownloadSaveTask: Task<Void, Never>?
     @State private var autoAddUpNextSaveTask: Task<Void, Never>?
     @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
+    @State private var playNextBehaviorSaveTask: Task<Void, Never>?
     @State private var leadingSwipeActionsSaveTask: Task<Void, Never>?
     @State private var trailingSwipeActionsSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
@@ -157,6 +159,24 @@ struct SettingsView: View {
                     }
                     if autoAddUpNextSaveError == nil && upNextInsertPositionSaveError == nil {
                         Text("New episodes from your subscriptions are queued automatically. Override this per show from a show's page.")
+                    }
+                }
+            }
+
+            Section {
+                Picker("Play next", selection: playNextBehaviorBinding) {
+                    ForEach(PlayNextBehavior.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .disabled(settings == nil)
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let playNextBehaviorSaveError {
+                        Text(playNextBehaviorSaveError)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("What plays when an episode finishes. Override this per show or per playlist.")
                     }
                 }
             }
@@ -519,6 +539,16 @@ struct SettingsView: View {
         )
     }
 
+    private var playNextBehaviorBinding: Binding<PlayNextBehavior> {
+        Binding(
+            get: { settings?.playNextBehavior ?? .nextInList },
+            set: { newValue in
+                playNextBehaviorSaveTask?.cancel()
+                playNextBehaviorSaveTask = Task { await updatePlayNextBehavior(newValue) }
+            }
+        )
+    }
+
     private var leadingSwipeActionsBinding: Binding<[EpisodeSwipeAction]> {
         Binding(
             get: { settings?.leadingSwipeActions ?? [] },
@@ -797,6 +827,28 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 upNextInsertPositionSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updatePlayNextBehavior(_ value: PlayNextBehavior) async {
+        guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
+
+        playNextBehaviorSaveError = nil
+        settings = previous.with(playNextBehavior: value)
+
+        do {
+            let updated = try await settingsClient.updatePlayNextBehavior(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                playNextBehaviorSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }
