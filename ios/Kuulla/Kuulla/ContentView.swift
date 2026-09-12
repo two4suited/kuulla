@@ -20,6 +20,9 @@ private enum AppTab: Hashable {
 
 struct ContentView: View {
     @Environment(\.episodeSyncEngine) private var syncEngine
+#if DEBUG
+    @Environment(\.catalogRefresh) private var catalogRefresh
+#endif
     @State private var authManager = AuthManager.shared
     @State private var errorMessage: String?
     @State private var deepLinkRouter = DeepLinkRouter.shared
@@ -44,6 +47,10 @@ struct ContentView: View {
                 if args.contains("-KuullaAutoTestSignIn"), !authManager.isSignedIn {
                     do {
                         try await authManager.signInAsTestUser()
+                        // The normal cold-launch refresh (KuullaApp.swift) races this sign-in
+                        // and finds isSignedIn still false, so a headless capture run would
+                        // otherwise land on an empty catalog — trigger it explicitly here.
+                        await catalogRefresh?.refreshAll()
                     } catch {
                         // Surface it — a headless capture run that silently stays on the
                         // sign-in screen is hard to diagnose (usually the local API / Aspire

@@ -2,19 +2,40 @@
 
 A podcast app built for audio quality and fast syncing, with web and iOS interfaces.
 
+**iOS**
+
 <table>
 <tr>
 <td align="center" width="33%">
-<img src="docs/images/screenshot-library.png" width="220" alt="Library"><br>
+<img src="docs/images/screenshot-library.png" width="220" alt="iOS Library"><br>
 <sub>Library — shows, playlists, and Up Next in one screen</sub>
 </td>
 <td align="center" width="33%">
-<img src="docs/images/screenshot-nowplaying.png" width="220" alt="Now Playing"><br>
-<sub>Now Playing — playback controls, speed, sleep timer, and show notes</sub>
+<img src="docs/images/screenshot-ios-showdetail.png" width="220" alt="iOS Show Detail"><br>
+<sub>Show detail — episode list with filters and sort</sub>
 </td>
 <td align="center" width="33%">
-<img src="docs/images/screenshot-subscriptions.png" width="220" alt="Subscriptions"><br>
-<sub>Subscriptions — manage the shows you follow</sub>
+<img src="docs/images/screenshot-nowplaying.png" width="220" alt="iOS Now Playing"><br>
+<sub>Now Playing — playback controls, speed, sleep timer, and show notes</sub>
+</td>
+</tr>
+</table>
+
+**Web**
+
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/images/screenshot-web-library.png" width="280" alt="Web Library"><br>
+<sub>Library — the same synced shows and playlists, in the browser</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/images/screenshot-web-showdetail.png" width="280" alt="Web Show Detail"><br>
+<sub>Show detail — episode list and playback, no app install needed</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/images/screenshot-web-discover.png" width="280" alt="Web Discover"><br>
+<sub>Discover — browse trending shows and categories</sub>
 </td>
 </tr>
 </table>
