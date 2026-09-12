@@ -461,23 +461,38 @@ struct EpisodeDetailView: View {
         transcript = nil
         loadError = nil
         isLoading = true
+
+        // Paint instantly from the on-device catalog cache (#534's pattern), then refresh from
+        // the network below — this is what already-known episodes (Now Playing, a visible list
+        // row) skip the network latency for (#614).
+        episode = CatalogCache.episode(showId: showId, episodeId: episodeId, in: modelContext)
+        show = CatalogCache.show(id: showId, in: modelContext)
+        if episode != nil {
+            loadLocalState()
+        }
+
+        // getEpisode and getShow don't depend on each other, so they're kicked off concurrently
+        // instead of sequentially (#614) — each still only costs the latency of one round trip.
+        async let episodeResult = catalogClient.getEpisode(showId: showId, episodeId: episodeId)
+        async let showResult = try? catalogClient.getShow(id: showId)
+
         do {
-            episode = try await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
+            episode = try await episodeResult
         } catch {
             if !Task.isCancelled {
                 loadError = "Something went wrong while loading this episode. Please try again."
             }
         }
 
-        // Resolved before the show fetch below (rather than after) — resolvedAudioURL gates
-        // whether Play/Pause and the download button render at all, so a slow/failed getShow
-        // shouldn't delay or block starting playback when the episode's own audio URL is already
-        // known.
+        // Resolved before awaiting the show fetch below (rather than after) — resolvedAudioURL
+        // gates whether Play/Pause and the download button render at all, so a slow/failed
+        // getShow shouldn't delay or block starting playback when the episode's own audio URL is
+        // already known.
         loadLocalState()
 
         // Best-effort: only feeds the lock screen/CarPlay Now Playing artist + artwork, so a
         // failure here shouldn't block or error out episode loading itself.
-        show = try? await catalogClient.getShow(id: showId)
+        show = await showResult
 
         // This fetch races the play button the same way loadPlaybackSettings' does below: a tap
         // before it resolves starts playback with no show title/artwork (audioPlayer.play's
