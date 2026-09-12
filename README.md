@@ -2,6 +2,8 @@
 
 A podcast app built for audio quality and fast syncing, with web and iOS interfaces.
 
+![Library](docs/images/screenshot-library.png) ![Now Playing](docs/images/screenshot-nowplaying.png) ![Subscriptions](docs/images/screenshot-subscriptions.png)
+
 ## Goals
 
 - **Audio quality first** — prioritize high-bitrate streams, gapless playback, and proper audio normalization
@@ -21,8 +23,15 @@ A podcast app built for audio quality and fast syncing, with web and iOS interfa
 ## Architecture
 
 - **Backend (.NET)** — API for sync, feed management, and audio delivery
+- **Domain layer (`Kuulla.Core`)** — shared domain services (episodes, shows, subscriptions,
+  settings, episode state, device tokens, feed polling, podcast directory/feed clients, the
+  SSRF-guarded resource fetcher) referenced by both the API and the feed poller
+- **Feed poller** — dedicated worker that sweeps subscribed shows for new episodes on a fixed
+  schedule, independent of API replica count (local: an Aspire `PeriodicTimer` worker;
+  production: an Azure Container Apps scheduled job)
 - **Web (Blazor)** — browser-based player and subscription management
-- **iOS (Swift)** — native app with background audio, offline support, and system integration
+- **iOS (Swift)** — native app with background audio, offline downloads, CarPlay, and other
+  system integration
 - **Aspire** — local development orchestration and service defaults
 
 ```mermaid
@@ -35,11 +44,15 @@ graph TD
     Web -->|"https+http://api\n(Aspire service discovery)"| API
     iOS -->|REST| API["API (.NET)"]
 
-    API --> Cosmos[("Cosmos DB")]
-    API --> Feeds["Podcast feed / directory clients"]
+    API --> Core["Kuulla.Core\n(domain services)"]
+    Core --> Cosmos[("Cosmos DB")]
+    Core --> Feeds["Podcast feed / directory clients"]
+
+    Poller["Feed poller\n(scheduled sweep)"] --> Core
 
     subgraph Aspire["Aspire AppHost (local dev)"]
         API
+        Poller
         Cosmos
     end
 ```
@@ -50,7 +63,9 @@ Playback position, subscriptions, episode state, and playlists all sync through 
 token-based reconciliation pattern: each client tracks a sync token, asks the API for changes
 since that token, applies them locally, and pushes its own local changes back up. Playback
 position uses last-write-wins; playlists use a rank-based ordering so reordering merges cleanly
-across devices.
+across devices. The iOS app additionally keeps a local read-through cache of shows, subscriptions,
+and episodes so the library paints instantly on launch, with sync running on demand rather than
+continuously in the foreground.
 
 ```mermaid
 sequenceDiagram
@@ -81,60 +96,74 @@ sequenceDiagram
 - **Auto-played episodes** — episodes beyond a configurable unlistened-episode limit are
   automatically marked played, are hidden from New Episodes, and can be restored
 - **Playlists** — manual, multi-show, reorderable playlists (create, rename, add/remove/reorder
-  items), synced across devices
+  items), plus rule-based smart/dynamic playlists that auto-populate, synced across devices
 - **Up Next queue** — a dedicated reorderable playback queue spanning multiple shows
-- **User settings** — configurable unlistened-episode limit and other per-user preferences
+- **Discovery** — curated categories and trending/recommended shows, distinct from directory search
+- **Transcripts & search** — searchable episode transcripts, surfaced in the player, with chapter
+  markers for jumping to embedded chapter points
+- **Playback speed & pitch correction** — per-show variable playback speed without pitch distortion
+- **SmartSpeed** — combined silence trimming and volume boosting to tighten pacing and normalize
+  loud/quiet segments
+- **Sleep timer** — stop playback after a duration or at the end of the current episode
+- **Cross-device handoff** — resume playback where you left off when switching between web and iOS
+- **Offline downloads (iOS)** — download episodes for offline playback, with configurable
+  auto-download and storage/retention rules
+- **CarPlay (iOS)** — browse and play from the car's screen
+- **User settings** — configurable unlistened-episode limit, playback, downloads/storage, and
+  other per-user preferences, synced across devices
 - **Fast, conflict-aware sync** — token-based delta sync for episode state, subscriptions, and
   playlists (see above)
 
 ### Planned
 
-Features common in mature podcast apps that aren't built yet, roughly in the order we're
-considering them:
+Remaining pieces of the app-settings and system-integration surface:
 
 ```mermaid
 graph LR
-    A[Smart / auto-updating playlists] --> B[Playback speed & pitch control]
-    B --> C[Silence trimming & volume boost]
-    C --> D[Sleep timer]
-    D --> E[Chapter markers & episode artwork]
-    E --> F[Full-text transcripts & search]
-    F --> G[Discovery / trending shows]
-    G --> H[Cross-device playback handoff]
-    H --> I[Offline downloads]
+    A[Siri Shortcuts & voice integration] --> B[Home-screen / lock-screen widgets]
 ```
 
-- **Smart playlists** — rule-based playlists that auto-populate (e.g. "unplayed, newest first,
-  across subscribed shows") instead of manual curation
-- **Playback speed & pitch correction** — per-show variable playback speed without pitch
-  distortion
-- **Silence trimming & volume boosting** — audio post-processing to tighten pacing and
-  normalize loud/quiet segments
-- **Sleep timer** — stop playback after a duration or at the end of the current episode
-- **Chapter markers** — jump to embedded chapter points with per-chapter artwork/links
-- **Transcripts & search** — searchable episode transcripts, surfaced in the player
-- **Discovery** — trending/recommended shows and curated categories, distinct from
-  directory search
-- **Cross-device handoff** — seamlessly continue playback mid-episode when switching devices,
-  building on the existing sync layer
-- **Offline downloads** — download episodes for offline playback on iOS
+- **Siri Shortcuts & voice integration (iOS)** — voice-driven playback control via App Intents
+- **Widgets (iOS)** — home-screen and lock-screen widgets for Now Playing / Up Next
 
 ## Development
 
 ### Prerequisites
 
-- .NET 9+ SDK
+- .NET 10 SDK
 - .NET Aspire workload
 - Xcode (for iOS development)
 
 ### Running locally
 
 ```sh
-dotnet run --project src/Kuulla.AppHost
+aspire run
 ```
 
 To seed the local dev user's library with 5 real podcasts (instead of starting from an empty
 library), start the `seed-dev-data` resource from the Aspire dashboard once `api` is healthy.
+
+See [CLAUDE.md](CLAUDE.md) for the full command reference, including running the iOS app on a
+physical device (needed for CarPlay testing).
+
+### Design system
+
+Web and iOS share a single visual identity ("Signal") — true-black, monospace-tagged, with sync
+state shown rather than hidden. See [docs/brand.md](docs/brand.md) for the full design system and
+[docs/brand/appstore/](docs/brand/appstore/) for App Store assets.
+
+### Docs
+
+- [Settings architecture](docs/settings-architecture.md) — IA and data model for the app-settings
+  surface, with per-category specs (playback, downloads/storage, data usage, accessibility,
+  appearance, account/privacy, Siri/Shortcuts, widgets, OPML import/export)
+- [Sync conventions](docs/sync-conventions.md) — the token-based delta sync pattern used across
+  domains
+- [Feed poller runbook](docs/feed-poller-runbook.md) — how the scheduled feed sweep works and how
+  to operate it
+- [CarPlay entitlement runbook](docs/carplay-entitlement-runbook.md) — verification checklist for
+  the CarPlay audio entitlement
+- [SmartSpeed spike](docs/smartspeed-spike.md) — silence-trim/volume-boost implementation options
 
 ## Deployment
 
