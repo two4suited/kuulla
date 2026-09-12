@@ -5,6 +5,7 @@
 
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
+using Aspire.Hosting.Publishing;
 using Azure.Core;
 using Azure.Provisioning;
 using Azure.Provisioning.AppContainers;
@@ -139,10 +140,17 @@ var frontDoorId = builder.AddParameter(
 // are optional infrastructure, so a `dotnet user-secrets set` for these isn't part of getting a
 // local dev environment running; the API falls back to a no-op notification sender (with a
 // startup warning) when any of them is unset.
-var apnsKeyId = builder.AddParameter("apns-key-id", value: "", secret: false);
-var apnsTeamId = builder.AddParameter("apns-team-id", value: "", secret: false);
-var apnsBundleId = builder.AddParameter("apns-bundle-id", value: "", secret: false);
-var apnsPrivateKey = builder.AddParameter("apns-private-key", value: "", secret: true);
+//
+// Deliberately NOT AddParameter(name, value: "", ...): that overload builds a ParameterResource
+// whose value is the hardcoded constant, full stop — it never consults configuration, so it can
+// never pick up deploy.yml's Parameters__apns_* env vars (issue #600). The ParameterDefault
+// overload used below reads configuration ("Parameters:apns-key-id", normalized to
+// "Parameters:apns_key_id" for env vars) first and only falls back to the empty default when
+// nothing is configured there — real values from deploy.yml or local user secrets now win.
+var apnsKeyId = builder.AddParameter("apns-key-id", new EmptyStringParameterDefault(), secret: false);
+var apnsTeamId = builder.AddParameter("apns-team-id", new EmptyStringParameterDefault(), secret: false);
+var apnsBundleId = builder.AddParameter("apns-bundle-id", new EmptyStringParameterDefault(), secret: false);
+var apnsPrivateKey = builder.AddParameter("apns-private-key", new EmptyStringParameterDefault(), secret: true);
 
 // Container Apps rejects a secret resource with no value and no Key Vault reference, so an
 // unset apns-private-key must not be wired up as a secret at all rather than as an empty one.
@@ -496,4 +504,18 @@ file sealed class NamedCosmosDBSqlRoleAssignment(string bicepIdentifier)
         base.DefineProvisionableProperties();
         _name = DefineProperty<string>("Name", ["name"]);
     }
+}
+
+/// <summary>
+/// An empty-string <see cref="ParameterDefault"/> for the <c>AddParameter(name, ParameterDefault, ...)</c>
+/// overload — unlike <c>AddParameter(name, value: "", ...)</c>, that overload still checks
+/// configuration (env vars, user secrets) before falling back to this default, which is what lets
+/// an optional parameter be genuinely overridable (issue #600).
+/// </summary>
+file sealed class EmptyStringParameterDefault : ParameterDefault
+{
+    public override string GetDefaultValue() => "";
+
+    public override void WriteToManifest(ManifestPublishingContext context) =>
+        context.Writer.WriteString("value", "");
 }
