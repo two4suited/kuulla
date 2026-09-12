@@ -47,8 +47,19 @@ final class UserSettingsRecord: Syncable {
     // Inline default required, same lightweight-migration reason as the fields above (#568).
     var leadingSwipeActions: [EpisodeSwipeAction] = []
     var trailingSwipeActions: [EpisodeSwipeAction] = [EpisodeSwipeAction.addToPlaylist, EpisodeSwipeAction.markPlayed]
-    // Inline default required, same lightweight-migration reason as the fields above (#629).
-    var playNextBehavior: PlayNextBehavior = PlayNextBehavior.nextInList
+    // Stored as Optional rather than an inline-defaulted non-optional attribute like the fields
+    // above (#635): lightweight migration synthesizing nil for a new *optional* attribute is
+    // safe (see sleepTimerDefaultDurationMinutes above), but for this enum-backed attribute
+    // synthesizing the non-optional inline default on some already-persisted rows fetched back
+    // as `Optional<Any>` at the SwiftData/CoreData layer instead of `PlayNextBehavior`, and the
+    // generated property getter's implicit cast crashed rather than falling back to the default
+    // (#635). The computed property below applies the default in plain Swift instead of relying
+    // on SwiftData to synthesize it.
+    private var playNextBehaviorRaw: PlayNextBehavior?
+    var playNextBehavior: PlayNextBehavior {
+        get { playNextBehaviorRaw ?? .nextInList }
+        set { playNextBehaviorRaw = newValue }
+    }
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -87,7 +98,7 @@ final class UserSettingsRecord: Syncable {
         self.upNextInsertPosition = upNextInsertPosition
         self.leadingSwipeActions = leadingSwipeActions
         self.trailingSwipeActions = trailingSwipeActions
-        self.playNextBehavior = playNextBehavior
+        self.playNextBehaviorRaw = playNextBehavior
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
