@@ -259,6 +259,79 @@ enum CatalogCache {
         try? context.save()
     }
 
+    // Patches the badge blobs after a local episode-state write (play/pause progress, the
+    // completed toggle, "mark all played", restoring an auto-played episode) so
+    // Subscriptions/Library reflect it immediately rather than waiting for the next full refresh
+    // — mirrors removeShowFromSnapshot below (#556).
+    //
+    // Both badges are recomputed from scratch on every call rather than incrementally patched, so
+    // retoggling an episode (played → unplayed → played) or restoring an auto-played episode can
+    // never drift the cache out of sync with itself. `completed`/`positionSeconds` are the values
+    // the caller just wrote rather than a re-fetch of this episode's own record: the caller just
+    // saved through a different ModelContext (typically the sync engine's), which this context
+    // isn't guaranteed to observe synchronously (see EpisodeDetailView.persist). Every *other*
+    // episode of the show was written in an earlier, already-settled transaction, so querying
+    // those here is safe.
+    static func recordEpisodeStateChange(
+        episodeId: String, showId: String, completed: Bool, positionSeconds: Int, in context: ModelContext
+    ) {
+        guard let row = existingState(in: context) else { return }
+        var didChange = false
+
+        let otherStates = (try? context.fetch(FetchDescriptor<EpisodeStateRecord>(
+            predicate: #Predicate { $0.showId == showId && $0.id != episodeId }
+        ))) ?? []
+
+        // Unplayed count: recomputed from the cached New Episodes feed (the same page-capped,
+        // autoPlayed-excluded set the original snapshot counted) minus whatever's locally known
+        // to be completed now. Left untouched when nothing is cached for the show at all, rather
+        // than forced to zero — a partial sync that never fetched this show's feed shouldn't wipe
+        // whatever badge was there before.
+        let cachedNew = (try? context.fetch(FetchDescriptor<CachedNewEpisodeRecord>(
+            predicate: #Predicate { $0.showId == showId && !$0.autoPlayed }
+        ))) ?? []
+        if !cachedNew.isEmpty,
+           let data = row.unplayedCountsData,
+           var byShow = try? JSONDecoder().decode([String: Int].self, from: data) {
+            var completedIds = Set(otherStates.filter(\.completed).map(\.id))
+            if completed { completedIds.insert(episodeId) }
+            let unplayed = cachedNew.filter { !completedIds.contains($0.id) }.count
+            if byShow[showId] != (unplayed > 0 ? unplayed : nil) {
+                if unplayed > 0 {
+                    byShow[showId] = unplayed
+                } else {
+                    byShow.removeValue(forKey: showId)
+                }
+                row.unplayedCountsData = try? JSONEncoder().encode(byShow)
+                didChange = true
+            }
+        }
+
+        // In-progress membership: this episode's own new state plus every other episode of the
+        // show already mirrored in EpisodeStateRecord.
+        let showInProgress = (!completed && positionSeconds > 0)
+            || otherStates.contains { !$0.completed && $0.positionSeconds > 0 }
+
+        var ids: [String] = []
+        if let data = row.inProgressShowIdsData, let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            ids = decoded
+        }
+        let currentlyListed = ids.contains(showId)
+        if showInProgress && !currentlyListed {
+            ids.append(showId)
+            row.inProgressShowIdsData = try? JSONEncoder().encode(ids)
+            didChange = true
+        } else if !showInProgress && currentlyListed {
+            ids.removeAll { $0 == showId }
+            row.inProgressShowIdsData = try? JSONEncoder().encode(ids)
+            didChange = true
+        }
+
+        if didChange {
+            try? context.save()
+        }
+    }
+
     // Drop a single show from the snapshot blobs so a just-unsubscribed show stops showing a
     // stale unplayed badge / counting as "active" before the next full refresh (#533).
     static func removeShowFromSnapshot(showId: String, in context: ModelContext) {

@@ -8,6 +8,7 @@ final class CatalogCacheTests: XCTestCase {
         let container = try ModelContainer(
             for: SubscriptionRecord.self, ShowRecord.self, CachedEpisodeRecord.self,
             CachedNewEpisodeRecord.self, ShowEpisodePageRecord.self, CatalogCacheState.self,
+            EpisodeStateRecord.self,
             configurations: configuration)
         return ModelContext(container)
     }
@@ -233,6 +234,112 @@ final class CatalogCacheTests: XCTestCase {
         _ = CatalogCache.unplayedCounts(in: context)
         _ = CatalogCache.inProgressShowIds(in: context)
         _ = CatalogCache.lastRefreshedAt(in: context)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<CatalogCacheState>()), 0)
+    }
+
+    func testRecordEpisodeStateChangeMarkingPlayedDecrementsUnplayedAndClearsInProgress() throws {
+        let context = try makeContext()
+        CatalogCache.replaceNewEpisodes(
+            [
+                newEpisode(id: "e1", showId: "show1"), newEpisode(id: "e2", showId: "show1"),
+                newEpisode(id: "e3", showId: "show1"),
+            ],
+            in: context)
+        CatalogCache.storeSnapshot(
+            unplayedCounts: ["show1": .init(unplayed: 3, hitCap: false)],
+            inProgressShowIds: ["show1"],
+            refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: true, positionSeconds: 2_730, in: context)
+
+        XCTAssertEqual(CatalogCache.unplayedCounts(in: context)["show1"]?.unplayed, 2)
+        // No other episode of show1 is still in-progress, so it drops out of the set.
+        XCTAssertEqual(CatalogCache.inProgressShowIds(in: context), [])
+    }
+
+    // Retoggling the same episode played -> unplayed -> played must land back at the same count,
+    // not keep decrementing (#532 review fix — the original incremental-decrement version double
+    // counted this).
+    func testRecordEpisodeStateChangeRetoggleDoesNotCompoundTheCount() throws {
+        let context = try makeContext()
+        CatalogCache.replaceNewEpisodes(
+            [newEpisode(id: "e1", showId: "show1"), newEpisode(id: "e2", showId: "show1")], in: context)
+        CatalogCache.storeSnapshot(
+            unplayedCounts: ["show1": .init(unplayed: 2, hitCap: false)],
+            inProgressShowIds: [], refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: true, positionSeconds: 2_730, in: context)
+        XCTAssertEqual(CatalogCache.unplayedCounts(in: context)["show1"]?.unplayed, 1)
+
+        // Undo — the badge should go right back up, unlike the old decrement-only behavior.
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: false, positionSeconds: 0, in: context)
+        XCTAssertEqual(CatalogCache.unplayedCounts(in: context)["show1"]?.unplayed, 2)
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: true, positionSeconds: 2_730, in: context)
+        XCTAssertEqual(CatalogCache.unplayedCounts(in: context)["show1"]?.unplayed, 1)
+    }
+
+    func testRecordEpisodeStateChangeRemovesUnplayedKeyWhenCountReachesZero() throws {
+        let context = try makeContext()
+        CatalogCache.replaceNewEpisodes([newEpisode(id: "e1", showId: "show1")], in: context)
+        CatalogCache.storeSnapshot(
+            unplayedCounts: ["show1": .init(unplayed: 1, hitCap: false)],
+            inProgressShowIds: [], refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: true, positionSeconds: 2_730, in: context)
+
+        XCTAssertNil(CatalogCache.unplayedCounts(in: context)["show1"])
+    }
+
+    func testRecordEpisodeStateChangeDoesNotDecrementForUncountedEpisode() throws {
+        // e1 was never part of the cached New Episodes feed (e.g. an older back-catalogue
+        // episode) — marking it played shouldn't touch a badge count that never included it.
+        let context = try makeContext()
+        CatalogCache.storeSnapshot(
+            unplayedCounts: ["show1": .init(unplayed: 3, hitCap: false)],
+            inProgressShowIds: [], refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: true, positionSeconds: 2_730, in: context)
+
+        XCTAssertEqual(CatalogCache.unplayedCounts(in: context)["show1"]?.unplayed, 3)
+    }
+
+    func testRecordEpisodeStateChangeKeepsShowInProgressWhenAnotherEpisodeStillIs() throws {
+        let context = try makeContext()
+        context.insert(EpisodeStateRecord(
+            id: "e2", showId: "show1", positionSeconds: 100, completed: false, updatedAt: .now))
+        CatalogCache.storeSnapshot(
+            unplayedCounts: [:], inProgressShowIds: ["show1"],
+            refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: true, positionSeconds: 2_730, in: context)
+
+        XCTAssertEqual(CatalogCache.inProgressShowIds(in: context), ["show1"])
+    }
+
+    func testRecordEpisodeStateChangeAddsShowToInProgressOnPartialPlayback() throws {
+        let context = try makeContext()
+        CatalogCache.storeSnapshot(
+            unplayedCounts: [:], inProgressShowIds: [],
+            refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: false, positionSeconds: 42, in: context)
+
+        XCTAssertEqual(CatalogCache.inProgressShowIds(in: context), ["show1"])
+    }
+
+    func testRecordEpisodeStateChangeWithNoStateRowIsHarmless() throws {
+        let context = try makeContext()
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: true, positionSeconds: 0, in: context)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<CatalogCacheState>()), 0)
     }
 
