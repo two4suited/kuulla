@@ -38,6 +38,7 @@ jobs:
             ios:
               - 'ios/**'
             shared:
+              - 'src/Kuulla.Core/**'
               - 'src/Kuulla.ServiceDefaults/**'
               - 'Kuulla.sln'
               - '.github/workflows/**'
