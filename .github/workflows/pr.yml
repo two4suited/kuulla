@@ -71,29 +71,9 @@ jobs:
       - name: Build (Release)
         run: dotnet build Kuulla.sln --no-restore --configuration Release
 
-      # Debug, not Release: these tests exercise /dev/* endpoints that are #if DEBUG-only by
-      # design (never shipped in a Release build). Skipped unless the diff actually touches the
-      # API (a shared/common change also counts, since it can affect API behavior indirectly).
-      - name: Test API (Debug)
-        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
-        run: dotnet test tests/Kuulla.Api.Tests/Kuulla.Api.Tests.csproj --configuration Debug
-
-      # bUnit component tests — no Cosmos emulator involved, safe to run in Release. Also runs on
-      # an API change: the API can change shared contracts/DTOs that Web consumes.
-      - name: Test Web
-        if: needs.changes.outputs.web == 'true' || needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true'
-        run: dotnet test tests/Kuulla.Web.Tests/Kuulla.Web.Tests.csproj --no-build --configuration Release
-
-      # Kuulla.AppHost.Tests is excluded from CI: it boots the real Cosmos DB emulator via
-      # DistributedApplicationTestingBuilder, and while investigating issue #62 we root-caused
-      # its "corrupted frame" TLS failure to a real, fixable bug (microsoft/aspire#15620 — the
-      # emulator serves plain HTTP without a trusted dev cert, but Aspire's readiness probe still
-      # expects HTTPS), the emulator container's own startup time is separately slow and highly
-      # variable on this runner — one CI run had it healthy in ~2 minutes, another never got
-      # there before the fixture's retry budget ran out. That makes it unsuitable as a PR gate
-      # regardless of the TLS fix. Its Playwright browser E2E tests share the same AppHost
-      # collection fixture, so they're in the same boat and run from the same manual workflow.
-      # Locally the whole suite runs green in ~1 minute via `dotnet test`.
+      # Test suites (API, Web, AppHost integration) are no longer run in PR CI — build-only gate.
+      # Run `dotnet test Kuulla.sln` locally before opening a PR; see CLAUDE.md's Pull Request
+      # Workflow section and issue #624.
 
   build-ios:
     name: Build iOS
@@ -115,28 +95,18 @@ jobs:
           echo "Using simulator: $DEVICE_NAME"
           echo "SIMULATOR_NAME=$DEVICE_NAME" >> "$GITHUB_ENV"
 
-      # KuullaUITests is excluded here: it drives the real app against a real, already-running
-      # Kuulla API (KUULLA_API_BASE_URL), and this runner has no AppHost to point it at — see
-      # issue #51 for getting the Simulator into the Aspire dev loop. It builds as part of this
-      # same `xcodebuild test` invocation (build-for-testing runs for every testable in the
-      # scheme regardless of -skip-testing), so it still gets compile coverage on every PR; only
-      # actually running it against a live API is deferred. Run it locally against an
-      # `aspire run`/`aspire start` API with:
-      #   TEST_RUNNER_KUULLA_API_BASE_URL=<api base url> xcodebuild test ... -only-testing:KuullaUITests
-      # The TEST_RUNNER_ prefix (not the bare KUULLA_API_BASE_URL the app/tests actually read) is
-      # required here: xcodebuild strips it and forwards the rest into the test process's own
-      # environment, which is the only way a value set in the invoking shell reaches
-      # ProcessInfo.processInfo.environment inside the Simulator — a plain `KUULLA_API_BASE_URL=`
-      # export does not cross that boundary.
-      - name: Test
+      # Build-only gate — test suites (including KuullaUITests) are no longer run in PR CI.
+      # `build-for-testing` still compiles every testable in the scheme, so this keeps compile
+      # coverage for test targets without running them. Run tests locally with `xcodebuild test`;
+      # see CLAUDE.md's Pull Request Workflow section and issue #624.
+      - name: Build for testing
         working-directory: ios/Kuulla
         run: |
-          xcodebuild test \
+          xcodebuild build-for-testing \
             -project Kuulla.xcodeproj \
             -scheme Kuulla \
             -destination "platform=iOS Simulator,name=$SIMULATOR_NAME" \
             -configuration Debug \
-            -skip-testing:KuullaUITests \
             CODE_SIGNING_ALLOWED=NO
 
   # Structural preview of the deploy pipeline, moved here from deploy.yml so the planned steps are
