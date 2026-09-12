@@ -343,6 +343,72 @@ final class CatalogCacheTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<CatalogCacheState>()), 0)
     }
 
+    func testRecordNewSubscriptionSeedsUnplayedCountFromGivenEpisodes() throws {
+        let context = try makeContext()
+        // e2 already played, so only e1/e3 should count.
+        context.insert(EpisodeStateRecord(
+            id: "e2", showId: "show1", positionSeconds: 0, completed: true, updatedAt: .now))
+
+        CatalogCache.recordNewSubscription(
+            showId: "show1",
+            episodes: [
+                episode(id: "e1", showId: "show1"), episode(id: "e2", showId: "show1"),
+                episode(id: "e3", showId: "show1"),
+            ],
+            in: context)
+
+        XCTAssertEqual(CatalogCache.unplayedCounts(in: context)["show1"]?.unplayed, 2)
+    }
+
+    // Mirrors UnplayedCounts.compute: an auto-played episode is excluded from the badge (the
+    // unlistened-episode-limit job already marked it played), and one merely in-progress
+    // (position > 0, not completed) doesn't count as unplayed either.
+    func testRecordNewSubscriptionExcludesAutoPlayedAndInProgressFromCount() throws {
+        let context = try makeContext()
+        context.insert(EpisodeStateRecord(
+            id: "e1", showId: "show1", positionSeconds: 0, completed: true, updatedAt: .now, autoPlayed: true))
+        context.insert(EpisodeStateRecord(
+            id: "e2", showId: "show1", positionSeconds: 90, completed: false, updatedAt: .now))
+
+        CatalogCache.recordNewSubscription(
+            showId: "show1",
+            episodes: [episode(id: "e1", showId: "show1"), episode(id: "e2", showId: "show1")],
+            in: context)
+
+        XCTAssertNil(CatalogCache.unplayedCounts(in: context)["show1"])
+    }
+
+    func testRecordNewSubscriptionWithNoEpisodesIsHarmless() throws {
+        let context = try makeContext()
+        CatalogCache.recordNewSubscription(showId: "show1", episodes: [], in: context)
+        XCTAssertNil(CatalogCache.unplayedCounts(in: context)["show1"])
+    }
+
+    func testRecordNewSubscriptionWithAllEpisodesAlreadyPlayedLeavesNoBadge() throws {
+        let context = try makeContext()
+        context.insert(EpisodeStateRecord(
+            id: "e1", showId: "show1", positionSeconds: 0, completed: true, updatedAt: .now))
+
+        CatalogCache.recordNewSubscription(
+            showId: "show1", episodes: [episode(id: "e1", showId: "show1")], in: context)
+
+        XCTAssertNil(CatalogCache.unplayedCounts(in: context)["show1"])
+    }
+
+    func testRecordNewSubscriptionPreservesOtherShowsBadges() throws {
+        let context = try makeContext()
+        CatalogCache.storeSnapshot(
+            unplayedCounts: ["show2": .init(unplayed: 5, hitCap: false)],
+            inProgressShowIds: [], refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        CatalogCache.recordNewSubscription(
+            showId: "show1", episodes: [episode(id: "e1", showId: "show1")], in: context)
+
+        let counts = CatalogCache.unplayedCounts(in: context)
+        XCTAssertEqual(counts["show1"]?.unplayed, 1)
+        XCTAssertEqual(counts["show2"]?.unplayed, 5)
+    }
+
     func testEmptyCacheReadsAreHarmless() throws {
         let context = try makeContext()
         XCTAssertTrue(CatalogCache.subscriptions(in: context).isEmpty)

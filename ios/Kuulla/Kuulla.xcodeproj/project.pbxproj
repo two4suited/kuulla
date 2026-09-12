@@ -134,6 +134,7 @@
 		J1000020 /* PlaylistSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000020 /* PlaylistSummaryTests.swift */; };
 		X1000001 /* SubscriptionManualReorderRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2000001 /* SubscriptionManualReorderRow.swift */; };
 		Y1000001 /* ShowDisplaySettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y2000001 /* ShowDisplaySettingsMenu.swift */; };
+		I1000001 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = I2000001 /* CachedAsyncImage.swift */; };
 		Z1000001 /* ChapterScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000001 /* ChapterScrubber.swift */; };
 		Z1000002 /* ChapterScrubberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000002 /* ChapterScrubberTests.swift */; };
 		Z1000003 /* Transcript.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000003 /* Transcript.swift */; };
@@ -300,6 +301,7 @@
 		J2000020 /* PlaylistSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSummaryTests.swift; sourceTree = "<group>"; };
 		X2000001 /* SubscriptionManualReorderRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManualReorderRow.swift; sourceTree = "<group>"; };
 		Y2000001 /* ShowDisplaySettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDisplaySettingsMenu.swift; sourceTree = "<group>"; };
+		I2000001 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
 		Z2000001 /* ChapterScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubber.swift; sourceTree = "<group>"; };
 		Z2000002 /* ChapterScrubberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubberTests.swift; sourceTree = "<group>"; };
 		Z2000003 /* Transcript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcript.swift; sourceTree = "<group>"; };
@@ -378,6 +380,7 @@
 				W2000002 /* SubscriptionSort.swift */,
 				X2000001 /* SubscriptionManualReorderRow.swift */,
 				Y2000001 /* ShowDisplaySettingsMenu.swift */,
+				I2000001 /* CachedAsyncImage.swift */,
 				A2000030 /* DeviceTokenClient.swift */,
 				A2000031 /* PushNotificationManager.swift */,
 				A2000032 /* Kuulla.entitlements */,
@@ -660,6 +663,7 @@
 				W1000002 /* SubscriptionSort.swift in Sources */,
 				X1000001 /* SubscriptionManualReorderRow.swift in Sources */,
 				Y1000001 /* ShowDisplaySettingsMenu.swift in Sources */,
+				I1000001 /* CachedAsyncImage.swift in Sources */,
 				A1000030 /* DeviceTokenClient.swift in Sources */,
 				A1000031 /* PushNotificationManager.swift in Sources */,
 				A1000040 /* DeepLinkRouter.swift in Sources */,

@@ -262,7 +262,9 @@ private struct SubscriptionTile: View {
             Color.clear
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
-                    AsyncImage(url: subscription.showArtworkUrl.flatMap(URL.init)) { image in
+                    CachedAsyncImage(
+                        url: subscription.showArtworkUrl.flatMap(URL.init), pointSize: 110
+                    ) { image in
                         image.resizable().aspectRatio(contentMode: .fill)
                     } placeholder: {
                         Color.secondary.opacity(0.2)

@@ -9,7 +9,7 @@ struct SubscriptionManualReorderRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: subscription.showArtworkUrl.flatMap(URL.init)) { image in
+            CachedAsyncImage(url: subscription.showArtworkUrl.flatMap(URL.init), pointSize: 44) { image in
                 image.resizable().aspectRatio(contentMode: .fill)
             } placeholder: {
                 Color.secondary.opacity(0.2)
