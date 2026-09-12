@@ -82,9 +82,12 @@ build on a device therefore talks to the deployed API (`https://api.kuulla.us`);
 `KUULLA_API_BASE_URL` and `localhost:5245` still apply in the Simulator. See
 `ApiConfiguration.baseURL` in `ios/Kuulla/Kuulla/ApiClient.swift`.
 
-CarPlay on-device additionally needs the `com.apple.developer.carplay-audio`
-entitlement approved on the account (developer.apple.com/contact/request/carplay,
-tracked in #115) — automatic signing silently omits it until then.
+CarPlay on-device needs the `com.apple.developer.carplay-audio` entitlement, which
+Apple has approved for team `96VJBK4H9P` (tracked in #522) and which is enabled on
+the `com.kuulla.app` App ID. The key lives in `Kuulla.entitlements`; a normal
+automatic-signing on-device build picks it up. See
+[docs/carplay-entitlement-runbook.md](docs/carplay-entitlement-runbook.md) for the
+verification checklist.
 
 ## Architecture
 

@@ -8,5 +8,12 @@
 	     archives for the APNs sandbox, which production devices can't receive pushes through. -->
 	<key>aps-environment</key>
 	<string>$(APS_ENVIRONMENT)</string>
+
+	<!-- Restricted entitlement — Apple approved it for team 96VJBK4H9P and it's enabled on the
+	     com.kuulla.app App ID (#522). Simulator / CarPlay Simulator builds apply no provisioning
+	     profile, so this key is ignored there — CI (xcodebuild ... CODE_SIGNING_ALLOWED=NO) is
+	     unaffected. See docs/carplay-entitlement-runbook.md. -->
+	<key>com.apple.developer.carplay-audio</key>
+	<true/>
 </dict>
 </plist>
