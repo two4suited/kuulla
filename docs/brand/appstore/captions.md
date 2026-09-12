@@ -5,7 +5,7 @@ Baked into the `screenshots/6.9/` frames by `compose-screenshots.mjs`.
 | # | Frame | Caption (keyword in **lime**) |
 |---|-------|-------------------------------|
 | 01 | Library | Your shows, **synced** to the second |
-| 02 | Now Playing | **Pause here.** Resume there. |
+| 02 | Episode detail | **Pause here.** Resume there. |
 | 03 | Show detail | Every episode, **filtered** your way |
 | 04 | Subscriptions | Follow shows. **Keep** your place. |
 

@@ -15,8 +15,8 @@ A podcast app built for audio quality and fast syncing, with web and iOS interfa
 <sub>Show detail — episode list with filters and sort</sub>
 </td>
 <td align="center" width="33%">
-<img src="docs/images/screenshot-nowplaying.png" width="220" alt="iOS Now Playing"><br>
-<sub>Now Playing — playback controls, speed, sleep timer, and show notes</sub>
+<img src="docs/images/screenshot-ios-episodedetail.png" width="220" alt="iOS Episode Detail"><br>
+<sub>Episode detail — play, speed, sleep timer, mark played, and show notes</sub>
 </td>
 </tr>
 </table>
