@@ -208,6 +208,13 @@ final class AudioPlayer {
             // resuming here would race it and could start playback from the wrong position
             // (mirrors pause()'s own pendingSeekPlayer-clearing guard above).
             guard wasPlayingBeforeInterruption, pendingSeekPlayer == nil else { return }
+            // Reactivate synchronously here rather than relying on resume()'s own (deliberately
+            // async, off-main) setActive(true): an interruption that ends right as the phone
+            // locks gives the app almost no background execution budget, and the OS can suspend
+            // the process before that dispatched block ever runs — leaving the session inactive
+            // and playback silently stuck paused (looks identical to "locking pauses playback").
+            // Blocking main briefly here is safe: this fires once per interruption, not per frame.
+            try? AVAudioSession.sharedInstance().setActive(true)
             resume()
         @unknown default:
             break
