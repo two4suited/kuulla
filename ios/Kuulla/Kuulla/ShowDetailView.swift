@@ -32,10 +32,14 @@ struct ShowDetailView: View {
     @State private var isConfirmingMarkAllPlayed = false
     @State private var isMarkingAllPlayed = false
     @State private var markAllPlayedError: String?
+    // Loaded once per view lifecycle (loadShow()), mirroring EpisodeDetailView's @State
+    // autoDeleteRule — avoids a settings network round trip on every swipe-to-mark-played (#532).
+    @State private var autoDeleteRule: AutoDeleteRule = .never
 
     private let catalogClient = PodcastCatalogClient()
     private let subscriptionClient = SubscriptionClient()
     private let episodeStateClient = EpisodeStateClient()
+    private let settingsClient = SettingsClient()
 
     var body: some View {
         List {
@@ -233,6 +237,11 @@ struct ShowDetailView: View {
         // Paint from the on-device catalog cache first (#488) — instant, offline-capable.
         readLocalShow()
 
+        // Best-effort, not on the critical path for painting the show — mirrors
+        // EpisodeDetailView.loadPlaybackSettings's fire-and-forget pattern. Not needed until the
+        // user actually marks something played, by which point this has long since resolved.
+        Task { await loadAutoDeleteRule() }
+
         // Only hit the network when the cache has nothing for this show yet (first-ever visit,
         // or a show reached from Search/Discovery that isn't subscribed). Otherwise the cache
         // copy stands until the user pulls to refresh or runs Settings → "Sync Now".
@@ -259,6 +268,12 @@ struct ShowDetailView: View {
         if show != nil, episodes.isEmpty, continuationToken == nil {
             await loadMoreEpisodes()
         }
+    }
+
+    // Best-effort: a failure here just leaves auto-delete-after-played disabled for this view's
+    // lifetime, same fallback EpisodeDetailView.loadPlaybackSettings uses for the same setting.
+    private func loadAutoDeleteRule() async {
+        autoDeleteRule = (try? await settingsClient.getSettings())?.autoDeleteRule ?? .never
     }
 
     // Best-effort network check of whether this show is subscribed, used when the local cache
@@ -396,6 +411,15 @@ struct ShowDetailView: View {
             // Whole back catalogue is now played, so the show has zero unplayed and can't be
             // in-progress — reuses the unsubscribe path's blob patch (#556).
             CatalogCache.removeShowFromSnapshot(showId: showId, in: modelContext)
+            // #532: scoped to the whole show (not `episodes`, which only holds whatever page is
+            // currently loaded) — this action marks the *entire* back catalogue played
+            // server-side, so a downloaded episode on a not-yet-paginated page must be cleaned up
+            // too, not just the ones currently in memory.
+            for deletedId in DownloadCleanup.deleteAllEligible(
+                forShowId: showId, autoDeleteRule: autoDeleteRule, in: modelContext
+            ) {
+                downloadStatusByEpisodeId[deletedId] = nil
+            }
             await syncEngine?.syncNow()
         } catch {
             if !Task.isCancelled {
@@ -459,6 +483,14 @@ struct ShowDetailView: View {
             CatalogCache.recordEpisodeStateChange(
                 episodeId: episodeId, showId: showId, completed: shouldComplete,
                 positionSeconds: positionSeconds, in: modelContext)
+            // #532: swipe-to-mark-played bypassed EpisodeDetailView.persist()'s auto-delete-
+            // after-played check entirely, leaving downloads stranded. Shares the same rule
+            // (DownloadCleanup.deleteIfAutoDeleteEligible) so both paths stay in sync.
+            if DownloadCleanup.deleteIfAutoDeleteEligible(
+                episodeId: episodeId, completed: shouldComplete, autoDeleteRule: autoDeleteRule, in: modelContext
+            ) {
+                downloadStatusByEpisodeId[episodeId] = nil
+            }
         } catch {
             assertionFailure("Failed to toggle episode completion: \(episodeId): \(error)")
         }

@@ -65,20 +65,20 @@ final class EpisodeDetailViewTests: XCTestCase {
     // MARK: - Auto-delete after playback (#179)
 
     func testAutoDeleteFiresWhenCompletedAndRuleIsAfterPlayed() {
-        XCTAssertTrue(EpisodeDetailView.shouldAutoDeleteDownload(completed: true, autoDeleteRule: .afterPlayed))
+        XCTAssertTrue(DownloadCleanup.shouldAutoDelete(completed: true, autoDeleteRule: .afterPlayed))
     }
 
     func testAutoDeleteDoesNotFireWhenNotCompleted() {
-        XCTAssertFalse(EpisodeDetailView.shouldAutoDeleteDownload(completed: false, autoDeleteRule: .afterPlayed))
+        XCTAssertFalse(DownloadCleanup.shouldAutoDelete(completed: false, autoDeleteRule: .afterPlayed))
     }
 
     func testAutoDeleteDoesNotFireWhenRuleIsNever() {
-        XCTAssertFalse(EpisodeDetailView.shouldAutoDeleteDownload(completed: true, autoDeleteRule: .never))
+        XCTAssertFalse(DownloadCleanup.shouldAutoDelete(completed: true, autoDeleteRule: .never))
     }
 
     func testAutoDeleteDoesNotFireWhenRuleIsAfterDays() {
         // AfterDays is time-based, independent of played state — this hook only implements the
         // AfterPlayed case; a scheduled AfterDays sweep is separate, unimplemented follow-up work.
-        XCTAssertFalse(EpisodeDetailView.shouldAutoDeleteDownload(completed: true, autoDeleteRule: .afterDays))
+        XCTAssertFalse(DownloadCleanup.shouldAutoDelete(completed: true, autoDeleteRule: .afterDays))
     }
 }
