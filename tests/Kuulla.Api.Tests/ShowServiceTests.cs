@@ -266,4 +266,34 @@ public class ShowServiceTests
         Assert.Equal(show, result);
         _showsContainer.Verify(c => c.UpsertItemAsync(It.IsAny<Show>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
+
+    [Fact]
+    public async Task UpdateFeedPollCursorAsync_PatchesOnlyTheCursorFields()
+    {
+        IReadOnlyList<PatchOperation>? capturedOps = null;
+        _showsContainer
+            .Setup(c => c.PatchItemAsync<Show>(
+                "show-1", It.IsAny<PartitionKey>(), It.IsAny<IReadOnlyList<PatchOperation>>(), null, default))
+            .Callback<string, PartitionKey, IReadOnlyList<PatchOperation>, PatchItemRequestOptions?, CancellationToken>(
+                (_, _, ops, _, _) => capturedOps = ops)
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(CosmosTestHelpers.MakeShow("show-1")));
+
+        await _sut.UpdateFeedPollCursorAsync("show-1", "\"etag-1\"", "Wed, 01 Jan 2025 00:00:00 GMT", CancellationToken.None);
+
+        Assert.NotNull(capturedOps);
+        Assert.Equal(2, capturedOps!.Count);
+    }
+
+    [Fact]
+    public async Task UpdateFeedPollCursorAsync_SwallowsNotFoundWhenShowWasDeleted()
+    {
+        _showsContainer
+            .Setup(c => c.PatchItemAsync<Show>(
+                "show-1", It.IsAny<PartitionKey>(), It.IsAny<IReadOnlyList<PatchOperation>>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+
+        // Must not throw — a show deleted between the poll and the cursor write shouldn't fail
+        // the sweep.
+        await _sut.UpdateFeedPollCursorAsync("show-1", "\"etag-1\"", null, CancellationToken.None);
+    }
 }

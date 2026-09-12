@@ -573,4 +573,144 @@ public class PodcastFeedClientTests
         Assert.Equal("https://audio.example/1.mp3", episode.AudioUrl);
         Assert.Null(episode.Chapters);
     }
+
+    // PollAsync (#579): conditional GET + watermark short-circuit for FeedPollingService's sweep.
+
+    private static PodcastFeedClient MakeSut(Func<HttpRequestMessage, HttpResponseMessage> handler)
+    {
+        var httpClient = new HttpClient(new TestHttpMessageHandler(handler));
+        var resourceFetcher = new PublicResourceFetcher(
+            NullLogger<PublicResourceFetcher>.Instance,
+            (_, _) => Task.FromResult(new[] { PublicTestAddress }),
+            (uri, _) => Task.FromResult(handler(new HttpRequestMessage(HttpMethod.Get, uri))));
+        return new PodcastFeedClient(httpClient, NullLogger<PodcastFeedClient>.Instance, resourceFetcher);
+    }
+
+    [Fact]
+    public async Task PollAsync_SendsSavedETagAndLastModifiedAsConditionalHeaders()
+    {
+        string? seenIfNoneMatch = null;
+        string? seenIfModifiedSince = null;
+        var sut = MakeSut(request =>
+        {
+            seenIfNoneMatch = request.Headers.IfNoneMatch.FirstOrDefault()?.Tag;
+            seenIfModifiedSince = request.Headers.IfModifiedSince?.ToString("R");
+            return new HttpResponseMessage(HttpStatusCode.NotModified);
+        });
+
+        await sut.PollAsync(FeedUrl, new FeedPollCursor("\"abc123\"", "Wed, 01 Jan 2025 00:00:00 GMT", null), CancellationToken.None);
+
+        Assert.Equal("\"abc123\"", seenIfNoneMatch);
+        Assert.Equal("Wed, 01 Jan 2025 00:00:00 GMT", seenIfModifiedSince);
+    }
+
+    [Fact]
+    public async Task PollAsync_ReturnsNotModifiedWithoutParsingOn304()
+    {
+        var sut = MakeSut(_ => new HttpResponseMessage(HttpStatusCode.NotModified));
+
+        var result = await sut.PollAsync(
+            FeedUrl, new FeedPollCursor("\"abc123\"", null, null), CancellationToken.None);
+
+        Assert.True(result.NotModified);
+        Assert.Null(result.Content);
+        // Echoes the cursor back unchanged so the caller can always just save whatever comes
+        // back without special-casing the 304 case.
+        Assert.Equal("\"abc123\"", result.ETag);
+    }
+
+    [Fact]
+    public async Task PollAsync_CapturesETagAndLastModifiedFromA200Response()
+    {
+        var itemXml = """
+            <item>
+              <title>Episode 1</title>
+              <pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate>
+              <enclosure url="https://audio.example/1.mp3" length="100" />
+            </item>
+            """;
+        var sut = MakeSut(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) };
+            response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"new-etag\"");
+            response.Content.Headers.LastModified = DateTimeOffset.Parse("2025-06-01T00:00:00Z");
+            return response;
+        });
+
+        var result = await sut.PollAsync(FeedUrl, new FeedPollCursor(null, null, null), CancellationToken.None);
+
+        Assert.False(result.NotModified);
+        Assert.Equal("\"new-etag\"", result.ETag);
+        Assert.NotNull(result.LastModified);
+        Assert.Single(result.Content!.Episodes);
+    }
+
+    [Fact]
+    public async Task PollAsync_StopsBeforeTheWatermarkAndNeverFetchesChaptersForOlderEpisodes()
+    {
+        // Newest-first, as real feeds are: one genuinely new episode, then one strictly older
+        // than the watermark. Only the first should be parsed/kept, and its chapters fetched —
+        // the older item must never trigger a chapters fetch.
+        var itemXml = $"""
+            <item>
+              <guid>new</guid>
+              <title>New episode</title>
+              <pubDate>Fri, 03 Jan 2025 00:00:00 GMT</pubDate>
+              <enclosure url="https://audio.example/new.mp3" length="100" />
+              <podcast:chapters url="{ChaptersUrl}" type="application/json" />
+            </item>
+            <item>
+              <guid>old</guid>
+              <title>Old episode</title>
+              <pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate>
+              <enclosure url="https://audio.example/old.mp3" length="100" />
+              <podcast:chapters url="https://feed.example/old-chapters.json" type="application/json" />
+            </item>
+            """;
+        var chaptersRequested = new List<string>();
+        var sut = MakeSut(request =>
+        {
+            chaptersRequested.Add(request.RequestUri!.AbsoluteUri);
+            return request.RequestUri!.AbsoluteUri == ChaptersUrl
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"chapters":[]}""") }
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) };
+        });
+
+        var watermark = DateTimeOffset.Parse("2025-01-02T00:00:00Z");
+        var result = await sut.PollAsync(FeedUrl, new FeedPollCursor(null, null, watermark), CancellationToken.None);
+
+        var episode = Assert.Single(result.Content!.Episodes);
+        Assert.Equal("https://audio.example/new.mp3", episode.AudioUrl);
+        Assert.DoesNotContain("https://feed.example/old-chapters.json", chaptersRequested);
+    }
+
+    [Fact]
+    public async Task PollAsync_KeepsAnEpisodeExactlyAtTheWatermarkInsteadOfDroppingIt()
+    {
+        // Regression test: two episodes sharing the exact same PublishedAt (a real pattern for
+        // batch-released episodes) must not cause the genuinely-new one to be mistaken for
+        // already-known just because its timestamp matches the watermark exactly. A strict "<"
+        // comparison (not "<=") is what keeps this item instead of silently dropping it forever.
+        var itemXml = """
+            <item>
+              <guid>new-but-same-timestamp</guid>
+              <title>New episode, same timestamp as the cached one</title>
+              <pubDate>Thu, 02 Jan 2025 00:00:00 GMT</pubDate>
+              <enclosure url="https://audio.example/new-tie.mp3" length="100" />
+            </item>
+            <item>
+              <guid>old</guid>
+              <title>Old episode</title>
+              <pubDate>Wed, 01 Jan 2025 00:00:00 GMT</pubDate>
+              <enclosure url="https://audio.example/old.mp3" length="100" />
+            </item>
+            """;
+        var sut = MakeSut(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(FeedXml(itemXml)) });
+
+        var watermark = DateTimeOffset.Parse("2025-01-02T00:00:00Z");
+        var result = await sut.PollAsync(FeedUrl, new FeedPollCursor(null, null, watermark), CancellationToken.None);
+
+        var episode = Assert.Single(result.Content!.Episodes);
+        Assert.Equal("https://audio.example/new-tie.mp3", episode.AudioUrl);
+    }
 }
