@@ -145,10 +145,17 @@ final class AudioPlayer {
     // pathObserver is a test-only seam (mirroring DownloadManager's) — production always uses the
     // real NWPathMonitor-backed default; tests inject a mock to simulate Wi-Fi/cellular
     // transitions deterministically.
+    private var interruptionObserver: NSObjectProtocol?
+    // Captured at the moment an interruption begins so .ended only resumes what was actually
+    // playing — the system's .shouldResume option reflects the session's state, not whether the
+    // user had already tapped pause before or during the interruption.
+    private var wasPlayingBeforeInterruption = false
+
     init(pathObserver: NetworkPathObserving = NWPathMonitorAdapter()) {
         self.pathObserver = pathObserver
         configureAudioSession()
         configureRemoteCommandCenter()
+        observeInterruptions()
         self.pathObserver.startObserving { [weak self] isOnWifi in
             DispatchQueue.main.async { self?.isOnWifi = isOnWifi }
         }
@@ -156,6 +163,54 @@ final class AudioPlayer {
 
     deinit {
         sleepTimer?.invalidate()
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+    }
+
+    // Without this, an interruption (phone call, Siri, another app's audio) leaves the session
+    // deactivated once the interruption ends: AVPlayer pauses itself when the interruption
+    // begins, but nothing reactivates the session or resumes playback afterwards, so background
+    // playback that gets interrupted near a screen lock never comes back (#604).
+    private func observeInterruptions() {
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance(), queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+            else { return }
+
+            switch type {
+            case .began:
+                // The system has already paused the player and deactivated the session; mirror
+                // that in our own state so the UI (play/pause button, lock screen controls)
+                // reflects it instead of still claiming isPlaying.
+                self.wasPlayingBeforeInterruption = self.isPlaying
+                self.isPlaying = false
+                self.updateNowPlayingInfo()
+            case .ended:
+                let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+                let options = optionsValue.map { AVAudioSession.InterruptionOptions(rawValue: $0) } ?? []
+                // Both conditions matter: .shouldResume alone doesn't account for the user having
+                // tapped pause before or during the interruption, and pendingSeekPlayer != nil
+                // means play()'s saved-position seek hasn't landed yet — resuming here would race
+                // it and could start playback from the wrong position (mirrors pause()'s own
+                // pendingSeekPlayer-clearing guard above).
+                guard self.wasPlayingBeforeInterruption, options.contains(.shouldResume),
+                      self.pendingSeekPlayer == nil
+                else { return }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    try? AVAudioSession.sharedInstance().setActive(true)
+                    DispatchQueue.main.async {
+                        guard self.wasPlayingBeforeInterruption, self.pendingSeekPlayer == nil else { return }
+                        self.resume()
+                    }
+                }
+            @unknown default:
+                break
+            }
+        }
     }
 
     func play(
