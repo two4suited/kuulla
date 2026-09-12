@@ -24,6 +24,11 @@ public record Playlist(
     // default glyph). Travels in the sync payload and reconciles last-write-wins like Name (#439).
     [property: JsonProperty("icon")] string? Icon = null,
     [property: JsonProperty("accentColor")] string? AccentColor = null,
+    // Per-playlist override of the user's PlayNextBehavior (#629): what plays when an episode
+    // started from this playlist finishes. Null means "inherit" (the finished episode's show
+    // override, else the global setting). Applies to manual and dynamic playlists alike; edited
+    // through PUT /api/playlists/{id} and reconciled last-write-wins like Name/Icon.
+    PlayNextBehavior? PlayNextBehavior = null,
     // Tombstone flag (#400, ISyncableRecord.Deleted). DeletePlaylistAsync flips this instead of
     // hard-deleting the Cosmos item so the deletion reaches other devices through
     // POST /api/sync/playlists; GetPlaylistsAsync/GetPlaylistDetailAsync and every mutation path

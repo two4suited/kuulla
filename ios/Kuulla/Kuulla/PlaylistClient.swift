@@ -44,15 +44,17 @@ struct PlaylistClient {
         }
     }
 
-    // PUT /api/playlists/{id} sets the playlist's full display state — pass the current
-    // icon/accentColor when only the name changes, or they'll be cleared.
+    // PUT /api/playlists/{id} sets the playlist's full editable state — pass the current
+    // icon/accentColor/playNextBehavior when only the name changes, or they'll be cleared.
     func renamePlaylist(
-        id: String, name: String, icon: String? = nil, accentColor: String? = nil
+        id: String, name: String, icon: String? = nil, accentColor: String? = nil,
+        playNextBehavior: PlayNextBehavior? = nil
     ) async throws -> Playlist? {
         do {
             return try await apiClient.put(
                 ["api", "playlists", id],
-                body: RenamePlaylistRequest(name: name, icon: icon, accentColor: accentColor))
+                body: RenamePlaylistRequest(
+                    name: name, icon: icon, accentColor: accentColor, playNextBehavior: playNextBehavior))
         } catch ApiError.requestFailed(let statusCode) where statusCode == 404 {
             return nil
         }
@@ -94,6 +96,7 @@ struct Playlist: Codable, Identifiable {
     var dynamicConfig: DynamicPlaylistConfig?
     var icon: String?
     var accentColor: String?
+    var playNextBehavior: PlayNextBehavior?
 }
 
 // GET /api/playlists/{id}'s response — items resolved against the episodes/shows containers for
@@ -110,6 +113,9 @@ struct PlaylistDetail: Decodable, Identifiable {
     var dynamicConfig: DynamicPlaylistConfig?
     var icon: String?
     var accentColor: String?
+    // Per-playlist play-next override (#629); nil inherits. var so the edit sheet can reflect a
+    // change in place, like `name`.
+    var playNextBehavior: PlayNextBehavior?
 }
 
 struct DynamicPlaylistConfig: Codable, Equatable {
@@ -148,6 +154,7 @@ private struct RenamePlaylistRequest: Encodable {
     let name: String
     let icon: String?
     let accentColor: String?
+    let playNextBehavior: PlayNextBehavior?
 }
 
 private struct AddPlaylistItemRequest: Encodable {

@@ -71,7 +71,7 @@ function normalizePlaybackRate(rate) {
     return Number.isFinite(rate) && rate > 0 ? rate : 1.0;
 }
 
-export function attach(dotNetRef, audioEl, initialPositionSeconds, playbackRate) {
+export function attach(dotNetRef, audioEl, initialPositionSeconds, playbackRate, autoplay) {
     let lastReported = 0;
     // The browser fires 'pause' immediately before 'ended' when playback finishes naturally —
     // once 'ended' has been observed, suppress further progress reporting (pause/timeupdate) so a
@@ -149,6 +149,21 @@ export function attach(dotNetRef, audioEl, initialPositionSeconds, playbackRate)
     audioEl.addEventListener("pause", onPause);
     audioEl.addEventListener("ended", onEnded);
     audioEl.addEventListener("play", onPlay);
+
+    // An auto-advance (#629) lands here with ?autoplay=1 — start straight away rather than
+    // waiting for another click. The play() promise rejects when the browser withholds
+    // autoplay permission (no prior user activation in this document); that just leaves the
+    // native controls showing the episode ready to play, so it's swallowed rather than surfaced.
+    if (autoplay) {
+        try {
+            const started = audioEl.play();
+            if (started && typeof started.catch === "function") {
+                started.catch(() => {});
+            }
+        } catch (e) {
+            // Same rationale — nothing to recover, the listener can press play.
+        }
+    }
 
     return {
         // Changes the position the next (or in-progress) playback resumes from — used when the

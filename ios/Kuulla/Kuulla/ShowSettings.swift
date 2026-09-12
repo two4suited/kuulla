@@ -20,6 +20,9 @@ struct ShowSettings: Codable, Hashable {
     // nil means "no override" — inherit the user's global UpNextInsertPosition.
     let upNextInsertPosition: UpNextInsertPosition?
     let notificationsEnabled: Bool?
+    // nil means "no override" — inherit the user's global PlayNextBehavior (#629). A playlist's
+    // own override still wins over this one when playback was started from a playlist.
+    let playNextBehavior: PlayNextBehavior?
 
     init(
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
@@ -28,7 +31,8 @@ struct ShowSettings: Codable, Hashable {
         autoDownloadNewEpisodes: Bool? = nil, autoDeleteRule: AutoDeleteRule? = nil, autoDeleteAfterDays: Int? = nil,
         smartSpeed: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
         upNextInsertPosition: UpNextInsertPosition? = nil,
-        notificationsEnabled: Bool? = nil
+        notificationsEnabled: Bool? = nil,
+        playNextBehavior: PlayNextBehavior? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -46,12 +50,13 @@ struct ShowSettings: Codable, Hashable {
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.upNextInsertPosition = upNextInsertPosition
         self.notificationsEnabled = notificationsEnabled
+        self.playNextBehavior = playNextBehavior
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, autoAddNewEpisodesToUpNext
-        case upNextInsertPosition, notificationsEnabled
+        case upNextInsertPosition, notificationsEnabled, playNextBehavior
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -74,6 +79,7 @@ struct ShowSettings: Codable, Hashable {
         autoAddNewEpisodesToUpNext = try container.decodeIfPresent(Bool.self, forKey: .autoAddNewEpisodesToUpNext)
         upNextInsertPosition = try container.decodeIfPresent(UpNextInsertPosition.self, forKey: .upNextInsertPosition)
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)
+        playNextBehavior = try container.decodeIfPresent(PlayNextBehavior.self, forKey: .playNextBehavior)
     }
 
     // Copies every field except the ones explicitly overridden. Every field here is itself
@@ -96,7 +102,8 @@ struct ShowSettings: Codable, Hashable {
         smartSpeed: Bool?? = nil,
         autoAddNewEpisodesToUpNext: Bool?? = nil,
         upNextInsertPosition: UpNextInsertPosition?? = nil,
-        notificationsEnabled: Bool?? = nil
+        notificationsEnabled: Bool?? = nil,
+        playNextBehavior: PlayNextBehavior?? = nil
     ) -> ShowSettings {
         ShowSettings(
             id: id, userId: userId, showId: showId,
@@ -112,6 +119,7 @@ struct ShowSettings: Codable, Hashable {
             smartSpeed: smartSpeed ?? self.smartSpeed,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
             upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
-            notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled)
+            notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,
+            playNextBehavior: playNextBehavior ?? self.playNextBehavior)
     }
 }

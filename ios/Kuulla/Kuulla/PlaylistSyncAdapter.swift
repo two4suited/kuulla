@@ -29,7 +29,8 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 updatedAt: $0.updatedAt,
                 dynamicConfig: $0.dynamicConfig,
                 icon: $0.icon,
-                accentColor: $0.accentColor)
+                accentColor: $0.accentColor,
+                playNextBehavior: $0.playNextBehavior)
         }
         let request = SyncPlaylistsRequestDTO(
             deviceId: deviceId, lastSyncedAt: lastSyncedAt, localHash: localHash, changes: changes)
@@ -47,6 +48,7 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 dynamicConfig: $0.dynamicConfig,
                 icon: $0.icon,
                 accentColor: $0.accentColor,
+                playNextBehavior: $0.playNextBehavior,
                 deleted: $0.deleted ?? false)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
@@ -81,6 +83,7 @@ struct PlaylistSyncAdapter: SyncAdapter {
             existing.dynamicConfig = record.dynamicConfig
             existing.icon = record.icon
             existing.accentColor = record.accentColor
+            existing.playNextBehavior = record.playNextBehavior
             existing.isDirty = false
         } else {
             context.insert(record)
@@ -98,6 +101,7 @@ private struct PlaylistChangeDTO: Encodable {
     let dynamicConfig: DynamicPlaylistConfigRecord?
     let icon: String?
     let accentColor: String?
+    let playNextBehavior: PlayNextBehavior?
 }
 
 private struct SyncPlaylistsRequestDTO: Encodable {
@@ -126,6 +130,7 @@ private struct PlaylistSyncDTO: Decodable {
     let dynamicConfig: DynamicPlaylistConfigRecord?
     let icon: String?
     let accentColor: String?
+    let playNextBehavior: PlayNextBehavior?
     // #400 — present and true when this entry is a tombstone for a playlist deleted elsewhere.
     // Optional for forward/backward compatibility with a server that omits it.
     let deleted: Bool?

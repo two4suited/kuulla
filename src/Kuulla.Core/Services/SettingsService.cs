@@ -170,6 +170,9 @@ public class SettingsService(
                 // that intent must be able to reach the store (#571).
                 change.LeadingSwipeActions ?? stored?.LeadingSwipeActions,
                 change.TrailingSwipeActions ?? stored?.TrailingSwipeActions,
+                // Null means the pushing client predates #629 — keep whatever's stored rather
+                // than resetting it to NextInList.
+                change.PlayNextBehavior ?? stored?.PlayNextBehavior ?? PlayNextBehavior.NextInList,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -603,5 +606,43 @@ public class SettingsService(
 
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.NotificationsEnabled;
+    }
+
+    public Task<UserSettings> UpdatePlayNextBehaviorAsync(
+        string userId, PlayNextBehavior playNextBehavior, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { PlayNextBehavior = playNextBehavior }, cancellationToken);
+
+    public async Task<ShowSettings> UpdateShowPlayNextBehaviorAsync(
+        string userId, string showId, PlayNextBehavior? playNextBehavior, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            PlayNextBehavior = playNextBehavior,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    // Show override, else global — mirrors GetEffectiveUpNextInsertPositionAsync. The playlist
+    // layer of the resolution order (playlist → show → global, #629) is applied by the clients,
+    // which are the only place that knows which list playback was started from.
+    public async Task<PlayNextBehavior> GetEffectivePlayNextBehaviorAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.PlayNextBehavior is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.PlayNextBehavior;
     }
 }

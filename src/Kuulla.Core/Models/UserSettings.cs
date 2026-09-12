@@ -99,6 +99,14 @@ public record UserSettings(
     IReadOnlyList<EpisodeSwipeAction>? LeadingSwipeActions = null,
     // Same as LeadingSwipeActions but for a trailing (right) swipe.
     IReadOnlyList<EpisodeSwipeAction>? TrailingSwipeActions = null,
+    // What happens when an episode finishes playing (#629): continue with the next item of the
+    // list playback was started from, jump back to the top of that list, or stop. NextInList is
+    // the CLR zero value, so a settings document written before this field existed deserializes
+    // to it — continuing through the list is the behaviour a podcast listener already expects
+    // mid-queue (same reasoning as NotificationsEnabled's on-by-default), and it's what manual
+    // playlists did before this setting existed (#532). Per-show and per-playlist overrides live
+    // on ShowSettings / Playlist; resolution order is playlist → show → this global value.
+    PlayNextBehavior PlayNextBehavior = PlayNextBehavior.NextInList,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -135,6 +143,20 @@ public enum UpNextInsertPosition
 {
     Bottom,
     Top,
+}
+
+// What plays when an episode finishes (#629). "The list" is whatever the user started playback
+// from — a show's episode list (in its current sort/filter), a manual or dynamic playlist, Up
+// Next, or the Home / New Episodes list. NextInList is first (the CLR zero value) so it's the
+// default a pre-existing settings document deserializes to.
+public enum PlayNextBehavior
+{
+    // Play the item that follows the finished one in the list.
+    NextInList,
+    // Play the first item of the list (excluding the episode that just finished).
+    TopOfList,
+    // Don't auto-play anything.
+    Stop,
 }
 
 // A quick action offered on an episode-list row's swipe gesture (#568).

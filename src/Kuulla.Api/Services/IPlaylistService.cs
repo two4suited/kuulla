@@ -30,10 +30,12 @@ public interface IPlaylistService
     // #433 — that fix only covered freshly-computed playlists).
     Task<PlaylistDetail?> GetPlaylistDetailAsync(string userId, string id, CancellationToken cancellationToken);
 
-    // "Edit playlist": sets Name/Icon/AccentColor to the supplied values (null icon/accent clears
-    // it). Returns null if the playlist doesn't exist.
+    // "Edit playlist": sets Name/Icon/AccentColor/PlayNextBehavior to the supplied values (null
+    // icon/accent clears it; null playNextBehavior clears the per-playlist override, #629).
+    // Returns null if the playlist doesn't exist.
     Task<Playlist?> RenamePlaylistAsync(
-        string userId, string id, string name, string? icon, string? accentColor, CancellationToken cancellationToken);
+        string userId, string id, string name, string? icon, string? accentColor, PlayNextBehavior? playNextBehavior,
+        CancellationToken cancellationToken);
 
     Task DeletePlaylistAsync(string userId, string id, CancellationToken cancellationToken);
 

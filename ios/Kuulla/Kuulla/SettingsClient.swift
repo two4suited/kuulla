@@ -135,6 +135,18 @@ struct SettingsClient {
             body: UpdateShowUpNextInsertPositionRequest(upNextInsertPosition: value))
     }
 
+    func updatePlayNextBehavior(_ value: PlayNextBehavior) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "play-next"],
+            body: UpdatePlayNextBehaviorRequest(playNextBehavior: value))
+    }
+
+    func updateShowPlayNextBehavior(showId: String, value: PlayNextBehavior?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "play-next"],
+            body: UpdateShowPlayNextBehaviorRequest(playNextBehavior: value))
+    }
+
     func updateSmartSpeed(_ value: Bool) async throws -> UserSettings {
         try await apiClient.put(["api", "settings", "smart-speed"], body: UpdateSmartSpeedRequest(smartSpeed: value))
     }
@@ -250,6 +262,14 @@ private struct UpdateUpNextInsertPositionRequest: Encodable {
 
 private struct UpdateShowUpNextInsertPositionRequest: Encodable {
     let upNextInsertPosition: UpNextInsertPosition?
+}
+
+private struct UpdatePlayNextBehaviorRequest: Encodable {
+    let playNextBehavior: PlayNextBehavior
+}
+
+private struct UpdateShowPlayNextBehaviorRequest: Encodable {
+    let playNextBehavior: PlayNextBehavior?
 }
 
 private struct UpdateSmartSpeedRequest: Encodable {

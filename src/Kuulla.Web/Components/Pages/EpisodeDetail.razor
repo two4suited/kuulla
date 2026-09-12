@@ -6,6 +6,8 @@
 @inject PodcastCatalogClient CatalogClient
 @inject EpisodeStateClient EpisodeStateClient
 @inject SettingsClient SettingsClient
+@inject PlaylistClient PlaylistClient
+@inject NavigationManager Navigation
 @inject IJSRuntime JS
 
 <PageTitle>@(episode?.Title ?? "Episode")</PageTitle>
@@ -204,6 +206,28 @@ else
     [Parameter]
     public string EpisodeId { get; set; } = "";
 
+    // Which list this episode was opened from (#629) — see PlaybackListQuery for the values the
+    // list pages put on their links. Drives what plays when the episode finishes; absent when
+    // the episode was reached some other way (a deep link, a bookmark), in which case playback
+    // just stops at the end as before.
+    [SupplyParameterFromQuery(Name = "list")]
+    public string? List { get; set; }
+
+    [SupplyParameterFromQuery(Name = "listId")]
+    public string? ListId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "filter")]
+    public string? Filter { get; set; }
+
+    [SupplyParameterFromQuery(Name = "sort")]
+    public string? Sort { get; set; }
+
+    // Set on the URL an auto-advance navigates to, so the next episode starts without another
+    // click. Sticky user activation from the click that started the previous episode is what
+    // lets the browser honour the programmatic play().
+    [SupplyParameterFromQuery(Name = "autoplay")]
+    public string? Autoplay { get; set; }
+
     private Episode? episode;
     private bool isLoading;
     private string? loadError;
@@ -220,6 +244,26 @@ else
     private float playbackSpeed = 1.0f;
     private bool isPlaybackSpeedSaving;
     private string? playbackSpeedError;
+
+    // Play-next resolution inputs (#629): the global setting and this show's override come from
+    // the same settings fetch that resolves playbackSpeed; the playlist override rides along
+    // with the list snapshot below (only a playlist can carry one).
+    private PlayNextBehavior globalPlayNextBehavior = PlayNextBehavior.NextInList;
+    private PlayNextBehavior? showPlayNextBehaviorOverride;
+
+    // An ordered snapshot of the list this episode was started from, taken when playback starts
+    // (OnPlaybackStateChanged) — mirroring iOS PlaybackQueue.begin() — so "what's next" is
+    // decided against the list as it stood then, not against a list the server has since
+    // reshaped (a dynamic playlist prunes the finished episode on its next read, and the show
+    // page's Unfinished filter would drop it too). Null until a play starts; reset per episode.
+    private Task<ListSnapshot?>? _listSnapshotTask;
+
+    private sealed record ListSnapshot(IReadOnlyList<PlaybackListItem> Items, PlayNextBehavior? PlaylistOverride);
+
+    // Bounds the show-list snapshot: the show page loads 20 at a time on demand, so five pages
+    // (100 episodes) comfortably covers where a listener actually is in a list without paging a
+    // long back catalogue on every play.
+    private const int MaxShowListPages = 5;
 
     private int savedPositionSeconds;
     private bool isCompleted;
@@ -303,6 +347,9 @@ else
         streamBlockedMessage = null;
         playbackSpeed = 1.0f;
         playbackSpeedError = null;
+        globalPlayNextBehavior = PlayNextBehavior.NextInList;
+        showPlayNextBehaviorOverride = null;
+        _listSnapshotTask = null;
         transcript = null;
         isTranscriptLoading = false;
         transcriptLoadFailed = false;
@@ -354,6 +401,8 @@ else
             var showSettingsTask = SettingsClient.GetShowSettingsAsync(ShowId);
             await Task.WhenAll(userSettingsTask, showSettingsTask);
             playbackSpeed = showSettingsTask.Result.PlaybackSpeed ?? userSettingsTask.Result.PlaybackSpeed;
+            globalPlayNextBehavior = userSettingsTask.Result.PlayNextBehavior;
+            showPlayNextBehaviorOverride = showSettingsTask.Result.PlayNextBehavior;
         }
         catch (HttpRequestException)
         {
@@ -423,7 +472,8 @@ else
         }
 
         var attachPosition = resumePrompt?.LocalPositionSeconds ?? savedPositionSeconds;
-        _watcher = await _module.InvokeAsync<IJSObjectReference>("attach", _selfReference, audioElement, attachPosition, playbackSpeed);
+        _watcher = await _module.InvokeAsync<IJSObjectReference>(
+            "attach", _selfReference, audioElement, attachPosition, playbackSpeed, Autoplay == "1");
 
         if (resumePrompt is null && episodeState is not null)
         {
@@ -510,7 +560,122 @@ else
     [JSInvokable]
     public async Task OnPlaybackEnded(int durationSeconds)
     {
+        // Normally already in flight since the play started; started here as a fallback — before
+        // the completion write below, so the list is read while the finished episode is still
+        // unplayed server-side (see _listSnapshotTask).
+        var snapshotTask = _listSnapshotTask ??= LoadListSnapshotAsync(_loadGeneration);
+        var generation = _loadGeneration;
+
         await PersistStateAsync(durationSeconds, completed: true);
+
+        var snapshot = await snapshotTask;
+        if (snapshot is null || generation != _loadGeneration)
+        {
+            return;
+        }
+
+        var behavior = PlayNext.Resolve(snapshot.PlaylistOverride, showPlayNextBehaviorOverride, globalPlayNextBehavior);
+        if (PlayNext.NextItem(EpisodeId, snapshot.Items, behavior) is { } next)
+        {
+            Navigation.NavigateTo(NextEpisodeUrl(next));
+        }
+    }
+
+    // Same list context as this page, plus autoplay so the next episode starts on its own.
+    private string NextEpisodeUrl(PlaybackListItem next)
+    {
+        var query = List switch
+        {
+            PlaybackListQuery.ShowList => PlaybackListQuery.ForShow(ParseFilter(), ParseSort()),
+            PlaybackListQuery.PlaylistList when ListId is not null => PlaybackListQuery.ForPlaylist(ListId),
+            PlaybackListQuery.NewEpisodesList => PlaybackListQuery.ForNewEpisodes(),
+            _ => "?",
+        };
+        return $"shows/{Uri.EscapeDataString(next.ShowId)}/episodes/{Uri.EscapeDataString(next.EpisodeId)}{query}&autoplay=1";
+    }
+
+    private EpisodeFilter ParseFilter() =>
+        Enum.TryParse<EpisodeFilter>(Filter, ignoreCase: true, out var filter) && Enum.IsDefined(filter)
+            ? filter
+            : EpisodeFilter.Unfinished;
+
+    private EpisodeSortOrder ParseSort() =>
+        Enum.TryParse<EpisodeSortOrder>(Sort, ignoreCase: true, out var sort) && Enum.IsDefined(sort)
+            ? sort
+            : EpisodeSortOrder.NewestFirst;
+
+    // Rebuilds the ordered list this episode was opened from, as the source page showed it. Null
+    // when there's no list context, when it can't be loaded, or when the user has since moved to
+    // a different episode (generation guard) — every one of which means "just stop at the end",
+    // never an error surfaced to the listener.
+    private async Task<ListSnapshot?> LoadListSnapshotAsync(int generation)
+    {
+        try
+        {
+            ListSnapshot? snapshot = List switch
+            {
+                PlaybackListQuery.PlaylistList when ListId is not null => await LoadPlaylistSnapshotAsync(ListId),
+                PlaybackListQuery.ShowList => await LoadShowListSnapshotAsync(),
+                PlaybackListQuery.NewEpisodesList => await LoadNewEpisodesSnapshotAsync(),
+                _ => null,
+            };
+            return generation == _loadGeneration ? snapshot : null;
+        }
+        // Broad on purpose: this runs from a detached play-start task (and from OnPlaybackEnded),
+        // so anything escaping — a timeout, a malformed body, a 404 for a deleted playlist — would
+        // tear down the circuit rather than degrade to "stop at the end".
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task<ListSnapshot?> LoadPlaylistSnapshotAsync(string playlistId)
+    {
+        var detail = await PlaylistClient.GetPlaylistDetailAsync(playlistId);
+        if (detail is null)
+        {
+            return null;
+        }
+
+        var items = detail.Items.Select(item => new PlaybackListItem(item.ShowId, item.EpisodeId)).ToList();
+        return new ListSnapshot(items, detail.PlayNextBehavior);
+    }
+
+    private async Task<ListSnapshot?> LoadShowListSnapshotAsync()
+    {
+        var episodes = new List<Episode>();
+        string? continuationToken = null;
+        for (var page = 0; page < MaxShowListPages; page++)
+        {
+            var result = await CatalogClient.GetEpisodesAsync(ShowId, continuationToken, pageSize: 20);
+            episodes.AddRange(result.Items);
+            continuationToken = result.ContinuationToken;
+            // Enough once the list reaches past this episode by at least one raw item — the
+            // filter may still drop that item, but a listener is rarely more than a page from
+            // their next unplayed episode, and MaxShowListPages bounds the worst case.
+            var index = episodes.FindIndex(e => e.Id == EpisodeId);
+            if (continuationToken is null || (index >= 0 && index + 1 < episodes.Count))
+            {
+                break;
+            }
+        }
+
+        var states = await EpisodeStateClient.GetStatesAsync(episodes.Select(e => e.Id).ToList());
+        var ordered = EpisodeListOrdering.Apply(episodes, states, ParseFilter(), ParseSort());
+        return new ListSnapshot(ordered.Select(e => new PlaybackListItem(e.ShowId, e.Id)).ToList(), null);
+    }
+
+    private async Task<ListSnapshot?> LoadNewEpisodesSnapshotAsync()
+    {
+        // Same shape NewEpisodes.razor renders: auto-played episodes hidden, newest first.
+        var results = await EpisodeStateClient.GetNewEpisodesAsync();
+        var items = results
+            .Where(e => !e.AutoPlayed)
+            .OrderByDescending(e => e.Episode.PublishedAt)
+            .Select(e => new PlaybackListItem(e.Episode.ShowId, e.Episode.Id))
+            .ToList();
+        return new ListSnapshot(items, null);
     }
 
     // #244: the JS watcher reports play/pause so the handoff poll only runs while this browser is
@@ -521,6 +686,8 @@ else
         if (playing)
         {
             StartHandoffPoll();
+            // Snapshot the source list as playback begins (#629) — see _listSnapshotTask.
+            _listSnapshotTask ??= LoadListSnapshotAsync(_loadGeneration);
         }
         else
         {

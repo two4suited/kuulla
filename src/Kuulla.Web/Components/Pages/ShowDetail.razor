@@ -246,6 +246,23 @@ else
                     </div>
 
                     <div class="show-setting mt-3">
+                        <div class="form-label mb-1">When an episode finishes</div>
+                        <RadioChoice TValue="PlayNextBehavior" Id="show-play-next"
+                                     AriaLabel="When an episode finishes" Disabled="isShowPlayNextSaving"
+                                     Options="PlayNextBehaviorOptions"
+                                     Value="showPlayNextBehaviorOverride"
+                                     ValueChanged="OnShowPlayNextBehaviorChangedAsync" />
+                        @if (showPlayNextError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showPlayNextError</p>
+                        }
+                        else if (showPlayNextSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="show-setting mt-3">
                         <div class="form-label mb-1">SmartSpeed</div>
                         <SegmentedChoice TValue="bool" Id="show-smart-speed"
                                          AriaLabel="SmartSpeed" Disabled="isShowSmartSpeedSaving"
@@ -380,7 +397,7 @@ else
                         <img src="@show.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
                     }
                     <div class="flex-grow-1">
-                        <a href="@($"shows/{Id}/episodes/{episode.Id}")" class="text-decoration-none">
+                        <a href="@($"shows/{Id}/episodes/{episode.Id}{PlaybackListQuery.ForShow(selectedFilter, selectedSort)}")" class="text-decoration-none">
                             <div class="fw-bold">@episode.Title</div>
                         </a>
                         <div class="text-muted small">
@@ -509,6 +526,10 @@ else
     private bool isShowSmartSpeedSaving;
     private string? showSmartSpeedError;
     private bool showSmartSpeedSavedConfirmation;
+    private PlayNextBehavior? showPlayNextBehaviorOverride;
+    private bool isShowPlayNextSaving;
+    private string? showPlayNextError;
+    private bool showPlayNextSavedConfirmation;
     private bool? showNotificationsEnabledOverride;
     private bool isShowNotificationsSaving;
     private string? showNotificationsError;
@@ -521,13 +542,11 @@ else
     private bool isMarkingAllPlayed;
     private string? markAllPlayedError;
     private bool isAuthenticated;
+    // Also carried on every episode link (PlaybackListQuery.ForShow) so EpisodeDetail can rebuild
+    // this exact list when deciding what plays next (#629).
     private EpisodeFilter selectedFilter = EpisodeFilter.Unfinished;
     private EpisodeSortOrder selectedSort = EpisodeSortOrder.NewestFirst;
     private bool isShowSettingsOpen;
-
-    private enum EpisodeFilter { All, Unfinished, Unplayed, InProgress }
-
-    private enum EpisodeSortOrder { NewestFirst, OldestFirst }
 
     // Option lists for the SegmentedChoice / RadioChoice controls. The tri-state booleans all
     // share OnOffOptions (the "Default" segment is rendered by the component itself).
@@ -546,53 +565,18 @@ else
     private static readonly IReadOnlyList<(UpNextInsertPosition Value, string Label)> UpNextInsertPositionOptions =
         [(UpNextInsertPosition.Top, "Top of the queue"), (UpNextInsertPosition.Bottom, "Bottom of the queue")];
 
+    private static readonly IReadOnlyList<(PlayNextBehavior Value, string Label)> PlayNextBehaviorOptions =
+        [.. PlayNextBehaviorUi.Options.Select(o => (o, PlayNextBehaviorUi.Format(o)))];
+
     // Filter/sort apply to whatever pages have been fetched so far — the API only supports
     // date-ordered continuation paging, not server-side filtering, so "Load more" always fetches
-    // the next raw page regardless of the active filter (see LoadMoreEpisodesAsync).
-    // Archived episodes are excluded from every filter, including "All" — auto-archiving is
-    // meant to hide played episodes from the active list entirely (#187); there's no separate
-    // "Archived" view yet to surface them.
-    private List<Episode> DisplayedEpisodes
-    {
-        get
-        {
-            IEnumerable<Episode> active = episodes.Where(e => !IsArchived(e));
-            IEnumerable<Episode> filtered = selectedFilter switch
-            {
-                EpisodeFilter.Unfinished => active.Where(e => IsUnplayed(e) || IsInProgress(e)),
-                EpisodeFilter.Unplayed => active.Where(IsUnplayed),
-                EpisodeFilter.InProgress => active.Where(IsInProgress),
-                _ => active,
-            };
-
-            return (selectedSort == EpisodeSortOrder.OldestFirst ? filtered.Reverse() : filtered).ToList();
-        }
-    }
+    // the next raw page regardless of the active filter (see LoadMoreEpisodesAsync). The
+    // filter/sort rules themselves live in EpisodeListOrdering, shared with EpisodeDetail's
+    // play-next resolution (#629).
+    private List<Episode> DisplayedEpisodes =>
+        EpisodeListOrdering.Apply(episodes, episodeStatesById, selectedFilter, selectedSort);
 
     private EpisodeState? GetState(string episodeId) => episodeStatesById.GetValueOrDefault(episodeId);
-
-    private bool IsArchived(Episode episode) => GetState(episode.Id)?.Archived == true;
-
-    private bool IsUnplayed(Episode episode)
-    {
-        var state = GetState(episode.Id);
-        // Auto-played episodes are treated as played here — they show their own
-        // "Auto-marked played" badge with a Restore action, so they shouldn't also
-        // clutter the Unplayed filter/tab. Only episodes with no real progress
-        // (the shape a Restore write leaves, or no state at all) count as unplayed.
-        if (state is null)
-        {
-            return true;
-        }
-
-        return !state.AutoPlayed && !state.Completed && state.PositionSeconds == 0;
-    }
-
-    private bool IsInProgress(Episode episode)
-    {
-        var state = GetState(episode.Id);
-        return state is { Completed: false, PositionSeconds: > 0 };
-    }
 
     private static int? ProgressPercent(Episode episode, EpisodeState? state)
     {
@@ -675,6 +659,10 @@ else
         isShowSmartSpeedSaving = false;
         showSmartSpeedError = null;
         showSmartSpeedSavedConfirmation = false;
+        showPlayNextBehaviorOverride = null;
+        isShowPlayNextSaving = false;
+        showPlayNextError = null;
+        showPlayNextSavedConfirmation = false;
         showNotificationsEnabledOverride = null;
         isShowNotificationsSaving = false;
         showNotificationsError = null;
@@ -739,6 +727,7 @@ else
             showPlaybackSpeedOverride = settings.PlaybackSpeed;
             showSmartSpeedOverride = settings.SmartSpeed;
             showNotificationsEnabledOverride = settings.NotificationsEnabled;
+            showPlayNextBehaviorOverride = settings.PlayNextBehavior;
         }
         catch (HttpRequestException)
         {
@@ -808,6 +797,30 @@ else
         finally
         {
             isShowArchiveSettingsSaving = false;
+        }
+    }
+
+    private async Task OnShowPlayNextBehaviorChangedAsync(PlayNextBehavior? value)
+    {
+        var previous = showPlayNextBehaviorOverride;
+        showPlayNextBehaviorOverride = value;
+        isShowPlayNextSaving = true;
+        showPlayNextError = null;
+        showPlayNextSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowPlayNextBehaviorAsync(Id, value);
+            showPlayNextSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showPlayNextBehaviorOverride = previous;
+            showPlayNextError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowPlayNextSaving = false;
         }
     }
 

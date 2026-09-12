@@ -22,6 +22,7 @@ public class SettingsTests : WebTestContext
         UserSettings? autoSkipPutResponse = null, UserSettings? playbackSpeedPutResponse = null,
         UserSettings? autoDeletePutResponse = null, UserSettings? autoDownloadPutResponse = null,
         UserSettings? smartSpeedPutResponse = null, UserSettings? sleepTimerDefaultDurationPutResponse = null,
+        UserSettings? playNextPutResponse = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onSync = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onImport = null,
         Func<HttpRequestMessage, HttpResponseMessage>? onExport = null) =>
@@ -103,6 +104,14 @@ public class SettingsTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(smartSpeedPutResponse ?? DefaultSettings),
+                };
+            }
+
+            if (request.RequestUri!.AbsolutePath == "/api/settings/play-next" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(playNextPutResponse ?? DefaultSettings),
                 };
             }
 
@@ -350,6 +359,71 @@ public class SettingsTests : WebTestContext
         {
             Assert.Contains("Something went wrong", cut.Markup);
             Assert.False(cut.Find("#auto-download-new-episodes").HasAttribute("checked"));
+        });
+    }
+
+    [Fact]
+    public void RendersCurrentPlayNextBehavior_WhenLoadSucceeds()
+    {
+        ConfigureApi(CreateHandler(getResponse: new(
+            "user-1", UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            PlayNextBehavior: PlayNextBehavior.TopOfList)));
+
+        var cut = RenderComponent<Settings>();
+
+        cut.WaitForAssertion(() => Assert.Equal("TopOfList", cut.Find("#play-next").GetAttribute("value")));
+    }
+
+    [Fact]
+    public void SavesAndConfirmsPlayNextBehavior_WhenChanged()
+    {
+        string? putBody = null;
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/settings/play-next" && request.Method == HttpMethod.Put)
+            {
+                putBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new UserSettings(
+                        "user-1", UnlistenedEpisodeCount.Five, Version: 2, AutoArchiveRule.Never, PlayNextBehavior: PlayNextBehavior.Stop)),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) };
+        }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => cut.Find("#play-next"));
+
+        cut.Find("#play-next").Change("Stop");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Saved.", cut.Markup);
+            // Enum values travel as their integer, same as every other settings PUT.
+            Assert.Contains($"\"playNextBehavior\":{(int)PlayNextBehavior.Stop}", putBody);
+            Assert.Equal("Stop", cut.Find("#play-next").GetAttribute("value"));
+        });
+    }
+
+    [Fact]
+    public void ShowsErrorAndRevertsPlayNextBehavior_WhenSaveFails()
+    {
+        ConfigureApi(new TestHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == "/api/settings/play-next" && request.Method == HttpMethod.Put
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(DefaultSettings) }));
+
+        var cut = RenderComponent<Settings>();
+        cut.WaitForAssertion(() => Assert.Equal("NextInList", cut.Find("#play-next").GetAttribute("value")));
+
+        cut.Find("#play-next").Change("Stop");
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Something went wrong", cut.Markup);
+            Assert.Equal("NextInList", cut.Find("#play-next").GetAttribute("value"));
         });
     }
 

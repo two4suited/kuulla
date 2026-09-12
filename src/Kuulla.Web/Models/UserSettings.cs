@@ -18,6 +18,9 @@ public record UserSettings(
     bool HideCaughtUpShows = false,
     bool AutoAddNewEpisodesToUpNext = false,
     UpNextInsertPosition UpNextInsertPosition = UpNextInsertPosition.Bottom,
+    // What plays when an episode finishes (#629). Web-side mirror of
+    // Kuulla.Core.Models.UserSettings.PlayNextBehavior; NextInList is the API's default.
+    PlayNextBehavior PlayNextBehavior = PlayNextBehavior.NextInList,
     DateTimeOffset UpdatedAt = default,
     string? DeviceId = null);
 
@@ -34,4 +37,14 @@ public enum UpNextInsertPosition
 {
     Bottom,
     Top,
+}
+
+// Web-side mirror of Kuulla.Core.Models.PlayNextBehavior (#629): what plays when an episode
+// finishes — the next item of the list playback was started from, that list's first item, or
+// nothing. Values must match the API's, since the wire format is the enum's integer.
+public enum PlayNextBehavior
+{
+    NextInList,
+    TopOfList,
+    Stop,
 }

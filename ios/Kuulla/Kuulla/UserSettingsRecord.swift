@@ -47,6 +47,8 @@ final class UserSettingsRecord: Syncable {
     // Inline default required, same lightweight-migration reason as the fields above (#568).
     var leadingSwipeActions: [EpisodeSwipeAction] = []
     var trailingSwipeActions: [EpisodeSwipeAction] = [EpisodeSwipeAction.addToPlaylist, EpisodeSwipeAction.markPlayed]
+    // Inline default required, same lightweight-migration reason as the fields above (#629).
+    var playNextBehavior: PlayNextBehavior = PlayNextBehavior.nextInList
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -63,6 +65,7 @@ final class UserSettingsRecord: Syncable {
         upNextInsertPosition: UpNextInsertPosition = .bottom,
         leadingSwipeActions: [EpisodeSwipeAction] = [],
         trailingSwipeActions: [EpisodeSwipeAction] = [.addToPlaylist, .markPlayed],
+        playNextBehavior: PlayNextBehavior = .nextInList,
         version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
@@ -84,6 +87,7 @@ final class UserSettingsRecord: Syncable {
         self.upNextInsertPosition = upNextInsertPosition
         self.leadingSwipeActions = leadingSwipeActions
         self.trailingSwipeActions = trailingSwipeActions
+        self.playNextBehavior = playNextBehavior
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -104,6 +108,7 @@ final class UserSettingsRecord: Syncable {
             upNextInsertPosition: settings.upNextInsertPosition,
             leadingSwipeActions: settings.leadingSwipeActions,
             trailingSwipeActions: settings.trailingSwipeActions,
+            playNextBehavior: settings.playNextBehavior,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -128,6 +133,7 @@ final class UserSettingsRecord: Syncable {
         upNextInsertPosition = settings.upNextInsertPosition
         leadingSwipeActions = settings.leadingSwipeActions
         trailingSwipeActions = settings.trailingSwipeActions
+        playNextBehavior = settings.playNextBehavior
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -155,6 +161,7 @@ final class UserSettingsRecord: Syncable {
         upNextInsertPosition = other.upNextInsertPosition
         leadingSwipeActions = other.leadingSwipeActions
         trailingSwipeActions = other.trailingSwipeActions
+        playNextBehavior = other.playNextBehavior
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -178,6 +185,7 @@ final class UserSettingsRecord: Syncable {
             upNextInsertPosition: upNextInsertPosition,
             leadingSwipeActions: leadingSwipeActions,
             trailingSwipeActions: trailingSwipeActions,
+            playNextBehavior: playNextBehavior,
             updatedAt: updatedAt)
     }
 }
