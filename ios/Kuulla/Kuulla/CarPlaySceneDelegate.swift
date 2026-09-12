@@ -63,24 +63,37 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     // Cache-first (#637): paint instantly from CatalogCache if it has anything for this show,
     // then refresh from the network behind it — same pattern as LibraryView/ShowDetailView.
+    // Sorted by the app's saved subscription sort order (#638) via the same shared
+    // sortedSubscriptions(_:by:manualOrder:) LibraryView/SubscriptionsView use, rather than a
+    // CarPlay-local hardcoded alphabetical order.
     private func loadSubscriptionsList() async {
         let context = Self.modelContainer.map(ModelContext.init)
 
         var paintedFromCache = false
         if let context {
-            let cached = Self.sortedSubscriptions(CatalogCache.subscriptions(in: context))
-            if !cached.isEmpty {
+            let cachedSubscriptions = CatalogCache.subscriptions(in: context)
+            if !cachedSubscriptions.isEmpty {
+                let localSettings = Self.localUserSettings(in: context)
+                let cached = sortedSubscriptions(
+                    cachedSubscriptions, by: localSettings?.subscriptionSortOrder ?? .title,
+                    manualOrder: localSettings?.subscriptionManualOrder ?? [])
                 interfaceController?.setRootTemplate(subscriptionsTemplate(for: cached), animated: false, completion: nil)
                 paintedFromCache = true
             }
         }
 
         do {
-            let subscriptions = Self.sortedSubscriptions(try await subscriptionClient.getSubscriptions())
+            async let subscriptionsResult = subscriptionClient.getSubscriptions()
+            async let settingsResult = try? settingsClient.getSettings()
+            let subscriptions = try await subscriptionsResult
+            let settings = await settingsResult
             if let context {
                 CatalogCache.replaceSubscriptions(subscriptions, in: context)
             }
-            interfaceController?.setRootTemplate(subscriptionsTemplate(for: subscriptions), animated: false, completion: nil)
+            let sorted = sortedSubscriptions(
+                subscriptions, by: settings?.subscriptionSortOrder ?? .title,
+                manualOrder: settings?.subscriptionManualOrder ?? [])
+            interfaceController?.setRootTemplate(subscriptionsTemplate(for: sorted), animated: false, completion: nil)
         } catch {
             // The cache already painted something useful — leave it up rather than clobbering it
             // with an error, the same tolerance ShowDetailView.readLocalShow() gives a stale but
@@ -91,6 +104,14 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 sections: [CPListSection(items: [CPListItem(text: "Couldn't load your subscriptions.", detailText: nil)])])
             interfaceController?.setRootTemplate(template, animated: false, completion: nil)
         }
+    }
+
+    // Local mirror of the synced UserSettings (same store SettingsSyncAdapter/SettingsView write
+    // to) — read synchronously so the cache-painted subscriptions list can honor the saved sort
+    // order immediately, without waiting on the network settings fetch below.
+    private static func localUserSettings(in context: ModelContext) -> UserSettingsRecord? {
+        let id = UserSettingsRecord.localId
+        return try? context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
     }
 
     private func subscriptionsTemplate(for subscriptions: [Subscription]) -> CPListTemplate {
@@ -351,14 +372,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         return directory.appendingPathComponent(digest)
     }
 
-    // Pulled out as pure functions so the row-building logic is unit-testable without a real
+    // Pulled out as a pure function so the row-building logic is unit-testable without a real
     // CPInterfaceController (which only exists once actually connected to CarPlay/its simulator).
-    // nonisolated (mirroring EpisodeDetailView.resolvedPlaybackURL) since they touch no
-    // actor-isolated state, so tests can call them from a plain, non-MainActor context.
-    nonisolated static func sortedSubscriptions(_ subscriptions: [Subscription]) -> [Subscription] {
-        subscriptions.sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
-    }
-
+    // nonisolated (mirroring EpisodeDetailView.resolvedPlaybackURL) since it touches no
+    // actor-isolated state, so tests can call it from a plain, non-MainActor context.
     nonisolated static func episodeDetailText(episode: Episode, status: EpisodeStatus) -> String {
         [episode.duration.map(EpisodeFormatting.formatDuration), status.label]
             .compactMap { $0 }
