@@ -9,6 +9,11 @@ struct ShowDetailView: View {
     @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.modelContext) private var modelContext
 
+    // Set by a row's play button — a Button rather than a NavigationLink (unlike the row
+    // itself), since List gives a second nested NavigationLink its own disclosure chevron, which
+    // renders as a confusing duplicate next to the row's own. Routed through this separate
+    // item-based destination instead.
+    @State private var playTarget: ShowEpisodePlayTarget?
     @State private var show: Show?
     @State private var isLoadingShow = false
     @State private var showError: String?
@@ -102,6 +107,7 @@ struct ShowDetailView: View {
                                         positionSeconds: positionSecondsByEpisodeId[episode.id] ?? 0,
                                         duration: episode.duration)
                                     : nil,
+                                onPlay: { playTarget = ShowEpisodePlayTarget(episodeId: episode.id) },
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
                                 onDownloadDidFinish: refreshStatuses)
                         }
@@ -194,6 +200,9 @@ struct ShowDetailView: View {
         }
         .sheet(item: $addToPlaylistEpisode) { episode in
             AddToPlaylistSheet(episodeId: episode.id, showId: showId)
+        }
+        .navigationDestination(item: $playTarget) { target in
+            EpisodeDetailView(showId: showId, episodeId: target.episodeId, autoPlayOnAppear: true)
         }
         .overlay {
             if isLoadingShow {
@@ -715,12 +724,20 @@ private struct ShowHeader: View {
     }
 }
 
+// Identifies which episode a row's play button targets — Hashable (not just Identifiable) since
+// .navigationDestination(item:) requires it, unlike .sheet(item:) elsewhere in this file.
+private struct ShowEpisodePlayTarget: Identifiable, Hashable {
+    let episodeId: String
+    var id: String { episodeId }
+}
+
 private struct EpisodeRow: View {
     let episode: Episode
     let artworkUrl: String?
     let status: EpisodeStatus
     let downloadStatus: DownloadStatus?
     let progressFraction: Double?
+    let onPlay: () -> Void
     let onRestore: () -> Void
     let onDownloadDidFinish: () -> Void
 
@@ -761,6 +778,19 @@ private struct EpisodeRow: View {
             }
 
             Spacer()
+
+            // A plain Button (not NavigationLink, unlike the row itself) — List's UIKit-backed row
+            // hosting reliably gives this its own tap target separate from the row (same as
+            // DownloadButton below), so tapping it plays the episode instead of just opening it.
+            // A nested NavigationLink here would work the same way for taps, but List also gives
+            // it its own disclosure chevron — a confusing second one next to the row's own.
+            Button(action: onPlay) {
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play episode")
 
             VStack(alignment: .trailing, spacing: 6) {
                 if status == .autoPlayed {

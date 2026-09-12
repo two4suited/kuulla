@@ -161,10 +161,10 @@ struct ContentView: View {
         switch route {
         case .show(let id):
             ShowDetailView(showId: id)
-        case .episode(let showId, let episodeId):
-            EpisodeDetailView(showId: showId, episodeId: episodeId)
-        case .playlistEpisode(let playlistId, let showId, let episodeId):
-            EpisodeDetailView(showId: showId, episodeId: episodeId, playlistId: playlistId)
+        case .episode(let showId, let episodeId, let autoPlay):
+            EpisodeDetailView(showId: showId, episodeId: episodeId, autoPlayOnAppear: autoPlay)
+        case .playlistEpisode(let playlistId, let showId, let episodeId, let autoPlay):
+            EpisodeDetailView(showId: showId, episodeId: episodeId, playlistId: playlistId, autoPlayOnAppear: autoPlay)
         case .playlist(let id):
             PlaylistDetailView(playlistId: id)
         case .upNext:
