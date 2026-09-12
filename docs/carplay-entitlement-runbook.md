@@ -34,6 +34,17 @@ and launched on device `Bsphone`).
 Simulator and CarPlay Simulator builds still apply no provisioning profile, so the key is a
 no-op there; CI (`xcodebuild build ... CODE_SIGNING_ALLOWED=NO`) is unaffected either way.
 
+## Real-device crash fixed (2026-09-11)
+
+The first real-head-unit connection crashed immediately on connect, 100% reproducible
+(`_deliverInterfaceControllerToDelegate` raising `NSException` before `CarPlaySceneDelegate`'s
+`didConnect` ever ran — confirmed from on-device crash logs pulled via
+`xcrun devicectl device info files --domain-type systemCrashLogs`). Cause: `Info.plist`'s
+`CPTemplateApplicationSceneSessionRoleApplication` entry had `UISceneConfigurationName` but no
+`UISceneClassName`, which Apple's CarPlay templates require to be explicitly
+`CPTemplateApplicationScene`. Fixed by adding that key; verified crash-free on a real car after
+the fix.
+
 ## Remaining verification
 
 The code and signing are confirmed. What's left is a real-head-unit pass:
