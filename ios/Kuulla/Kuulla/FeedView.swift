@@ -10,6 +10,13 @@ struct FeedView: View {
     // Most of this view works in terms of the bare Episode; feedItems additionally carries the
     // per-row show identity (#441) that FeedEpisodeRow renders.
     private var episodes: [Episode] { feedItems.map(\.episode) }
+    // The ordered snapshot PlaybackQueue advances through when "play next" is armed from this
+    // screen (#629) — the New Episodes list as currently shown.
+    private var playbackList: PlaybackList {
+        PlaybackList(
+            source: .newEpisodes,
+            items: feedItems.map { PlaybackQueue.QueueItem(showId: $0.episode.showId, episodeId: $0.episode.id) })
+    }
     @State private var statusByEpisodeId: [String: EpisodeStatus] = [:]
     @State private var downloadStatusByEpisodeId: [String: DownloadStatus] = [:]
     @State private var isLoading = false
@@ -44,7 +51,7 @@ struct FeedView: View {
             } else {
                 ForEach(feedItems, id: \.episode.id) { item in
                     let episode = item.episode
-                    NavigationLink(value: CatalogRoute.episode(showId: episode.showId, episodeId: episode.id)) {
+                    NavigationLink(value: CatalogRoute.episode(showId: episode.showId, episodeId: episode.id, list: playbackList)) {
                         FeedEpisodeRow(
                             item: item,
                             status: statusByEpisodeId[episode.id] ?? .new,

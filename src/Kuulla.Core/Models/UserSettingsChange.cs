@@ -56,4 +56,7 @@ public record UserSettingsChange(
     // another device's configured swipe actions.
     IReadOnlyList<EpisodeSwipeAction>? LeadingSwipeActions,
     IReadOnlyList<EpisodeSwipeAction>? TrailingSwipeActions,
+    // Nullable, same rationale as UpNextInsertPosition above — a client that predates #629 omits
+    // the property, and null means "keep whatever's stored" rather than resetting to NextInList.
+    PlayNextBehavior? PlayNextBehavior,
     DateTimeOffset UpdatedAt);

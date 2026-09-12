@@ -123,4 +123,16 @@ public interface ISettingsService
 
     Task<bool> GetEffectiveNotificationsEnabledAsync(
         string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdatePlayNextBehaviorAsync(
+        string userId, PlayNextBehavior playNextBehavior, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowPlayNextBehaviorAsync(
+        string userId, string showId, PlayNextBehavior? playNextBehavior, CancellationToken cancellationToken);
+
+    // Resolves the show override, else the global setting (#629). A playlist's own override is
+    // layered on top by the caller when playback was started from a playlist — it isn't a
+    // settings-container concern, so it doesn't live here.
+    Task<PlayNextBehavior> GetEffectivePlayNextBehaviorAsync(
+        string userId, string showId, CancellationToken cancellationToken);
 }

@@ -50,7 +50,7 @@ else
         @if (VisibleItems.Count > 0)
         {
             var first = VisibleItems[0];
-            <a class="btn btn-primary" href="@($"shows/{first.ShowId}/episodes/{first.EpisodeId}")">Play</a>
+            <a class="btn btn-primary" href="@($"shows/{first.ShowId}/episodes/{first.EpisodeId}{PlaybackListQuery.ForPlaylist(Id)}")">Play</a>
         }
     </div>
 
@@ -85,7 +85,7 @@ else
                         {
                             <img src="@item.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
                         }
-                        <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}")" class="text-decoration-none flex-grow-1">
+                        <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}{PlaybackListQuery.ForPlaylist(Id)}")" class="text-decoration-none flex-grow-1">
                             @(item.Title ?? "(episode unavailable)")
                         </a>
                     </li>
@@ -109,7 +109,7 @@ else
                     {
                         <img src="@item.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
                     }
-                    <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}")" class="text-decoration-none flex-grow-1">
+                    <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}{PlaybackListQuery.ForPlaylist(Id)}")" class="text-decoration-none flex-grow-1">
                         @(item.Title ?? "(episode unavailable)")
                     </a>
                     <button class="btn btn-sm btn-outline-danger flex-shrink-0" disabled="@busyEpisodeIds.Contains(item.EpisodeId)"
@@ -132,7 +132,7 @@ else
                     {
                         <img src="@item.ArtworkUrl" alt="" style="width: 3rem; height: 3rem;" class="rounded flex-shrink-0" />
                     }
-                    <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}")" class="text-decoration-none flex-grow-1">
+                    <a href="@($"shows/{item.ShowId}/episodes/{item.EpisodeId}{PlaybackListQuery.ForPlaylist(Id)}")" class="text-decoration-none flex-grow-1">
                         @(item.Title ?? "(episode unavailable)")
                     </a>
                     <button class="btn btn-sm btn-outline-danger flex-shrink-0" disabled="@busyEpisodeIds.Contains(item.EpisodeId)"
@@ -157,6 +157,18 @@ else
             <label class="form-label small">Playlist name</label>
             <input class="form-control mb-2" @bind="editName" @bind:event="oninput" disabled="@isSavingEdit" />
             <PlaylistAppearancePicker @bind-Icon="editIcon" @bind-AccentColor="editAccentColor" />
+
+            @* Per-playlist play-next override (#629). Saved with the name/appearance below —
+               PUT /api/playlists/{id} carries the playlist's full editable state. *@
+            <label class="form-label small mt-3" for="playlist-play-next">When an episode finishes</label>
+            <select id="playlist-play-next" class="form-select" disabled="@isSavingEdit" @bind="editPlayNextBehavior">
+                <option value="">Use global default</option>
+                @foreach (var option in PlayNextBehaviorUi.Options)
+                {
+                    <option value="@option">@PlayNextBehaviorUi.Format(option)</option>
+                }
+            </select>
+            <div class="form-text">Overrides your global setting — and any per-podcast one — while you're listening to this playlist.</div>
 
             @if (isUpNext)
             {
@@ -270,6 +282,7 @@ else
     private string editName = "";
     private string? editIcon;
     private string? editAccentColor;
+    private PlayNextBehavior? editPlayNextBehavior;
     private bool isSavingEdit;
     private string? editError;
 
@@ -609,6 +622,7 @@ else
         editName = playlist.Name;
         editIcon = playlist.Icon;
         editAccentColor = playlist.AccentColor;
+        editPlayNextBehavior = playlist.PlayNextBehavior;
         editError = null;
         // Clear any stale save feedback from a previous edit session on this same page instance
         // (the routed component is reused across navigations — see OnParametersSetAsync).
@@ -637,14 +651,18 @@ else
 
         try
         {
-            var updated = await PlaylistClient.RenamePlaylistAsync(Id, name, editIcon, editAccentColor);
+            var updated = await PlaylistClient.RenamePlaylistAsync(Id, name, editIcon, editAccentColor, editPlayNextBehavior);
             if (updated is null)
             {
                 editError = "This playlist no longer exists.";
                 return;
             }
 
-            playlist = playlist with { Name = updated.Name, Icon = updated.Icon, AccentColor = updated.AccentColor };
+            playlist = playlist with
+            {
+                Name = updated.Name, Icon = updated.Icon, AccentColor = updated.AccentColor,
+                PlayNextBehavior = updated.PlayNextBehavior,
+            };
             editing = false;
             await SyncOwnWriteBestEffortAsync();
         }

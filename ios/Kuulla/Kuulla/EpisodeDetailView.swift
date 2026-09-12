@@ -10,9 +10,15 @@ import SwiftUI
 struct EpisodeDetailView: View {
     let showId: String
     let episodeId: String
-    // Non-nil when this screen was reached from a manual playlist — starting playback here arms
-    // PlaybackQueue so finishing the episode auto-advances to the next playlist item (#532).
+    // Non-nil when this screen was reached from a playlist (manual or dynamic) — starting
+    // playback here arms PlaybackQueue by playlist id so finishing the episode auto-advances
+    // through that playlist's current order (#532, generalised to dynamic playlists by #629).
     var playlistId: String?
+    // Non-nil when this screen was reached from a show's episode list or New Episodes, which
+    // already have their ordered snapshot on hand — arms PlaybackQueue directly with it rather
+    // than a playlist re-fetch (#629). Mutually exclusive with playlistId in practice (a route
+    // carries one or the other).
+    var list: PlaybackList?
     // Set when this screen was reached via a list row's play button rather than a plain
     // row tap — starts playback as soon as load() resolves, instead of requiring a second tap
     // here.
@@ -713,10 +719,13 @@ struct EpisodeDetailView: View {
         // device takes over later, even if it was dismissed during the previous session.
         handoffDismissed = false
 
-        // Arm (or disarm) Overcast-style playlist auto-advance for this session (#532): when this
-        // screen came from a manual playlist, finishing the episode should remove it and play the
-        // next item; started from anywhere else, forget any queue a previous session armed.
-        if let playlistId {
+        // Arm (or disarm) auto-advance for this session (#532, generalised by #629): a list
+        // snapshot from ShowDetailView/FeedView arms directly; a playlist (manual or dynamic) arms
+        // by id, fetching its ordered items; anything else forgets any queue a previous session
+        // armed.
+        if let list {
+            PlaybackQueue.shared.begin(list: list, currentEpisodeId: episodeId)
+        } else if let playlistId {
             Task { await PlaybackQueue.shared.begin(playlistId: playlistId, currentEpisodeId: episodeId) }
         } else {
             PlaybackQueue.shared.clear()

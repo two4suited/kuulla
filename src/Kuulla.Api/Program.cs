@@ -1006,9 +1006,14 @@ playlists.MapPut("/{id}", async (
         return Results.BadRequest(new { error = appearanceError });
     }
 
+    if (request.PlayNextBehavior is { } playNextBehavior && !Enum.IsDefined(playNextBehavior))
+    {
+        return Results.BadRequest(new { error = "'playNextBehavior' is not a valid value." });
+    }
+
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var playlist = await playlistService.RenamePlaylistAsync(
-        userId, id, request.Name, request.Icon, request.AccentColor, ct);
+        userId, id, request.Name, request.Icon, request.AccentColor, request.PlayNextBehavior, ct);
     return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
 });
 
@@ -1139,6 +1144,11 @@ sync.MapPost("/playlists", async (
         {
             return Results.BadRequest(new { error = appearanceError });
         }
+
+        if (change.PlayNextBehavior is { } playNextBehavior && !Enum.IsDefined(playNextBehavior))
+        {
+            return Results.BadRequest(new { error = "'playNextBehavior' is not a valid value." });
+        }
     }
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -1200,6 +1210,10 @@ sync.MapPost("/settings", async (
         if (change.UpNextInsertPosition is { } upNextInsertPosition && !Enum.IsDefined(upNextInsertPosition))
         {
             return Results.BadRequest(new { error = "'upNextInsertPosition' is not a valid value." });
+        }
+        if (change.PlayNextBehavior is { } playNextBehavior && !Enum.IsDefined(playNextBehavior))
+        {
+            return Results.BadRequest(new { error = "'playNextBehavior' is not a valid value." });
         }
     }
 
@@ -1757,6 +1771,39 @@ settings.MapPut("/shows/{showId}/up-next-insert-position", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateShowUpNextInsertPositionAsync(userId, showId, request.UpNextInsertPosition, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/play-next", async (
+    UpdatePlayNextBehaviorRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!Enum.IsDefined(request.PlayNextBehavior))
+    {
+        return Results.BadRequest(new { error = "'playNextBehavior' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdatePlayNextBehaviorAsync(userId, request.PlayNextBehavior, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/play-next", async (
+    string showId,
+    UpdateShowPlayNextBehaviorRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.PlayNextBehavior is { } behavior && !Enum.IsDefined(behavior))
+    {
+        return Results.BadRequest(new { error = "'playNextBehavior' is not a valid value." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowPlayNextBehaviorAsync(userId, showId, request.PlayNextBehavior, ct);
     return Results.Ok(result);
 });
 

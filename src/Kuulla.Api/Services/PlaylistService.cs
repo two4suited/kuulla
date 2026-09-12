@@ -239,11 +239,12 @@ public class PlaylistService(
 
         return new PlaylistDetail(
             playlist.Id, playlist.Name, playlist.Type, items, playlist.CreatedAt, playlist.UpdatedAt,
-            playlist.DynamicConfig, playlist.Icon, playlist.AccentColor);
+            playlist.DynamicConfig, playlist.Icon, playlist.AccentColor, playlist.PlayNextBehavior);
     }
 
     public async Task<Playlist?> RenamePlaylistAsync(
-        string userId, string id, string name, string? icon, string? accentColor, CancellationToken cancellationToken)
+        string userId, string id, string name, string? icon, string? accentColor, PlayNextBehavior? playNextBehavior,
+        CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
         if (playlist is null or { Deleted: true })
@@ -256,6 +257,7 @@ public class PlaylistService(
             Name = name,
             Icon = icon,
             AccentColor = accentColor,
+            PlayNextBehavior = playNextBehavior,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         await UpsertAsync(updated, cancellationToken);
@@ -465,7 +467,8 @@ public class PlaylistService(
                 deviceId,
                 change.DynamicConfig,
                 change.Icon,
-                change.AccentColor),
+                change.AccentColor,
+                change.PlayNextBehavior),
             readStoredAsync: (id, ct) => ReadAsync(userId, id, ct),
             upsertAsync: UpsertAsync,
             queryAllAsync: ct => QueryAllForSyncAsync(userId, ct),

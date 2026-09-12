@@ -14,6 +14,9 @@ public record Playlist(
     // Curated emoji from PlaylistIcons.Curated, or null for "no icon" (#439).
     string? Icon = null,
     string? AccentColor = null,
+    // Per-playlist "what plays when an episode finishes" override (#629); null inherits the
+    // show / global setting. Edited through PUT /api/playlists/{id} alongside Name/Icon.
+    PlayNextBehavior? PlayNextBehavior = null,
     // Tombstone flag (#400). A sync poll's ServerChanges can include a deleted playlist with
     // Deleted = true; PlaylistDetail.razor treats that as "removed on another device". The plain
     // GET /api/playlists list never returns tombstoned playlists.
@@ -58,7 +61,8 @@ public record PlaylistDetail(
     DateTimeOffset UpdatedAt,
     DynamicPlaylistConfig? DynamicConfig = null,
     string? Icon = null,
-    string? AccentColor = null);
+    string? AccentColor = null,
+    PlayNextBehavior? PlayNextBehavior = null);
 
 // Web-side mirror of Kuulla.Api.Models.PlaylistItemDetail's wire shape.
 public record PlaylistItemDetail(

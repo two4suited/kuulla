@@ -33,6 +33,7 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(updated.upNextInsertPosition, base.upNextInsertPosition)
         XCTAssertEqual(updated.leadingSwipeActions, base.leadingSwipeActions)
         XCTAssertEqual(updated.trailingSwipeActions, base.trailingSwipeActions)
+        XCTAssertEqual(updated.playNextBehavior, base.playNextBehavior)
     }
 
     func testWithSetsLeadingSwipeActions() {
@@ -184,6 +185,22 @@ final class UserSettingsTests: XCTestCase {
 
         XCTAssertFalse(decoded.autoAddNewEpisodesToUpNext)
         XCTAssertEqual(decoded.upNextInsertPosition, .bottom)
+    }
+
+    func testWithSetsPlayNextBehavior() {
+        let updated = base.with(playNextBehavior: .stop)
+
+        XCTAssertEqual(updated.playNextBehavior, .stop)
+    }
+
+    func testDecodingLegacyResponseMissingPlayNextBehaviorDefaultsToNextInList() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertEqual(decoded.playNextBehavior, .nextInList)
     }
 
     func testWithSetsSleepTimerDefaultDurationMinutes() {

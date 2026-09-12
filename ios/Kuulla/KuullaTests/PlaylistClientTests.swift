@@ -70,6 +70,23 @@ final class PlaylistClientTests: MockedApiTestCase {
         XCTAssertEqual(bodyJSON["icon"] as? String, "🔥")
     }
 
+    func testRenamePlaylistSendsPlayNextBehavior() async throws {
+        let json = """
+        {"id":"p1","userId":"u1","name":"Renamed","type":0,"items":[],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00","playNextBehavior":1}
+        """.data(using: .utf8)!
+        var capturedBody: Data?
+        MockURLProtocol.stubHandler = { request in
+            capturedBody = request.capturedBodyData
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let playlist = try await client.renamePlaylist(id: "p1", name: "Renamed", playNextBehavior: .topOfList)
+
+        XCTAssertEqual(playlist?.playNextBehavior, .topOfList)
+        let bodyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(capturedBody)) as? [String: Any])
+        XCTAssertEqual(bodyJSON["playNextBehavior"] as? Int, 1)
+    }
+
     func testColorFromPlaylistAccentHexParsesAndRejects() {
         XCTAssertNotNil(Color(playlistAccentHex: "#3B82F6"))
         XCTAssertNil(Color(playlistAccentHex: nil))

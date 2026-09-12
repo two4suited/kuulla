@@ -135,6 +135,12 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             positions = [:]
         }
 
+        // Snapshot of this browse page so a finished episode can auto-advance through it (#629),
+        // the same way ShowDetailView arms PlaybackQueue from its own displayed list.
+        let list = PlaybackList(
+            source: .show(id: showId),
+            items: episodes.map { PlaybackQueue.QueueItem(showId: showId, episodeId: $0.id) })
+
         let items = episodes.map { episode -> CPListItem in
             let status = statuses[episode.id] ?? .new
             let item = CPListItem(text: episode.title, detailText: Self.episodeDetailText(episode: episode, status: status))
@@ -143,7 +149,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                     episode: episode, showId: showId, showTitle: showTitle, showArtworkUrl: showArtworkUrl,
                     startPosition: TimeInterval(positions[episode.id] ?? 0), downloadRecord: downloadRecords[episode.id],
                     autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-                    playbackSpeed: playbackSpeed, smartSpeed: smartSpeed)
+                    playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, list: list)
                 completion()
             }
             loadImage(for: item, urlString: showArtworkUrl)
@@ -157,7 +163,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private func play(
         episode: Episode, showId: String, showTitle: String, showArtworkUrl: String?, startPosition: TimeInterval,
         downloadRecord: DownloadedEpisodeRecord?, autoSkipIntroSeconds: TimeInterval, autoSkipOutroSeconds: TimeInterval,
-        playbackSpeed: Float, smartSpeed: Bool
+        playbackSpeed: Float, smartSpeed: Bool, list: PlaybackList
     ) {
         // Prefers a completed local download over the remote URL, same as EpisodeDetailView —
         // driving is exactly the poor-connectivity case offline downloads exist for.
@@ -170,9 +176,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // restarting the AVPlayerItem from scratch (which a quick double-tap would otherwise do).
         if AudioPlayer.shared.currentURL != audioUrl {
             progressTrackingTask?.cancel()
-            // Picking an episode from CarPlay browse isn't playlist playback — forget any queue a
-            // phone session armed so it doesn't auto-advance off this pick (#532).
-            PlaybackQueue.shared.clear()
+            // Arms PlaybackQueue with this browse page's snapshot so finishing the episode honors
+            // the resolved PlayNextBehavior, same as the phone UI (#629) — replacing whatever a
+            // previous session (phone or CarPlay) had armed.
+            PlaybackQueue.shared.begin(list: list, currentEpisodeId: episode.id)
 
             let episodeId = episode.id
             let duration = episode.duration
@@ -180,7 +187,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 guard finishedURL == audioUrl else { return }
                 self?.progressTrackingTask?.cancel()
                 self?.progressTrackingTask = nil
-                Task { await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true) }
+                Task {
+                    await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
+                    await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: episodeId)
+                }
             }
 
             AudioPlayer.shared.play(

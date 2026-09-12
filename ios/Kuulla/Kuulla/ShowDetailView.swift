@@ -87,7 +87,7 @@ struct ShowDetailView: View {
 
                     ForEach(displayedEpisodes) { episode in
                         let status = statusByEpisodeId[episode.id] ?? .new
-                        NavigationLink(value: CatalogRoute.episode(showId: showId, episodeId: episode.id)) {
+                        NavigationLink(value: CatalogRoute.episode(showId: showId, episodeId: episode.id, list: playbackList)) {
                             EpisodeRow(
                                 episode: episode,
                                 artworkUrl: show?.artworkUrl,
@@ -103,7 +103,7 @@ struct ShowDetailView: View {
                                         duration: episode.duration)
                                     : nil,
                                 onPlay: {
-                                    Task { await PlaybackQueue.shared.quickPlay(episodeId: episode.id, showId: showId, playlistId: nil) }
+                                    Task { await PlaybackQueue.shared.quickPlay(episodeId: episode.id, showId: showId, list: playbackList) }
                                 },
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
                                 onDownloadDidFinish: refreshStatuses)
@@ -414,6 +414,14 @@ struct ShowDetailView: View {
         EpisodeListFilter.apply(
             episodes: episodes, statuses: statusByEpisodeId, filter: selectedFilter, sort: selectedSort,
             archived: archivedEpisodeIds)
+    }
+
+    // The ordered snapshot PlaybackQueue advances through when "play next" is armed from this
+    // screen (#629) — exactly the rows currently on screen, in the show's current filter/sort.
+    private var playbackList: PlaybackList {
+        PlaybackList(
+            source: .show(id: showId),
+            items: displayedEpisodes.map { PlaybackQueue.QueueItem(showId: showId, episodeId: $0.id) })
     }
 
     private var markAllPlayedErrorBinding: Binding<Bool> {

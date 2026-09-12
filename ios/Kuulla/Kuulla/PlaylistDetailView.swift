@@ -108,13 +108,16 @@ struct PlaylistDetailView: View {
                 EditPlaylistSheet(
                     name: playlist.name,
                     icon: playlist.icon,
-                    accentColor: playlist.accentColor
-                ) { newName, newIcon, newAccent in
+                    accentColor: playlist.accentColor,
+                    playNextBehavior: playlist.playNextBehavior
+                ) { newName, newIcon, newAccent, newPlayNextBehavior in
                     _ = try await playlistClient.renamePlaylist(
-                        id: playlistId, name: newName, icon: newIcon, accentColor: newAccent)
+                        id: playlistId, name: newName, icon: newIcon, accentColor: newAccent,
+                        playNextBehavior: newPlayNextBehavior)
                     self.playlist?.name = newName
                     self.playlist?.icon = newIcon
                     self.playlist?.accentColor = newAccent
+                    self.playlist?.playNextBehavior = newPlayNextBehavior
                 }
                 .presentationDetents([.medium, .large])
             }
@@ -155,21 +158,18 @@ struct PlaylistDetailView: View {
             PlaylistItemRow(item: item, onPlay: {
                 Task {
                     await PlaybackQueue.shared.quickPlay(
-                        episodeId: item.episodeId, showId: item.showId,
-                        playlistId: playlist?.type == .manual ? playlistId : nil)
+                        episodeId: item.episodeId, showId: item.showId, playlistId: playlistId)
                 }
             })
         }
     }
 
-    // Manual playlists route through `.playlistEpisode` so EpisodeDetailView arms PlaybackQueue
-    // for auto-advance (#532); dynamic playlists (rule-computed, not editable in place) stay on
-    // the plain `.episode` route and don't auto-advance/auto-remove.
+    // Every playlist — manual and dynamic alike — routes through `.playlistEpisode` so
+    // EpisodeDetailView arms PlaybackQueue by playlist id for auto-advance (#629 removed #532's
+    // dynamic-playlist carve-out); only the manual-playlist removal-on-finish behavior still
+    // differs, and that's decided inside PlaybackQueue itself from the fetched playlist type.
     private func route(for item: PlaylistItemDetail, autoPlay: Bool = false) -> CatalogRoute {
-        if playlist?.type == .manual {
-            return .playlistEpisode(playlistId: playlistId, showId: item.showId, episodeId: item.episodeId, autoPlay: autoPlay)
-        }
-        return .episode(showId: item.showId, episodeId: item.episodeId, autoPlay: autoPlay)
+        .playlistEpisode(playlistId: playlistId, showId: item.showId, episodeId: item.episodeId, autoPlay: autoPlay)
     }
 
     // Paints instantly from the locally-synced PlaylistRecord (kept current by PlaylistSyncAdapter,
@@ -448,20 +448,23 @@ private struct EditPlaylistSheet: View {
     @State private var name: String
     @State private var icon: String?
     @State private var accentColor: String?
+    @State private var playNextBehavior: PlayNextBehavior?
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    let onSave: (String, String?, String?) async throws -> Void
+    let onSave: (String, String?, String?, PlayNextBehavior?) async throws -> Void
 
     init(
         name: String,
         icon: String?,
         accentColor: String?,
-        onSave: @escaping (String, String?, String?) async throws -> Void
+        playNextBehavior: PlayNextBehavior?,
+        onSave: @escaping (String, String?, String?, PlayNextBehavior?) async throws -> Void
     ) {
         self._name = State(initialValue: name)
         self._icon = State(initialValue: icon)
         self._accentColor = State(initialValue: accentColor)
+        self._playNextBehavior = State(initialValue: playNextBehavior)
         self.onSave = onSave
     }
 
@@ -471,6 +474,16 @@ private struct EditPlaylistSheet: View {
                 TextField("Playlist name", text: $name)
                 Section {
                     PlaylistAppearancePicker(icon: $icon, accentColor: $accentColor)
+                }
+                Section {
+                    Picker("Play next", selection: $playNextBehavior) {
+                        Text("Use global default").tag(PlayNextBehavior?.none)
+                        ForEach(PlayNextBehavior.allCases) { option in
+                            Text(option.label).tag(PlayNextBehavior?.some(option))
+                        }
+                    }
+                } footer: {
+                    Text("What plays when an episode from this playlist finishes.")
                 }
                 if let errorMessage {
                     Text(errorMessage)
@@ -504,7 +517,7 @@ private struct EditPlaylistSheet: View {
         isSaving = true
         errorMessage = nil
         do {
-            try await onSave(trimmed, icon, accentColor)
+            try await onSave(trimmed, icon, accentColor, playNextBehavior)
             dismiss()
         } catch {
             errorMessage = "Something went wrong while saving. Please try again."

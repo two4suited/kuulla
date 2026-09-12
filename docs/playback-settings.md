@@ -40,6 +40,17 @@ introducing parallel ones.
 
 ### Auto-play next episode
 
+> **Superseded by [#629](https://github.com/sheridan-apps/kuulla/issues/629).** The
+> bare `AutoPlayNext: bool` this section originally spec'd shipped as a richer
+> `PlayNextBehavior` enum (`NextInList | TopOfList | Stop`) instead, with per-show
+> (`ShowSettings.PlayNextBehavior?`) and per-playlist (`Playlist.PlayNextBehavior?`)
+> overrides — not the global-only field described below. `#629` also generalized
+> "play next" to advance through whatever list playback started from (a show's
+> episode list, a manual or dynamic playlist, Up Next, New Episodes), not just Up
+> Next. See `PlaybackQueue.swift` (iOS), `PlayNext.cs` (web), and
+> `SettingsService`/`PlaylistService` (API) for the shipped implementation; the
+> research/decision narrative below is kept for history.
+
 - New field: `UserSettings.AutoPlayNext`, `bool`, default `true`. Unlike the other
   opt-in-by-default fields in `UserSettings` (`AutoArchiveRule.Never`,
   `AutoDownloadNewEpisodes: false`, `SmartSpeed: false`), continuing playback is the

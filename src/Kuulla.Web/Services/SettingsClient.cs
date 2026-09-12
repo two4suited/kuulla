@@ -258,6 +258,28 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<UserSettings> UpdatePlayNextBehaviorAsync(
+        PlayNextBehavior playNextBehavior, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/play-next",
+            new { PlayNextBehavior = playNextBehavior }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowPlayNextBehaviorAsync(
+        string showId, PlayNextBehavior? playNextBehavior, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/play-next",
+            new { PlayNextBehavior = playNextBehavior }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<UserSettings> UpdateSmartSpeedAsync(
         bool smartSpeed, CancellationToken cancellationToken = default)
     {

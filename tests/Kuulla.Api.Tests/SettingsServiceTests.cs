@@ -1325,12 +1325,143 @@ public class SettingsServiceTests
         bool? autoAddNewEpisodesToUpNext = false,
         UpNextInsertPosition? upNextInsertPosition = UpNextInsertPosition.Bottom,
         IReadOnlyList<EpisodeSwipeAction>? leadingSwipeActions = null,
-        IReadOnlyList<EpisodeSwipeAction>? trailingSwipeActions = null) =>
+        IReadOnlyList<EpisodeSwipeAction>? trailingSwipeActions = null,
+        PlayNextBehavior? playNextBehavior = PlayNextBehavior.NextInList) =>
         new(
             UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
             notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder,
             hideCaughtUpShows, autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions,
-            updatedAt);
+            playNextBehavior, updatedAt);
+
+    [Fact]
+    public async Task UpdatePlayNextBehaviorAsync_UpdatesValueAndIncrementsVersion()
+    {
+        var existing = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, AutoArchiveRule.Never);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdatePlayNextBehaviorAsync(UserId, PlayNextBehavior.Stop, CancellationToken.None);
+
+        Assert.Equal(PlayNextBehavior.Stop, result.PlayNextBehavior);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowPlayNextBehaviorAsync_SetsAndClearsOverride()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var set = await _sut.UpdateShowPlayNextBehaviorAsync(UserId, showId, PlayNextBehavior.TopOfList, CancellationToken.None);
+        Assert.Equal(PlayNextBehavior.TopOfList, set.PlayNextBehavior);
+        Assert.Equal(3, set.Version);
+
+        var cleared = await _sut.UpdateShowPlayNextBehaviorAsync(UserId, showId, null, CancellationToken.None);
+        Assert.Null(cleared.PlayNextBehavior);
+    }
+
+    [Fact]
+    public async Task GetEffectivePlayNextBehaviorAsync_ReturnsShowOverrideWhenSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2, PlayNextBehavior: PlayNextBehavior.Stop);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectivePlayNextBehaviorAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(PlayNextBehavior.Stop, result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectivePlayNextBehaviorAsync_FallsBackToUserSettingsWhenNoOverride()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        var userSettings = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never,
+            PlayNextBehavior: PlayNextBehavior.TopOfList);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectivePlayNextBehaviorAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(PlayNextBehavior.TopOfList, result);
+    }
+
+    [Fact]
+    public void GetSettings_DefaultsPlayNextBehaviorToNextInList()
+    {
+        // The CLR zero value — a document stored before #629 deserializes to it with no
+        // DefaultValueHandling, and it's what manual playlists did before the setting existed.
+        Assert.Equal(PlayNextBehavior.NextInList, UserSettings.CreateDefault(UserId).PlayNextBehavior);
+        Assert.Equal(0, (int)PlayNextBehavior.NextInList);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesStoredPlayNextBehaviorWhenChangeOmitsIt()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            PlayNextBehavior: PlayNextBehavior.Stop);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        UserSettings? upserted = null;
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<UserSettings, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted = s)
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        // playNextBehavior: null simulates a client that predates #629.
+        var change = MakeChange(DateTimeOffset.UtcNow, playNextBehavior: null);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale", [change], CancellationToken.None);
+
+        Assert.Equal(PlayNextBehavior.Stop, upserted!.PlayNextBehavior);
+    }
+
+    [Fact]
+    public async Task SyncAsync_AppliesPlayNextBehaviorFromChange()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1));
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        UserSettings? upserted = null;
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<UserSettings, PartitionKey?, ItemRequestOptions?, CancellationToken>((s, _, _, _) => upserted = s)
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var change = MakeChange(DateTimeOffset.UtcNow, playNextBehavior: PlayNextBehavior.TopOfList);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale", [change], CancellationToken.None);
+
+        Assert.Equal(PlayNextBehavior.TopOfList, upserted!.PlayNextBehavior);
+    }
 
     [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()

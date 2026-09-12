@@ -127,6 +127,26 @@
             </div>
 
             <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="play-next">When an episode finishes</label>
+                <select id="play-next" class="form-select" disabled="@isPlayNextSaving"
+                        value="@selectedPlayNextBehavior" @onchange="OnPlayNextBehaviorChangedAsync">
+                    @foreach (var option in PlayNextBehaviorUi.Options)
+                    {
+                        <option value="@option">@PlayNextBehaviorUi.Format(option)</option>
+                    }
+                </select>
+                <div class="form-text">Applies to whatever list you started playing from — a show, a playlist, Up Next or New Episodes. Override it per podcast from a show's page, or per playlist when editing one.</div>
+                @if (playNextSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@playNextSaveError</p>
+                }
+                else if (playNextSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
+            <div class="mb-3" style="max-width: 24rem;">
                 <label class="form-label" for="sleep-timer-default-duration">Default sleep timer duration</label>
                 <select id="sleep-timer-default-duration" class="form-select" disabled="@isSleepTimerDefaultDurationSaving"
                         value="@(selectedSleepTimerDefaultDurationMinutes?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "")"
@@ -300,6 +320,10 @@
     private bool isSmartSpeedSaving;
     private string? smartSpeedSaveError;
     private bool smartSpeedSaveSavedConfirmation;
+    private PlayNextBehavior selectedPlayNextBehavior;
+    private bool isPlayNextSaving;
+    private string? playNextSaveError;
+    private bool playNextSaveSavedConfirmation;
     private int? selectedSleepTimerDefaultDurationMinutes;
     private bool isSleepTimerDefaultDurationSaving;
     private string? sleepTimerDefaultDurationSaveError;
@@ -383,6 +407,7 @@
             selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
             selectedPlaybackSpeed = settings.PlaybackSpeed;
             selectedSmartSpeed = settings.SmartSpeed;
+            selectedPlayNextBehavior = settings.PlayNextBehavior;
             selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
             selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
             selectedAutoDeleteRule = settings.AutoDeleteRule;
@@ -434,6 +459,7 @@
         selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
         selectedPlaybackSpeed = settings.PlaybackSpeed;
         selectedSmartSpeed = settings.SmartSpeed;
+        selectedPlayNextBehavior = settings.PlayNextBehavior;
         selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
         selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
         selectedAutoDeleteRule = settings.AutoDeleteRule;
@@ -647,6 +673,37 @@
         finally
         {
             isSmartSpeedSaving = false;
+        }
+
+        await SyncOwnWriteBestEffortAsync();
+    }
+
+    private async Task OnPlayNextBehaviorChangedAsync(ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<PlayNextBehavior>(args.Value?.ToString(), out var value) || !Enum.IsDefined(value))
+        {
+            return;
+        }
+
+        var previous = selectedPlayNextBehavior;
+        selectedPlayNextBehavior = value;
+        isPlayNextSaving = true;
+        playNextSaveError = null;
+        playNextSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdatePlayNextBehaviorAsync(value);
+            playNextSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedPlayNextBehavior = previous;
+            playNextSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isPlayNextSaving = false;
         }
 
         await SyncOwnWriteBestEffortAsync();

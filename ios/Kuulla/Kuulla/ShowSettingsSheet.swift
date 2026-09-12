@@ -16,6 +16,7 @@ struct ShowSettingsSheet: View {
     @State private var autoDeleteSaveError: String?
     @State private var autoAddUpNextSaveError: String?
     @State private var upNextInsertPositionSaveError: String?
+    @State private var playNextBehaviorSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
@@ -29,6 +30,7 @@ struct ShowSettingsSheet: View {
     @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoAddUpNextSaveTask: Task<Void, Never>?
     @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
+    @State private var playNextBehaviorSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
@@ -179,6 +181,21 @@ struct ShowSettingsSheet: View {
                             Text(upNextInsertPositionSaveError)
                                 .foregroundStyle(.red)
                         }
+                    }
+                }
+
+                Section {
+                    Picker("Play next", selection: playNextBehaviorOverrideBinding) {
+                        Text("Use global default").tag(PlayNextBehavior?.none)
+                        ForEach(PlayNextBehavior.allCases) { option in
+                            Text(option.label).tag(PlayNextBehavior?.some(option))
+                        }
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let playNextBehaviorSaveError {
+                        Text(playNextBehaviorSaveError)
+                            .foregroundStyle(.red)
                     }
                 }
 
@@ -540,6 +557,35 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 upNextInsertPositionSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var playNextBehaviorOverrideBinding: Binding<PlayNextBehavior?> {
+        Binding(
+            get: { settings?.playNextBehavior },
+            set: { newValue in
+                playNextBehaviorSaveTask?.cancel()
+                playNextBehaviorSaveTask = Task { await updatePlayNextBehaviorOverride(newValue) }
+            }
+        )
+    }
+
+    private func updatePlayNextBehaviorOverride(_ value: PlayNextBehavior?) async {
+        guard let previous = settings else { return }
+
+        playNextBehaviorSaveError = nil
+        settings = previous.with(playNextBehavior: value)
+
+        do {
+            let updated = try await settingsClient.updateShowPlayNextBehavior(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                playNextBehaviorSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }
