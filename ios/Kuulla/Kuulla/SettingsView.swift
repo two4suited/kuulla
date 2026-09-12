@@ -325,7 +325,9 @@ struct SettingsView: View {
             } footer: {
                 // The app pulls your library on launch and in the background; use this to pull
                 // the latest shows, episodes and playlists on demand.
-                if let syncError = catalogRefresh?.lastError {
+                if let statusMessage = catalogRefresh?.statusMessage {
+                    Text(statusMessage)
+                } else if let syncError = catalogRefresh?.lastError {
                     Text(syncError)
                         .foregroundStyle(.red)
                 } else if let lastSynced = catalogRefresh?.lastRefreshedAt {

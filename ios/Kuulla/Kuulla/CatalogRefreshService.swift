@@ -16,6 +16,9 @@ final class CatalogRefreshService {
     private(set) var isRefreshing = false
     private(set) var lastRefreshedAt: Date?
     private(set) var lastError: String?
+    // Human-readable progress for the "Sync Now" row, so a slow sync (e.g. a large library's
+    // first full pull) shows more than a bare spinner. nil whenever isRefreshing is false.
+    private(set) var statusMessage: String?
 
     private let context: ModelContext
     private let subscriptionClient: SubscriptionClient
@@ -48,7 +51,11 @@ final class CatalogRefreshService {
         guard !isRefreshing else { return }
         isRefreshing = true
         lastError = nil
-        defer { isRefreshing = false }
+        statusMessage = "Checking subscriptions…"
+        defer {
+            isRefreshing = false
+            statusMessage = nil
+        }
 
         // Sync engines run independently of the catalog fetches — kick them off up front.
         async let episodeSync: Void = episodeSyncEngine.syncNow()
@@ -92,6 +99,11 @@ final class CatalogRefreshService {
             let maxConcurrent = 6
             var episodesComplete = true
             var index = 0
+            var showsSynced = 0
+            let showsTotal = showIdsToRefresh.count
+            if showsTotal > 0 {
+                statusMessage = "Syncing shows (0 of \(showsTotal))…"
+            }
             while index < showIdsToRefresh.count {
                 let batch = Array(showIdsToRefresh[index..<min(index + maxConcurrent, showIdsToRefresh.count)])
                 index += maxConcurrent
@@ -108,6 +120,8 @@ final class CatalogRefreshService {
                         if let show {
                             CatalogCache.upsertShow(show, in: context)
                         }
+                        showsSynced += 1
+                        statusMessage = "Syncing shows (\(showsSynced) of \(showsTotal))…"
                         guard let page else {
                             episodesComplete = false
                             continue
@@ -133,6 +147,7 @@ final class CatalogRefreshService {
             lastError = "Couldn't sync your library. Check your connection and try again."
         }
 
+        statusMessage = "Syncing playback & playlists…"
         _ = await (episodeSync, playlistSync, settingsSync)
 
         if !hadError {
