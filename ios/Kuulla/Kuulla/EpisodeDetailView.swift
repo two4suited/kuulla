@@ -936,28 +936,14 @@ struct EpisodeDetailView: View {
         // episodes" requirement by construction, without needing to check the flag directly —
         // just not for the reason "autoPlayed is only ever set by restoreAutoPlayed()", which
         // isn't true.
-        if Self.shouldAutoDeleteDownload(completed: completed, autoDeleteRule: autoDeleteRule) {
-            deleteDownloadIfPresent()
+        // #179: frees offline storage once an episode is finished, mirroring the auto-played
+        // enforcement job's completion hook. Shared with ShowDetailView's swipe-to-mark-played
+        // (#532) so both paths apply the same auto-delete-after-played rule.
+        if DownloadCleanup.deleteIfAutoDeleteEligible(
+            episodeId: episodeId, completed: completed, autoDeleteRule: autoDeleteRule, in: modelContext
+        ) {
+            downloadStatus = nil
         }
-    }
-
-    // Pulled out as a pure function for testability, mirroring resolvedPlaybackURL's pattern.
-    nonisolated static func shouldAutoDeleteDownload(completed: Bool, autoDeleteRule: AutoDeleteRule) -> Bool {
-        completed && autoDeleteRule == .afterPlayed
-    }
-
-    // #179: frees offline storage once an episode is finished, mirroring the auto-played
-    // enforcement job's completion hook. Only acts on a .complete download — an in-progress or
-    // failed one isn't something to "clean up" here, that's DownloadManager's own lifecycle.
-    private func deleteDownloadIfPresent() {
-        let episodeId = episodeId
-        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
-        guard let record = try? modelContext.fetch(descriptor).first, record.status == .complete else { return }
-        // Only reflect the deletion in the UI if it actually succeeded — DownloadCleanup.delete
-        // returns false on a ModelContext save failure, in which case the record (and file) are
-        // still present and downloadStatus must keep showing .complete, not go stale as nil.
-        guard DownloadCleanup.delete([record], from: modelContext) else { return }
-        downloadStatus = nil
     }
 }
 

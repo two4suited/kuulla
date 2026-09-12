@@ -119,4 +119,132 @@ final class DownloadCleanupTests: XCTestCase {
         let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
         XCTAssertTrue(try context.fetch(descriptor).isEmpty)
     }
+
+    // MARK: - deleteIfAutoDeleteEligible (#532)
+
+    // Regression: ShowDetailView's swipe-to-mark-played used to write completed state directly
+    // without ever consulting the auto-delete-after-played rule, so downloads survived a manual
+    // mark-played. Both ShowDetailView and EpisodeDetailView now route through this shared check.
+    func testDeleteIfAutoDeleteEligibleRemovesCompletedDownloadWhenRuleIsAfterPlayed() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "")
+        context.insert(record)
+        try context.save()
+
+        let deleted = DownloadCleanup.deleteIfAutoDeleteEligible(
+            episodeId: "ep1", completed: true, autoDeleteRule: .afterPlayed, in: context)
+
+        XCTAssertTrue(deleted)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertTrue(try context.fetch(descriptor).isEmpty)
+    }
+
+    func testDeleteIfAutoDeleteEligibleLeavesDownloadWhenRuleIsNever() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "")
+        context.insert(record)
+        try context.save()
+
+        let deleted = DownloadCleanup.deleteIfAutoDeleteEligible(
+            episodeId: "ep1", completed: true, autoDeleteRule: .never, in: context)
+
+        XCTAssertFalse(deleted)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertFalse(try context.fetch(descriptor).isEmpty)
+    }
+
+    func testDeleteIfAutoDeleteEligibleLeavesInProgressDownloadAlone() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "")
+        record.status = .downloading
+        context.insert(record)
+        try context.save()
+
+        let deleted = DownloadCleanup.deleteIfAutoDeleteEligible(
+            episodeId: "ep1", completed: true, autoDeleteRule: .afterPlayed, in: context)
+
+        XCTAssertFalse(deleted)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertFalse(try context.fetch(descriptor).isEmpty)
+    }
+
+    func testDeleteIfAutoDeleteEligibleIsNoOpWhenNoDownloadExists() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let deleted = DownloadCleanup.deleteIfAutoDeleteEligible(
+            episodeId: "no-such-episode", completed: true, autoDeleteRule: .afterPlayed, in: context)
+
+        XCTAssertFalse(deleted)
+    }
+
+    // MARK: - deleteAllEligible(forShowId:) (#532)
+
+    // Regression: ShowDetailView's "mark all played" only looped over its @State `episodes`
+    // array, which holds whatever page is currently paginated into memory — a downloaded episode
+    // on a not-yet-loaded page was never cleaned up even though the server marks the whole back
+    // catalogue played. The show-scoped fetch here is independent of any in-memory episode list.
+    func testDeleteAllEligibleRemovesEveryCompletedDownloadForShowRegardlessOfLoadedPages() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record1 = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "")
+        let record2 = makeRecord(id: "ep2", fileSizeBytes: 5, localFilePath: "")
+        context.insert(record1)
+        context.insert(record2)
+        try context.save()
+
+        let deletedIds = DownloadCleanup.deleteAllEligible(forShowId: "show1", autoDeleteRule: .afterPlayed, in: context)
+
+        XCTAssertEqual(Set(deletedIds), ["ep1", "ep2"])
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>()
+        XCTAssertTrue(try context.fetch(descriptor).isEmpty)
+    }
+
+    func testDeleteAllEligibleIgnoresOtherShows() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record = DownloadedEpisodeRecord(
+            id: "ep1", showId: "other-show", localFilePath: "", fileSizeBytes: 5,
+            downloadedAt: Date(), status: .complete)
+        context.insert(record)
+        try context.save()
+
+        let deletedIds = DownloadCleanup.deleteAllEligible(forShowId: "show1", autoDeleteRule: .afterPlayed, in: context)
+
+        XCTAssertTrue(deletedIds.isEmpty)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertFalse(try context.fetch(descriptor).isEmpty)
+    }
+
+    func testDeleteAllEligibleDoesNothingWhenRuleIsNever() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "")
+        context.insert(record)
+        try context.save()
+
+        let deletedIds = DownloadCleanup.deleteAllEligible(forShowId: "show1", autoDeleteRule: .never, in: context)
+
+        XCTAssertTrue(deletedIds.isEmpty)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertFalse(try context.fetch(descriptor).isEmpty)
+    }
+
+    func testDeleteAllEligibleSkipsInProgressDownloads() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let record = makeRecord(id: "ep1", fileSizeBytes: 5, localFilePath: "")
+        record.status = .downloading
+        context.insert(record)
+        try context.save()
+
+        let deletedIds = DownloadCleanup.deleteAllEligible(forShowId: "show1", autoDeleteRule: .afterPlayed, in: context)
+
+        XCTAssertTrue(deletedIds.isEmpty)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertFalse(try context.fetch(descriptor).isEmpty)
+    }
 }
