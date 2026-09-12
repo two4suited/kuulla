@@ -5,6 +5,7 @@ struct ShowDetailView: View {
     let showId: String
 
     @Environment(\.episodeSyncEngine) private var syncEngine
+    @Environment(\.settingsSyncEngine) private var settingsSyncEngine
     @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.modelContext) private var modelContext
 
@@ -35,11 +36,16 @@ struct ShowDetailView: View {
     // Loaded once per view lifecycle (loadShow()), mirroring EpisodeDetailView's @State
     // autoDeleteRule — avoids a settings network round trip on every swipe-to-mark-played (#532).
     @State private var autoDeleteRule: AutoDeleteRule = .never
+    @State private var leadingSwipeActions: [EpisodeSwipeAction] = []
+    @State private var trailingSwipeActions: [EpisodeSwipeAction] = [.addToPlaylist, .markPlayed]
+    @State private var addToUpNextError: String?
+    @State private var downloadManager = DownloadManager.shared
 
     private let catalogClient = PodcastCatalogClient()
     private let subscriptionClient = SubscriptionClient()
     private let episodeStateClient = EpisodeStateClient()
     private let settingsClient = SettingsClient()
+    private let playlistClient = PlaylistClient()
 
     var body: some View {
         List {
@@ -100,28 +106,20 @@ struct ShowDetailView: View {
                                 onDownloadDidFinish: refreshStatuses)
                         }
                         .accessibilityIdentifier("episode-row")
-                        // allowsFullSwipe: false — a long/fast swipe-left only reveals the
-                        // buttons, it never auto-triggers the first action. Marking an episode
-                        // played is a destructive side effect (feeds auto-archive / auto-delete
-                        // afterPlayed rules) and shouldn't fire from an accidental gesture (#540).
+                        // allowsFullSwipe: false — a long/fast swipe only reveals the buttons, it
+                        // never auto-triggers the first one. Any configured action can be a
+                        // destructive-ish side effect (marking played feeds auto-archive /
+                        // auto-delete afterPlayed rules; removing a download deletes a file), so
+                        // none of them should fire from an accidental gesture (#540, #565).
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                addToPlaylistEpisode = episode
-                            } label: {
-                                Label("Add to Playlist", systemImage: "text.badge.plus")
+                            ForEach(trailingSwipeActions) { action in
+                                swipeActionButton(action, for: episode, status: status)
                             }
-                            .tint(.blue)
-
-                            Button {
-                                Task { await toggleCompleted(episode: episode) }
-                            } label: {
-                                if status == .played {
-                                    Label("Mark as Unplayed", systemImage: "circle")
-                                } else {
-                                    Label("Mark as Played", systemImage: "checkmark.circle")
-                                }
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            ForEach(leadingSwipeActions) { action in
+                                swipeActionButton(action, for: episode, status: status)
                             }
-                            .tint(.green)
                         }
                     }
 
@@ -189,6 +187,11 @@ struct ShowDetailView: View {
         } message: {
             Text(markAllPlayedError ?? "")
         }
+        .alert("Couldn't add to Up Next", isPresented: addToUpNextErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(addToUpNextError ?? "")
+        }
         .sheet(item: $addToPlaylistEpisode) { episode in
             AddToPlaylistSheet(episodeId: episode.id, showId: showId)
         }
@@ -199,6 +202,9 @@ struct ShowDetailView: View {
         }
         .task(id: showId) {
             await loadShow()
+        }
+        .task {
+            await loadSwipeActionSettings()
         }
         .refreshable {
             await catalogRefresh?.refreshShow(showId: showId)
@@ -395,6 +401,109 @@ struct ShowDetailView: View {
         Binding(
             get: { markAllPlayedError != nil },
             set: { if !$0 { markAllPlayedError = nil } })
+    }
+
+    private var addToUpNextErrorBinding: Binding<Bool> {
+        Binding(
+            get: { addToUpNextError != nil },
+            set: { if !$0 { addToUpNextError = nil } })
+    }
+
+    // Reads the configured swipe-action sets from the local settings mirror (kept current by
+    // Settings/app-level sync) — a one-shot read, not observed live, matching how this view
+    // already treats every other setting it doesn't itself own.
+    private func loadSwipeActionSettings() async {
+        guard let settingsSyncEngine else { return }
+        let id = UserSettingsRecord.localId
+        let record = try? await settingsSyncEngine.read { context in
+            try context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
+        }
+        if let record {
+            leadingSwipeActions = record.leadingSwipeActions
+            trailingSwipeActions = record.trailingSwipeActions
+        }
+    }
+
+    @ViewBuilder
+    private func swipeActionButton(_ action: EpisodeSwipeAction, for episode: Episode, status: EpisodeStatus) -> some View {
+        switch action {
+        case .markPlayed:
+            Button {
+                Task { await toggleCompleted(episode: episode) }
+            } label: {
+                if status == .played {
+                    Label("Mark as Unplayed", systemImage: "circle")
+                } else {
+                    Label("Mark as Played", systemImage: "checkmark.circle")
+                }
+            }
+            .tint(.green)
+        case .addToPlaylist:
+            Button {
+                addToPlaylistEpisode = episode
+            } label: {
+                Label("Add to Playlist", systemImage: "text.badge.plus")
+            }
+            .tint(.blue)
+        case .download:
+            let downloadStatus = DownloadButton.effectiveStatus(
+                liveProgress: downloadManager.progress[episode.id],
+                persistedStatus: downloadStatusByEpisodeId[episode.id])
+            Button {
+                toggleDownload(episode: episode, status: downloadStatus)
+            } label: {
+                if downloadStatus == .complete {
+                    Label("Remove Download", systemImage: "trash")
+                } else {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+            }
+            .tint(.orange)
+        case .addToUpNext:
+            Button {
+                Task { await addToUpNext(episode: episode) }
+            } label: {
+                Label("Add to Up Next", systemImage: "list.bullet.badge.plus")
+            }
+            .tint(.purple)
+        }
+    }
+
+    private func toggleDownload(episode: Episode, status: DownloadStatus?) {
+        switch status {
+        case .complete:
+            let episodeId = episode.id
+            let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
+            if let record = try? modelContext.fetch(descriptor).first, DownloadCleanup.delete([record], from: modelContext) {
+                refreshStatuses()
+            }
+        case .downloading:
+            downloadManager.cancelDownload(episodeId: episode.id)
+        case .failed, nil:
+            downloadManager.startDownload(episode: episode)
+        }
+    }
+
+    // Resolves (or creates) the well-known "Up Next" playlist, same convention as
+    // UpNextView.resolve(), then appends this episode to it.
+    private func addToUpNext(episode: Episode) async {
+        do {
+            let playlists = try await playlistClient.getPlaylists()
+            let upNextId: String
+            if let existing = playlists
+                .filter({ $0.name == UpNextView.upNextPlaylistName })
+                .min(by: { $0.createdAt < $1.createdAt })
+            {
+                upNextId = existing.id
+            } else {
+                upNextId = try await playlistClient.createPlaylist(name: UpNextView.upNextPlaylistName).id
+            }
+            try await playlistClient.addItem(playlistId: upNextId, episodeId: episode.id, showId: showId)
+        } catch {
+            if !Task.isCancelled {
+                addToUpNextError = "Something went wrong while adding to Up Next. Please try again."
+            }
+        }
     }
 
     // Marks the show's whole back catalogue played server-side in one call (#490), then pulls the

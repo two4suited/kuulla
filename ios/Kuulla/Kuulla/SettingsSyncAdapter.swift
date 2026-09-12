@@ -47,6 +47,8 @@ struct SettingsSyncAdapter: SyncAdapter {
                 hideCaughtUpShows: $0.hideCaughtUpShows,
                 autoAddNewEpisodesToUpNext: $0.autoAddNewEpisodesToUpNext,
                 upNextInsertPosition: $0.upNextInsertPosition,
+                leadingSwipeActions: $0.leadingSwipeActions,
+                trailingSwipeActions: $0.trailingSwipeActions,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -98,6 +100,10 @@ private struct UserSettingsChangeDTO: Encodable {
     let hideCaughtUpShows: Bool
     let autoAddNewEpisodesToUpNext: Bool
     let upNextInsertPosition: UpNextInsertPosition
+    // Always sent (this DTO can't express null), same rationale as subscriptionManualOrder
+    // above — this client always knows the field and always sends it (#565).
+    let leadingSwipeActions: [EpisodeSwipeAction]
+    let trailingSwipeActions: [EpisodeSwipeAction]
     let updatedAt: Date
 }
 
@@ -138,6 +144,9 @@ private struct UserSettingsDTO: Decodable {
     // Optional so a response from an API that predates #440 still decodes; asRecord falls back.
     let autoAddNewEpisodesToUpNext: Bool?
     let upNextInsertPosition: UpNextInsertPosition?
+    // Optional so a response from an API that predates #565 still decodes; asRecord falls back.
+    let leadingSwipeActions: [EpisodeSwipeAction]?
+    let trailingSwipeActions: [EpisodeSwipeAction]?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -151,6 +160,8 @@ private struct UserSettingsDTO: Decodable {
             hideCaughtUpShows: hideCaughtUpShows ?? false,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? false,
             upNextInsertPosition: upNextInsertPosition ?? .bottom,
+            leadingSwipeActions: leadingSwipeActions ?? [],
+            trailingSwipeActions: trailingSwipeActions ?? [.addToPlaylist, .markPlayed],
             version: version, updatedAt: updatedAt)
     }
 }

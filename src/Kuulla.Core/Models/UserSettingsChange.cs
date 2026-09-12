@@ -50,4 +50,10 @@ public record UserSettingsChange(
     // Nullable for the same reason. Null means "keep whatever's stored" rather than resetting to
     // Bottom.
     UpNextInsertPosition? UpNextInsertPosition,
+    // Nullable, same rationale as SubscriptionManualOrder above — a client that predates #565
+    // omits these, and SettingsService.SyncAsync treats null AND empty as "keep whatever's
+    // stored" (it only accepts a non-empty list here), so a device with no opinion can't wipe
+    // another device's configured swipe actions.
+    IReadOnlyList<EpisodeSwipeAction>? LeadingSwipeActions,
+    IReadOnlyList<EpisodeSwipeAction>? TrailingSwipeActions,
     DateTimeOffset UpdatedAt);

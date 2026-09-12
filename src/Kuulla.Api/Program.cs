@@ -1362,6 +1362,38 @@ settings.MapPut("/hide-caught-up-shows", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/leading-swipe-actions", async (
+    UpdateLeadingSwipeActionsRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.LeadingSwipeActions is null || request.LeadingSwipeActions.Any(a => !Enum.IsDefined(a)))
+    {
+        return Results.BadRequest(new { error = "'leadingSwipeActions' must be a list of valid swipe actions." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateLeadingSwipeActionsAsync(userId, request.LeadingSwipeActions, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/trailing-swipe-actions", async (
+    UpdateTrailingSwipeActionsRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.TrailingSwipeActions is null || request.TrailingSwipeActions.Any(a => !Enum.IsDefined(a)))
+    {
+        return Results.BadRequest(new { error = "'trailingSwipeActions' must be a list of valid swipe actions." });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateTrailingSwipeActionsAsync(userId, request.TrailingSwipeActions, ct);
+    return Results.Ok(result);
+});
+
 settings.MapGet("/shows/{showId}", async (
     string showId,
     ClaimsPrincipal user,

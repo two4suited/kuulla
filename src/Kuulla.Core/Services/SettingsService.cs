@@ -163,6 +163,10 @@ public class SettingsService(
                 // UserSettingsChange) — keep whatever's stored rather than clobbering it.
                 change.AutoAddNewEpisodesToUpNext ?? stored?.AutoAddNewEpisodesToUpNext ?? false,
                 change.UpNextInsertPosition ?? stored?.UpNextInsertPosition ?? UpNextInsertPosition.Bottom,
+                // Keep the stored set unless the change carries a non-empty one — same
+                // null/empty-means-keep-stored rationale as SubscriptionManualOrder above.
+                change.LeadingSwipeActions is { Count: > 0 } ? change.LeadingSwipeActions : stored?.LeadingSwipeActions,
+                change.TrailingSwipeActions is { Count: > 0 } ? change.TrailingSwipeActions : stored?.TrailingSwipeActions,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -192,6 +196,16 @@ public class SettingsService(
         string userId, bool hideCaughtUpShows, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(
             userId, current => current with { HideCaughtUpShows = hideCaughtUpShows }, cancellationToken);
+
+    public Task<UserSettings> UpdateLeadingSwipeActionsAsync(
+        string userId, IReadOnlyList<EpisodeSwipeAction> leadingSwipeActions, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { LeadingSwipeActions = leadingSwipeActions }, cancellationToken);
+
+    public Task<UserSettings> UpdateTrailingSwipeActionsAsync(
+        string userId, IReadOnlyList<EpisodeSwipeAction> trailingSwipeActions, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId, current => current with { TrailingSwipeActions = trailingSwipeActions }, cancellationToken);
 
     public async Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken)
     {
