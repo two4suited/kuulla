@@ -51,6 +51,15 @@ final class AuthManager {
         if let localTestIdToken {
             return localTestIdToken
         }
+        // restorePreviousSignIn() normally runs from ContentView's cold-launch .task, which
+        // requires the app's own WindowGroup scene to have appeared at least once. CarPlay can
+        // launch the app on its own scene role (e.g. the car starting before the phone is ever
+        // unlocked/opened) without that scene ever appearing, leaving GIDSignIn.currentUser nil
+        // for an actually-signed-in user — surfacing as "Couldn't load your subscriptions" on
+        // CarPlay's browse screen (#631). Restoring lazily here covers that path too.
+        if GIDSignIn.sharedInstance.currentUser == nil {
+            await restorePreviousSignIn()
+        }
         guard let user = GIDSignIn.sharedInstance.currentUser else {
             throw AuthError.notSignedIn
         }
