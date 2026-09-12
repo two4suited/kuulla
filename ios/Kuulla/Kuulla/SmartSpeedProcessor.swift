@@ -115,9 +115,18 @@ final class SmartSpeedProcessor {
     private static func firstAudioTrack(of asset: AVAsset) -> AVAssetTrack? {
         let semaphore = DispatchSemaphore(value: 0)
         var result: AVAssetTrack?
-        asset.loadTracks(withMediaType: .audio) { tracks, _ in
-            result = tracks?.first
-            semaphore.signal()
+        // Kick off loadTracks from a .userInteractive queue rather than directly from the caller's
+        // thread (main, also .userInteractive): AVFoundation's internal queue for the completion
+        // handler doesn't pin its own QoS, so it inherits whatever queue enqueued the call. Calling
+        // loadTracks straight from main works the same way, but Thread Performance Checker still
+        // flags the wait below because it can't see that inheritance — routing the call through an
+        // explicit .userInteractive queue makes the QoS match visible and avoids the priority
+        // inversion (#621) a Default-QoS completion handler would otherwise create.
+        DispatchQueue.global(qos: .userInteractive).async {
+            asset.loadTracks(withMediaType: .audio) { tracks, _ in
+                result = tracks?.first
+                semaphore.signal()
+            }
         }
         semaphore.wait()
         return result
