@@ -45,6 +45,16 @@ struct SettingsView: View {
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
 
+    // Counts in-flight update*() calls below. refreshFromRemote() (triggered by scenePhase
+    // going active, e.g. the user switches away mid-edit and back) reads the on-disk mirror and
+    // assigns it wholesale to `settings` — but that mirror is only updated by mirrorAcceptedWrite
+    // *after* a PUT round-trips, so a refresh landing between an update*()'s optimistic write and
+    // its PUT completing would clobber the just-picked value back to the stale one (#571). Every
+    // update*() increments this before its optimistic write and decrements it when done (success,
+    // failure, or cancellation), so refreshFromRemote can tell such a write is in flight and skip
+    // the clobbering assignment rather than fight it.
+    @State private var pendingSaveCount = 0
+
     @State private var isOpmlImporterPresented = false
     @State private var isImportingOpml = false
     @State private var opmlImportResult: OpmlImportResult?
@@ -578,9 +588,12 @@ struct SettingsView: View {
     // applies it to this view's in-memory state. Cheap no-op when nothing changed.
     private func refreshFromRemote() async {
         await syncEngine?.syncNow()
-        if let local = await fetchLocalRecord() {
-            settings = local
-        }
+        // Skip the assignment while an update*() above is mid-flight: its optimistic write
+        // already reflects the user's pick, but the on-disk mirror this reads only catches up
+        // after that call's own PUT completes (mirrorAcceptedWrite) — assigning here first would
+        // revert the screen to the stale value (#571).
+        guard pendingSaveCount == 0, let local = await fetchLocalRecord() else { return }
+        settings = local
     }
 
     // Reads through syncEngine's own ModelContext (SyncEngine.read), not the view's
@@ -621,6 +634,8 @@ struct SettingsView: View {
 
     private func updateUnlistenedEpisodeCount(_ value: UnlistenedEpisodeCount) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         saveError = nil
         settings = previous.with(unlistenedEpisodeCount: value)
@@ -641,6 +656,8 @@ struct SettingsView: View {
 
     private func updateAutoArchiveRule(_ value: AutoArchiveRule) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         archiveSaveError = nil
         settings = previous.with(autoArchiveRule: value)
@@ -661,6 +678,8 @@ struct SettingsView: View {
 
     private func updateAutoSkip(introSeconds: Int, outroSeconds: Int) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         autoSkipSaveError = nil
         settings = previous.with(autoSkipIntroSeconds: introSeconds, autoSkipOutroSeconds: outroSeconds)
@@ -681,6 +700,8 @@ struct SettingsView: View {
 
     private func updateAutoDeleteRule(_ rule: AutoDeleteRule, afterDays: Int) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         autoDeleteSaveError = nil
         settings = previous.with(autoDeleteRule: rule, autoDeleteAfterDays: afterDays)
@@ -701,6 +722,8 @@ struct SettingsView: View {
 
     private func updateAutoDownloadNewEpisodes(_ value: Bool) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         autoDownloadSaveError = nil
         settings = previous.with(autoDownloadNewEpisodes: value)
@@ -721,6 +744,8 @@ struct SettingsView: View {
 
     private func updateAutoAddNewEpisodesToUpNext(_ value: Bool) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         autoAddUpNextSaveError = nil
         settings = previous.with(autoAddNewEpisodesToUpNext: value)
@@ -741,6 +766,8 @@ struct SettingsView: View {
 
     private func updateUpNextInsertPosition(_ value: UpNextInsertPosition) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         upNextInsertPositionSaveError = nil
         settings = previous.with(upNextInsertPosition: value)
@@ -761,6 +788,8 @@ struct SettingsView: View {
 
     private func updateLeadingSwipeActions(_ value: [EpisodeSwipeAction]) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         leadingSwipeActionsSaveError = nil
         settings = previous.with(leadingSwipeActions: value)
@@ -781,6 +810,8 @@ struct SettingsView: View {
 
     private func updateTrailingSwipeActions(_ value: [EpisodeSwipeAction]) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         trailingSwipeActionsSaveError = nil
         settings = previous.with(trailingSwipeActions: value)
@@ -801,6 +832,8 @@ struct SettingsView: View {
 
     private func updateSmartSpeed(_ value: Bool) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         smartSpeedSaveError = nil
         settings = previous.with(smartSpeed: value)
@@ -821,6 +854,8 @@ struct SettingsView: View {
 
     private func updateNotificationsEnabled(_ value: Bool) async {
         guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
 
         notificationsEnabledSaveError = nil
         settings = previous.with(notificationsEnabled: value)

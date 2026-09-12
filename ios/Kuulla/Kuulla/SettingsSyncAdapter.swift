@@ -100,8 +100,11 @@ private struct UserSettingsChangeDTO: Encodable {
     let hideCaughtUpShows: Bool
     let autoAddNewEpisodesToUpNext: Bool
     let upNextInsertPosition: UpNextInsertPosition
-    // Always sent (this DTO can't express null), same rationale as subscriptionManualOrder
-    // above — this client always knows the field and always sends it (#568).
+    // Always sent (this DTO can't express null) — this client always knows the field and always
+    // sends it (#568). Unlike subscriptionManualOrder, the server does NOT special-case an empty
+    // array here: it's applied as a deliberate "no actions on this side" (#571). This path is
+    // unreachable today (see this file's header comment) since nothing marks a UserSettingsRecord
+    // dirty, so that distinction has no live effect yet.
     let leadingSwipeActions: [EpisodeSwipeAction]
     let trailingSwipeActions: [EpisodeSwipeAction]
     let updatedAt: Date

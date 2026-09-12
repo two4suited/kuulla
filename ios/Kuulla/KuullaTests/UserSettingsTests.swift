@@ -31,6 +31,51 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(updated.hideCaughtUpShows, base.hideCaughtUpShows)
         XCTAssertEqual(updated.autoAddNewEpisodesToUpNext, base.autoAddNewEpisodesToUpNext)
         XCTAssertEqual(updated.upNextInsertPosition, base.upNextInsertPosition)
+        XCTAssertEqual(updated.leadingSwipeActions, base.leadingSwipeActions)
+        XCTAssertEqual(updated.trailingSwipeActions, base.trailingSwipeActions)
+    }
+
+    func testWithSetsLeadingSwipeActions() {
+        let updated = base.with(leadingSwipeActions: [.download, .addToUpNext])
+
+        XCTAssertEqual(updated.leadingSwipeActions, [.download, .addToUpNext])
+        // Unrelated field untouched by this `with()` call (#571 was partly about swipe-action
+        // edits interacting badly with the rest of the settings screen).
+        XCTAssertEqual(updated.trailingSwipeActions, base.trailingSwipeActions)
+    }
+
+    func testWithSetsTrailingSwipeActionsToAnExplicitlyEmptyList() {
+        // `with(trailingSwipeActions:)` takes `[EpisodeSwipeAction]?` where nil means "don't
+        // touch this field" — but `[]` is itself a non-nil value (a deliberate "no actions"),
+        // and must not be mistaken for the "omitted" case the same way `Optional.some([])` isn't
+        // `nil` in Swift generally. Regresses the equivalent bug this suite already guards
+        // against for the API's own merge path (SettingsServiceTests, #571).
+        let updated = base.with(trailingSwipeActions: [])
+
+        XCTAssertEqual(updated.trailingSwipeActions, [])
+    }
+
+    func testDecodingResponseMissingSwipeActionsDefaultsMatchPreDefaults() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertEqual(decoded.leadingSwipeActions, [])
+        XCTAssertEqual(decoded.trailingSwipeActions, [.addToPlaylist, .markPlayed])
+    }
+
+    func testDecodingSwipeActionsFromWireArray() throws {
+        let json = """
+            {"userId":"u1","unlistenedEpisodeCount":5,"version":1,"autoArchiveRule":0,\
+            "leadingSwipeActions":[2],"trailingSwipeActions":[]}
+            """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: json)
+
+        XCTAssertEqual(decoded.leadingSwipeActions, [.download])
+        XCTAssertEqual(decoded.trailingSwipeActions, [])
     }
 
     func testWithSetsHideCaughtUpShows() {
