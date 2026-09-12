@@ -245,9 +245,9 @@ static IResourceBuilder<ProjectResource> WireFeedPollerDependencies(
     return project;
 }
 
-// Once a day at 03:00 UTC for now — a 15-minute sweep costs too much while the subscriber base is
-// small. Bump the frequency back up (e.g. "*/15 * * * *") when the cost tradeoff changes.
-var feedPollerCron = "0 3 * * *";
+// Once an hour for now — a 15-minute sweep costs too much while the subscriber base is small.
+// Bump the frequency back up (e.g. "*/15 * * * *") when the cost tradeoff changes.
+var feedPollerCron = "0 * * * *";
 var feedPoller = WireFeedPollerDependencies(
         builder.AddProject<Projects.Kuulla_FeedPoller>("feed-poller"),
         cosmos, shows, episodes, subscriptions, settings, episodeStates, playlists, deviceTokens)
