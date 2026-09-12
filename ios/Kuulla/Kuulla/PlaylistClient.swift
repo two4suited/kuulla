@@ -159,3 +159,39 @@ private struct ReorderPlaylistItemRequest: Encodable {
     let beforeEpisodeId: String?
     let afterEpisodeId: String?
 }
+
+// #569: mirrors DownloadCleanup's shared entry point (DownloadsView.swift) — every place that can
+// mark an episode played manually (EpisodeDetailView.persist, ShowDetailView.toggleCompleted, the
+// "mark all played" bulk flow) goes through the same rule as PlaybackQueue.handleNaturalFinish's
+// automatic removal, instead of each reimplementing (or forgetting) it. Dynamic playlists are
+// server-computed from rules with no editable membership, so they're skipped exactly like
+// PlaybackQueue does.
+enum PlaylistCleanup {
+    // Best-effort, like PlaybackQueue.handleNaturalFinish's removal — a failed fetch/removal
+    // shouldn't block the mark-played action itself. The next sync (or opening the playlist)
+    // still shows the episode; the user can remove it by hand.
+    static func removeFromManualPlaylists(
+        episodeId: String, completed: Bool, playlistClient: PlaylistClient = PlaylistClient()
+    ) async {
+        guard completed, let playlists = try? await playlistClient.getPlaylists() else { return }
+        for playlist in playlists
+        where playlist.type == .manual && playlist.items.contains(where: { $0.episodeId == episodeId }) {
+            try? await playlistClient.removeItem(playlistId: playlist.id, episodeId: episodeId)
+        }
+    }
+
+    // Bulk counterpart for "mark all played" (#490/#569): a single fetch of every playlist, then
+    // remove every item belonging to the show — scoped the same way DownloadCleanup.deleteAllEligible
+    // is, since mark-all-played reaches the show's whole back catalogue server-side regardless of
+    // how much of it is paged into the caller's own episode list.
+    static func removeAllFromManualPlaylists(
+        forShowId showId: String, playlistClient: PlaylistClient = PlaylistClient()
+    ) async {
+        guard let playlists = try? await playlistClient.getPlaylists() else { return }
+        for playlist in playlists where playlist.type == .manual {
+            for item in playlist.items where item.showId == showId {
+                try? await playlistClient.removeItem(playlistId: playlist.id, episodeId: item.episodeId)
+            }
+        }
+    }
+}
