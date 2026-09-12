@@ -53,7 +53,7 @@ final class SmartSpeedProcessor {
     // effect" is preferable to failing playback outright.
     func makeAudioMix(for item: AVPlayerItem) -> AVMutableAudioMix {
         let mix = AVMutableAudioMix()
-        guard let track = item.asset.tracks(withMediaType: .audio).first else { return mix }
+        guard let track = Self.firstAudioTrack(of: item.asset) else { return mix }
 
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
@@ -106,6 +106,21 @@ final class SmartSpeedProcessor {
         params.audioTapProcessor = tap
         mix.inputParameters = [params]
         return mix
+    }
+
+    // Blocks the calling thread until the asset's audio track list loads, mirroring the blocking
+    // behavior of the deprecated synchronous tracks(withMediaType:) API via its supported
+    // completion-handler replacement — makeAudioMix's caller (AudioPlayer.play()) is synchronous,
+    // so there's no async context to await this in without restructuring that call chain.
+    private static func firstAudioTrack(of asset: AVAsset) -> AVAssetTrack? {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: AVAssetTrack?
+        asset.loadTracks(withMediaType: .audio) { tracks, _ in
+            result = tracks?.first
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
     }
 
     fileprivate func prepare() {
