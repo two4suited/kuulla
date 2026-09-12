@@ -392,6 +392,9 @@ struct ShowDetailView: View {
                 statusByEpisodeId[episode.id] = .played
                 positionSecondsByEpisodeId[episode.id] = Int(episode.duration ?? 0)
             }
+            // Whole back catalogue is now played, so the show has zero unplayed and can't be
+            // in-progress — reuses the unsubscribe path's blob patch (#556).
+            CatalogCache.removeShowFromSnapshot(showId: showId, in: modelContext)
             await syncEngine?.syncNow()
         } catch {
             if !Task.isCancelled {
@@ -419,6 +422,9 @@ struct ShowDetailView: View {
         statusByEpisodeId[episodeId] = EpisodeStatus(record: restored)
         positionSecondsByEpisodeId[episodeId] = restored.positionSeconds
         archivedEpisodeIds.remove(episodeId)
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: episodeId, showId: restored.showId, completed: restored.completed,
+            positionSeconds: restored.positionSeconds, in: modelContext)
     }
 
     private func toggleCompleted(episode: Episode) async {
@@ -449,6 +455,9 @@ struct ShowDetailView: View {
                 completed: shouldComplete, updatedAt: Date())
             statusByEpisodeId[episodeId] = EpisodeStatus(record: updated)
             positionSecondsByEpisodeId[episodeId] = updated.positionSeconds
+            CatalogCache.recordEpisodeStateChange(
+                episodeId: episodeId, showId: showId, completed: shouldComplete,
+                positionSeconds: positionSeconds, in: modelContext)
         } catch {
             assertionFailure("Failed to toggle episode completion: \(episodeId): \(error)")
         }

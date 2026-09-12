@@ -209,6 +209,9 @@ struct FeedView: View {
         // the one the write just saved through (same hazard EpisodeDetailView.persist() avoids).
         guard let restored = await syncEngine?.restoreAutoPlayed(episodeId: episodeId) else { return }
         statusByEpisodeId[episodeId] = EpisodeStatus(record: restored)
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: episodeId, showId: restored.showId, completed: restored.completed,
+            positionSeconds: restored.positionSeconds, in: modelContext)
     }
 
     private func refreshStatuses() {

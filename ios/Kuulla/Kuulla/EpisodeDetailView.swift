@@ -854,6 +854,9 @@ struct EpisodeDetailView: View {
         // write above just saved through (same hazard persist() avoids below).
         if let restored = await syncEngine.restoreAutoPlayed(episodeId: episodeId) {
             stateRecord = restored
+            CatalogCache.recordEpisodeStateChange(
+                episodeId: episodeId, showId: restored.showId, completed: restored.completed,
+                positionSeconds: restored.positionSeconds, in: modelContext)
         }
     }
 
@@ -919,6 +922,11 @@ struct EpisodeDetailView: View {
             id: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed, updatedAt: updatedAt,
             deviceId: stateRecord?.deviceId,
             lastLocalPositionSeconds: positionSeconds, lastLocalPlaybackAt: updatedAt)
+        // Keep Subscriptions/Library's cached badges in sync with this write rather than waiting
+        // for the next full refresh (#556).
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: episodeId, showId: showId, completed: completed, positionSeconds: positionSeconds,
+            in: modelContext)
 
         // persist() is only ever reached via a manual write path in *this view* (the completed
         // toggle, or the onDidFinishPlaying callback for a natural finish) — it's never called
