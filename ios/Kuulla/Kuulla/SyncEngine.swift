@@ -15,7 +15,7 @@ struct SyncPushResult<Record> {
 // everything that's the same for every domain (cursor bookkeeping, dirty-record collection,
 // debounce, trigger wiring); an adapter owns the parts that necessarily differ per domain until
 // #84 generalizes the server side too.
-protocol SyncAdapter {
+protocol SyncAdapter: Sendable {
     associatedtype Record: Syncable
 
     // Matches the server's {domain} segment and this engine's SyncCursor row.

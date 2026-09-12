@@ -13,7 +13,7 @@ import SwiftData
 // SettingsSyncAdapterTests but not by the running app — SyncEngine.syncNow() here only ever
 // pulls (an empty-changes poll). Kept for framework consistency and in case a future write path
 // needs a genuine local-first push.
-struct SettingsSyncAdapter: nonisolated SyncAdapter {
+struct SettingsSyncAdapter: SyncAdapter {
     let domain = "settings"
 
     private let apiClient: ApiClient
