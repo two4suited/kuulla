@@ -332,6 +332,41 @@ enum CatalogCache {
         }
     }
 
+    // Seeds the unplayed badge for a just-subscribed show from the episode list the caller
+    // already has in hand (ShowDetailView's own loaded `episodes`, not a re-read of
+    // CachedEpisodeRecord — the Subscribe button renders as soon as the show loads, independent
+    // of the episode list section, so the cache write for page 1 isn't guaranteed to have landed
+    // yet), so a brand-new subscription doesn't paint as "0 unplayed" / caught-up on Subscriptions
+    // until the next full refresh populates the New Episodes feed — mirrors
+    // removeShowFromSnapshot's opposite direction (#533/#559). Excludes auto-played episodes from
+    // the count, matching UnplayedCounts.compute — the unlistened-episode-limit job already
+    // marked those played, so (unlike the server's New Episodes feed, which folds them in so the
+    // client can offer an undo) they shouldn't inflate this badge.
+    static func recordNewSubscription(showId: String, episodes: [Episode], in context: ModelContext) {
+        guard !episodes.isEmpty else { return }
+
+        let states = (try? context.fetch(FetchDescriptor<EpisodeStateRecord>(
+            predicate: #Predicate { $0.showId == showId }
+        ))) ?? []
+        let stateById = Dictionary(states.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        let unplayed = episodes.filter { episode in
+            guard let state = stateById[episode.id] else { return true }
+            return !state.completed && !state.autoPlayed && state.positionSeconds == 0
+        }.count
+        guard unplayed > 0 else { return }
+
+        let row = state(in: context)
+        var byShow: [String: Int] = [:]
+        if let data = row.unplayedCountsData,
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            byShow = decoded
+        }
+        byShow[showId] = unplayed
+        row.unplayedCountsData = try? JSONEncoder().encode(byShow)
+        try? context.save()
+    }
+
     // Drop a single show from the snapshot blobs so a just-unsubscribed show stops showing a
     // stale unplayed badge / counting as "active" before the next full refresh (#533).
     static func removeShowFromSnapshot(showId: String, in context: ModelContext) {

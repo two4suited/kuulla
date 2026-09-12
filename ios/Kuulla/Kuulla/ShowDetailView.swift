@@ -306,6 +306,7 @@ struct ShowDetailView: View {
             } else {
                 let created = try await subscriptionClient.subscribe(showId: showId)
                 CatalogCache.upsertSubscription(created, in: modelContext)
+                CatalogCache.recordNewSubscription(showId: showId, episodes: episodes, in: modelContext)
             }
         } catch {
             if !Task.isCancelled {
