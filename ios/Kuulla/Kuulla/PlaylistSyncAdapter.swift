@@ -4,7 +4,7 @@ import SwiftData
 // SyncAdapter for PlaylistRecord, calling POST /api/sync/playlists
 // (src/Kuulla.Api/Program.cs, reconciliation protocol documented in docs/sync-conventions.md).
 // Mirrors EpisodeSyncAdapter.swift's structure.
-struct PlaylistSyncAdapter: SyncAdapter {
+struct PlaylistSyncAdapter: nonisolated SyncAdapter {
     let domain = "playlists"
 
     private let apiClient: ApiClient

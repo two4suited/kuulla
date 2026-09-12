@@ -3,7 +3,7 @@ import SwiftData
 
 // SyncAdapter for EpisodeStateRecord, calling POST /api/sync/episodes
 // (src/Kuulla.Api/Program.cs, reconciliation protocol documented in docs/sync-conventions.md).
-struct EpisodeSyncAdapter: SyncAdapter {
+struct EpisodeSyncAdapter: nonisolated SyncAdapter {
     let domain = "episodes"
 
     private let apiClient: ApiClient
