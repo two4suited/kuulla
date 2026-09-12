@@ -27,7 +27,7 @@ sweep runs once per tick instead of once per API replica.
 | --- | --- |
 | Local (`aspire run`) | `feed-poller` resource — a long-lived `PeriodicTimer` loop. Sweeps once on startup, then every `FeedPolling:IntervalMinutes`. |
 | Local, one-shot | `feed-poller-job` resource — same worker with `FeedPolling__RunOnceThenExit=true` and explicit-start. Hit **Start** in the Aspire dashboard to run one sweep and exit, mirroring a production cron tick. |
-| Production | `feed-poller` — an Azure Container Apps **scheduled job** (`Microsoft.App/jobs`), cron `0 3 * * *` (daily at 03:00 UTC), `parallelism` and `replicaCompletionCount` both `1`. `FeedPolling__RunOnceThenExit=true`, so the container runs one sweep and exits. `replicaTimeout` 1800s. |
+| Production | `feed-poller` — an Azure Container Apps **scheduled job** (`Microsoft.App/jobs`), cron `0 * * * *` (hourly), `parallelism` and `replicaCompletionCount` both `1`. `FeedPolling__RunOnceThenExit=true`, so the container runs one sweep and exits. `replicaTimeout` 1800s. |
 
 The job's managed identity gets Cosmos **Built-in Data Contributor** (read+write) automatically
 from the AppHost's `.WithReference(cosmos)` — see `feed-poller-roles-cosmos` in the generated
@@ -35,9 +35,10 @@ bicep.
 
 ## Schedule / interval
 
-- **Production cadence** is the ACA job's cron: `0 3 * * *` — once a day at 03:00 UTC. It was
-  `*/15 * * * *`, dialed back to hold down cost while the subscriber base is small; bump it back
-  up when that tradeoff changes. Change it in `AppHost.cs` (`feedPollerCron`) and redeploy.
+- **Production cadence** is the ACA job's cron: `0 * * * *` — once an hour. It was dialed back to
+  `0 3 * * *` (once daily) to hold down cost while the subscriber base was small; bump it back up
+  further (e.g. `*/15 * * * *`) when that tradeoff changes. Change it in `AppHost.cs`
+  (`feedPollerCron`) and redeploy.
 - **`FeedPolling:IntervalMinutes`** (env `FeedPolling__IntervalMinutes`) is only read on the
   local `feed-poller` timer loop — default 15, a non-positive or unparsable value falls back to
   15. It has no effect on the production job (the cron is the schedule there) or on
@@ -100,10 +101,10 @@ To confirm after a deploy, with `api` scaled past 1 replica:
 ContainerAppConsoleLogs_CL
 | where ContainerName_s == "feed-poller"
 | where Log_s startswith "Feed-poll sweep complete:"
-| summarize sweeps = count() by bin(TimeGenerated, 1d)
+| summarize sweeps = count() by bin(TimeGenerated, 1h)
 ```
 
-Expect one sweep per day (the cron is `0 3 * * *`). `api` and `web` console logs should carry no
+Expect one sweep per hour (the cron is `0 * * * *`). `api` and `web` console logs should carry no
 `Feed-poll sweep` lines at all.
 
 ## Deploy notes
