@@ -106,6 +106,15 @@ enum CatalogCache {
         return records.map(\.episode)
     }
 
+    // Single-episode lookup for EpisodeDetailView's instant local paint (#614) — mirrors
+    // FeedView.readLocalFeed's pattern for #534.
+    static func episode(showId: String, episodeId: String, in context: ModelContext) -> Episode? {
+        var descriptor = FetchDescriptor<CachedEpisodeRecord>(
+            predicate: #Predicate { $0.showId == showId && $0.id == episodeId })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor).first)?.episode
+    }
+
     static func hasEpisodes(showId: String, in context: ModelContext) -> Bool {
         var descriptor = FetchDescriptor<CachedEpisodeRecord>(
             predicate: #Predicate { $0.showId == showId })
