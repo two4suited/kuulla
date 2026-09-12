@@ -83,18 +83,30 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // sortedSubscriptions(_:by:manualOrder:) LibraryView/SubscriptionsView use, rather than a
     // CarPlay-local hardcoded alphabetical order. Updates the Shows tab's own template sections in
     // place (#641) rather than setting a new root template, now that root is a CPTabBarTemplate.
+    // A Continue Listening section (#639), when there's anything in progress, sits above the
+    // shows list either way — it reads local EpisodeStateRecords directly rather than needing its
+    // own cache-vs-network distinction, so it's computed once and reused for both paints.
     private func loadSubscriptionsList(into template: CPListTemplate) async {
         let context = Self.modelContainer.map(ModelContext.init)
+
+        var continueListening: CPListSection?
+        if let context {
+            continueListening = await continueListeningSection(in: context)
+        }
 
         var paintedFromCache = false
         if let context {
             let cachedSubscriptions = CatalogCache.subscriptions(in: context)
-            if !cachedSubscriptions.isEmpty {
+            // Paints immediately whenever there's *either* a cached subscription or a Continue
+            // Listening entry to show — an orphaned in-progress episode (its show unsubscribed
+            // from since) shouldn't have to wait on the network subscriptions fetch just because
+            // the subscriptions cache itself is empty.
+            if !cachedSubscriptions.isEmpty || continueListening != nil {
                 let localSettings = Self.localUserSettings(in: context)
                 let cached = sortedSubscriptions(
                     cachedSubscriptions, by: localSettings?.subscriptionSortOrder ?? .title,
                     manualOrder: localSettings?.subscriptionManualOrder ?? [])
-                template.updateSections(subscriptionsSections(for: cached))
+                template.updateSections([continueListening].compactMap { $0 } + subscriptionsSections(for: cached))
                 paintedFromCache = true
             }
         }
@@ -110,14 +122,15 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             let sorted = sortedSubscriptions(
                 subscriptions, by: settings?.subscriptionSortOrder ?? .title,
                 manualOrder: settings?.subscriptionManualOrder ?? [])
-            template.updateSections(subscriptionsSections(for: sorted))
+            template.updateSections([continueListening].compactMap { $0 } + subscriptionsSections(for: sorted))
         } catch {
             // The cache already painted something useful — leave it up rather than clobbering it
             // with an error, the same tolerance ShowDetailView.readLocalShow() gives a stale but
             // present cache when its own network follow-up fails.
             guard !paintedFromCache else { return }
             template.updateSections(
-                [CPListSection(items: [CPListItem(text: "Couldn't load your subscriptions.", detailText: nil)])])
+                [continueListening].compactMap { $0 }
+                    + [CPListSection(items: [CPListItem(text: "Couldn't load your subscriptions.", detailText: nil)])])
         }
     }
 
@@ -127,6 +140,112 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private static func localUserSettings(in context: ModelContext) -> UserSettingsRecord? {
         let id = UserSettingsRecord.localId
         return try? context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
+    }
+
+    // Capped like ShowDetailView's own lists favor a short, scannable set over an exhaustive one —
+    // this is a glance-and-tap surface, not a full history.
+    private static let continueListeningLimit = 20
+
+    private struct ContinueListeningEntry {
+        let episode: Episode
+        let show: Show?
+        let positionSeconds: Int
+        let downloadRecord: DownloadedEpisodeRecord?
+    }
+
+    // Cross-show "resume where you left off" (#639) — CarPlay's root has no in-show episode list
+    // to filter the way EpisodeListFilter.inProgress does, so this queries the synced
+    // EpisodeStateRecord store directly instead. There's no separate cache-vs-network distinction
+    // for the position data itself (this local store already is the synced source of truth); only
+    // each record's episode/show metadata needs resolving, cache-first via CatalogCache and
+    // falling back to the network for anything CatalogCache hasn't seen (a show reached from
+    // Search/Discovery rather than a subscription, say).
+    private func continueListeningSection(in context: ModelContext) async -> CPListSection? {
+        var descriptor = FetchDescriptor<EpisodeStateRecord>(
+            predicate: #Predicate<EpisodeStateRecord> { !$0.completed && $0.positionSeconds > 0 && !$0.archived },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        descriptor.fetchLimit = Self.continueListeningLimit
+        let records = (try? context.fetch(descriptor)) ?? []
+        guard !records.isEmpty else { return nil }
+
+        let episodeIds = Set(records.map(\.id))
+        let downloadDescriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { episodeIds.contains($0.id) })
+        let downloadRecords = Dictionary(
+            uniqueKeysWithValues: ((try? context.fetch(downloadDescriptor)) ?? []).map { ($0.id, $0) })
+
+        struct Resolved { var episode: Episode?; var show: Show? }
+        var resolved = records.map { record in
+            Resolved(
+                episode: CatalogCache.episode(showId: record.showId, episodeId: record.id, in: context),
+                show: CatalogCache.show(id: record.showId, in: context))
+        }
+
+        // Only the records CatalogCache didn't already answer hit the network, and every one of
+        // those does so concurrently rather than one at a time.
+        await withTaskGroup(of: (Int, Episode?, Show?).self) { group in
+            for (index, record) in records.enumerated() where resolved[index].episode == nil || resolved[index].show == nil {
+                let showId = record.showId
+                let episodeId = record.id
+                let needsEpisode = resolved[index].episode == nil
+                let needsShow = resolved[index].show == nil
+                group.addTask { [catalogClient] in
+                    let episode = needsEpisode ? try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId) : nil
+                    let show = needsShow ? try? await catalogClient.getShow(id: showId) : nil
+                    return (index, episode, show)
+                }
+            }
+            for await (index, episode, show) in group {
+                if let episode { resolved[index].episode = episode }
+                if let show { resolved[index].show = show }
+            }
+        }
+
+        let entries = zip(records, resolved).compactMap { record, resolved -> ContinueListeningEntry? in
+            // An episode the network fallback also couldn't resolve (deleted from its feed, most
+            // likely) is dropped rather than shown as a dead row with no title to display.
+            guard let episode = resolved.episode else { return nil }
+            return ContinueListeningEntry(
+                episode: episode, show: resolved.show, positionSeconds: record.positionSeconds,
+                downloadRecord: downloadRecords[record.id])
+        }
+        guard !entries.isEmpty else { return nil }
+
+        let items = entries.map { entry -> CPListItem in
+            let item = CPListItem(text: entry.episode.title, detailText: entry.show?.title)
+            item.handler = { [weak self] _, completion in
+                Task {
+                    await self?.resumeContinueListening(entry)
+                    completion()
+                }
+            }
+            loadImage(for: item, urlString: entry.show?.artworkUrl)
+            return item
+        }
+        return CPListSection(items: items, header: "Continue Listening", sectionIndexTitle: nil)
+    }
+
+    // Resumes an episode from Continue Listening directly, reusing the existing play() path with
+    // a single-item PlaybackList — there's no "next in this cross-show list" to auto-advance
+    // through the way a show's episode list or a playlist has, so unlike pushEpisodesList/
+    // pushPlaylistDetail this list is never armed as PlaybackQueue's own snapshot.
+    private func resumeContinueListening(_ entry: ContinueListeningEntry) async {
+        async let userSettings = try? settingsClient.getSettings()
+        async let showSettings = try? settingsClient.getShowSettings(showId: entry.episode.showId)
+        let (user, show) = await (userSettings, showSettings)
+        let autoSkipIntroSeconds = TimeInterval(show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0)
+        let autoSkipOutroSeconds = TimeInterval(show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
+        let playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
+        let smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
+
+        let list = PlaybackList(
+            source: .show(id: entry.episode.showId),
+            items: [PlaybackQueue.QueueItem(showId: entry.episode.showId, episodeId: entry.episode.id)])
+
+        play(
+            episode: entry.episode, showId: entry.episode.showId, showTitle: entry.show?.title ?? "",
+            showArtworkUrl: entry.show?.artworkUrl, startPosition: TimeInterval(entry.positionSeconds),
+            downloadRecord: entry.downloadRecord, autoSkipIntroSeconds: autoSkipIntroSeconds,
+            autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, list: list)
     }
 
     private func subscriptionsSections(for subscriptions: [Subscription]) -> [CPListSection] {
