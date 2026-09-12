@@ -76,10 +76,12 @@ struct PlaylistsView: View {
             await refresh()
         }
         .onAppear {
-            // A cheap re-read each time the tab is revisited — the shared TabView keeps this view
-            // alive, so `.task` only runs once, and a sync triggered elsewhere (scenePhase
-            // .active in KuullaApp, a mutation on another screen) won't otherwise reach the list.
-            readLocalPlaylists()
+            // Re-sync each time the tab is revisited — the shared TabView keeps this view alive,
+            // so `.task` only runs once. A read-only re-read here isn't enough: item adds/removes
+            // on PlaylistDetailView go straight to the server (PlaylistClient), not through this
+            // view's ModelContext, so the local PlaylistRecord.items (and this list's displayed
+            // episode count) stays stale until a sync pulls the server's current state back in.
+            Task { await reconcileWithServer() }
         }
     }
 
