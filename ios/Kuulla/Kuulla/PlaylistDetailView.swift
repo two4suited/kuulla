@@ -1,9 +1,11 @@
+import SwiftData
 import SwiftUI
 
 struct PlaylistDetailView: View {
     let playlistId: String
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
 
     @State private var playlist: PlaylistDetail?
     @State private var isLoading = false
@@ -164,18 +166,69 @@ struct PlaylistDetailView: View {
         return .episode(showId: item.showId, episodeId: item.episodeId)
     }
 
+    // Paints instantly from the locally-synced PlaylistRecord (kept current by PlaylistSyncAdapter,
+    // same as PlaylistsView's list) while the network fetch below resolves server-authoritative
+    // titles/artwork and (for dynamic playlists) the server-recomputed item set — instead of
+    // blanking the whole screen behind a spinner on every appearance/refresh/resume.
     private func load() async {
-        playlist = nil
         loadError = nil
-        isLoading = true
+        if playlist == nil, let local = localPlaceholder() {
+            playlist = local
+        }
+        isLoading = playlist == nil
+
         do {
+            // nil here means the playlist was actually deleted server-side (404) — correctly
+            // clears a stale local placeholder rather than being treated as a fetch failure.
             playlist = try await playlistClient.getPlaylistDetail(id: playlistId)
         } catch {
-            if !Task.isCancelled {
+            if !Task.isCancelled && playlist == nil {
                 loadError = "Something went wrong while loading this playlist. Please try again."
             }
         }
         isLoading = false
+    }
+
+    // Builds a PlaylistDetail-shaped snapshot from the local sync store, resolving each item's
+    // title/artwork against CatalogCache when available (best-effort — a show the cache hasn't
+    // seen yet just shows the existing "(episode unavailable)" placeholder text until the network
+    // fetch above lands).
+    private func localPlaceholder() -> PlaylistDetail? {
+        let id = playlistId
+        guard let record = try? modelContext.fetch(
+            FetchDescriptor<PlaylistRecord>(predicate: #Predicate { $0.id == id })
+        ).first, !record.deleted else { return nil }
+
+        // Resolve each distinct show once (not once per item), mirroring
+        // PlaylistService.GetPlaylistDetailAsync's server-side comment for the same reason — a
+        // playlist with many episodes from the same show shouldn't re-fetch that show's cached
+        // episode list per item.
+        let showIds = Set(record.items.map(\.showId))
+        let episodesByShow = Dictionary(uniqueKeysWithValues: showIds.map {
+            ($0, CatalogCache.episodes(showId: $0, in: modelContext))
+        })
+        let showsById = Dictionary(uniqueKeysWithValues: showIds.map {
+            ($0, CatalogCache.show(id: $0, in: modelContext))
+        })
+
+        let items = record.items
+            .sorted { $0.order < $1.order }
+            .map { item -> PlaylistItemDetail in
+                let episode = episodesByShow[item.showId]?.first { $0.id == item.episodeId }
+                let show = showsById[item.showId] ?? nil
+                return PlaylistItemDetail(
+                    episodeId: item.episodeId, showId: item.showId,
+                    title: episode?.title, artworkUrl: show?.artworkUrl,
+                    addedAt: item.addedAt, order: item.order)
+            }
+
+        return PlaylistDetail(
+            id: record.id, name: record.name, type: record.type, items: items,
+            createdAt: record.createdAt, updatedAt: record.updatedAt,
+            dynamicConfig: record.dynamicConfig.map {
+                DynamicPlaylistConfig(showIds: $0.showIds, maxEpisodes: $0.maxEpisodes, priorityList: $0.priorityList)
+            },
+            icon: record.icon, accentColor: record.accentColor)
     }
 
     private func removeItems(at offsets: IndexSet) async {
