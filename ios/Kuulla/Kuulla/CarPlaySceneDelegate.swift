@@ -1,4 +1,5 @@
 import CarPlay
+import CryptoKit
 import SwiftData
 import UIKit
 
@@ -60,71 +61,123 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         CPListTemplate(title: "Kuulla", sections: [])
     }
 
+    // Cache-first (#637): paint instantly from CatalogCache if it has anything for this show,
+    // then refresh from the network behind it — same pattern as LibraryView/ShowDetailView.
     private func loadSubscriptionsList() async {
-        let template: CPListTemplate
+        let context = Self.modelContainer.map(ModelContext.init)
+
+        var paintedFromCache = false
+        if let context {
+            let cached = Self.sortedSubscriptions(CatalogCache.subscriptions(in: context))
+            if !cached.isEmpty {
+                interfaceController?.setRootTemplate(subscriptionsTemplate(for: cached), animated: false, completion: nil)
+                paintedFromCache = true
+            }
+        }
+
         do {
             let subscriptions = Self.sortedSubscriptions(try await subscriptionClient.getSubscriptions())
-            if subscriptions.isEmpty {
-                template = CPListTemplate(
-                    title: "Kuulla",
-                    sections: [CPListSection(items: [CPListItem(text: "You haven't subscribed to any shows yet.", detailText: nil)])])
-            } else {
-                let items = subscriptions.map { subscription -> CPListItem in
-                    let item = CPListItem(text: subscription.showTitle, detailText: subscription.showAuthor)
-                    item.accessoryType = .disclosureIndicator
-                    item.handler = { [weak self] _, completion in
-                        Task {
-                            await self?.pushEpisodesList(
-                                showId: subscription.showId, showTitle: subscription.showTitle,
-                                showArtworkUrl: subscription.showArtworkUrl)
-                            completion()
-                        }
-                    }
-                    loadImage(for: item, urlString: subscription.showArtworkUrl)
-                    return item
-                }
-                template = CPListTemplate(title: "Kuulla", sections: [CPListSection(items: items)])
+            if let context {
+                CatalogCache.replaceSubscriptions(subscriptions, in: context)
             }
+            interfaceController?.setRootTemplate(subscriptionsTemplate(for: subscriptions), animated: false, completion: nil)
         } catch {
-            template = CPListTemplate(
+            // The cache already painted something useful — leave it up rather than clobbering it
+            // with an error, the same tolerance ShowDetailView.readLocalShow() gives a stale but
+            // present cache when its own network follow-up fails.
+            guard !paintedFromCache else { return }
+            let template = CPListTemplate(
                 title: "Kuulla",
                 sections: [CPListSection(items: [CPListItem(text: "Couldn't load your subscriptions.", detailText: nil)])])
+            interfaceController?.setRootTemplate(template, animated: false, completion: nil)
         }
-        interfaceController?.setRootTemplate(template, animated: false, completion: nil)
     }
 
+    private func subscriptionsTemplate(for subscriptions: [Subscription]) -> CPListTemplate {
+        guard !subscriptions.isEmpty else {
+            return CPListTemplate(
+                title: "Kuulla",
+                sections: [CPListSection(items: [CPListItem(text: "You haven't subscribed to any shows yet.", detailText: nil)])])
+        }
+        let items = subscriptions.map { subscription -> CPListItem in
+            let item = CPListItem(text: subscription.showTitle, detailText: subscription.showAuthor)
+            item.accessoryType = .disclosureIndicator
+            item.handler = { [weak self] _, completion in
+                Task {
+                    await self?.pushEpisodesList(
+                        showId: subscription.showId, showTitle: subscription.showTitle,
+                        showArtworkUrl: subscription.showArtworkUrl)
+                    completion()
+                }
+            }
+            loadImage(for: item, urlString: subscription.showArtworkUrl)
+            return item
+        }
+        return CPListTemplate(title: "Kuulla", sections: [CPListSection(items: items)])
+    }
+
+    // Cache-first (#637): push instantly from CatalogCache.episodes if it has anything for this
+    // show, then refresh from the network and update the same template's sections in place — a
+    // second CPListTemplate push would stack a duplicate screen instead of replacing this one.
     private func pushEpisodesList(showId: String, showTitle: String, showArtworkUrl: String?) async {
+        let context = Self.modelContainer.map(ModelContext.init)
+
+        // Same show-override-else-global settings EpisodeDetailView.loadPlaybackSettings()
+        // resolves per episode — kicked off once here and shared by every row's tap handler
+        // (whether built from the cache-painted list or the network-refreshed one), since every
+        // episode from this show shares them.
+        let settingsClient = self.settingsClient
+        let settingsTask = Task { () -> (UserSettings?, ShowSettings?) in
+            async let userSettings = try? settingsClient.getSettings()
+            async let showSettings = try? settingsClient.getShowSettings(showId: showId)
+            return await (userSettings, showSettings)
+        }
+
+        var pushedTemplate: CPListTemplate?
+        if let context {
+            let cachedEpisodes = CatalogCache.episodes(showId: showId, in: context)
+            if !cachedEpisodes.isEmpty {
+                let template = episodesTemplate(
+                    episodes: cachedEpisodes, showId: showId, showTitle: showTitle, showArtworkUrl: showArtworkUrl,
+                    context: context, settingsTask: settingsTask)
+                interfaceController?.pushTemplate(template, animated: true, completion: nil)
+                pushedTemplate = template
+            }
+        }
+
         // First page only — CarPlay's browse surface favors a short, scannable list over
         // ShowDetailView's "Load more" pagination, which needs a screen to tap through, not a
         // dashboard to glance at while driving.
-        async let episodesResult = catalogClient.getEpisodes(showId: showId, continuationToken: nil)
-        // Same show-override-else-global settings EpisodeDetailView.loadPlaybackSettings() resolves
-        // per episode — fetched once here since every episode from this show shares them.
-        async let userSettings = try? settingsClient.getSettings()
-        async let showSettings = try? settingsClient.getShowSettings(showId: showId)
-
-        let episodes: [Episode]
         do {
-            episodes = try await episodesResult.items
+            let page = try await catalogClient.getEpisodes(showId: showId, continuationToken: nil)
+            if let context {
+                CatalogCache.replaceEpisodes(showId: showId, page.items, continuationToken: page.continuationToken, in: context)
+            }
+            let freshTemplate = episodesTemplate(
+                episodes: page.items, showId: showId, showTitle: showTitle, showArtworkUrl: showArtworkUrl,
+                context: context, settingsTask: settingsTask)
+            if let pushedTemplate {
+                pushedTemplate.updateSections(freshTemplate.sections)
+            } else {
+                interfaceController?.pushTemplate(freshTemplate, animated: true, completion: nil)
+            }
         } catch {
+            guard pushedTemplate == nil else { return }
             let template = CPListTemplate(
                 title: showTitle,
                 sections: [CPListSection(items: [CPListItem(text: "Couldn't load episodes for this show.", detailText: nil)])])
             interfaceController?.pushTemplate(template, animated: true, completion: nil)
-            return
         }
+    }
 
-        let (user, show) = await (userSettings, showSettings)
-        let autoSkipIntroSeconds = TimeInterval(show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0)
-        let autoSkipOutroSeconds = TimeInterval(show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
-        let playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
-        let smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
-
+    private func episodesTemplate(
+        episodes: [Episode], showId: String, showTitle: String, showArtworkUrl: String?, context: ModelContext?,
+        settingsTask: Task<(UserSettings?, ShowSettings?), Never>
+    ) -> CPListTemplate {
         let statuses: [String: EpisodeStatus]
         let positions: [String: Int]
         var downloadRecords: [String: DownloadedEpisodeRecord] = [:]
-        if let modelContainer = Self.modelContainer {
-            let context = ModelContext(modelContainer)
+        if let context {
             let episodeIds = Set(episodes.map(\.id))
             (statuses, positions, _) = EpisodeStatus.statusAndPositionMaps(for: episodeIds, in: context)
             let downloadDescriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { episodeIds.contains($0.id) })
@@ -145,19 +198,25 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             let status = statuses[episode.id] ?? .new
             let item = CPListItem(text: episode.title, detailText: Self.episodeDetailText(episode: episode, status: status))
             item.handler = { [weak self] _, completion in
-                self?.play(
-                    episode: episode, showId: showId, showTitle: showTitle, showArtworkUrl: showArtworkUrl,
-                    startPosition: TimeInterval(positions[episode.id] ?? 0), downloadRecord: downloadRecords[episode.id],
-                    autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-                    playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, list: list)
-                completion()
+                Task {
+                    let (user, show) = await settingsTask.value
+                    let autoSkipIntroSeconds = TimeInterval(show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0)
+                    let autoSkipOutroSeconds = TimeInterval(show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
+                    let playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
+                    let smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
+                    self?.play(
+                        episode: episode, showId: showId, showTitle: showTitle, showArtworkUrl: showArtworkUrl,
+                        startPosition: TimeInterval(positions[episode.id] ?? 0), downloadRecord: downloadRecords[episode.id],
+                        autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
+                        playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, list: list)
+                    completion()
+                }
             }
             loadImage(for: item, urlString: showArtworkUrl)
             return item
         }
 
-        let template = CPListTemplate(title: showTitle, sections: [CPListSection(items: items)])
-        interfaceController?.pushTemplate(template, animated: true, completion: nil)
+        return CPListTemplate(title: showTitle, sections: [CPListSection(items: items)])
     }
 
     private func play(
@@ -249,19 +308,47 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // "missing/failed artwork just leaves the row without an image" tolerance rather than
     // blocking the row from appearing. Checks imageCache first: the episodes list reuses the same
     // show artwork URL for every row, so without this every row would refetch it independently.
+    // Falls back to the on-disk cache (#637) before hitting the network, so artwork survives
+    // across CarPlay sessions instead of being re-downloaded from scratch on every fresh connect.
     private func loadImage(for item: CPListItem, urlString: String?) {
         guard let urlString, let url = URL(string: urlString) else { return }
         if let cached = imageCache[urlString] {
             item.setImage(cached)
             return
         }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                self?.imageCache[urlString] = image
-                item.setImage(image)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            // Resolved off the main thread — FileManager.createDirectory inside this is a
+            // blocking stat/mkdir call that shouldn't run on main once per row.
+            let diskCacheURL = Self.artworkDiskCacheFileURL(for: urlString)
+            if let diskCacheURL, let data = try? Data(contentsOf: diskCacheURL), let image = UIImage(data: data) {
+                DispatchQueue.main.async {
+                    self?.imageCache[urlString] = image
+                    item.setImage(image)
+                }
+                return
             }
-        }.resume()
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                guard let data, let image = UIImage(data: data) else { return }
+                if let diskCacheURL {
+                    try? data.write(to: diskCacheURL, options: .atomic)
+                }
+                DispatchQueue.main.async {
+                    self?.imageCache[urlString] = image
+                    item.setImage(image)
+                }
+            }.resume()
+        }
+    }
+
+    // Keyed by a SHA256 of the URL string rather than the URL itself — Swift's String.hashValue
+    // is randomized per process launch, so it can't be used to name a file that needs to resolve
+    // to the same path across CarPlay sessions.
+    private static func artworkDiskCacheFileURL(for urlString: String) -> URL? {
+        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let directory = base.appendingPathComponent("CarPlayArtwork", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let digest = SHA256.hash(data: Data(urlString.utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent(digest)
     }
 
     // Pulled out as pure functions so the row-building logic is unit-testable without a real
