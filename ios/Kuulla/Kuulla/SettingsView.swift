@@ -521,8 +521,18 @@ struct SettingsView: View {
         Binding(
             get: { settings?.leadingSwipeActions ?? [] },
             set: { newValue in
+                guard let previous = settings else { return }
+                // Apply optimistically right away (unlike every other binding here, which
+                // applies it inside the update*() Task) so the picker's delete/reorder
+                // animation isn't held up by saveDebounce below (#577). pendingSaveCount is
+                // bumped here too, synchronously with that write — incrementing it inside the
+                // Task instead would leave a gap (until the Task actually gets scheduled) where
+                // the optimistic value is live but refreshFromRemote() doesn't yet know to skip
+                // clobbering it, reopening #571.
+                settings = previous.with(leadingSwipeActions: newValue)
+                pendingSaveCount += 1
                 leadingSwipeActionsSaveTask?.cancel()
-                leadingSwipeActionsSaveTask = Task { await updateLeadingSwipeActions(newValue) }
+                leadingSwipeActionsSaveTask = Task { await updateLeadingSwipeActions(newValue, revertingTo: previous) }
             }
         )
     }
@@ -531,8 +541,11 @@ struct SettingsView: View {
         Binding(
             get: { settings?.trailingSwipeActions ?? [.addToPlaylist, .markPlayed] },
             set: { newValue in
+                guard let previous = settings else { return }
+                settings = previous.with(trailingSwipeActions: newValue)
+                pendingSaveCount += 1
                 trailingSwipeActionsSaveTask?.cancel()
-                trailingSwipeActionsSaveTask = Task { await updateTrailingSwipeActions(newValue) }
+                trailingSwipeActionsSaveTask = Task { await updateTrailingSwipeActions(newValue, revertingTo: previous) }
             }
         )
     }
@@ -786,13 +799,25 @@ struct SettingsView: View {
         }
     }
 
-    private func updateLeadingSwipeActions(_ value: [EpisodeSwipeAction]) async {
-        guard let previous = settings else { return }
-        pendingSaveCount += 1
+    // The picker's row deletes/reorders each cancel the prior save and start a new one, same as
+    // every other binding's save Task — but a single swipe-to-delete gesture can fire its
+    // `.onDelete` closure twice in quick succession (a known SwiftUI behavior), and Task
+    // cancellation doesn't reliably stop a PUT that's already in flight on the wire. Two such
+    // PUTs to the same field-specific endpoint race each other against the server's ETag retry
+    // loop (SettingsService.UpdateSettingsWithRetryAsync), which after exhausting its attempts
+    // throws and surfaces here as a save failure (#577). Waiting a beat before touching the
+    // network lets a near-simultaneous second call cancel this one first, so only the last of a
+    // rapid burst actually reaches the server.
+    private static let swipeActionsSaveDebounce: Duration = .milliseconds(300)
+
+    private func updateLeadingSwipeActions(_ value: [EpisodeSwipeAction], revertingTo previous: UserSettings) async {
+        // pendingSaveCount was already bumped by the binding setter above, synchronously with
+        // the optimistic write — see its comment. This only owns the matching decrement.
         defer { pendingSaveCount -= 1 }
 
         leadingSwipeActionsSaveError = nil
-        settings = previous.with(leadingSwipeActions: value)
+        try? await Task.sleep(for: Self.swipeActionsSaveDebounce)
+        guard !Task.isCancelled else { return }
 
         do {
             let updated = try await settingsClient.updateLeadingSwipeActions(value)
@@ -808,13 +833,12 @@ struct SettingsView: View {
         }
     }
 
-    private func updateTrailingSwipeActions(_ value: [EpisodeSwipeAction]) async {
-        guard let previous = settings else { return }
-        pendingSaveCount += 1
+    private func updateTrailingSwipeActions(_ value: [EpisodeSwipeAction], revertingTo previous: UserSettings) async {
         defer { pendingSaveCount -= 1 }
 
         trailingSwipeActionsSaveError = nil
-        settings = previous.with(trailingSwipeActions: value)
+        try? await Task.sleep(for: Self.swipeActionsSaveDebounce)
+        guard !Task.isCancelled else { return }
 
         do {
             let updated = try await settingsClient.updateTrailingSwipeActions(value)
