@@ -39,7 +39,7 @@ struct UserSettings: Codable, Hashable {
     // Which end of the Up Next queue an auto-added episode lands at (#440). Defaults to .bottom
     // (raw 0) when absent, same rationale as subscriptionSortOrder.
     let upNextInsertPosition: UpNextInsertPosition
-    // Which quick actions appear on a leading/trailing swipe over an episode-list row (#565).
+    // Which quick actions appear on a leading/trailing swipe over an episode-list row (#568).
     // Defaults to the historical trailing-only behavior (Add to Playlist, then Mark as Played)
     // when absent (predates this field) — see decoder below.
     let leadingSwipeActions: [EpisodeSwipeAction]
@@ -133,7 +133,7 @@ struct UserSettings: Codable, Hashable {
         // Default to .bottom when absent (#440), same rationale as subscriptionSortOrder above.
         upNextInsertPosition = try container.decodeIfPresent(
             UpNextInsertPosition.self, forKey: .upNextInsertPosition) ?? .bottom
-        // Default to [] / [.addToPlaylist, .markPlayed] when absent (#565) — the historical
+        // Default to [] / [.addToPlaylist, .markPlayed] when absent (#568) — the historical
         // trailing-swipe-only behavior, same rationale as upNextInsertPosition above.
         leadingSwipeActions = try container.decodeIfPresent(
             [EpisodeSwipeAction].self, forKey: .leadingSwipeActions) ?? []
@@ -238,7 +238,7 @@ enum UpNextInsertPosition: Int, Codable, CaseIterable, Identifiable {
     }
 }
 
-// A quick action offered on an episode-list row's swipe gesture (#565). Mirrors the API's
+// A quick action offered on an episode-list row's swipe gesture (#568). Mirrors the API's
 // Kuulla.Core.Models.EpisodeSwipeAction enum, including its raw values, since the wire format
 // is a plain integer.
 enum EpisodeSwipeAction: Int, Codable, CaseIterable, Identifiable {

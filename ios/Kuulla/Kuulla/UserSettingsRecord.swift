@@ -44,7 +44,7 @@ final class UserSettingsRecord: Syncable {
     var autoAddNewEpisodesToUpNext: Bool = false
     // Inline default required, same reason. .bottom matches the API's default for #440.
     var upNextInsertPosition: UpNextInsertPosition = UpNextInsertPosition.bottom
-    // Inline default required, same lightweight-migration reason as the fields above (#565).
+    // Inline default required, same lightweight-migration reason as the fields above (#568).
     var leadingSwipeActions: [EpisodeSwipeAction] = []
     var trailingSwipeActions: [EpisodeSwipeAction] = [EpisodeSwipeAction.addToPlaylist, EpisodeSwipeAction.markPlayed]
     var version: Int

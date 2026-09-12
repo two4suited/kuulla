@@ -101,7 +101,7 @@ private struct UserSettingsChangeDTO: Encodable {
     let autoAddNewEpisodesToUpNext: Bool
     let upNextInsertPosition: UpNextInsertPosition
     // Always sent (this DTO can't express null), same rationale as subscriptionManualOrder
-    // above — this client always knows the field and always sends it (#565).
+    // above — this client always knows the field and always sends it (#568).
     let leadingSwipeActions: [EpisodeSwipeAction]
     let trailingSwipeActions: [EpisodeSwipeAction]
     let updatedAt: Date
@@ -144,7 +144,7 @@ private struct UserSettingsDTO: Decodable {
     // Optional so a response from an API that predates #440 still decodes; asRecord falls back.
     let autoAddNewEpisodesToUpNext: Bool?
     let upNextInsertPosition: UpNextInsertPosition?
-    // Optional so a response from an API that predates #565 still decodes; asRecord falls back.
+    // Optional so a response from an API that predates #568 still decodes; asRecord falls back.
     let leadingSwipeActions: [EpisodeSwipeAction]?
     let trailingSwipeActions: [EpisodeSwipeAction]?
     let updatedAt: Date

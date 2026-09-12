@@ -2,7 +2,7 @@ import SwiftUI
 
 // Lets the user pick which quick actions appear on one swipe direction over an episode-list row,
 // and the order they appear in — the "Enabled" section's top row is the one closest to the edge
-// of the screen (#565).
+// of the screen (#568).
 struct EpisodeSwipeActionsPicker: View {
     let title: String
     @Binding var selection: [EpisodeSwipeAction]

@@ -92,7 +92,7 @@ public record UserSettings(
     // value, so a settings document written before this field existed deserializes it as Bottom
     // — the intended default — with no DefaultValueHandling needed (same as SubscriptionSortOrder).
     UpNextInsertPosition UpNextInsertPosition = UpNextInsertPosition.Bottom,
-    // Which quick actions appear on a leading (left) swipe over an episode-list row (#565). Null
+    // Which quick actions appear on a leading (left) swipe over an episode-list row (#568). Null
     // means "no opinion yet" (a document/client that predates this field) — the client falls
     // back to its own built-in default set rather than treating null as "no actions". An
     // explicit empty array, by contrast, is a deliberate "no swipe actions this direction".
@@ -137,7 +137,7 @@ public enum UpNextInsertPosition
     Top,
 }
 
-// A quick action offered on an episode-list row's swipe gesture (#565).
+// A quick action offered on an episode-list row's swipe gesture (#568).
 public enum EpisodeSwipeAction
 {
     MarkPlayed,

@@ -110,7 +110,7 @@ struct ShowDetailView: View {
                         // never auto-triggers the first one. Any configured action can be a
                         // destructive-ish side effect (marking played feeds auto-archive /
                         // auto-delete afterPlayed rules; removing a download deletes a file), so
-                        // none of them should fire from an accidental gesture (#540, #565).
+                        // none of them should fire from an accidental gesture (#540, #568).
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             ForEach(trailingSwipeActions) { action in
                                 swipeActionButton(action, for: episode, status: status)
