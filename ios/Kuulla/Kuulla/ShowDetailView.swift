@@ -359,6 +359,15 @@ struct ShowDetailView: View {
         isSubscriptionBusy = false
     }
 
+    // The API only paginates the raw, unfiltered episode list — displayedEpisodes applies the
+    // active filter afterward. Without this loop, a single "Load more" tap can fetch a page the
+    // current filter drops entirely (e.g. a show marked all-played, viewed under "Unfinished"),
+    // leaving the button visible with nothing new on screen and no way to tell whether another
+    // tap would ever help (#617). Keep fetching bounded, additional raw pages until either
+    // something becomes visible under the filter or the raw pagination is genuinely exhausted, so
+    // the button only lingers when there really is more to try.
+    private static let maxPagesPerLoadMore = 5
+
     private func loadMoreEpisodes() async {
         guard !isLoadingEpisodes else { return }
 
@@ -366,19 +375,26 @@ struct ShowDetailView: View {
         episodeError = nil
 
         do {
-            let isFirstPage = continuationToken == nil
-            let page = try await catalogClient.getEpisodes(showId: showId, continuationToken: continuationToken)
-            if isFirstPage {
-                episodes = page.items
-                CatalogCache.replaceEpisodes(
-                    showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
-            } else {
-                episodes.append(contentsOf: page.items)
-                CatalogCache.appendEpisodes(
-                    showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+            for _ in 0..<Self.maxPagesPerLoadMore {
+                let visibleCountBefore = displayedEpisodes.count
+                let isFirstPage = continuationToken == nil
+                let page = try await catalogClient.getEpisodes(showId: showId, continuationToken: continuationToken)
+                if isFirstPage {
+                    episodes = page.items
+                    CatalogCache.replaceEpisodes(
+                        showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+                } else {
+                    episodes.append(contentsOf: page.items)
+                    CatalogCache.appendEpisodes(
+                        showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+                }
+                continuationToken = page.continuationToken
+                refreshStatuses()
+
+                if displayedEpisodes.count > visibleCountBefore || continuationToken == nil {
+                    break
+                }
             }
-            continuationToken = page.continuationToken
-            refreshStatuses()
         } catch {
             if !Task.isCancelled {
                 episodeError = "Something went wrong while loading episodes. Please try again."
