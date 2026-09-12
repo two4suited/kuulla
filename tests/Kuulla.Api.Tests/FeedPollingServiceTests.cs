@@ -3,6 +3,7 @@ using Kuulla.Core.Models;
 using Kuulla.Core.Services;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Kuulla.Api.Tests;
@@ -20,7 +21,7 @@ public class FeedPollingServiceTests
     {
         _sut = new FeedPollingService(
             _subscriptionService.Object, _showService.Object, _feedClient.Object, _episodeService.Object,
-            _logger);
+            Options.Create(new FeedPollingOptions()), _logger);
     }
 
     // Minimal ILogger that keeps every formatted message, so a test can assert on the sweep
@@ -254,6 +255,56 @@ public class FeedPollingServiceTests
             s => s.UpdateFeedPollCursorAsync(
                 "show-a", "\"new-etag\"", "Thu, 02 Jan 2025 00:00:00 GMT", It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_HonorsConfiguredMaxDegreeOfParallelism()
+    {
+        var sut = new FeedPollingService(
+            _subscriptionService.Object, _showService.Object, _feedClient.Object, _episodeService.Object,
+            Options.Create(new FeedPollingOptions { MaxDegreeOfParallelism = 1 }), _logger);
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a", "show-b", "show-c"]);
+        foreach (var id in new[] { "show-a", "show-b", "show-c" })
+        {
+            _showService.Setup(s => s.GetByIdAsync(id, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(MakeShow(id, $"https://feed.example/{id}"));
+        }
+
+        var concurrentCalls = 0;
+        var maxObservedConcurrency = 0;
+        _feedClient
+            .Setup(c => c.PollAsync(It.IsAny<string>(), It.IsAny<FeedPollCursor>(), It.IsAny<CancellationToken>()))
+            .Returns(async () =>
+            {
+                var current = Interlocked.Increment(ref concurrentCalls);
+                InterlockedMax(ref maxObservedConcurrency, current);
+                await Task.Delay(20);
+                Interlocked.Decrement(ref concurrentCalls);
+                return new FeedPollResult(true, null, null, null);
+            });
+
+        await sut.PollOnceAsync(CancellationToken.None);
+
+        // A MaxDegreeOfParallelism of 1 forces the three shows through PollShowAsync one at a
+        // time — this only holds because FeedPollingService actually reads the configured value
+        // (a hardcoded MaxDegreeOfParallelism would still pass this by coincidence at 15, but
+        // fails obviously at 1).
+        Assert.Equal(1, maxObservedConcurrency);
+    }
+
+    private static void InterlockedMax(ref int target, int candidate)
+    {
+        int initial;
+        do
+        {
+            initial = target;
+            if (candidate <= initial)
+            {
+                return;
+            }
+        } while (Interlocked.CompareExchange(ref target, candidate, initial) != initial);
     }
 
     [Fact]
