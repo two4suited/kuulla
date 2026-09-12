@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Xml;
+using Microsoft.Azure.Cosmos;
 
 namespace Kuulla.Core.Services;
 
@@ -10,10 +11,10 @@ public class FeedPollingService(
     IEpisodeService episodeService,
     ILogger<FeedPollingService> logger) : IFeedPollingService
 {
-    // Deliberately lower than EpisodeService.CacheEpisodesAsync's own internal fan-out (20): each
-    // show polled here can itself spawn up to 20 concurrent Cosmos writes/enforcement calls inside
-    // CacheEpisodesAsync, so this level bounds the *outer* degree to keep total concurrent
-    // outbound HTTP + Cosmos load reasonable rather than multiplying the two together.
+    // Bounds the *outer* degree of concurrency: each show polled here can itself spawn up to
+    // CacheEpisodesAsync's own internal fan-out (5, lowered from 20 in #558) worth of concurrent
+    // Cosmos writes/enforcement calls, so this level keeps total concurrent outbound HTTP + Cosmos
+    // load reasonable rather than multiplying the two together.
     private const int MaxDegreeOfParallelism = 5;
 
     public async Task PollOnceAsync(CancellationToken cancellationToken)
@@ -81,12 +82,14 @@ public class FeedPollingService(
             return true;
         }
         catch (Exception ex) when (
-            ex is HttpRequestException or XmlException || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+            ex is HttpRequestException or XmlException or CosmosException
+            || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
         {
-            // One show's feed being unreachable, timing out, or malformed shouldn't stop the rest
-            // of the sweep — same narrow catch SubscriptionService.GetNewEpisodesAsync uses for the
-            // same reason. Logged (unlike that request-scoped path) since nothing else observes an
-            // unattended background sweep's failures.
+            // One show's feed being unreachable, timing out, malformed, or hitting a Cosmos error
+            // (e.g. a 429 that exhausts CacheEpisodesAsync's own retries, #558) shouldn't stop the
+            // rest of the sweep — same narrow catch SubscriptionService.GetNewEpisodesAsync uses for
+            // the same reason. Logged (unlike that request-scoped path) since nothing else observes
+            // an unattended background sweep's failures.
             //
             // TaskCanceledException is only caught when it's NOT caused by our own
             // cancellationToken (e.g. an HttpClient-internal per-request timeout) — a real

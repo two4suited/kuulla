@@ -145,13 +145,15 @@ public class EpisodeService(
 
     // Create-only (never overwrites an existing cached episode) and capped at a modest
     // degree of parallelism — firing one Cosmos write per episode unbounded would throttle
-    // on feeds with hundreds of episodes.
+    // on feeds with hundreds of episodes. Lowered from 20 to 5 (#558): with FeedPollingService
+    // itself fanning out across 5 shows concurrently, 20 here meant up to 100 concurrent Cosmos
+    // writes against the container's provisioned RU/s, routinely tripping 429 (RUBudgetExceeded).
     public async Task CacheEpisodesAsync(string showId, IReadOnlyList<Episode> episodes, CancellationToken cancellationToken)
     {
         var insertedEpisodes = new ConcurrentBag<Episode>();
         await Parallel.ForEachAsync(
             episodes,
-            new ParallelOptions { MaxDegreeOfParallelism = 20, CancellationToken = cancellationToken },
+            new ParallelOptions { MaxDegreeOfParallelism = 5, CancellationToken = cancellationToken },
             async (episode, ct) =>
             {
                 var stamped = episode with { ShowId = showId };
