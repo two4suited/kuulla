@@ -41,7 +41,7 @@ xcrun simctl io "$DEV" screenshot docs/brand/appstore/screenshots/raw/06-showdet
 
 xcrun simctl launch "$DEV" $BUNDLE -KuullaAutoTestSignIn \
   -KuullaInitialEpisode 394775318 fb083c4885f4d2fe412742993eabf09d
-xcrun simctl io "$DEV" screenshot docs/brand/appstore/screenshots/raw/05-nowplaying.png
+xcrun simctl io "$DEV" screenshot docs/brand/appstore/screenshots/raw/05-episodedetail.png
 ```
 
 Launch arguments (all `#if DEBUG`, ignored in Release):

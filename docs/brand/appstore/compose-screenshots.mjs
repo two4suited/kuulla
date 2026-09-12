@@ -24,7 +24,7 @@ const sg = readFileSync(`${REPO}/ios/Kuulla/Kuulla/Fonts/SpaceGrotesk.ttf`).toSt
 const FRAMES = [
   { raw: "01-library.png", out: "01-library.png",
     lines: [[{ t: "Your shows, " }, { t: "synced", k: true }], [{ t: "to the second" }]] },
-  { raw: "05-nowplaying.png", out: "02-nowplaying.png",
+  { raw: "05-episodedetail.png", out: "02-episodedetail.png",
     lines: [[{ t: "Pause here.", k: true }], [{ t: "Resume there." }]] },
   { raw: "06-showdetail.png", out: "03-showdetail.png",
     lines: [[{ t: "Every episode, " }], [{ t: "filtered", k: true }, { t: " your way" }]] },
