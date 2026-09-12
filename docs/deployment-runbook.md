@@ -94,6 +94,12 @@ so `web`'s traffic doesn't skew the thresholds:
 - **`kuulla-api-cold-start-latency-spike`** — average request duration over 5s in a 5-minute
   window (a cold start pays container start + Cosmos connection warmup on the first
   request, so this is the practical signal for #361's tradeoff going bad).
+- **`kuulla-feed-poller-sweep-missing`** — a Log Analytics scheduled query rule (not a metric
+  alert, since the condition is "line absent") on the ACA environment's Log Analytics workspace:
+  fires when a rolling 24h window contains zero `Feed-poll sweep complete:` lines from the
+  `feed-poller` job. Exists because a crashed sweep (e.g. an unhandled Cosmos `429`, #558) still
+  exits 0, so ACA's job-execution status alone doesn't show anything wrong — see
+  [feed-poller-runbook.md](feed-poller-runbook.md).
 
 ### Pulling logs directly from ACA
 

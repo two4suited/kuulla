@@ -1,5 +1,7 @@
+using System.Net;
 using Kuulla.Core.Models;
 using Kuulla.Core.Services;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -130,6 +132,33 @@ public class FeedPollingServiceTests
             s => s.CacheEpisodesAsync("show-b", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Once);
         _episodeService.Verify(
             s => s.CacheEpisodesAsync("show-a", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PollOnceAsync_IsolatesOneShowsCosmosFailureFromOthers()
+    {
+        _subscriptionService
+            .Setup(s => s.GetDistinctSubscribedShowIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["show-a", "show-b"]);
+        _showService.Setup(s => s.GetByIdAsync("show-a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("show-a", "https://feed.example/a"));
+        _showService.Setup(s => s.GetByIdAsync("show-b", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MakeShow("show-b", "https://feed.example/b"));
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/a", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep-a", "show-a")]));
+        _feedClient.Setup(c => c.FetchAsync("https://feed.example/b", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PodcastFeedContent(null, [MakeEpisode("ep-b", "show-b")]));
+        // A 429 that exhausts CacheEpisodesAsync's own retries (#558) shouldn't crash the whole
+        // sweep — same isolation an unreachable feed already gets.
+        _episodeService
+            .Setup(s => s.CacheEpisodesAsync("show-a", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new CosmosException("Too many requests", HttpStatusCode.TooManyRequests, 3200, "activity-id", 0));
+
+        await _sut.PollOnceAsync(CancellationToken.None);
+
+        _episodeService.Verify(
+            s => s.CacheEpisodesAsync("show-b", It.IsAny<IReadOnlyList<Episode>>(), It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Contains(_logger.Messages, m => m.StartsWith("Feed-poll sweep complete: 2 show(s), 1 unreachable/malformed,"));
     }
 
     [Fact]
