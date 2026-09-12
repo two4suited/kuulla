@@ -92,7 +92,7 @@ struct PlaylistDetailView: View {
             }
             ToolbarItem(placement: .bottomBar) {
                 if let firstItem = playlist?.items.first {
-                    NavigationLink(value: route(for: firstItem)) {
+                    NavigationLink(value: route(for: firstItem, autoPlay: true)) {
                         Label("Play", systemImage: "play.fill")
                     }
                 }
@@ -152,18 +152,24 @@ struct PlaylistDetailView: View {
     @ViewBuilder
     private func itemLink(_ item: PlaylistItemDetail) -> some View {
         NavigationLink(value: route(for: item)) {
-            PlaylistItemRow(item: item)
+            PlaylistItemRow(item: item, onPlay: {
+                Task {
+                    await PlaybackQueue.shared.quickPlay(
+                        episodeId: item.episodeId, showId: item.showId,
+                        playlistId: playlist?.type == .manual ? playlistId : nil)
+                }
+            })
         }
     }
 
     // Manual playlists route through `.playlistEpisode` so EpisodeDetailView arms PlaybackQueue
     // for auto-advance (#532); dynamic playlists (rule-computed, not editable in place) stay on
     // the plain `.episode` route and don't auto-advance/auto-remove.
-    private func route(for item: PlaylistItemDetail) -> CatalogRoute {
+    private func route(for item: PlaylistItemDetail, autoPlay: Bool = false) -> CatalogRoute {
         if playlist?.type == .manual {
-            return .playlistEpisode(playlistId: playlistId, showId: item.showId, episodeId: item.episodeId)
+            return .playlistEpisode(playlistId: playlistId, showId: item.showId, episodeId: item.episodeId, autoPlay: autoPlay)
         }
-        return .episode(showId: item.showId, episodeId: item.episodeId)
+        return .episode(showId: item.showId, episodeId: item.episodeId, autoPlay: autoPlay)
     }
 
     // Paints instantly from the locally-synced PlaylistRecord (kept current by PlaylistSyncAdapter,
@@ -509,6 +515,7 @@ private struct EditPlaylistSheet: View {
 
 private struct PlaylistItemRow: View {
     let item: PlaylistItemDetail
+    let onPlay: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -522,6 +529,22 @@ private struct PlaylistItemRow: View {
 
             Text(item.title ?? "(episode unavailable)")
                 .lineLimit(2)
+
+            Spacer()
+
+            // A plain Button (not NavigationLink, unlike the row itself) — List's UIKit-backed
+            // row hosting reliably gives this its own tap target separate from the row (matches
+            // the same pattern in ShowDetailView.EpisodeRow), so tapping it plays the episode
+            // instead of just opening it. A nested NavigationLink here would work the same way
+            // for taps, but List also gives it its own disclosure chevron — a confusing second
+            // one next to the row's own.
+            Button(action: onPlay) {
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play episode")
         }
     }
 }

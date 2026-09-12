@@ -102,6 +102,9 @@ struct ShowDetailView: View {
                                         positionSeconds: positionSecondsByEpisodeId[episode.id] ?? 0,
                                         duration: episode.duration)
                                     : nil,
+                                onPlay: {
+                                    Task { await PlaybackQueue.shared.quickPlay(episodeId: episode.id, showId: showId, playlistId: nil) }
+                                },
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
                                 onDownloadDidFinish: refreshStatuses)
                         }
@@ -350,6 +353,15 @@ struct ShowDetailView: View {
         isSubscriptionBusy = false
     }
 
+    // The API only paginates the raw, unfiltered episode list — displayedEpisodes applies the
+    // active filter afterward. Without this loop, a single "Load more" tap can fetch a page the
+    // current filter drops entirely (e.g. a show marked all-played, viewed under "Unfinished"),
+    // leaving the button visible with nothing new on screen and no way to tell whether another
+    // tap would ever help (#617). Keep fetching bounded, additional raw pages until either
+    // something becomes visible under the filter or the raw pagination is genuinely exhausted, so
+    // the button only lingers when there really is more to try.
+    private static let maxPagesPerLoadMore = 5
+
     private func loadMoreEpisodes() async {
         guard !isLoadingEpisodes else { return }
 
@@ -357,19 +369,26 @@ struct ShowDetailView: View {
         episodeError = nil
 
         do {
-            let isFirstPage = continuationToken == nil
-            let page = try await catalogClient.getEpisodes(showId: showId, continuationToken: continuationToken)
-            if isFirstPage {
-                episodes = page.items
-                CatalogCache.replaceEpisodes(
-                    showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
-            } else {
-                episodes.append(contentsOf: page.items)
-                CatalogCache.appendEpisodes(
-                    showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+            for _ in 0..<Self.maxPagesPerLoadMore {
+                let visibleCountBefore = displayedEpisodes.count
+                let isFirstPage = continuationToken == nil
+                let page = try await catalogClient.getEpisodes(showId: showId, continuationToken: continuationToken)
+                if isFirstPage {
+                    episodes = page.items
+                    CatalogCache.replaceEpisodes(
+                        showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+                } else {
+                    episodes.append(contentsOf: page.items)
+                    CatalogCache.appendEpisodes(
+                        showId: showId, page.items, continuationToken: page.continuationToken, in: modelContext)
+                }
+                continuationToken = page.continuationToken
+                refreshStatuses()
+
+                if displayedEpisodes.count > visibleCountBefore || continuationToken == nil {
+                    break
+                }
             }
-            continuationToken = page.continuationToken
-            refreshStatuses()
         } catch {
             if !Task.isCancelled {
                 episodeError = "Something went wrong while loading episodes. Please try again."
@@ -721,6 +740,7 @@ private struct EpisodeRow: View {
     let status: EpisodeStatus
     let downloadStatus: DownloadStatus?
     let progressFraction: Double?
+    let onPlay: () -> Void
     let onRestore: () -> Void
     let onDownloadDidFinish: () -> Void
 
@@ -761,6 +781,19 @@ private struct EpisodeRow: View {
             }
 
             Spacer()
+
+            // A plain Button (not NavigationLink, unlike the row itself) — List's UIKit-backed row
+            // hosting reliably gives this its own tap target separate from the row (same as
+            // DownloadButton below), so tapping it plays the episode instead of just opening it.
+            // A nested NavigationLink here would work the same way for taps, but List also gives
+            // it its own disclosure chevron — a confusing second one next to the row's own.
+            Button(action: onPlay) {
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play episode")
 
             VStack(alignment: .trailing, spacing: 6) {
                 if status == .autoPlayed {
