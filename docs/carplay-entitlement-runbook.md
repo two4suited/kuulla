@@ -1,7 +1,7 @@
 # CarPlay entitlement runbook
 
-Why Kuulla doesn't appear on the CarPlay home screen yet, what unblocks it, and how to verify
-the CarPlay code in the meantime. Tracks [#522](https://github.com/two4suited/kuulla/issues/522).
+How the `com.apple.developer.carplay-audio` entitlement got unblocked, and how to verify the
+CarPlay code end to end. Tracks [#522](https://github.com/two4suited/kuulla/issues/522).
 
 ## Current state
 
@@ -15,62 +15,50 @@ All the CarPlay code from the "CarPlay Support" milestone (#115–#118) is merge
 | Playback | `AudioPlayer.shared.play(...)`; transport comes from the shared `MPRemoteCommandCenter` targets AudioPlayer already registers (no separate CarPlay playback path) | ✅ |
 | Now Playing template | `CPNowPlayingTemplate.shared`, fed by `MPNowPlayingInfoCenter` from `AudioPlayer.updateNowPlayingInfo()` | ✅ |
 | Progress persistence | `progressTrackingTask` — 20 s periodic write + mark-played on finish through `episodeSyncEngine`, mirroring `EpisodeDetailView.startProgressTracking()` | ✅ |
-| `com.apple.developer.carplay-audio` entitlement | `Kuulla.entitlements` | ⚠️ **present but inert** — see below |
+| `com.apple.developer.carplay-audio` entitlement | `Kuulla.entitlements` | ✅ approved for team `96VJBK4H9P` and enabled on the `com.kuulla.app` App ID |
 
-### Why the app still doesn't show up in a car
+### Background
 
-`com.apple.developer.carplay-audio` is a **restricted** entitlement. It is granted per Apple
-Developer team, separately from Developer Program membership, and only via
-<https://developer.apple.com/contact/request/carplay>. Team `96VJBK4H9P` has not been granted it.
+`com.apple.developer.carplay-audio` is a **restricted** entitlement, granted per Apple Developer
+team via <https://developer.apple.com/contact/request/carplay>, separately from Developer
+Program membership. Team `96VJBK4H9P` requested it and Apple approved it (2026-09-11); the
+CarPlay Audio App capability has since been enabled on the `com.kuulla.app` App ID.
 
-Until it is granted, `CODE_SIGN_STYLE = Automatic` cannot provision it, so Xcode drops the key
-from the signed build. iOS then never launches the `CPTemplateApplicationScene`, so
-`CarPlaySceneDelegate.templateApplicationScene(_:didConnect:)` is never called and the app is
-absent from the CarPlay home screen. There is no code fix for this — it is an external
-dependency on Apple.
+Before approval, `CODE_SIGN_STYLE = Automatic` couldn't provision the key, so Xcode dropped it
+from signed builds and iOS never launched the `CPTemplateApplicationScene`. That's no longer the
+case — a normal on-device build now signs with the entitlement (verified 2026-09-11: a build with
+`-allowProvisioningUpdates -allowProvisioningDeviceRegistration` minted a profile carrying
+`com.apple.developer.carplay-audio`, confirmed via `codesign -d --entitlements :-`, then installed
+and launched on device `Bsphone`).
 
-The key is committed to `Kuulla.entitlements` anyway (behind a comment) so that once approval
-lands the entitlements file needs no further change — this work sits on a branch / draft PR
-until then:
+Simulator and CarPlay Simulator builds still apply no provisioning profile, so the key is a
+no-op there; CI (`xcodebuild build ... CODE_SIGNING_ALLOWED=NO`) is unaffected either way.
 
-- Simulator and CarPlay Simulator builds don't apply a provisioning profile, so the key is
-  ignored. CI (`xcodebuild build ... CODE_SIGNING_ALLOWED=NO`) is unaffected.
-- An **on-device** build with `CODE_SIGN_STYLE = Automatic` may fail to sign while the CarPlay
-  capability is not enabled on the `com.kuulla.app` App ID — Xcode reports "provisioning profile
-  doesn't include the com.apple.developer.carplay-audio entitlement". Do the portal steps below
-  before merging to `main` or running an on-device build off this branch.
+## Remaining verification
 
-## Unblock: after Apple grants the entitlement
+The code and signing are confirmed. What's left is a real-head-unit pass:
 
-1. **Enable the capability on the App ID.** developer.apple.com → Certificates, Identifiers &
-   Profiles → Identifiers → `com.kuulla.app` → enable **CarPlay Audio App** → Save.
-2. **Entitlement is already in `Kuulla.entitlements`** — no code change needed. Confirm the key
-   is still `com.apple.developer.carplay-audio` / `<true/>`.
-3. **Regenerate the provisioning profile.** With automatic signing, one build pass with
-   `-allowProvisioningUpdates` (add `-allowProvisioningDeviceRegistration` if the target device
-   isn't registered yet — see CLAUDE.md "Run on a physical device") lets Xcode mint a profile
-   that includes the entitlement:
+1. **Regenerate the provisioning profile** (only needed again if signing state changes):
    ```sh
    cd ios/Kuulla
    xcodebuild build -project Kuulla.xcodeproj -scheme Kuulla \
      -destination 'platform=iOS,id=<device-udid>' \
      -allowProvisioningUpdates -allowProvisioningDeviceRegistration
    ```
-   Verify the entitlement made it into the binary (`$APP` resolved as in CLAUDE.md's
-   "Run on a physical device" block):
+   Verify the entitlement is in the binary:
    ```sh
    APP=$(xcodebuild -project Kuulla.xcodeproj -scheme Kuulla -destination 'platform=iOS,id=<device-udid>' -showBuildSettings 2>/dev/null | awk -F' = ' '/ BUILT_PRODUCTS_DIR /{d=$2} / FULL_PRODUCT_NAME /{n=$2} END{print d"/"n}')
    codesign -d --entitlements :- "$APP" | grep carplay-audio
    ```
-4. **Install and confirm on a device** (see CLAUDE.md for the `devicectl` install/launch
-   commands). Connect to a car or a CarPlay-capable head unit and check:
+2. **Install and launch** (see CLAUDE.md for the `devicectl` install/launch commands), then
+   connect the phone to a car or a CarPlay-capable head unit and check:
    - Kuulla's icon appears on the CarPlay home screen.
    - Tapping it shows the subscriptions list → an episode list → Now Playing.
    - Play/pause/skip from the car's controls drive playback, and Now Playing shows title +
      artwork + elapsed time.
    - Position is still where you left it when you reopen the episode on the phone (the 20 s
      periodic write), and a finished episode is marked played.
-5. Update this doc + CLAUDE.md to drop the "inert" caveat, and close #522.
+3. Once confirmed, close #522.
 
 ## Verify without the entitlement: CarPlay Simulator
 
@@ -97,7 +85,7 @@ browse → Now Playing flow can be exercised today.
 
 Reviewed `CarPlaySceneDelegate.swift`, the scene wiring in `KuullaApp.swift`, `Info.plist`, and
 the `AudioPlayer` remote-command / Now Playing integration against Apple's CarPlay audio app
-requirements. No code changes needed to unblock — the sole blocker is the Apple entitlement.
+requirements. No code changes needed — the entitlement was the only blocker, and it's approved.
 
 Notes for the eventual on-device pass (none blocking, none worth a code change now):
 
