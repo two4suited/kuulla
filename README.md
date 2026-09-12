@@ -2,7 +2,22 @@
 
 A podcast app built for audio quality and fast syncing, with web and iOS interfaces.
 
-![Library](docs/images/screenshot-library.png) ![Now Playing](docs/images/screenshot-nowplaying.png) ![Subscriptions](docs/images/screenshot-subscriptions.png)
+<table>
+<tr>
+<td align="center" width="33%">
+<img src="docs/images/screenshot-library.png" width="220" alt="Library"><br>
+<sub>Library — shows, playlists, and Up Next in one screen</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/images/screenshot-nowplaying.png" width="220" alt="Now Playing"><br>
+<sub>Now Playing — playback controls, speed, sleep timer, and show notes</sub>
+</td>
+<td align="center" width="33%">
+<img src="docs/images/screenshot-subscriptions.png" width="220" alt="Subscriptions"><br>
+<sub>Subscriptions — manage the shows you follow</sub>
+</td>
+</tr>
+</table>
 
 ## Goals
 
