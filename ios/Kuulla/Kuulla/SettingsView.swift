@@ -26,6 +26,8 @@ struct SettingsView: View {
     @State private var autoDownloadSaveError: String?
     @State private var autoAddUpNextSaveError: String?
     @State private var upNextInsertPositionSaveError: String?
+    @State private var leadingSwipeActionsSaveError: String?
+    @State private var trailingSwipeActionsSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
@@ -38,6 +40,8 @@ struct SettingsView: View {
     @State private var autoDownloadSaveTask: Task<Void, Never>?
     @State private var autoAddUpNextSaveTask: Task<Void, Never>?
     @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
+    @State private var leadingSwipeActionsSaveTask: Task<Void, Never>?
+    @State private var trailingSwipeActionsSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
 
@@ -143,6 +147,50 @@ struct SettingsView: View {
                     }
                     if autoAddUpNextSaveError == nil && upNextInsertPositionSaveError == nil {
                         Text("New episodes from your subscriptions are queued automatically. Override this per show from a show's page.")
+                    }
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    EpisodeSwipeActionsPicker(title: "Left Swipe", selection: leadingSwipeActionsBinding)
+                } label: {
+                    HStack {
+                        Text("Left swipe")
+                        Spacer()
+                        Text(swipeActionsSummary(settings?.leadingSwipeActions ?? []))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .disabled(settings == nil)
+
+                NavigationLink {
+                    EpisodeSwipeActionsPicker(title: "Right Swipe", selection: trailingSwipeActionsBinding)
+                } label: {
+                    HStack {
+                        Text("Right swipe")
+                        Spacer()
+                        Text(swipeActionsSummary(settings?.trailingSwipeActions ?? [.addToPlaylist, .markPlayed]))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .disabled(settings == nil)
+            } header: {
+                Text("Episode Swipe Actions")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let leadingSwipeActionsSaveError {
+                        Text(leadingSwipeActionsSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if let trailingSwipeActionsSaveError {
+                        Text(trailingSwipeActionsSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if leadingSwipeActionsSaveError == nil && trailingSwipeActionsSaveError == nil {
+                        Text("Choose which quick actions appear when you swipe an episode row left or right.")
                     }
                 }
             }
@@ -459,6 +507,30 @@ struct SettingsView: View {
         )
     }
 
+    private var leadingSwipeActionsBinding: Binding<[EpisodeSwipeAction]> {
+        Binding(
+            get: { settings?.leadingSwipeActions ?? [] },
+            set: { newValue in
+                leadingSwipeActionsSaveTask?.cancel()
+                leadingSwipeActionsSaveTask = Task { await updateLeadingSwipeActions(newValue) }
+            }
+        )
+    }
+
+    private var trailingSwipeActionsBinding: Binding<[EpisodeSwipeAction]> {
+        Binding(
+            get: { settings?.trailingSwipeActions ?? [.addToPlaylist, .markPlayed] },
+            set: { newValue in
+                trailingSwipeActionsSaveTask?.cancel()
+                trailingSwipeActionsSaveTask = Task { await updateTrailingSwipeActions(newValue) }
+            }
+        )
+    }
+
+    private func swipeActionsSummary(_ actions: [EpisodeSwipeAction]) -> String {
+        actions.isEmpty ? "None" : actions.map(\.label).joined(separator: ", ")
+    }
+
     // The presets don't cover every value the API accepts (0...3600), so a value saved from
     // elsewhere (or a future release with different presets) that doesn't match one of them gets
     // a synthesized "Custom" row rather than silently snapping to the nearest preset (or "Off").
@@ -683,6 +755,46 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 upNextInsertPositionSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateLeadingSwipeActions(_ value: [EpisodeSwipeAction]) async {
+        guard let previous = settings else { return }
+
+        leadingSwipeActionsSaveError = nil
+        settings = previous.with(leadingSwipeActions: value)
+
+        do {
+            let updated = try await settingsClient.updateLeadingSwipeActions(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                leadingSwipeActionsSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateTrailingSwipeActions(_ value: [EpisodeSwipeAction]) async {
+        guard let previous = settings else { return }
+
+        trailingSwipeActionsSaveError = nil
+        settings = previous.with(trailingSwipeActions: value)
+
+        do {
+            let updated = try await settingsClient.updateTrailingSwipeActions(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                trailingSwipeActionsSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

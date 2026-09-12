@@ -287,6 +287,68 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateLeadingSwipeActionsAsync_PersistsValueAndBumpsVersion()
+    {
+        var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateLeadingSwipeActionsAsync(
+            UserId, [EpisodeSwipeAction.Download], CancellationToken.None);
+
+        Assert.Equal([EpisodeSwipeAction.Download], result.LeadingSwipeActions);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateTrailingSwipeActionsAsync_PersistsValueAndBumpsVersion()
+    {
+        var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateTrailingSwipeActionsAsync(
+            UserId, [EpisodeSwipeAction.MarkPlayed, EpisodeSwipeAction.AddToUpNext], CancellationToken.None);
+
+        Assert.Equal([EpisodeSwipeAction.MarkPlayed, EpisodeSwipeAction.AddToUpNext], result.TrailingSwipeActions);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesStoredSwipeActionsWhenChangeOmitsThem()
+    {
+        var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var stored = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3, UpdatedAt: DateTimeOffset.UtcNow.AddHours(-1),
+            LeadingSwipeActions: [EpisodeSwipeAction.Download], TrailingSwipeActions: [EpisodeSwipeAction.MarkPlayed]);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var change = MakeChange(DateTimeOffset.UtcNow);
+        await _sut.SyncAsync(UserId, "device-a", lastSyncedAt, "stale-hash", [change], CancellationToken.None);
+
+        _settingsContainer.Verify(
+            c => c.UpsertItemAsync(
+                It.Is<UserSettings>(s =>
+                    s.LeadingSwipeActions!.SequenceEqual(new[] { EpisodeSwipeAction.Download }) &&
+                    s.TrailingSwipeActions!.SequenceEqual(new[] { EpisodeSwipeAction.MarkPlayed })),
+                It.IsAny<PartitionKey?>(), null, default),
+            Times.Once);
+    }
+
+    [Fact]
     public async Task SyncAsync_PreservesStoredHideCaughtUpShowsWhenChangeOmitsIt()
     {
         var lastSyncedAt = DateTimeOffset.UtcNow.AddHours(-2);
@@ -1230,11 +1292,14 @@ public class SettingsServiceTests
         IReadOnlyList<string>? subscriptionManualOrder = null,
         bool? hideCaughtUpShows = false,
         bool? autoAddNewEpisodesToUpNext = false,
-        UpNextInsertPosition? upNextInsertPosition = UpNextInsertPosition.Bottom) =>
+        UpNextInsertPosition? upNextInsertPosition = UpNextInsertPosition.Bottom,
+        IReadOnlyList<EpisodeSwipeAction>? leadingSwipeActions = null,
+        IReadOnlyList<EpisodeSwipeAction>? trailingSwipeActions = null) =>
         new(
             UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
             notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder,
-            hideCaughtUpShows, autoAddNewEpisodesToUpNext, upNextInsertPosition, updatedAt);
+            hideCaughtUpShows, autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions,
+            updatedAt);
 
     [Fact]
     public async Task SyncAsync_FastPathReturnsEmptyWhenHashMatchesAndNoChanges()

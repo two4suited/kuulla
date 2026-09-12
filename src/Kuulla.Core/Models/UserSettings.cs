@@ -92,6 +92,13 @@ public record UserSettings(
     // value, so a settings document written before this field existed deserializes it as Bottom
     // — the intended default — with no DefaultValueHandling needed (same as SubscriptionSortOrder).
     UpNextInsertPosition UpNextInsertPosition = UpNextInsertPosition.Bottom,
+    // Which quick actions appear on a leading (left) swipe over an episode-list row (#568). Null
+    // means "no opinion yet" (a document/client that predates this field) — the client falls
+    // back to its own built-in default set rather than treating null as "no actions". An
+    // explicit empty array, by contrast, is a deliberate "no swipe actions this direction".
+    IReadOnlyList<EpisodeSwipeAction>? LeadingSwipeActions = null,
+    // Same as LeadingSwipeActions but for a trailing (right) swipe.
+    IReadOnlyList<EpisodeSwipeAction>? TrailingSwipeActions = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -128,4 +135,13 @@ public enum UpNextInsertPosition
 {
     Bottom,
     Top,
+}
+
+// A quick action offered on an episode-list row's swipe gesture (#568).
+public enum EpisodeSwipeAction
+{
+    MarkPlayed,
+    AddToPlaylist,
+    Download,
+    AddToUpNext,
 }

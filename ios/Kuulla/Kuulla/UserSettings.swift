@@ -39,6 +39,11 @@ struct UserSettings: Codable, Hashable {
     // Which end of the Up Next queue an auto-added episode lands at (#440). Defaults to .bottom
     // (raw 0) when absent, same rationale as subscriptionSortOrder.
     let upNextInsertPosition: UpNextInsertPosition
+    // Which quick actions appear on a leading/trailing swipe over an episode-list row (#568).
+    // Defaults to the historical trailing-only behavior (Add to Playlist, then Mark as Played)
+    // when absent (predates this field) — see decoder below.
+    let leadingSwipeActions: [EpisodeSwipeAction]
+    let trailingSwipeActions: [EpisodeSwipeAction]
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -54,6 +59,8 @@ struct UserSettings: Codable, Hashable {
         hideCaughtUpShows: Bool = false,
         autoAddNewEpisodesToUpNext: Bool = false,
         upNextInsertPosition: UpNextInsertPosition = .bottom,
+        leadingSwipeActions: [EpisodeSwipeAction] = [],
+        trailingSwipeActions: [EpisodeSwipeAction] = [.addToPlaylist, .markPlayed],
         updatedAt: Date = .distantPast
     ) {
         self.userId = userId
@@ -74,6 +81,8 @@ struct UserSettings: Codable, Hashable {
         self.hideCaughtUpShows = hideCaughtUpShows
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.upNextInsertPosition = upNextInsertPosition
+        self.leadingSwipeActions = leadingSwipeActions
+        self.trailingSwipeActions = trailingSwipeActions
         self.updatedAt = updatedAt
     }
 
@@ -81,7 +90,7 @@ struct UserSettings: Codable, Hashable {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
         case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, hideCaughtUpShows
-        case autoAddNewEpisodesToUpNext, upNextInsertPosition, updatedAt
+        case autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -124,6 +133,12 @@ struct UserSettings: Codable, Hashable {
         // Default to .bottom when absent (#440), same rationale as subscriptionSortOrder above.
         upNextInsertPosition = try container.decodeIfPresent(
             UpNextInsertPosition.self, forKey: .upNextInsertPosition) ?? .bottom
+        // Default to [] / [.addToPlaylist, .markPlayed] when absent (#568) — the historical
+        // trailing-swipe-only behavior, same rationale as upNextInsertPosition above.
+        leadingSwipeActions = try container.decodeIfPresent(
+            [EpisodeSwipeAction].self, forKey: .leadingSwipeActions) ?? []
+        trailingSwipeActions = try container.decodeIfPresent(
+            [EpisodeSwipeAction].self, forKey: .trailingSwipeActions) ?? [.addToPlaylist, .markPlayed]
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -155,7 +170,9 @@ struct UserSettings: Codable, Hashable {
         subscriptionManualOrder: [String]? = nil,
         hideCaughtUpShows: Bool? = nil,
         autoAddNewEpisodesToUpNext: Bool? = nil,
-        upNextInsertPosition: UpNextInsertPosition? = nil
+        upNextInsertPosition: UpNextInsertPosition? = nil,
+        leadingSwipeActions: [EpisodeSwipeAction]? = nil,
+        trailingSwipeActions: [EpisodeSwipeAction]? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -174,6 +191,8 @@ struct UserSettings: Codable, Hashable {
             hideCaughtUpShows: hideCaughtUpShows ?? self.hideCaughtUpShows,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
             upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
+            leadingSwipeActions: leadingSwipeActions ?? self.leadingSwipeActions,
+            trailingSwipeActions: trailingSwipeActions ?? self.trailingSwipeActions,
             updatedAt: updatedAt)
     }
 }
@@ -215,6 +234,27 @@ enum UpNextInsertPosition: Int, Codable, CaseIterable, Identifiable {
         switch self {
         case .bottom: "Bottom of the queue"
         case .top: "Top of the queue"
+        }
+    }
+}
+
+// A quick action offered on an episode-list row's swipe gesture (#568). Mirrors the API's
+// Kuulla.Core.Models.EpisodeSwipeAction enum, including its raw values, since the wire format
+// is a plain integer.
+enum EpisodeSwipeAction: Int, Codable, CaseIterable, Identifiable {
+    case markPlayed = 0
+    case addToPlaylist = 1
+    case download = 2
+    case addToUpNext = 3
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .markPlayed: "Mark as Played"
+        case .addToPlaylist: "Add to Playlist"
+        case .download: "Download"
+        case .addToUpNext: "Add to Up Next"
         }
     }
 }

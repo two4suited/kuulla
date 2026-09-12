@@ -44,6 +44,9 @@ final class UserSettingsRecord: Syncable {
     var autoAddNewEpisodesToUpNext: Bool = false
     // Inline default required, same reason. .bottom matches the API's default for #440.
     var upNextInsertPosition: UpNextInsertPosition = UpNextInsertPosition.bottom
+    // Inline default required, same lightweight-migration reason as the fields above (#568).
+    var leadingSwipeActions: [EpisodeSwipeAction] = []
+    var trailingSwipeActions: [EpisodeSwipeAction] = [EpisodeSwipeAction.addToPlaylist, EpisodeSwipeAction.markPlayed]
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -58,6 +61,8 @@ final class UserSettingsRecord: Syncable {
         hideCaughtUpShows: Bool = false,
         autoAddNewEpisodesToUpNext: Bool = false,
         upNextInsertPosition: UpNextInsertPosition = .bottom,
+        leadingSwipeActions: [EpisodeSwipeAction] = [],
+        trailingSwipeActions: [EpisodeSwipeAction] = [.addToPlaylist, .markPlayed],
         version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
@@ -77,6 +82,8 @@ final class UserSettingsRecord: Syncable {
         self.hideCaughtUpShows = hideCaughtUpShows
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.upNextInsertPosition = upNextInsertPosition
+        self.leadingSwipeActions = leadingSwipeActions
+        self.trailingSwipeActions = trailingSwipeActions
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -95,6 +102,8 @@ final class UserSettingsRecord: Syncable {
             hideCaughtUpShows: settings.hideCaughtUpShows,
             autoAddNewEpisodesToUpNext: settings.autoAddNewEpisodesToUpNext,
             upNextInsertPosition: settings.upNextInsertPosition,
+            leadingSwipeActions: settings.leadingSwipeActions,
+            trailingSwipeActions: settings.trailingSwipeActions,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -117,6 +126,8 @@ final class UserSettingsRecord: Syncable {
         hideCaughtUpShows = settings.hideCaughtUpShows
         autoAddNewEpisodesToUpNext = settings.autoAddNewEpisodesToUpNext
         upNextInsertPosition = settings.upNextInsertPosition
+        leadingSwipeActions = settings.leadingSwipeActions
+        trailingSwipeActions = settings.trailingSwipeActions
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -142,6 +153,8 @@ final class UserSettingsRecord: Syncable {
         hideCaughtUpShows = other.hideCaughtUpShows
         autoAddNewEpisodesToUpNext = other.autoAddNewEpisodesToUpNext
         upNextInsertPosition = other.upNextInsertPosition
+        leadingSwipeActions = other.leadingSwipeActions
+        trailingSwipeActions = other.trailingSwipeActions
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -162,6 +175,9 @@ final class UserSettingsRecord: Syncable {
             subscriptionManualOrder: subscriptionManualOrder,
             hideCaughtUpShows: hideCaughtUpShows,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext,
-            upNextInsertPosition: upNextInsertPosition, updatedAt: updatedAt)
+            upNextInsertPosition: upNextInsertPosition,
+            leadingSwipeActions: leadingSwipeActions,
+            trailingSwipeActions: trailingSwipeActions,
+            updatedAt: updatedAt)
     }
 }

@@ -33,6 +33,18 @@ struct SettingsClient {
             body: UpdateHideCaughtUpShowsRequest(hideCaughtUpShows: value))
     }
 
+    func updateLeadingSwipeActions(_ value: [EpisodeSwipeAction]) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "leading-swipe-actions"],
+            body: UpdateLeadingSwipeActionsRequest(leadingSwipeActions: value))
+    }
+
+    func updateTrailingSwipeActions(_ value: [EpisodeSwipeAction]) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "trailing-swipe-actions"],
+            body: UpdateTrailingSwipeActionsRequest(trailingSwipeActions: value))
+    }
+
     func getShowSettings(showId: String) async throws -> ShowSettings {
         try await apiClient.get(["api", "settings", "shows", showId])
     }
@@ -166,6 +178,14 @@ private struct UpdateSubscriptionManualOrderRequest: Encodable {
 
 private struct UpdateHideCaughtUpShowsRequest: Encodable {
     let hideCaughtUpShows: Bool
+}
+
+private struct UpdateLeadingSwipeActionsRequest: Encodable {
+    let leadingSwipeActions: [EpisodeSwipeAction]
+}
+
+private struct UpdateTrailingSwipeActionsRequest: Encodable {
+    let trailingSwipeActions: [EpisodeSwipeAction]
 }
 
 private struct UpdateShowSettingsRequest: Encodable {

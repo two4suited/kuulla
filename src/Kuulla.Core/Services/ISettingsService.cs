@@ -26,6 +26,12 @@ public interface ISettingsService
     Task<UserSettings> UpdateHideCaughtUpShowsAsync(
         string userId, bool hideCaughtUpShows, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateLeadingSwipeActionsAsync(
+        string userId, IReadOnlyList<EpisodeSwipeAction> leadingSwipeActions, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateTrailingSwipeActionsAsync(
+        string userId, IReadOnlyList<EpisodeSwipeAction> trailingSwipeActions, CancellationToken cancellationToken);
+
     Task<ShowSettings> GetShowSettingsAsync(string userId, string showId, CancellationToken cancellationToken);
 
     Task<ShowSettings> UpdateShowUnlistenedEpisodeCountAsync(
