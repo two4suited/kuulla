@@ -13,11 +13,6 @@ struct PlaylistDetailView: View {
     @State private var mutationError: String?
     @State private var isShowingEditSheet = false
     @State private var isShowingRulesSheet = false
-    // Set by a row's play button — a Button rather than a NavigationLink (unlike the row
-    // itself), since List gives a second nested NavigationLink its own disclosure chevron, which
-    // renders as a confusing duplicate next to the row's own. Routed through this separate
-    // item-based destination instead.
-    @State private var playTarget: PlaylistEpisodePlayTarget?
 
     private let playlistClient = PlaylistClient()
 
@@ -152,19 +147,17 @@ struct PlaylistDetailView: View {
             guard newPhase == .active, playlist != nil else { return }
             Task { await load() }
         }
-        .navigationDestination(item: $playTarget) { target in
-            EpisodeDetailView(
-                showId: target.showId, episodeId: target.episodeId,
-                playlistId: playlist?.type == .manual ? playlistId : nil,
-                autoPlayOnAppear: true)
-        }
     }
 
     @ViewBuilder
     private func itemLink(_ item: PlaylistItemDetail) -> some View {
         NavigationLink(value: route(for: item)) {
             PlaylistItemRow(item: item, onPlay: {
-                playTarget = PlaylistEpisodePlayTarget(showId: item.showId, episodeId: item.episodeId)
+                Task {
+                    await PlaybackQueue.shared.quickPlay(
+                        episodeId: item.episodeId, showId: item.showId,
+                        playlistId: playlist?.type == .manual ? playlistId : nil)
+                }
             })
         }
     }
@@ -518,14 +511,6 @@ private struct EditPlaylistSheet: View {
         }
         isSaving = false
     }
-}
-
-// Identifies which episode a row's play button targets — Hashable so it can drive
-// .navigationDestination(item:).
-private struct PlaylistEpisodePlayTarget: Identifiable, Hashable {
-    let showId: String
-    let episodeId: String
-    var id: String { episodeId }
 }
 
 private struct PlaylistItemRow: View {

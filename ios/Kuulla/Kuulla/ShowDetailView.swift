@@ -9,11 +9,6 @@ struct ShowDetailView: View {
     @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.modelContext) private var modelContext
 
-    // Set by a row's play button — a Button rather than a NavigationLink (unlike the row
-    // itself), since List gives a second nested NavigationLink its own disclosure chevron, which
-    // renders as a confusing duplicate next to the row's own. Routed through this separate
-    // item-based destination instead.
-    @State private var playTarget: ShowEpisodePlayTarget?
     @State private var show: Show?
     @State private var isLoadingShow = false
     @State private var showError: String?
@@ -107,7 +102,9 @@ struct ShowDetailView: View {
                                         positionSeconds: positionSecondsByEpisodeId[episode.id] ?? 0,
                                         duration: episode.duration)
                                     : nil,
-                                onPlay: { playTarget = ShowEpisodePlayTarget(episodeId: episode.id) },
+                                onPlay: {
+                                    Task { await PlaybackQueue.shared.quickPlay(episodeId: episode.id, showId: showId, playlistId: nil) }
+                                },
                                 onRestore: { Task { await restoreAutoPlayed(episodeId: episode.id) } },
                                 onDownloadDidFinish: refreshStatuses)
                         }
@@ -200,9 +197,6 @@ struct ShowDetailView: View {
         }
         .sheet(item: $addToPlaylistEpisode) { episode in
             AddToPlaylistSheet(episodeId: episode.id, showId: showId)
-        }
-        .navigationDestination(item: $playTarget) { target in
-            EpisodeDetailView(showId: showId, episodeId: target.episodeId, autoPlayOnAppear: true)
         }
         .overlay {
             if isLoadingShow {
@@ -722,13 +716,6 @@ private struct ShowHeader: View {
         }
         .padding(.vertical, 4)
     }
-}
-
-// Identifies which episode a row's play button targets — Hashable (not just Identifiable) since
-// .navigationDestination(item:) requires it, unlike .sheet(item:) elsewhere in this file.
-private struct ShowEpisodePlayTarget: Identifiable, Hashable {
-    let episodeId: String
-    var id: String { episodeId }
 }
 
 private struct EpisodeRow: View {

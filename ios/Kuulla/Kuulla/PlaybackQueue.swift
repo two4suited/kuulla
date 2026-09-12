@@ -121,12 +121,49 @@ final class PlaybackQueue {
         await playItem(next, playlistId: playlistId)
     }
 
-    // Starts an auto-advanced episode. Deliberately mirrors CarPlaySceneDelegate.play() rather
-    // than reaching into EpisodeDetailView — both are "start an arbitrary episode from outside the
-    // detail screen" paths, and the app already keeps that resolution logic duplicated per
-    // surface (resolvedPlaybackURL, the show-override-else-global settings fetch, the periodic
-    // progress save).
-    private func playItem(_ item: QueueItem, playlistId: String) async {
+    // Guards quickPlay() against a double-tap on a row's play button: playItem()'s episode/show/
+    // settings fetches each suspend, so two overlapping calls for the same not-yet-playing episode
+    // would otherwise both reach AudioPlayer.shared.play(), the second audibly restarting the
+    // AVPlayerItem the first call just built.
+    private var quickPlayEpisodeIdInFlight: String?
+
+    // A list row's play button — ShowDetailView / PlaylistDetailView (#616). Starts playback
+    // directly, the same way EpisodeDetailView's Play button would, without navigating there:
+    // the user stays on the list, and playback continues in the mini player. Arms this as a
+    // manual-playlist queue session exactly like EpisodeDetailView.startPlayback would, so
+    // auto-advance (#532) still works when the row came from a manual playlist.
+    func quickPlay(episodeId: String, showId: String, playlistId: String?) async {
+        // Already loaded (just paused) — resume with no network round trip at all, rather than
+        // re-fetching the episode/show/settings only to discover the same thing via playItem's
+        // resolved audioUrl. Checked against nowPlayingContext (not currentURL) since that's
+        // keyed by episodeId directly, with no download-record lookup needed to compare it.
+        if AudioPlayer.shared.nowPlayingContext?.episodeId == episodeId {
+            if !AudioPlayer.shared.isPlaying, let audioUrl = AudioPlayer.shared.currentURL {
+                AudioPlayer.shared.resume()
+                startProgressTracking(audioUrl: audioUrl, episodeId: episodeId, showId: showId)
+            }
+            return
+        }
+
+        guard quickPlayEpisodeIdInFlight != episodeId else { return }
+        quickPlayEpisodeIdInFlight = episodeId
+        defer { quickPlayEpisodeIdInFlight = nil }
+
+        if let playlistId {
+            await begin(playlistId: playlistId, currentEpisodeId: episodeId)
+        } else {
+            clear()
+        }
+        await playItem(QueueItem(showId: showId, episodeId: episodeId), playlistId: playlistId)
+    }
+
+    // Starts an episode from outside the detail screen — an auto-advance, or a direct quickPlay()
+    // call from a list row's play button (#616). Deliberately mirrors CarPlaySceneDelegate.play()
+    // rather than reaching into EpisodeDetailView — both are "start an arbitrary episode from
+    // outside the detail screen" paths, and the app already keeps that resolution logic
+    // duplicated per surface (resolvedPlaybackURL, the show-override-else-global settings fetch,
+    // the periodic progress save).
+    private func playItem(_ item: QueueItem, playlistId: String?) async {
         guard let episode = try? await catalogClient.getEpisode(showId: item.showId, episodeId: item.episodeId) else {
             clear()
             return
@@ -168,6 +205,7 @@ final class PlaybackQueue {
         let episodeId = item.episodeId
         let showId = item.showId
         let duration = episode.duration
+
         AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
             guard finishedURL == audioUrl else { return }
             Task {
