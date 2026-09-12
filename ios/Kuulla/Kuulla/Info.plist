@@ -25,6 +25,10 @@
 		<string>SpaceGrotesk.ttf</string>
 		<string>JetBrainsMono.ttf</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

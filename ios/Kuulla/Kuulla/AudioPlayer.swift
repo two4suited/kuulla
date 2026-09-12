@@ -348,18 +348,23 @@ final class AudioPlayer {
     }
 
     func resume() {
-        // Reactivates the session alongside setting the rate, not just on the automatic
+        // Reactivates the session before setting the rate, not just on the automatic
         // post-interruption path — an interruption that ends without .shouldResume, or a route
         // change, can leave AVAudioSession inactive while isPlaying is still false. Without this,
         // a manual resume (Lock Screen, Control Center, in-app button) sets .rate and flips
         // isPlaying, which keeps the periodic time observer (and Now Playing progress) advancing
-        // normally, but with the session inactive no audio reaches the hardware (#612). Dispatched
-        // off main since setActive(true) is synchronous and can block (mirrors
-        // configureAudioSession()); firing it alongside rather than gating on it avoids making
-        // every resume() call asynchronous, since the session is already active in the common case.
-        DispatchQueue.global(qos: .userInitiated).async {
-            try? AVAudioSession.sharedInstance().setActive(true)
-        }
+        // normally, but with the session inactive no audio reaches the hardware (#612).
+        //
+        // Synchronous rather than dispatched off main (unlike configureAudioSession()'s initial
+        // activation): every caller here (remote command center via Self.onMain, in-app button)
+        // already runs on main, and resume() is most often invoked right after a screen lock or
+        // interruption — exactly when the app has almost no background execution budget. A
+        // dispatched setActive(true) can lose the race with the OS suspending the process, leaving
+        // the session inactive and playback silently stuck even though isPlaying reads true (looks
+        // like "tapping play from the lock screen does nothing"). Mirrors the same fix already
+        // applied to handleInterruption's .ended case. Blocking main briefly here is safe: this
+        // fires once per tap, not per frame.
+        try? AVAudioSession.sharedInstance().setActive(true)
         // .rate rather than .play() so resuming doesn't silently reset speed back to 1.0.
         player?.rate = playbackSpeed
         isPlaying = true
