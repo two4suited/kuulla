@@ -13,6 +13,11 @@ struct PlaylistDetailView: View {
     @State private var mutationError: String?
     @State private var isShowingEditSheet = false
     @State private var isShowingRulesSheet = false
+    // Set by a row's play button (#597) — a Button rather than a NavigationLink (unlike the row
+    // itself), since List gives a second nested NavigationLink its own disclosure chevron, which
+    // renders as a confusing duplicate next to the row's own. Routed through this separate
+    // item-based destination instead.
+    @State private var playTarget: PlaylistEpisodePlayTarget?
 
     private let playlistClient = PlaylistClient()
 
@@ -92,7 +97,7 @@ struct PlaylistDetailView: View {
             }
             ToolbarItem(placement: .bottomBar) {
                 if let firstItem = playlist?.items.first {
-                    NavigationLink(value: route(for: firstItem)) {
+                    NavigationLink(value: route(for: firstItem, autoPlay: true)) {
                         Label("Play", systemImage: "play.fill")
                     }
                 }
@@ -147,23 +152,31 @@ struct PlaylistDetailView: View {
             guard newPhase == .active, playlist != nil else { return }
             Task { await load() }
         }
+        .navigationDestination(item: $playTarget) { target in
+            EpisodeDetailView(
+                showId: target.showId, episodeId: target.episodeId,
+                playlistId: playlist?.type == .manual ? playlistId : nil,
+                autoPlayOnAppear: true)
+        }
     }
 
     @ViewBuilder
     private func itemLink(_ item: PlaylistItemDetail) -> some View {
         NavigationLink(value: route(for: item)) {
-            PlaylistItemRow(item: item)
+            PlaylistItemRow(item: item, onPlay: {
+                playTarget = PlaylistEpisodePlayTarget(showId: item.showId, episodeId: item.episodeId)
+            })
         }
     }
 
     // Manual playlists route through `.playlistEpisode` so EpisodeDetailView arms PlaybackQueue
     // for auto-advance (#532); dynamic playlists (rule-computed, not editable in place) stay on
     // the plain `.episode` route and don't auto-advance/auto-remove.
-    private func route(for item: PlaylistItemDetail) -> CatalogRoute {
+    private func route(for item: PlaylistItemDetail, autoPlay: Bool = false) -> CatalogRoute {
         if playlist?.type == .manual {
-            return .playlistEpisode(playlistId: playlistId, showId: item.showId, episodeId: item.episodeId)
+            return .playlistEpisode(playlistId: playlistId, showId: item.showId, episodeId: item.episodeId, autoPlay: autoPlay)
         }
-        return .episode(showId: item.showId, episodeId: item.episodeId)
+        return .episode(showId: item.showId, episodeId: item.episodeId, autoPlay: autoPlay)
     }
 
     // Paints instantly from the locally-synced PlaylistRecord (kept current by PlaylistSyncAdapter,
@@ -507,8 +520,17 @@ private struct EditPlaylistSheet: View {
     }
 }
 
+// Identifies which episode a row's play button targets — Hashable so it can drive
+// .navigationDestination(item:).
+private struct PlaylistEpisodePlayTarget: Identifiable, Hashable {
+    let showId: String
+    let episodeId: String
+    var id: String { episodeId }
+}
+
 private struct PlaylistItemRow: View {
     let item: PlaylistItemDetail
+    let onPlay: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -522,6 +544,22 @@ private struct PlaylistItemRow: View {
 
             Text(item.title ?? "(episode unavailable)")
                 .lineLimit(2)
+
+            Spacer()
+
+            // A plain Button (not NavigationLink, unlike the row itself) — List's UIKit-backed
+            // row hosting reliably gives this its own tap target separate from the row (matches
+            // the same pattern in ShowDetailView.EpisodeRow), so tapping it plays the episode
+            // instead of just opening it. A nested NavigationLink here would work the same way
+            // for taps, but List also gives it its own disclosure chevron — a confusing second
+            // one next to the row's own.
+            Button(action: onPlay) {
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play episode")
         }
     }
 }

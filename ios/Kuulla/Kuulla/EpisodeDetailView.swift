@@ -13,6 +13,10 @@ struct EpisodeDetailView: View {
     // Non-nil when this screen was reached from a manual playlist — starting playback here arms
     // PlaybackQueue so finishing the episode auto-advances to the next playlist item (#532).
     var playlistId: String?
+    // Set when this screen was reached via a list row's play button (#597) rather than a plain
+    // row tap — starts playback as soon as load() resolves, instead of requiring a second tap
+    // here.
+    var autoPlayOnAppear = false
 
     @Environment(\.episodeSyncEngine) private var syncEngine
     @Environment(\.modelContext) private var modelContext
@@ -491,6 +495,16 @@ struct EpisodeDetailView: View {
         // from) a settings fetch that won't be used.
         if episode != nil {
             await loadPlaybackSettings()
+        }
+
+        // autoPlayOnAppear only ever applies to the load this .task(id: episodeId) triggered for
+        // a freshly-opened screen — skip if this episode is already playing (e.g. the user
+        // backgrounded and returned) so a stray autoplay tap can't pause an in-progress session.
+        // Not skipped when it's merely loaded-but-paused: togglePlayback's resume branch (checked
+        // via audioPlayer.currentURL == url) still needs to run then, or tapping a row's play
+        // button for a paused episode would silently do nothing.
+        if autoPlayOnAppear, let resolvedAudioURL, !isPlaying(resolvedAudioURL) {
+            togglePlayback(url: resolvedAudioURL)
         }
         isLoading = false
 
