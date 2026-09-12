@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Bunit;
+using Bunit.TestDoubles;
 using Kuulla.Web.Components.Pages;
 using Kuulla.Web.Models;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Kuulla.Web.Tests.Pages;
 
@@ -709,6 +711,216 @@ public class EpisodeDetailTests : WebTestContext
             Assert.NotNull(putBody);
             using var body = JsonDocument.Parse(putBody!);
             Assert.Equal(300, body.RootElement.GetProperty("positionSeconds").GetInt32());
+        });
+    }
+
+    // ---- Play next (#629) ------------------------------------------------------------------
+
+    private static readonly Episode SecondEpisode = TestEpisode with { Id = "ep-2", Title = "Tuesday Edition" };
+    private static readonly Episode ThirdEpisode = TestEpisode with { Id = "ep-3", Title = "Wednesday Edition" };
+
+    private static Kuulla.Web.Models.PlaylistDetail PlaylistOf(PlayNextBehavior? playNextBehavior, params string[] episodeIds) =>
+        new("pl-1", "Commute", PlaylistType.Manual,
+            episodeIds.Select(id => new PlaylistItemDetail(id, "show-1", id, null, DateTimeOffset.UtcNow, id)).ToList(),
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, PlayNextBehavior: playNextBehavior);
+
+    // RouteHandler plus the list-context routes EpisodeDetail's play-next snapshot reads.
+    private static TestHttpMessageHandler PlayNextHandler(
+        Kuulla.Web.Models.PlaylistDetail? playlist = null,
+        IReadOnlyList<Episode>? showEpisodes = null,
+        IReadOnlyList<NewEpisode>? newEpisodes = null,
+        UserSettings? userSettings = null,
+        ShowSettings? showSettings = null,
+        Func<HttpRequestMessage, HttpResponseMessage>? onPutState = null)
+    {
+        var inner = RouteHandler(
+            onPutState: onPutState,
+            onGetSettings: userSettings is null ? null : _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(userSettings) },
+            onGetShowSettings: showSettings is null ? null : _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(showSettings) });
+        return new TestHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/playlists/pl-1" && request.Method == HttpMethod.Get)
+            {
+                return playlist is null
+                    ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                    : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(playlist) };
+            }
+
+            if (path == "/api/shows/show-1/episodes" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new EpisodePage(showEpisodes ?? [], null)),
+                };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Dictionary<string, EpisodeState>()) };
+            }
+
+            if (path == "/api/subscriptions/episodes" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(newEpisodes ?? []) };
+            }
+
+            return inner.Invoke(request);
+        });
+    }
+
+    private IRenderedComponent<EpisodeDetail> RenderFromList(string query)
+    {
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        navigation.NavigateTo($"shows/show-1/episodes/ep-1{query}");
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Monday Edition", cut.Markup));
+        return cut;
+    }
+
+    private async Task FinishPlaybackAsync(IRenderedComponent<EpisodeDetail> cut)
+    {
+        // Same order the JS watcher fires them: 'play' snapshots the list, 'ended' persists and
+        // decides what's next.
+        await cut.InvokeAsync(() => cut.Instance.OnPlaybackStateChanged(true));
+        await cut.InvokeAsync(() => cut.Instance.OnPlaybackEnded(1200));
+    }
+
+    [Fact]
+    public async Task OnPlaybackEnded_AdvancesToTheNextPlaylistItem_WithAutoplayAndTheSameListContext()
+    {
+        ConfigureApi(PlayNextHandler(playlist: PlaylistOf(null, "ep-1", "ep-2", "ep-3")));
+        var cut = RenderFromList("?list=playlist&listId=pl-1");
+
+        await FinishPlaybackAsync(cut);
+
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        cut.WaitForAssertion(() => Assert.EndsWith("shows/show-1/episodes/ep-2?list=playlist&listId=pl-1&autoplay=1", navigation.Uri));
+    }
+
+    [Fact]
+    public async Task OnPlaybackEnded_HonoursThePlaylistOverride_OverShowAndGlobal()
+    {
+        // Playlist says top-of-list, show says stop, global says next-in-list → the playlist wins.
+        ConfigureApi(PlayNextHandler(
+            playlist: PlaylistOf(PlayNextBehavior.TopOfList, "ep-3", "ep-1", "ep-2"),
+            showSettings: ShowSettingsDoc() with { PlayNextBehavior = PlayNextBehavior.Stop },
+            userSettings: DefaultUserSettings with { PlayNextBehavior = PlayNextBehavior.NextInList }));
+        var cut = RenderFromList("?list=playlist&listId=pl-1");
+
+        await FinishPlaybackAsync(cut);
+
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        cut.WaitForAssertion(() => Assert.Contains("shows/show-1/episodes/ep-3?", navigation.Uri));
+    }
+
+    [Fact]
+    public async Task OnPlaybackEnded_StopsWhenTheShowOverrideSaysStop()
+    {
+        ConfigureApi(PlayNextHandler(
+            showEpisodes: [TestEpisode, SecondEpisode],
+            showSettings: ShowSettingsDoc() with { PlayNextBehavior = PlayNextBehavior.Stop }));
+        var cut = RenderFromList("?list=show&filter=Unfinished&sort=NewestFirst");
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        var before = navigation.Uri;
+
+        await FinishPlaybackAsync(cut);
+
+        // Completion is still persisted — only the auto-advance is suppressed.
+        cut.WaitForAssertion(() => Assert.Contains("Played", cut.Markup));
+        Assert.Equal(before, navigation.Uri);
+    }
+
+    [Fact]
+    public async Task OnPlaybackEnded_AdvancesThroughTheShowList_InTheListsOwnSortOrder()
+    {
+        // Oldest first: the API pages newest-first (ep-1, ep-2, ep-3), so the list the user saw
+        // ran ep-3, ep-2, ep-1 and "next after ep-2" is ep-1 — not ep-3.
+        ConfigureApi(PlayNextHandler(
+            showEpisodes: [TestEpisode, SecondEpisode, ThirdEpisode],
+            userSettings: DefaultUserSettings with { PlayNextBehavior = PlayNextBehavior.TopOfList }));
+        var cut = RenderFromList("?list=show&filter=All&sort=OldestFirst");
+
+        await FinishPlaybackAsync(cut);
+
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        // TopOfList from the oldest-first list → ep-3 (the first item that isn't the finished ep-1).
+        cut.WaitForAssertion(() => Assert.EndsWith("shows/show-1/episodes/ep-3?list=show&filter=All&sort=OldestFirst&autoplay=1", navigation.Uri));
+    }
+
+    [Fact]
+    public async Task OnPlaybackEnded_AdvancesThroughNewEpisodes_NewestFirstSkippingAutoPlayed()
+    {
+        ConfigureApi(PlayNextHandler(newEpisodes:
+        [
+            new NewEpisode(ThirdEpisode with { PublishedAt = DateTimeOffset.UtcNow.AddDays(-2) }, AutoPlayed: false, "The Daily", null),
+            new NewEpisode(SecondEpisode with { PublishedAt = DateTimeOffset.UtcNow.AddDays(-1) }, AutoPlayed: true, "The Daily", null),
+            new NewEpisode(TestEpisode, AutoPlayed: false, "The Daily", null),
+        ]));
+        var cut = RenderFromList("?list=new");
+
+        await FinishPlaybackAsync(cut);
+
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        // ep-2 is auto-played and hidden from the New Episodes list, so ep-3 follows ep-1.
+        cut.WaitForAssertion(() => Assert.EndsWith("shows/show-1/episodes/ep-3?list=new&autoplay=1", navigation.Uri));
+    }
+
+    [Fact]
+    public async Task OnPlaybackEnded_DoesNothingWithoutAListContext()
+    {
+        ConfigureApi(PlayNextHandler(showEpisodes: [TestEpisode, SecondEpisode]));
+        var cut = RenderFromList("");
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        var before = navigation.Uri;
+
+        await FinishPlaybackAsync(cut);
+
+        cut.WaitForAssertion(() => Assert.Contains("Played", cut.Markup));
+        Assert.Equal(before, navigation.Uri);
+    }
+
+    [Fact]
+    public async Task OnPlaybackEnded_StopsAtTheEndOfThePlaylist()
+    {
+        ConfigureApi(PlayNextHandler(playlist: PlaylistOf(null, "ep-2", "ep-1")));
+        var cut = RenderFromList("?list=playlist&listId=pl-1");
+        var navigation = Services.GetRequiredService<FakeNavigationManager>();
+        var before = navigation.Uri;
+
+        await FinishPlaybackAsync(cut);
+
+        cut.WaitForAssertion(() => Assert.Contains("Played", cut.Markup));
+        Assert.Equal(before, navigation.Uri);
+    }
+
+    [Fact]
+    public void Attach_PassesAutoplay_WhenTheUrlCarriesIt()
+    {
+        ConfigureApi(RouteHandler());
+        var cut = RenderFromList("?list=playlist&listId=pl-1&autoplay=1");
+
+        cut.WaitForAssertion(() =>
+        {
+            var attach = JSInterop.Invocations.Single(i => i.Identifier == "attach");
+            Assert.Equal(true, attach.Arguments[4]);
+        });
+    }
+
+    [Fact]
+    public void Attach_DoesNotAutoplay_ByDefault()
+    {
+        ConfigureApi(RouteHandler());
+        var cut = RenderComponent<EpisodeDetail>(parameters => parameters
+            .Add(p => p.ShowId, "show-1")
+            .Add(p => p.EpisodeId, "ep-1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var attach = JSInterop.Invocations.Single(i => i.Identifier == "attach");
+            Assert.Equal(false, attach.Arguments[4]);
         });
     }
 }

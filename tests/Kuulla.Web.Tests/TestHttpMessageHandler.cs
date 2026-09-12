@@ -18,6 +18,10 @@ public class TestHttpMessageHandler : HttpMessageHandler
     public static TestHttpMessageHandler Status(HttpStatusCode statusCode) =>
         new(_ => new HttpResponseMessage(statusCode));
 
+    // Lets one test handler delegate unmatched requests to another (composition without
+    // re-declaring every shared route).
+    public HttpResponseMessage Invoke(HttpRequestMessage request) => handler(request);
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
         Task.FromResult(handler(request));
 }

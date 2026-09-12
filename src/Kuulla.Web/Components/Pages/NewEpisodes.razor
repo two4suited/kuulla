@@ -58,7 +58,7 @@
                                     }
                                 </a>
                                 <div class="flex-grow-1" style="min-width: 0;">
-                                    <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="text-decoration-none">
+                                    <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}{PlaybackListQuery.ForNewEpisodes()}")" class="text-decoration-none">
                                         <h6 class="card-title">@episode.Title</h6>
                                     </a>
                                     <p class="card-text text-muted small mb-1">
@@ -76,7 +76,7 @@
                                         }
                                     </p>
                                     <div class="d-flex gap-2">
-                                        <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}")" class="btn btn-sm btn-primary">
+                                        <a href="@($"shows/{episode.ShowId}/episodes/{episode.Id}{PlaybackListQuery.ForNewEpisodes()}")" class="btn btn-sm btn-primary">
                                             Play
                                         </a>
                                         <button class="btn btn-sm btn-outline-secondary" disabled="@isBusy" @onclick="() => MarkAsPlayedAsync(newEpisode)">

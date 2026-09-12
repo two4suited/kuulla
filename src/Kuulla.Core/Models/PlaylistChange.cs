@@ -15,4 +15,5 @@ public record PlaylistChange(
     DateTimeOffset UpdatedAt,
     DynamicPlaylistConfig? DynamicConfig = null,
     string? Icon = null,
-    string? AccentColor = null);
+    string? AccentColor = null,
+    PlayNextBehavior? PlayNextBehavior = null);

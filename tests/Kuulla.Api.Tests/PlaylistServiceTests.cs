@@ -419,7 +419,7 @@ public class PlaylistServiceTests
             .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, null, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -433,7 +433,7 @@ public class PlaylistServiceTests
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
         SetUpEmptyQuery();
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, null, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("New Name", result!.Name);
@@ -465,12 +465,65 @@ public class PlaylistServiceTests
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
         SetUpEmptyQuery();
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", "🔥", null, CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", "🔥", null, null, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("🔥", result!.Icon);
         // A null accent colour clears it — the edit request carries the full desired state.
         Assert.Null(result.AccentColor);
+    }
+
+    [Fact]
+    public async Task RenamePlaylistAsync_SetsAndClearsPlayNextBehaviorOverride()
+    {
+        var playlist = MakePlaylist(name: "Commute") with { PlayNextBehavior = PlayNextBehavior.TopOfList };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+        SetUpEmptyQuery();
+
+        var set = await _sut.RenamePlaylistAsync(
+            UserId, PlaylistId, "Commute", null, null, PlayNextBehavior.Stop, CancellationToken.None);
+        Assert.Equal(PlayNextBehavior.Stop, set!.PlayNextBehavior);
+
+        // A null override clears it back to "inherit" — the edit request carries the full state.
+        var cleared = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "Commute", null, null, null, CancellationToken.None);
+        Assert.Null(cleared!.PlayNextBehavior);
+    }
+
+    [Fact]
+    public async Task GetPlaylistDetailAsync_IncludesPlayNextBehaviorOverride()
+    {
+        var playlist = MakePlaylist() with { PlayNextBehavior = PlayNextBehavior.TopOfList };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+
+        var detail = await _sut.GetPlaylistDetailAsync(UserId, PlaylistId, CancellationToken.None);
+
+        Assert.Equal(PlayNextBehavior.TopOfList, detail!.PlayNextBehavior);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PersistsPlayNextBehaviorFromAcceptedChange()
+    {
+        Playlist? upserted = null;
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => upserted = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+        SetUpEmptyQuery();
+
+        var change = new PlaylistChange(
+            PlaylistId, "Synced Playlist", PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+            PlayNextBehavior: PlayNextBehavior.Stop);
+
+        await _sut.SyncAsync(UserId, "device-1", DateTimeOffset.MinValue, localHash: "", [change], CancellationToken.None);
+
+        Assert.Equal(PlayNextBehavior.Stop, upserted!.PlayNextBehavior);
     }
 
     [Fact]

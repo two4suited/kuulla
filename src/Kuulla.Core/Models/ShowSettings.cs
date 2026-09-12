@@ -46,6 +46,10 @@ public record ShowSettings(
     UpNextInsertPosition? UpNextInsertPosition = null,
     // Null means "no override — inherit the user's global NotificationsEnabled".
     bool? NotificationsEnabled = null,
+    // Null means "no override — inherit the user's global PlayNextBehavior" (#629). A playlist's
+    // own override (Playlist.PlayNextBehavior) still wins over this one when playback was started
+    // from a playlist — see SettingsService.GetEffectivePlayNextBehaviorAsync's doc comment.
+    PlayNextBehavior? PlayNextBehavior = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {
@@ -60,7 +64,7 @@ public record ShowSettings(
             AutoArchiveRule: null, AutoSkipIntroSeconds: null, AutoSkipOutroSeconds: null, PlaybackSpeed: null,
             AutoDownloadNewEpisodes: null, AutoDeleteRule: null, AutoDeleteAfterDays: null, SmartSpeed: null,
             AutoAddNewEpisodesToUpNext: null, UpNextInsertPosition: null, NotificationsEnabled: null,
-            UpdatedAt: DateTimeOffset.UtcNow);
+            PlayNextBehavior: null, UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document
     // shape instead of guessing from the id string or risking a wrong-typed deserialization.

@@ -44,6 +44,9 @@ struct UserSettings: Codable, Hashable {
     // when absent (predates this field) — see decoder below.
     let leadingSwipeActions: [EpisodeSwipeAction]
     let trailingSwipeActions: [EpisodeSwipeAction]
+    // What plays when an episode finishes (#629). Defaults to .nextInList (raw 0) when absent —
+    // the API's own default and what manual playlists did before the setting existed (#532).
+    let playNextBehavior: PlayNextBehavior
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -61,6 +64,7 @@ struct UserSettings: Codable, Hashable {
         upNextInsertPosition: UpNextInsertPosition = .bottom,
         leadingSwipeActions: [EpisodeSwipeAction] = [],
         trailingSwipeActions: [EpisodeSwipeAction] = [.addToPlaylist, .markPlayed],
+        playNextBehavior: PlayNextBehavior = .nextInList,
         updatedAt: Date = .distantPast
     ) {
         self.userId = userId
@@ -83,6 +87,7 @@ struct UserSettings: Codable, Hashable {
         self.upNextInsertPosition = upNextInsertPosition
         self.leadingSwipeActions = leadingSwipeActions
         self.trailingSwipeActions = trailingSwipeActions
+        self.playNextBehavior = playNextBehavior
         self.updatedAt = updatedAt
     }
 
@@ -90,7 +95,8 @@ struct UserSettings: Codable, Hashable {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
         case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, hideCaughtUpShows
-        case autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions, updatedAt
+        case autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions
+        case playNextBehavior, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -139,6 +145,8 @@ struct UserSettings: Codable, Hashable {
             [EpisodeSwipeAction].self, forKey: .leadingSwipeActions) ?? []
         trailingSwipeActions = try container.decodeIfPresent(
             [EpisodeSwipeAction].self, forKey: .trailingSwipeActions) ?? [.addToPlaylist, .markPlayed]
+        // Default to .nextInList when absent (#629), same rationale as upNextInsertPosition above.
+        playNextBehavior = try container.decodeIfPresent(PlayNextBehavior.self, forKey: .playNextBehavior) ?? .nextInList
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -172,7 +180,8 @@ struct UserSettings: Codable, Hashable {
         autoAddNewEpisodesToUpNext: Bool? = nil,
         upNextInsertPosition: UpNextInsertPosition? = nil,
         leadingSwipeActions: [EpisodeSwipeAction]? = nil,
-        trailingSwipeActions: [EpisodeSwipeAction]? = nil
+        trailingSwipeActions: [EpisodeSwipeAction]? = nil,
+        playNextBehavior: PlayNextBehavior? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -193,6 +202,7 @@ struct UserSettings: Codable, Hashable {
             upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
             leadingSwipeActions: leadingSwipeActions ?? self.leadingSwipeActions,
             trailingSwipeActions: trailingSwipeActions ?? self.trailingSwipeActions,
+            playNextBehavior: playNextBehavior ?? self.playNextBehavior,
             updatedAt: updatedAt)
     }
 }
@@ -234,6 +244,28 @@ enum UpNextInsertPosition: Int, Codable, CaseIterable, Identifiable {
         switch self {
         case .bottom: "Bottom of the queue"
         case .top: "Top of the queue"
+        }
+    }
+}
+
+// What plays when an episode finishes (#629): the next item of the list playback was started
+// from (a show's episode list in its current sort/filter, a manual or dynamic playlist, Up Next,
+// or New Episodes), that list's first item, or nothing. Mirrors the API's
+// Kuulla.Core.Models.PlayNextBehavior enum, including its raw values, since the wire format is
+// a plain integer. Resolved per finish by PlaybackQueue: playlist override → show override →
+// this global value.
+enum PlayNextBehavior: Int, Codable, CaseIterable, Identifiable {
+    case nextInList = 0
+    case topOfList = 1
+    case stop = 2
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .nextInList: "Play the next episode in the list"
+        case .topOfList: "Play from the top of the list"
+        case .stop: "Stop"
         }
     }
 }

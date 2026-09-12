@@ -49,6 +49,7 @@ struct SettingsSyncAdapter: SyncAdapter {
                 upNextInsertPosition: $0.upNextInsertPosition,
                 leadingSwipeActions: $0.leadingSwipeActions,
                 trailingSwipeActions: $0.trailingSwipeActions,
+                playNextBehavior: $0.playNextBehavior,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -107,6 +108,9 @@ private struct UserSettingsChangeDTO: Encodable {
     // dirty, so that distinction has no live effect yet.
     let leadingSwipeActions: [EpisodeSwipeAction]
     let trailingSwipeActions: [EpisodeSwipeAction]
+    // Non-optional — this client always knows the field (#629); the API's nullable
+    // UserSettingsChange.PlayNextBehavior only exists for older clients that omit it.
+    let playNextBehavior: PlayNextBehavior
     let updatedAt: Date
 }
 
@@ -150,6 +154,8 @@ private struct UserSettingsDTO: Decodable {
     // Optional so a response from an API that predates #568 still decodes; asRecord falls back.
     let leadingSwipeActions: [EpisodeSwipeAction]?
     let trailingSwipeActions: [EpisodeSwipeAction]?
+    // Optional so a response from an API that predates #629 still decodes; asRecord falls back.
+    let playNextBehavior: PlayNextBehavior?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -165,6 +171,7 @@ private struct UserSettingsDTO: Decodable {
             upNextInsertPosition: upNextInsertPosition ?? .bottom,
             leadingSwipeActions: leadingSwipeActions ?? [],
             trailingSwipeActions: trailingSwipeActions ?? [.addToPlaylist, .markPlayed],
+            playNextBehavior: playNextBehavior ?? .nextInList,
             version: version, updatedAt: updatedAt)
     }
 }

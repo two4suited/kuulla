@@ -28,7 +28,8 @@ public class ShowDetailTests : WebTestContext
         ShowSettings? autoDownloadPutResponse = null,
         ShowSettings? autoAddUpNextPutResponse = null,
         UserSettings? globalSettings = null,
-        ShowSettings? upNextInsertPositionPutResponse = null) =>
+        ShowSettings? upNextInsertPositionPutResponse = null,
+        ShowSettings? playNextPutResponse = null) =>
         new(request =>
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -146,6 +147,14 @@ public class ShowDetailTests : WebTestContext
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = JsonContent.Create(upNextInsertPositionPutResponse ?? showSettings ?? DefaultShowSettings),
+                };
+            }
+
+            if (path == "/api/settings/shows/show-1/play-next" && request.Method == HttpMethod.Put)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(playNextPutResponse ?? showSettings ?? DefaultShowSettings),
                 };
             }
 
@@ -596,6 +605,41 @@ public class ShowDetailTests : WebTestContext
         Choice(cut, "show-auto-add-up-next", "On").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Saved.", cut.Markup));
+    }
+
+    [Fact]
+    public void PlayNextSelector_RendersOverride_WhenSet()
+    {
+        AuthContext.SetAuthorized("user-1");
+        var existing = new ShowSettings(
+            "user-1:show-1", "user-1", "show-1", null, Version: 2, PlayNextBehavior: PlayNextBehavior.Stop);
+        ConfigureApi(CreateHandler(showSettings: existing));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
+
+        cut.WaitForAssertion(() => Assert.Equal("Stop", SelectedChoice(cut, "show-play-next")));
+    }
+
+    [Fact]
+    public void PlayNextSelector_DefaultsToUseGlobalDefault_AndSavesOverride()
+    {
+        AuthContext.SetAuthorized("user-1");
+        ConfigureApi(CreateHandler(
+            playNextPutResponse: new(
+                "user-1:show-1", "user-1", "show-1", null, Version: 3, PlayNextBehavior: PlayNextBehavior.TopOfList)));
+
+        var cut = RenderComponent<ShowDetail>(parameters => parameters.Add(p => p.Id, "show-1"));
+        OpenShowSettings(cut);
+        cut.WaitForAssertion(() => Assert.Equal("Use global default", SelectedChoice(cut, "show-play-next")));
+
+        Choice(cut, "show-play-next", "Play from the top of the list").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains("Saved.", cut.Markup);
+            Assert.Equal("Play from the top of the list", SelectedChoice(cut, "show-play-next"));
+        });
     }
 
     [Fact]

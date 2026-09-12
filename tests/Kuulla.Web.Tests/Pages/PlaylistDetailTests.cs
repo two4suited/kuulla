@@ -363,6 +363,56 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void EditPanel_RendersPlayNextOverride_AndSendsItWithSave()
+    {
+        var detail = MakeDetail(new PlaylistItemDetail("ep-1", "show-1", "Monday Edition", null, DateTimeOffset.UtcNow, "m"))
+            with { PlayNextBehavior = PlayNextBehavior.TopOfList };
+        string? putBody = null;
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/playlists/playlist-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) };
+            }
+
+            if (path == "/api/playlists/playlist-1" && request.Method == HttpMethod.Put)
+            {
+                putBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new Playlist(
+                        "playlist-1", "Commute", PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+                        PlayNextBehavior: PlayNextBehavior.Stop)),
+                };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Dictionary<string, EpisodeState>()) };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Edit playlist", cut.Markup));
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Edit playlist")).Click();
+
+        // The current override is pre-selected, so a name-only edit round-trips it unchanged.
+        cut.WaitForAssertion(() => Assert.Equal("TopOfList", cut.Find("#playlist-play-next").GetAttribute("value")));
+
+        cut.Find("#playlist-play-next").Change("Stop");
+        cut.FindAll("button").Single(button => button.TextContent.Trim() == "Save").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Contains($"\"playNextBehavior\":{(int)PlayNextBehavior.Stop}", putBody);
+            Assert.DoesNotContain("Playlist name", cut.Markup);
+        });
+    }
+
+    [Fact]
     public void RendersUpNextQueueSettings_InEditPanel_WhenPlaylistIsUpNext()
     {
         var detail = MakeUpNextDetail(new PlaylistItemDetail("ep-1", "show-1", "Monday Edition", null, DateTimeOffset.UtcNow, "m"));

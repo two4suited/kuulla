@@ -23,6 +23,9 @@ final class PlaylistRecord: Syncable {
     // SwiftData migration.
     var icon: String?
     var accentColor: String?
+    // Per-playlist "what plays when an episode finishes" override (#629); nil inherits the show /
+    // global setting. Optional so adding it is a lightweight SwiftData migration.
+    var playNextBehavior: PlayNextBehavior?
     // Tombstone flag (#400). A sync response entry with deleted == true means the playlist was
     // deleted on another device; PlaylistSyncAdapter.apply removes the local row instead of
     // upserting it. Defaulted so adding it is a lightweight SwiftData migration, and so locally
@@ -40,6 +43,7 @@ final class PlaylistRecord: Syncable {
         dynamicConfig: DynamicPlaylistConfigRecord? = nil,
         icon: String? = nil,
         accentColor: String? = nil,
+        playNextBehavior: PlayNextBehavior? = nil,
         deleted: Bool = false
     ) {
         self.id = id
@@ -52,6 +56,7 @@ final class PlaylistRecord: Syncable {
         self.dynamicConfig = dynamicConfig
         self.icon = icon
         self.accentColor = accentColor
+        self.playNextBehavior = playNextBehavior
         self.deleted = deleted
     }
 }
