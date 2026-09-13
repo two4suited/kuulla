@@ -915,7 +915,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
 // #640: CarPlay reports the Now Playing screen's Up Next button tap through this observer
 // protocol rather than a closure property — added/removed in didConnect/didDisconnect above.
-extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
+extension CarPlaySceneDelegate: @preconcurrency CPNowPlayingTemplateObserver {
     func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
         Task { await pushUpNextList() }
     }
