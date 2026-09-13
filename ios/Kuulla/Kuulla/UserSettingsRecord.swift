@@ -64,6 +64,9 @@ final class UserSettingsRecord: Syncable {
         get { playNextBehaviorRaw ?? .nextInList }
         set { playNextBehaviorRaw = newValue }
     }
+    // Inline default required, same lightweight-migration reason as the fields above (#689).
+    var autoDownloadEpisodeLimit: Int = 0
+    var autoDownloadChargingOnly: Bool = false
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -81,6 +84,8 @@ final class UserSettingsRecord: Syncable {
         leadingSwipeActions: [EpisodeSwipeAction] = [],
         trailingSwipeActions: [EpisodeSwipeAction] = [.addToPlaylist, .markPlayed],
         playNextBehavior: PlayNextBehavior = .nextInList,
+        autoDownloadEpisodeLimit: Int = 0,
+        autoDownloadChargingOnly: Bool = false,
         version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
@@ -105,6 +110,8 @@ final class UserSettingsRecord: Syncable {
         self.leadingSwipeActions = leadingSwipeActions
         self.trailingSwipeActions = trailingSwipeActions
         self.playNextBehaviorRaw = playNextBehavior
+        self.autoDownloadEpisodeLimit = autoDownloadEpisodeLimit
+        self.autoDownloadChargingOnly = autoDownloadChargingOnly
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -127,6 +134,8 @@ final class UserSettingsRecord: Syncable {
             leadingSwipeActions: settings.leadingSwipeActions,
             trailingSwipeActions: settings.trailingSwipeActions,
             playNextBehavior: settings.playNextBehavior,
+            autoDownloadEpisodeLimit: settings.autoDownloadEpisodeLimit,
+            autoDownloadChargingOnly: settings.autoDownloadChargingOnly,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -154,6 +163,8 @@ final class UserSettingsRecord: Syncable {
         leadingSwipeActions = settings.leadingSwipeActions
         trailingSwipeActions = settings.trailingSwipeActions
         playNextBehavior = settings.playNextBehavior
+        autoDownloadEpisodeLimit = settings.autoDownloadEpisodeLimit
+        autoDownloadChargingOnly = settings.autoDownloadChargingOnly
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -184,6 +195,8 @@ final class UserSettingsRecord: Syncable {
         leadingSwipeActions = other.leadingSwipeActions
         trailingSwipeActions = other.trailingSwipeActions
         playNextBehavior = other.playNextBehavior
+        autoDownloadEpisodeLimit = other.autoDownloadEpisodeLimit
+        autoDownloadChargingOnly = other.autoDownloadChargingOnly
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -208,6 +221,8 @@ final class UserSettingsRecord: Syncable {
             leadingSwipeActions: leadingSwipeActions,
             trailingSwipeActions: trailingSwipeActions,
             playNextBehavior: playNextBehavior,
+            autoDownloadEpisodeLimit: autoDownloadEpisodeLimit,
+            autoDownloadChargingOnly: autoDownloadChargingOnly,
             updatedAt: updatedAt)
     }
 }

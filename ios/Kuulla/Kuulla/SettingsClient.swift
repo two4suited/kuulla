@@ -111,6 +111,18 @@ struct SettingsClient {
             body: UpdateShowAutoDownloadNewEpisodesRequest(autoDownloadNewEpisodes: value))
     }
 
+    func updateAutoDownloadRules(episodeLimit: Int, chargingOnly: Bool) async throws -> UserSettings {
+        try await apiClient.put(
+            ["api", "settings", "auto-download-rules"],
+            body: UpdateAutoDownloadRulesRequest(autoDownloadEpisodeLimit: episodeLimit, autoDownloadChargingOnly: chargingOnly))
+    }
+
+    func updateShowAutoDownloadRules(showId: String, episodeLimit: Int?, chargingOnly: Bool?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "auto-download-rules"],
+            body: UpdateShowAutoDownloadRulesRequest(autoDownloadEpisodeLimit: episodeLimit, autoDownloadChargingOnly: chargingOnly))
+    }
+
     func updateAutoAddNewEpisodesToUpNext(_ value: Bool) async throws -> UserSettings {
         try await apiClient.put(
             ["api", "settings", "auto-add-up-next"],
@@ -266,6 +278,16 @@ private struct UpdateAutoDownloadNewEpisodesRequest: Encodable {
 
 private struct UpdateShowAutoDownloadNewEpisodesRequest: Encodable {
     let autoDownloadNewEpisodes: Bool?
+}
+
+private struct UpdateAutoDownloadRulesRequest: Encodable {
+    let autoDownloadEpisodeLimit: Int
+    let autoDownloadChargingOnly: Bool
+}
+
+private struct UpdateShowAutoDownloadRulesRequest: Encodable {
+    let autoDownloadEpisodeLimit: Int?
+    let autoDownloadChargingOnly: Bool?
 }
 
 private struct UpdateAutoAddNewEpisodesToUpNextRequest: Encodable {

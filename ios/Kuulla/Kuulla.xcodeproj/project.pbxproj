@@ -133,6 +133,7 @@
 		P1000012 /* UserSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000012 /* UserSettingsTests.swift */; };
 		P1000013 /* ShowSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000013 /* ShowSettingsTests.swift */; };
 		P1000014 /* FeedViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000014 /* FeedViewTests.swift */; };
+		P1000015 /* DeviceChargingStateProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000015 /* DeviceChargingStateProviding.swift */; };
 		PQ100001 /* PlaybackQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQ200001 /* PlaybackQueue.swift */; };
 		PQ100002 /* PlaybackQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQ200002 /* PlaybackQueueTests.swift */; };
 		Q1000001 /* UserSettingsRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000001 /* UserSettingsRecord.swift */; };
@@ -331,6 +332,7 @@
 		P2000012 /* UserSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsTests.swift; sourceTree = "<group>"; };
 		P2000013 /* ShowSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsTests.swift; sourceTree = "<group>"; };
 		P2000014 /* FeedViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewTests.swift; sourceTree = "<group>"; };
+		P2000015 /* DeviceChargingStateProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceChargingStateProviding.swift; sourceTree = "<group>"; };
 		PQ200001 /* PlaybackQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueue.swift; sourceTree = "<group>"; };
 		PQ200002 /* PlaybackQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueueTests.swift; sourceTree = "<group>"; };
 		Q2000001 /* UserSettingsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsRecord.swift; sourceTree = "<group>"; };
@@ -504,6 +506,7 @@
 				P2000006 /* DownloadsView.swift */,
 				P2000008 /* DownloadButton.swift */,
 				P2000010 /* LocalSettings.swift */,
+				P2000015 /* DeviceChargingStateProviding.swift */,
 				G2000001 /* FeedView.swift */,
 				G2000002 /* EpisodeStatus.swift */,
 				G2000003 /* EpisodeSyncEngineEnvironment.swift */,
@@ -831,6 +834,7 @@
 				P1000006 /* DownloadsView.swift in Sources */,
 				P1000008 /* DownloadButton.swift in Sources */,
 				P1000010 /* LocalSettings.swift in Sources */,
+				P1000015 /* DeviceChargingStateProviding.swift in Sources */,
 				G1000001 /* FeedView.swift in Sources */,
 				G1000002 /* EpisodeStatus.swift in Sources */,
 				G1000003 /* EpisodeSyncEngineEnvironment.swift in Sources */,

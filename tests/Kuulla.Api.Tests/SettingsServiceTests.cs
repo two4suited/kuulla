@@ -685,6 +685,86 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateShowAutoDownloadRulesAsync_SetsOverrideAndIncrementsVersion()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, null, Version: 2);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowAutoDownloadRulesAsync(UserId, showId, 5, true, CancellationToken.None);
+
+        Assert.Equal(5, result.AutoDownloadEpisodeLimit);
+        Assert.True(result.AutoDownloadChargingOnly);
+        Assert.Equal(3, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowAutoDownloadRulesAsync_ClearsOverrideWhenValuesAreNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(
+            id, UserId, showId, null, Version: 4, AutoDownloadEpisodeLimit: 10, AutoDownloadChargingOnly: true);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowAutoDownloadRulesAsync(UserId, showId, null, null, CancellationToken.None);
+
+        Assert.Null(result.AutoDownloadEpisodeLimit);
+        Assert.Null(result.AutoDownloadChargingOnly);
+        Assert.Equal(5, result.Version);
+    }
+
+    [Fact]
+    public async Task GetEffectiveAutoDownloadRulesAsync_ReturnsShowOverrideWhenBothFieldsSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(
+            showSettingsId, UserId, showId, null, Version: 2, AutoDownloadEpisodeLimit: 3, AutoDownloadChargingOnly: true);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectiveAutoDownloadRulesAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal((3, true), result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectiveAutoDownloadRulesAsync_FallsBackToUserSettingsPerField()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        // Limit overridden, but charging-only inherits the global value.
+        var showSettings = new ShowSettings(showSettingsId, UserId, showId, null, Version: 2, AutoDownloadEpisodeLimit: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+        var userSettings = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1, AutoDownloadEpisodeLimit: 10, AutoDownloadChargingOnly: true);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveAutoDownloadRulesAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal((3, true), result);
+    }
+
+    [Fact]
     public async Task UpdateAutoSkipAsync_IncrementsVersionOfExistingDocument()
     {
         var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
@@ -882,6 +962,26 @@ public class SettingsServiceTests
         var result = await _sut.UpdateAutoDownloadNewEpisodesAsync(UserId, true, CancellationToken.None);
 
         Assert.True(result.AutoDownloadNewEpisodes);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateAutoDownloadRulesAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3,
+            AutoArchiveRule.Never, AutoDownloadEpisodeLimit: 0, AutoDownloadChargingOnly: false);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateAutoDownloadRulesAsync(UserId, 5, true, CancellationToken.None);
+
+        Assert.Equal(5, result.AutoDownloadEpisodeLimit);
+        Assert.True(result.AutoDownloadChargingOnly);
         Assert.Equal(4, result.Version);
     }
 
@@ -1474,12 +1574,14 @@ public class SettingsServiceTests
         UpNextInsertPosition? upNextInsertPosition = UpNextInsertPosition.Bottom,
         IReadOnlyList<EpisodeSwipeAction>? leadingSwipeActions = null,
         IReadOnlyList<EpisodeSwipeAction>? trailingSwipeActions = null,
-        PlayNextBehavior? playNextBehavior = PlayNextBehavior.NextInList) =>
+        PlayNextBehavior? playNextBehavior = PlayNextBehavior.NextInList,
+        int? autoDownloadEpisodeLimit = 0,
+        bool? autoDownloadChargingOnly = false) =>
         new(
             UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
             voiceBoost, trimSilence, notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder,
             hideCaughtUpShows, autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions,
-            playNextBehavior, updatedAt);
+            playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly, updatedAt);
 
     [Fact]
     public async Task UpdatePlayNextBehaviorAsync_UpdatesValueAndIncrementsVersion()

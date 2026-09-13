@@ -27,6 +27,11 @@ struct ShowSettings: Codable, Hashable {
     // nil means "no override" — inherit the user's global PlayNextBehavior (#629). A playlist's
     // own override still wins over this one when playback was started from a playlist.
     let playNextBehavior: PlayNextBehavior?
+    // nil means "no override" — inherit the user's global AutoDownloadEpisodeLimit (#689). Only
+    // meaningful when the effective autoDownloadNewEpisodes (override-or-global) is on.
+    let autoDownloadEpisodeLimit: Int?
+    // nil means "no override" — inherit the user's global AutoDownloadChargingOnly (#689).
+    let autoDownloadChargingOnly: Bool?
 
     init(
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
@@ -36,7 +41,9 @@ struct ShowSettings: Codable, Hashable {
         smartSpeed: Bool? = nil, voiceBoost: Bool? = nil, trimSilence: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
         upNextInsertPosition: UpNextInsertPosition? = nil,
         notificationsEnabled: Bool? = nil,
-        playNextBehavior: PlayNextBehavior? = nil
+        playNextBehavior: PlayNextBehavior? = nil,
+        autoDownloadEpisodeLimit: Int? = nil,
+        autoDownloadChargingOnly: Bool? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -57,12 +64,14 @@ struct ShowSettings: Codable, Hashable {
         self.upNextInsertPosition = upNextInsertPosition
         self.notificationsEnabled = notificationsEnabled
         self.playNextBehavior = playNextBehavior
+        self.autoDownloadEpisodeLimit = autoDownloadEpisodeLimit
+        self.autoDownloadChargingOnly = autoDownloadChargingOnly
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, voiceBoost, trimSilence, autoAddNewEpisodesToUpNext
-        case upNextInsertPosition, notificationsEnabled, playNextBehavior
+        case upNextInsertPosition, notificationsEnabled, playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -88,6 +97,8 @@ struct ShowSettings: Codable, Hashable {
         upNextInsertPosition = try container.decodeIfPresent(UpNextInsertPosition.self, forKey: .upNextInsertPosition)
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)
         playNextBehavior = try container.decodeIfPresent(PlayNextBehavior.self, forKey: .playNextBehavior)
+        autoDownloadEpisodeLimit = try container.decodeIfPresent(Int.self, forKey: .autoDownloadEpisodeLimit)
+        autoDownloadChargingOnly = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadChargingOnly)
     }
 
     // Copies every field except the ones explicitly overridden. Every field here is itself
@@ -113,7 +124,9 @@ struct ShowSettings: Codable, Hashable {
         autoAddNewEpisodesToUpNext: Bool?? = nil,
         upNextInsertPosition: UpNextInsertPosition?? = nil,
         notificationsEnabled: Bool?? = nil,
-        playNextBehavior: PlayNextBehavior?? = nil
+        playNextBehavior: PlayNextBehavior?? = nil,
+        autoDownloadEpisodeLimit: Int?? = nil,
+        autoDownloadChargingOnly: Bool?? = nil
     ) -> ShowSettings {
         ShowSettings(
             id: id, userId: userId, showId: showId,
@@ -132,6 +145,8 @@ struct ShowSettings: Codable, Hashable {
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
             upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,
-            playNextBehavior: playNextBehavior ?? self.playNextBehavior)
+            playNextBehavior: playNextBehavior ?? self.playNextBehavior,
+            autoDownloadEpisodeLimit: autoDownloadEpisodeLimit ?? self.autoDownloadEpisodeLimit,
+            autoDownloadChargingOnly: autoDownloadChargingOnly ?? self.autoDownloadChargingOnly)
     }
 }

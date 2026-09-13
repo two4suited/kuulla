@@ -52,6 +52,8 @@ struct SettingsSyncAdapter: SyncAdapter {
                 leadingSwipeActions: $0.leadingSwipeActions,
                 trailingSwipeActions: $0.trailingSwipeActions,
                 playNextBehavior: $0.playNextBehavior,
+                autoDownloadEpisodeLimit: $0.autoDownloadEpisodeLimit,
+                autoDownloadChargingOnly: $0.autoDownloadChargingOnly,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -120,6 +122,11 @@ private struct UserSettingsChangeDTO: Encodable {
     // Non-optional — this client always knows the field (#629); the API's nullable
     // UserSettingsChange.PlayNextBehavior only exists for older clients that omit it.
     let playNextBehavior: PlayNextBehavior
+    // Non-optional — this client always knows the field and always sends it (#689); the API's
+    // nullable UserSettingsChange.AutoDownloadEpisodeLimit/AutoDownloadChargingOnly only exist
+    // for older clients that omit them.
+    let autoDownloadEpisodeLimit: Int
+    let autoDownloadChargingOnly: Bool
     let updatedAt: Date
 }
 
@@ -169,6 +176,9 @@ private struct UserSettingsDTO: Decodable {
     let trailingSwipeActions: [EpisodeSwipeAction]?
     // Optional so a response from an API that predates #629 still decodes; asRecord falls back.
     let playNextBehavior: PlayNextBehavior?
+    // Optional so a response from an API that predates #689 still decodes; asRecord falls back.
+    let autoDownloadEpisodeLimit: Int?
+    let autoDownloadChargingOnly: Bool?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -186,6 +196,8 @@ private struct UserSettingsDTO: Decodable {
             leadingSwipeActions: leadingSwipeActions ?? [],
             trailingSwipeActions: trailingSwipeActions ?? [.addToPlaylist, .markPlayed],
             playNextBehavior: playNextBehavior ?? .nextInList,
+            autoDownloadEpisodeLimit: autoDownloadEpisodeLimit ?? 0,
+            autoDownloadChargingOnly: autoDownloadChargingOnly ?? false,
             version: version, updatedAt: updatedAt)
     }
 }

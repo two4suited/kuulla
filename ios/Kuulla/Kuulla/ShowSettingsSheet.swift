@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct ShowSettingsSheet: View {
@@ -5,6 +6,7 @@ struct ShowSettingsSheet: View {
     let showTitle: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var settings: ShowSettings?
     @State private var isLoading = false
     @State private var loadError: String?
@@ -13,6 +15,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveError: String?
     @State private var playbackSpeedSaveError: String?
     @State private var autoDownloadSaveError: String?
+    @State private var autoDownloadRulesSaveError: String?
     @State private var autoDeleteSaveError: String?
     @State private var autoAddUpNextSaveError: String?
     @State private var upNextInsertPositionSaveError: String?
@@ -29,6 +32,7 @@ struct ShowSettingsSheet: View {
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
+    @State private var autoDownloadRulesSaveTask: Task<Void, Never>?
     @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoAddUpNextSaveTask: Task<Void, Never>?
     @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
@@ -49,6 +53,14 @@ struct ShowSettingsSheet: View {
     // auto-added for this show, which can be true purely via the global default — so the sheet
     // needs the global auto-add value, not just this show's override.
     @State private var globalAutoAddNewEpisodesToUpNext = false
+    // The auto-download-rules controls only make sense when new episodes are actually being
+    // auto-downloaded for this show, which can be true purely via the global default — same
+    // rationale as globalAutoAddNewEpisodesToUpNext above.
+    @State private var globalAutoDownloadNewEpisodes = false
+    // Read alongside globalAutoDownloadNewEpisodes so updateAutoDownloadRulesOverride can compute
+    // this show's effective limit (override ?? global) to enforce immediately after a save,
+    // without a second round trip just to look up the global value.
+    @State private var globalAutoDownloadEpisodeLimit = 0
 
     private let settingsClient = SettingsClient()
 
@@ -133,6 +145,33 @@ struct ShowSettingsSheet: View {
                     if let autoDownloadSaveError {
                         Text(autoDownloadSaveError)
                             .foregroundStyle(.red)
+                    }
+                }
+
+                // Only shown when new episodes are actually being auto-downloaded for this show
+                // (override or global default) — these two rules (#689) are meaningless otherwise.
+                if settings?.autoDownloadNewEpisodes ?? globalAutoDownloadNewEpisodes {
+                    Section {
+                        Picker("Keep downloaded", selection: autoDownloadEpisodeLimitOverrideBinding) {
+                            Text("Use global default").tag(Int?.none)
+                            Text("All episodes").tag(Int?.some(0))
+                            ForEach([1, 3, 5, 10, 20], id: \.self) { count in
+                                Text("Latest \(count)").tag(Int?.some(count))
+                            }
+                        }
+                        .disabled(settings == nil)
+
+                        Picker("Only while charging", selection: autoDownloadChargingOnlyOverrideBinding) {
+                            Text("Use global default").tag(Bool?.none)
+                            Text("On").tag(Bool?.some(true))
+                            Text("Off").tag(Bool?.some(false))
+                        }
+                        .disabled(settings == nil)
+                    } footer: {
+                        if let autoDownloadRulesSaveError {
+                            Text(autoDownloadRulesSaveError)
+                                .foregroundStyle(.red)
+                        }
                     }
                 }
 
@@ -350,6 +389,12 @@ struct ShowSettingsSheet: View {
         if let globalAutoAdd = await globalSettings?.autoAddNewEpisodesToUpNext {
             globalAutoAddNewEpisodesToUpNext = globalAutoAdd
         }
+        if let globalAutoDownload = await globalSettings?.autoDownloadNewEpisodes {
+            globalAutoDownloadNewEpisodes = globalAutoDownload
+        }
+        if let globalLimit = await globalSettings?.autoDownloadEpisodeLimit {
+            globalAutoDownloadEpisodeLimit = globalLimit
+        }
         isLoading = false
     }
 
@@ -485,6 +530,58 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDownloadSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    // Episode limit and charging-only are set together via one endpoint (#689, mirroring
+    // AutoDeleteRule's rule+afterDays bundling), so each binding's setter carries the *other*
+    // field's current value along rather than clobbering it.
+    private var autoDownloadEpisodeLimitOverrideBinding: Binding<Int?> {
+        Binding(
+            get: { settings?.autoDownloadEpisodeLimit },
+            set: { newValue in
+                autoDownloadRulesSaveTask?.cancel()
+                autoDownloadRulesSaveTask = Task {
+                    await updateAutoDownloadRulesOverride(episodeLimit: newValue, chargingOnly: settings?.autoDownloadChargingOnly)
+                }
+            }
+        )
+    }
+
+    private var autoDownloadChargingOnlyOverrideBinding: Binding<Bool?> {
+        Binding(
+            get: { settings?.autoDownloadChargingOnly },
+            set: { newValue in
+                autoDownloadRulesSaveTask?.cancel()
+                autoDownloadRulesSaveTask = Task {
+                    await updateAutoDownloadRulesOverride(episodeLimit: settings?.autoDownloadEpisodeLimit, chargingOnly: newValue)
+                }
+            }
+        )
+    }
+
+    private func updateAutoDownloadRulesOverride(episodeLimit: Int?, chargingOnly: Bool?) async {
+        guard let previous = settings else { return }
+
+        autoDownloadRulesSaveError = nil
+        settings = previous.with(autoDownloadEpisodeLimit: episodeLimit, autoDownloadChargingOnly: chargingOnly)
+
+        do {
+            let updated = try await settingsClient.updateShowAutoDownloadRules(
+                showId: showId, episodeLimit: episodeLimit, chargingOnly: chargingOnly)
+            if !Task.isCancelled {
+                settings = updated
+                // Otherwise a lowered limit would only take effect the next time this show
+                // happens to get a new episode auto-downloaded, which could be days away or
+                // never for an inactive show — apply it immediately (#689).
+                let effectiveLimit = updated.autoDownloadEpisodeLimit ?? globalAutoDownloadEpisodeLimit
+                DownloadManager.shared.enforceEpisodeLimit(showId: showId, limit: effectiveLimit, in: modelContext)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoDownloadRulesSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

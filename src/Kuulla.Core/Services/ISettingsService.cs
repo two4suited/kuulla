@@ -85,6 +85,16 @@ public interface ISettingsService
     Task<bool> GetEffectiveAutoDownloadNewEpisodesAsync(
         string userId, string showId, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateAutoDownloadRulesAsync(
+        string userId, int autoDownloadEpisodeLimit, bool autoDownloadChargingOnly, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowAutoDownloadRulesAsync(
+        string userId, string showId, int? autoDownloadEpisodeLimit, bool? autoDownloadChargingOnly,
+        CancellationToken cancellationToken);
+
+    Task<(int EpisodeLimit, bool ChargingOnly)> GetEffectiveAutoDownloadRulesAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateAutoAddNewEpisodesToUpNextAsync(
         string userId, bool autoAddNewEpisodesToUpNext, CancellationToken cancellationToken);
 

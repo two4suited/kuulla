@@ -54,6 +54,12 @@ public record ShowSettings(
     // own override (Playlist.PlayNextBehavior) still wins over this one when playback was started
     // from a playlist — see SettingsService.GetEffectivePlayNextBehaviorAsync's doc comment.
     PlayNextBehavior? PlayNextBehavior = null,
+    // Null means "no override — inherit the user's global AutoDownloadEpisodeLimit" (#689). Only
+    // meaningful when the effective AutoDownloadNewEpisodes (override-or-global) is on.
+    int? AutoDownloadEpisodeLimit = null,
+    // Null means "no override — inherit the user's global AutoDownloadChargingOnly" (#689). Only
+    // meaningful when the effective AutoDownloadNewEpisodes is on.
+    bool? AutoDownloadChargingOnly = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {

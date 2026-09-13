@@ -6,7 +6,8 @@ final class UserSettingsTests: XCTestCase {
         userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .after7Days,
         autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20, playbackSpeed: 1.5,
         autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true, smartSpeed: true,
-        voiceBoost: true, trimSilence: true, sleepTimerDefaultDurationMinutes: 15, autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top)
+        voiceBoost: true, trimSilence: true, sleepTimerDefaultDurationMinutes: 15, autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top,
+        autoDownloadEpisodeLimit: 5, autoDownloadChargingOnly: true)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -36,6 +37,38 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(updated.leadingSwipeActions, base.leadingSwipeActions)
         XCTAssertEqual(updated.trailingSwipeActions, base.trailingSwipeActions)
         XCTAssertEqual(updated.playNextBehavior, base.playNextBehavior)
+        XCTAssertEqual(updated.autoDownloadEpisodeLimit, base.autoDownloadEpisodeLimit)
+        XCTAssertEqual(updated.autoDownloadChargingOnly, base.autoDownloadChargingOnly)
+    }
+
+    // MARK: autoDownloadEpisodeLimit / autoDownloadChargingOnly (#689)
+
+    func testWithSetsAutoDownloadRules() {
+        let updated = base.with(autoDownloadEpisodeLimit: 10, autoDownloadChargingOnly: false)
+
+        XCTAssertEqual(updated.autoDownloadEpisodeLimit, 10)
+        XCTAssertFalse(updated.autoDownloadChargingOnly)
+    }
+
+    func testDecodingResponseMissingAutoDownloadRulesDefaultsToUnlimitedAndOff() throws {
+        let json = """
+        {"userId": "u1", "unlistenedEpisodeCount": 5, "version": 1}
+        """
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.autoDownloadEpisodeLimit, 0)
+        XCTAssertFalse(decoded.autoDownloadChargingOnly)
+    }
+
+    func testDecodingAutoDownloadRulesFromWireValues() throws {
+        let json = """
+        {"userId": "u1", "unlistenedEpisodeCount": 5, "version": 1, \
+        "autoDownloadEpisodeLimit": 3, "autoDownloadChargingOnly": true}
+        """
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.autoDownloadEpisodeLimit, 3)
+        XCTAssertTrue(decoded.autoDownloadChargingOnly)
     }
 
     func testWithSetsLeadingSwipeActions() {
