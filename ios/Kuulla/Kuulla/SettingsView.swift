@@ -30,6 +30,7 @@ struct SettingsView: View {
     @State private var leadingSwipeActionsSaveError: String?
     @State private var trailingSwipeActionsSaveError: String?
     @State private var smartSpeedSaveError: String?
+    @State private var voiceBoostSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
@@ -45,6 +46,7 @@ struct SettingsView: View {
     @State private var leadingSwipeActionsSaveTask: Task<Void, Never>?
     @State private var trailingSwipeActionsSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
+    @State private var voiceBoostSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
 
     // Counts in-flight update*() calls below. refreshFromRemote() (triggered by scenePhase
@@ -132,6 +134,18 @@ struct SettingsView: View {
                     } else {
                         Text("Trims silence and boosts quiet passages during playback.")
                     }
+                }
+            }
+
+            Section {
+                Toggle("Voice Boost", isOn: voiceBoostBinding)
+                    .disabled(settings == nil)
+            } footer: {
+                if let voiceBoostSaveError {
+                    Text(voiceBoostSaveError)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Normalizes loudness so quiet and loud episodes play at a consistent volume, independent of playback speed.")
                 }
             }
 
@@ -495,6 +509,16 @@ struct SettingsView: View {
             set: { newValue in
                 smartSpeedSaveTask?.cancel()
                 smartSpeedSaveTask = Task { await updateSmartSpeed(newValue) }
+            }
+        )
+    }
+
+    private var voiceBoostBinding: Binding<Bool> {
+        Binding(
+            get: { settings?.voiceBoost ?? false },
+            set: { newValue in
+                voiceBoostSaveTask?.cancel()
+                voiceBoostSaveTask = Task { await updateVoiceBoost(newValue) }
             }
         )
     }
@@ -926,6 +950,28 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 smartSpeedSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateVoiceBoost(_ value: Bool) async {
+        guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
+
+        voiceBoostSaveError = nil
+        settings = previous.with(voiceBoost: value)
+
+        do {
+            let updated = try await settingsClient.updateVoiceBoost(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                voiceBoostSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

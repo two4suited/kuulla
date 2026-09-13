@@ -12,6 +12,9 @@ struct UserSettings: Codable, Hashable {
     let autoDeleteAfterDays: Int
     let autoDownloadNewEpisodes: Bool
     let smartSpeed: Bool
+    // Normalizes loudness across episodes (#679) — independent of SmartSpeed's silence-trimming,
+    // though SmartSpeed still implies this boost too (see SmartSpeedProcessor).
+    let voiceBoost: Bool
     let notificationsEnabled: Bool
     // Nil means the user has never picked a sleep timer duration yet (#208 seeds the picker with
     // its own baked-in default in that case, rather than this being some other sentinel). Unlike
@@ -56,7 +59,8 @@ struct UserSettings: Codable, Hashable {
         userId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount, version: Int, autoArchiveRule: AutoArchiveRule,
         autoSkipIntroSeconds: Int = 0, autoSkipOutroSeconds: Int = 0, playbackSpeed: Float = 1.0,
         autoDeleteRule: AutoDeleteRule = .never, autoDeleteAfterDays: Int = 7, autoDownloadNewEpisodes: Bool = false,
-        smartSpeed: Bool = false, notificationsEnabled: Bool = true, sleepTimerDefaultDurationMinutes: Int? = nil,
+        smartSpeed: Bool = false, voiceBoost: Bool = false,
+        notificationsEnabled: Bool = true, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
         subscriptionManualOrder: [String] = [],
         hideCaughtUpShows: Bool = false,
@@ -78,6 +82,7 @@ struct UserSettings: Codable, Hashable {
         self.autoDeleteAfterDays = autoDeleteAfterDays
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
         self.smartSpeed = smartSpeed
+        self.voiceBoost = voiceBoost
         self.notificationsEnabled = notificationsEnabled
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
@@ -93,7 +98,7 @@ struct UserSettings: Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case userId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, notificationsEnabled
+        case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, voiceBoost, notificationsEnabled
         case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, hideCaughtUpShows
         case autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions
         case playNextBehavior, updatedAt
@@ -119,6 +124,8 @@ struct UserSettings: Codable, Hashable {
         autoDownloadNewEpisodes = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadNewEpisodes) ?? false
         // Default to false (off) when absent (predates #200), same rationale as autoArchiveRule above.
         smartSpeed = try container.decodeIfPresent(Bool.self, forKey: .smartSpeed) ?? false
+        // Default to false (off) when absent (predates #679), same rationale as smartSpeed above.
+        voiceBoost = try container.decodeIfPresent(Bool.self, forKey: .voiceBoost) ?? false
         // Default to true (on) when absent (predates #211) — matches the API's own opt-out
         // default (UserSettings.cs: notifications are the point of registering a device for
         // push, so absence should mean "on" here, unlike every opt-in field above).
@@ -168,6 +175,7 @@ struct UserSettings: Codable, Hashable {
         autoDeleteAfterDays: Int? = nil,
         autoDownloadNewEpisodes: Bool? = nil,
         smartSpeed: Bool? = nil,
+        voiceBoost: Bool? = nil,
         notificationsEnabled: Bool? = nil,
         // Only ever used to set a picked duration (SleepTimerSheet), never to clear one back to
         // "unset" — a plain Int? param can't distinguish "omitted" from "explicitly nil" the way
@@ -193,6 +201,7 @@ struct UserSettings: Codable, Hashable {
             autoDeleteAfterDays: autoDeleteAfterDays ?? self.autoDeleteAfterDays,
             autoDownloadNewEpisodes: autoDownloadNewEpisodes ?? self.autoDownloadNewEpisodes,
             smartSpeed: smartSpeed ?? self.smartSpeed,
+            voiceBoost: voiceBoost ?? self.voiceBoost,
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes ?? self.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder ?? self.subscriptionSortOrder,

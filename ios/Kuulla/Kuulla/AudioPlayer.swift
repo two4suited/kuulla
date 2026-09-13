@@ -69,8 +69,8 @@ final class AudioPlayer {
     // The current session's SmartSpeed processor, purely so play()/removeObservers() have
     // something to reference — its actual memory lifetime is owned by the tap itself (see
     // SmartSpeedProcessor.makeAudioMix's passRetained/release), independent of this property. nil
-    // whenever SmartSpeed is off, so the tap-processing cost is only ever paid when the feature is
-    // actually in use.
+    // whenever both SmartSpeed and Voice Boost are off, so the tap-processing cost is only ever
+    // paid when at least one of the two is actually in use.
     private var smartSpeedProcessor: SmartSpeedProcessor?
 
     private var autoSkipOutroSeconds: TimeInterval = 0
@@ -224,7 +224,7 @@ final class AudioPlayer {
     func play(
         url: URL, startPosition: TimeInterval = 0,
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
-        playbackSpeed: Float = 1.0, smartSpeed: Bool = false,
+        playbackSpeed: Float = 1.0, smartSpeed: Bool = false, voiceBoost: Bool = false,
         context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
     ) {
         streamBlockedMessage = nil
@@ -252,8 +252,8 @@ final class AudioPlayer {
         // without the chipmunk effect a naive rate change would produce.
         item.audioTimePitchAlgorithm = .timeDomain
 
-        if smartSpeed {
-            let processor = SmartSpeedProcessor()
+        if smartSpeed || voiceBoost {
+            let processor = SmartSpeedProcessor(smartSpeed: smartSpeed, voiceBoost: voiceBoost)
             // Captures item weakly so a later play() that replaces self.player (and drops this
             // item) can't have this stale session's detector adjust the new player's rate out
             // from under it — the identity check below is the real guard, this just avoids

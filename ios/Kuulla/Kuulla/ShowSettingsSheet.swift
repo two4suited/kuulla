@@ -18,6 +18,7 @@ struct ShowSettingsSheet: View {
     @State private var upNextInsertPositionSaveError: String?
     @State private var playNextBehaviorSaveError: String?
     @State private var smartSpeedSaveError: String?
+    @State private var voiceBoostSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
@@ -32,6 +33,7 @@ struct ShowSettingsSheet: View {
     @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
     @State private var playNextBehaviorSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
+    @State private var voiceBoostSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
     // so unlike the other settings here (where cancelling the previous Task is enough — an
@@ -209,6 +211,20 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let smartSpeedSaveError {
                         Text(smartSpeedSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Voice Boost", selection: voiceBoostOverrideBinding) {
+                        Text("Use global default").tag(Bool?.none)
+                        Text("On").tag(Bool?.some(true))
+                        Text("Off").tag(Bool?.some(false))
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let voiceBoostSaveError {
+                        Text(voiceBoostSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -615,6 +631,35 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 smartSpeedSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var voiceBoostOverrideBinding: Binding<Bool?> {
+        Binding(
+            get: { settings?.voiceBoost },
+            set: { newValue in
+                voiceBoostSaveTask?.cancel()
+                voiceBoostSaveTask = Task { await updateVoiceBoostOverride(newValue) }
+            }
+        )
+    }
+
+    private func updateVoiceBoostOverride(_ value: Bool?) async {
+        guard let previous = settings else { return }
+
+        voiceBoostSaveError = nil
+        settings = previous.with(voiceBoost: value)
+
+        do {
+            let updated = try await settingsClient.updateShowVoiceBoost(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                voiceBoostSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

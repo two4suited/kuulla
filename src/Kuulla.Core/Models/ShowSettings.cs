@@ -39,6 +39,8 @@ public record ShowSettings(
     int? AutoDeleteAfterDays = null,
     // Null means "no override — inherit the user's global SmartSpeed".
     bool? SmartSpeed = null,
+    // Null means "no override — inherit the user's global VoiceBoost" (#679).
+    bool? VoiceBoost = null,
     // Null means "no override — inherit the user's global AutoAddNewEpisodesToUpNext".
     bool? AutoAddNewEpisodesToUpNext = null,
     // Null means "no override — inherit the user's global UpNextInsertPosition". Only meaningful
@@ -63,7 +65,7 @@ public record ShowSettings(
         new(BuildId(userId, showId), userId, showId, UnlistenedEpisodeCount: null, Version: 1,
             AutoArchiveRule: null, AutoSkipIntroSeconds: null, AutoSkipOutroSeconds: null, PlaybackSpeed: null,
             AutoDownloadNewEpisodes: null, AutoDeleteRule: null, AutoDeleteAfterDays: null, SmartSpeed: null,
-            AutoAddNewEpisodesToUpNext: null, UpNextInsertPosition: null, NotificationsEnabled: null,
+            VoiceBoost: null, AutoAddNewEpisodesToUpNext: null, UpNextInsertPosition: null, NotificationsEnabled: null,
             PlayNextBehavior: null, UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document

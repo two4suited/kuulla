@@ -351,6 +351,7 @@ final class PlaybackQueue {
         let autoSkipOutroSeconds = TimeInterval(showResolved?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
         let playbackSpeed = showResolved?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
         let smartSpeed = showResolved?.smartSpeed ?? user?.smartSpeed ?? false
+        let voiceBoost = showResolved?.voiceBoost ?? user?.voiceBoost ?? false
 
         var startPosition: TimeInterval = 0
         var downloadRecord: DownloadedEpisodeRecord?
@@ -390,7 +391,7 @@ final class PlaybackQueue {
         AudioPlayer.shared.play(
             url: audioUrl, startPosition: startPosition,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost,
             context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: NowPlayingMetadata(
                 title: episode.title, showTitle: show?.title,

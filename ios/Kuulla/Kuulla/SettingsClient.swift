@@ -157,6 +157,16 @@ struct SettingsClient {
             body: UpdateShowSmartSpeedRequest(smartSpeed: value))
     }
 
+    func updateVoiceBoost(_ value: Bool) async throws -> UserSettings {
+        try await apiClient.put(["api", "settings", "voice-boost"], body: UpdateVoiceBoostRequest(voiceBoost: value))
+    }
+
+    func updateShowVoiceBoost(showId: String, value: Bool?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "voice-boost"],
+            body: UpdateShowVoiceBoostRequest(voiceBoost: value))
+    }
+
     func updateNotificationsEnabled(_ value: Bool) async throws -> UserSettings {
         try await apiClient.put(
             ["api", "settings", "notifications"],
@@ -278,6 +288,14 @@ private struct UpdateSmartSpeedRequest: Encodable {
 
 private struct UpdateShowSmartSpeedRequest: Encodable {
     let smartSpeed: Bool?
+}
+
+private struct UpdateVoiceBoostRequest: Encodable {
+    let voiceBoost: Bool
+}
+
+private struct UpdateShowVoiceBoostRequest: Encodable {
+    let voiceBoost: Bool?
 }
 
 private struct UpdateNotificationsEnabledRequest: Encodable {

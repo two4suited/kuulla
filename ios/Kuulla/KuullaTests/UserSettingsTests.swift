@@ -6,7 +6,7 @@ final class UserSettingsTests: XCTestCase {
         userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .after7Days,
         autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20, playbackSpeed: 1.5,
         autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true, smartSpeed: true,
-        sleepTimerDefaultDurationMinutes: 15, autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top)
+        voiceBoost: true, sleepTimerDefaultDurationMinutes: 15, autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -25,6 +25,7 @@ final class UserSettingsTests: XCTestCase {
         // `with()` that omits a field silently resets it to that field's default instead of
         // preserving it.
         XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
+        XCTAssertEqual(updated.voiceBoost, base.voiceBoost)
         XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, base.sleepTimerDefaultDurationMinutes)
         XCTAssertEqual(updated.subscriptionSortOrder, base.subscriptionSortOrder)
         XCTAssertEqual(updated.subscriptionManualOrder, base.subscriptionManualOrder)

@@ -12,6 +12,8 @@ public record UserSettings(
     int AutoDeleteAfterDays = 7,
     bool AutoDownloadNewEpisodes = false,
     bool SmartSpeed = false,
+    // Normalizes loudness across episodes (#679), independent of SmartSpeed's silence-trimming.
+    bool VoiceBoost = false,
     int? SleepTimerDefaultDurationMinutes = null,
     SubscriptionSortOrder SubscriptionSortOrder = SubscriptionSortOrder.Title,
     IReadOnlyList<string>? SubscriptionManualOrder = null,

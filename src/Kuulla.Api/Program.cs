@@ -1830,6 +1830,29 @@ settings.MapPut("/shows/{showId}/smart-speed", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/voice-boost", async (
+    UpdateVoiceBoostRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateVoiceBoostAsync(userId, request.VoiceBoost, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/voice-boost", async (
+    string showId,
+    UpdateShowVoiceBoostRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowVoiceBoostAsync(userId, showId, request.VoiceBoost, ct);
+    return Results.Ok(result);
+});
+
 settings.MapPut("/notifications", async (
     UpdateNotificationsEnabledRequest request,
     ClaimsPrincipal user,

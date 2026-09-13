@@ -136,6 +136,10 @@ public class SettingsService(
                 change.AutoDownloadNewEpisodes,
                 change.SmartSpeed,
                 // Null means the pushing client doesn't send this field yet (see
+                // UserSettingsChange.VoiceBoost) — keep whatever's stored rather than clobbering
+                // it, same rationale as NotificationsEnabled below.
+                change.VoiceBoost ?? stored?.VoiceBoost ?? false,
+                // Null means the pushing client doesn't send this field yet (see
                 // UserSettingsChange.NotificationsEnabled) — fall back to whatever's already
                 // stored (or the true default for a brand-new document) instead of clobbering an
                 // existing preference the client never actually touched.
@@ -524,6 +528,10 @@ public class SettingsService(
         string userId, bool smartSpeed, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(userId, current => current with { SmartSpeed = smartSpeed }, cancellationToken);
 
+    public Task<UserSettings> UpdateVoiceBoostAsync(
+        string userId, bool voiceBoost, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(userId, current => current with { VoiceBoost = voiceBoost }, cancellationToken);
+
     public Task<UserSettings> UpdateSleepTimerDefaultDurationAsync(
         string userId, int sleepTimerDefaultDurationMinutes, CancellationToken cancellationToken) =>
         UpdateSettingsWithRetryAsync(
@@ -559,6 +567,36 @@ public class SettingsService(
 
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.SmartSpeed;
+    }
+
+    public async Task<ShowSettings> UpdateShowVoiceBoostAsync(
+        string userId, string showId, bool? voiceBoost, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            VoiceBoost = voiceBoost,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<bool> GetEffectiveVoiceBoostAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.VoiceBoost is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.VoiceBoost;
     }
 
     public async Task<UserSettings> UpdateNotificationsEnabledAsync(

@@ -71,6 +71,7 @@ struct EpisodeDetailView: View {
     @State private var autoSkipOutroSeconds = 0
     @State private var playbackSpeed: Float = 1.0
     @State private var smartSpeed = false
+    @State private var voiceBoost = false
     // Global-only (no per-show override), per docs/downloads-storage-settings.md.
     @State private var autoDeleteRule: AutoDeleteRule = .never
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
@@ -647,6 +648,7 @@ struct EpisodeDetailView: View {
         // which have the same "resolved-after-play-already-started" limitation and no live fix
         // either — accepted, not something this diff introduces.
         smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
+        voiceBoost = show?.voiceBoost ?? user?.voiceBoost ?? false
         autoDeleteRule = Self.resolvedAutoDeleteRule(show: show, user: user)
 
         // This fetch races the play button: a tap before it resolves starts playback at the
@@ -749,7 +751,7 @@ struct EpisodeDetailView: View {
         audioPlayer.play(
             url: url, startPosition: startPosition,
             autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
-            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost,
             context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: episode.map { episode in
                 NowPlayingMetadata(

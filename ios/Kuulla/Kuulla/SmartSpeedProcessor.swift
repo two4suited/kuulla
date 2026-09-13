@@ -5,6 +5,11 @@ import MediaToolbox
 // both halves of SmartSpeed (#202) without migrating off AVPlayer — see docs/smartspeed-spike.md
 // for why this approach was chosen over an AVAudioEngine-based player.
 //
+// The gain-boost half also implements Voice Boost (#679) as an independently-toggleable behavior:
+// silenceTrimEnabled and voiceBoostEnabled gate the two halves separately, so either can run
+// without the other (SmartSpeed alone still boosts, exactly as before #679; Voice Boost alone
+// boosts without silence-trimming; both together do both without double-applying).
+//
 // The tap's process callback runs synchronously on a real-time audio thread, just before
 // rendering, and only ever sees audio AVPlayer has already decoded/buffered.
 //
@@ -44,8 +49,19 @@ final class SmartSpeedProcessor {
     // resumes after a confirmed run. Never fired redundantly for the same state.
     var onSilenceStateChanged: ((_ isSilent: Bool) -> Void)?
 
+    private let silenceTrimEnabled: Bool
+    // SmartSpeed has always boosted quiet passages as half of its own effect (the footer copy in
+    // SettingsView says as much) — that policy lives here, not at each call site, so a future
+    // second construction site can't forget it and silently regress SmartSpeed's boost.
+    private let voiceBoostEnabled: Bool
+
     private var silenceDetector = SilenceRunDetector()
     private var smoothedGain: Float = 1.0
+
+    init(smartSpeed: Bool, voiceBoost: Bool) {
+        self.silenceTrimEnabled = smartSpeed
+        self.voiceBoostEnabled = smartSpeed || voiceBoost
+    }
 
     // Builds an AVMutableAudioMix with this processor installed as the tap on `item`'s first
     // audio track. Returns an audio mix with no tap (a no-op passthrough) if the item has no
@@ -119,12 +135,14 @@ final class SmartSpeedProcessor {
         (try? await asset.loadTracks(withMediaType: .audio))?.first
     }
 
-    fileprivate func prepare() {
+    // Internal (not fileprivate) so tests can drive process() directly against a synthetic
+    // AudioBufferList — mirrors SilenceRunDetector.observe's own test-seam visibility.
+    func prepare() {
         silenceDetector = SilenceRunDetector()
         smoothedGain = 1.0
     }
 
-    fileprivate func process(bufferList: UnsafeMutableAudioBufferListPointer, itemTime: TimeInterval) {
+    func process(bufferList: UnsafeMutableAudioBufferListPointer, itemTime: TimeInterval) {
         var sumOfSquares: Float = 0
         var sampleCount = 0
         for buffer in bufferList {
@@ -138,23 +156,25 @@ final class SmartSpeedProcessor {
         }
         let level = sampleCount > 0 ? (sumOfSquares / Float(sampleCount)).squareRoot() : 0
 
-        let targetGain = Self.boostGain(forLevel: level)
-        smoothedGain += (targetGain - smoothedGain) * Self.gainSmoothingFactor
-        if smoothedGain > 1.001 {
-            for buffer in bufferList {
-                guard let raw = buffer.mData else { continue }
-                let samples = raw.assumingMemoryBound(to: Float.self)
-                let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
-                for i in 0..<count {
-                    // A soft (tanh) limiter rather than a hard clamp — smoothedGain's ramp keeps
-                    // most samples well inside ±1 already, so this only softens the rare outlier
-                    // instead of hard-clipping it into audible distortion.
-                    samples[i] = tanhf(samples[i] * smoothedGain)
+        if voiceBoostEnabled {
+            let targetGain = Self.boostGain(forLevel: level)
+            smoothedGain += (targetGain - smoothedGain) * Self.gainSmoothingFactor
+            if smoothedGain > 1.001 {
+                for buffer in bufferList {
+                    guard let raw = buffer.mData else { continue }
+                    let samples = raw.assumingMemoryBound(to: Float.self)
+                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                    for i in 0..<count {
+                        // A soft (tanh) limiter rather than a hard clamp — smoothedGain's ramp keeps
+                        // most samples well inside ±1 already, so this only softens the rare outlier
+                        // instead of hard-clipping it into audible distortion.
+                        samples[i] = tanhf(samples[i] * smoothedGain)
+                    }
                 }
             }
         }
 
-        if let isSilent = silenceDetector.observe(level: level, itemTime: itemTime) {
+        if silenceTrimEnabled, let isSilent = silenceDetector.observe(level: level, itemTime: itemTime) {
             onSilenceStateChanged?(isSilent)
         }
     }

@@ -14,6 +14,8 @@ public record ShowSettings(
     int? AutoDeleteAfterDays = null,
     // Null means "no override — inherit the user's global SmartSpeed".
     bool? SmartSpeed = null,
+    // Null means "no override — inherit the user's global VoiceBoost" (#679).
+    bool? VoiceBoost = null,
     bool? AutoAddNewEpisodesToUpNext = null,
     // Null means "no override — inherit the user's global UpNextInsertPosition".
     UpNextInsertPosition? UpNextInsertPosition = null,

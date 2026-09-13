@@ -19,6 +19,8 @@ final class UserSettingsRecord: Syncable {
     var autoDeleteAfterDays: Int
     var autoDownloadNewEpisodes: Bool
     var smartSpeed: Bool
+    // Inline default required, same lightweight-migration reason as notificationsEnabled below (#679).
+    var voiceBoost: Bool = false
     // Inline default (unlike every other property on this model) is required, not just
     // convenient — SwiftData's lightweight/automatic migration can add a new attribute to an
     // existing on-disk store, but only if it can synthesize a value for already-persisted rows;
@@ -68,7 +70,7 @@ final class UserSettingsRecord: Syncable {
         unlistenedEpisodeCount: UnlistenedEpisodeCount, autoArchiveRule: AutoArchiveRule,
         autoSkipIntroSeconds: Int, autoSkipOutroSeconds: Int, playbackSpeed: Float,
         autoDeleteRule: AutoDeleteRule, autoDeleteAfterDays: Int, autoDownloadNewEpisodes: Bool,
-        smartSpeed: Bool, notificationsEnabled: Bool, sleepTimerDefaultDurationMinutes: Int? = nil,
+        smartSpeed: Bool, voiceBoost: Bool, notificationsEnabled: Bool, sleepTimerDefaultDurationMinutes: Int? = nil,
         subscriptionSortOrder: SubscriptionSortOrder = .title,
         subscriptionManualOrder: [String] = [],
         hideCaughtUpShows: Bool = false,
@@ -89,6 +91,7 @@ final class UserSettingsRecord: Syncable {
         self.autoDeleteAfterDays = autoDeleteAfterDays
         self.autoDownloadNewEpisodes = autoDownloadNewEpisodes
         self.smartSpeed = smartSpeed
+        self.voiceBoost = voiceBoost
         self.notificationsEnabled = notificationsEnabled
         self.sleepTimerDefaultDurationMinutes = sleepTimerDefaultDurationMinutes
         self.subscriptionSortOrder = subscriptionSortOrder
@@ -110,7 +113,7 @@ final class UserSettingsRecord: Syncable {
             autoSkipIntroSeconds: settings.autoSkipIntroSeconds, autoSkipOutroSeconds: settings.autoSkipOutroSeconds,
             playbackSpeed: settings.playbackSpeed, autoDeleteRule: settings.autoDeleteRule,
             autoDeleteAfterDays: settings.autoDeleteAfterDays, autoDownloadNewEpisodes: settings.autoDownloadNewEpisodes,
-            smartSpeed: settings.smartSpeed, notificationsEnabled: settings.notificationsEnabled,
+            smartSpeed: settings.smartSpeed, voiceBoost: settings.voiceBoost, notificationsEnabled: settings.notificationsEnabled,
             sleepTimerDefaultDurationMinutes: settings.sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: settings.subscriptionSortOrder,
             subscriptionManualOrder: settings.subscriptionManualOrder,
@@ -135,6 +138,7 @@ final class UserSettingsRecord: Syncable {
         autoDeleteAfterDays = settings.autoDeleteAfterDays
         autoDownloadNewEpisodes = settings.autoDownloadNewEpisodes
         smartSpeed = settings.smartSpeed
+        voiceBoost = settings.voiceBoost
         notificationsEnabled = settings.notificationsEnabled
         sleepTimerDefaultDurationMinutes = settings.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = settings.subscriptionSortOrder
@@ -163,6 +167,7 @@ final class UserSettingsRecord: Syncable {
         autoDeleteAfterDays = other.autoDeleteAfterDays
         autoDownloadNewEpisodes = other.autoDownloadNewEpisodes
         smartSpeed = other.smartSpeed
+        voiceBoost = other.voiceBoost
         notificationsEnabled = other.notificationsEnabled
         sleepTimerDefaultDurationMinutes = other.sleepTimerDefaultDurationMinutes
         subscriptionSortOrder = other.subscriptionSortOrder
@@ -187,7 +192,7 @@ final class UserSettingsRecord: Syncable {
             userId: "", unlistenedEpisodeCount: unlistenedEpisodeCount, version: version, autoArchiveRule: autoArchiveRule,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed,
             autoDeleteRule: autoDeleteRule, autoDeleteAfterDays: autoDeleteAfterDays, autoDownloadNewEpisodes: autoDownloadNewEpisodes,
-            smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
+            smartSpeed: smartSpeed, voiceBoost: voiceBoost, notificationsEnabled: notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder,
             subscriptionManualOrder: subscriptionManualOrder,
