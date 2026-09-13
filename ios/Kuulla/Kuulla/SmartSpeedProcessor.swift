@@ -51,9 +51,16 @@ final class SmartSpeedProcessor {
     // audio track. Returns an audio mix with no tap (a no-op passthrough) if the item has no
     // audio track or tap creation fails, rather than throwing — SmartSpeed degrading to "no
     // effect" is preferable to failing playback outright.
-    func makeAudioMix(for item: AVPlayerItem) -> AVMutableAudioMix {
+    //
+    // async rather than blocking (#657): an earlier version dispatched loadTracks onto a
+    // .userInteractive queue and blocked the calling thread on a semaphore, on the theory that
+    // the queue's QoS would prevent a priority inversion. It didn't — AVFoundation's own
+    // completion-handler thread for loadTracks doesn't reliably inherit the caller's QoS, so
+    // Thread Performance Checker kept flagging the wait. Awaiting the async loadTracks overload
+    // removes the blocking wait (and the inversion risk) entirely instead of trying to outrank it.
+    func makeAudioMix(for item: AVPlayerItem) async -> AVMutableAudioMix {
         let mix = AVMutableAudioMix()
-        guard let track = Self.firstAudioTrack(of: item.asset) else { return mix }
+        guard let track = await Self.firstAudioTrack(of: item.asset) else { return mix }
 
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
@@ -108,28 +115,8 @@ final class SmartSpeedProcessor {
         return mix
     }
 
-    // Blocks the calling thread until the asset's audio track list loads, mirroring the blocking
-    // behavior of the deprecated synchronous tracks(withMediaType:) API via its supported
-    // completion-handler replacement — makeAudioMix's caller (AudioPlayer.play()) is synchronous,
-    // so there's no async context to await this in without restructuring that call chain.
-    private static func firstAudioTrack(of asset: AVAsset) -> AVAssetTrack? {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: AVAssetTrack?
-        // Kick off loadTracks from a .userInteractive queue rather than directly from the caller's
-        // thread (main, also .userInteractive): AVFoundation's internal queue for the completion
-        // handler doesn't pin its own QoS, so it inherits whatever queue enqueued the call. Calling
-        // loadTracks straight from main works the same way, but Thread Performance Checker still
-        // flags the wait below because it can't see that inheritance — routing the call through an
-        // explicit .userInteractive queue makes the QoS match visible and avoids the priority
-        // inversion (#621) a Default-QoS completion handler would otherwise create.
-        DispatchQueue.global(qos: .userInteractive).async {
-            asset.loadTracks(withMediaType: .audio) { tracks, _ in
-                result = tracks?.first
-                semaphore.signal()
-            }
-        }
-        semaphore.wait()
-        return result
+    private static func firstAudioTrack(of asset: AVAsset) async -> AVAssetTrack? {
+        (try? await asset.loadTracks(withMediaType: .audio))?.first
     }
 
     fileprivate func prepare() {

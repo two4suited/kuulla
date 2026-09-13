@@ -272,7 +272,20 @@ final class AudioPlayer {
                         : self.playbackSpeed
                 }
             }
-            item.audioMix = processor.makeAudioMix(for: item)
+            // Setting audioMix asynchronously (rather than blocking play() on it, #657) races the
+            // item's own internal buffering in principle, but not in practice: the item can't
+            // reach readyToPlay — and so can't start actually decoding/rendering audio — without
+            // itself first resolving the asset's tracks, which is the same underlying load this
+            // await is waiting on. Should that ever lose the race (e.g. an already-cached local
+            // file), the outcome is silent degradation to "no SmartSpeed effect" for that one
+            // playback session, not a crash — consistent with makeAudioMix's own no-op-on-failure
+            // philosophy above. Weak item mirrors the guard above: a later play() that replaces
+            // self.player (and drops this item) makes the assignment a no-op instead of touching a
+            // dropped item.
+            Task { [weak item] in
+                guard let item else { return }
+                item.audioMix = await processor.makeAudioMix(for: item)
+            }
             smartSpeedProcessor = processor
         } else {
             smartSpeedProcessor = nil
