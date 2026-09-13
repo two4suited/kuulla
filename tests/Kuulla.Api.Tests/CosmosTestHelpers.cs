@@ -53,6 +53,9 @@ internal static class CosmosTestHelpers
     public static CosmosException PreconditionFailed() =>
         new("precondition failed", System.Net.HttpStatusCode.PreconditionFailed, 0, string.Empty, 0);
 
+    public static CosmosException TooManyRequests() =>
+        new("throttled", System.Net.HttpStatusCode.TooManyRequests, 0, string.Empty, 0);
+
     // Show.FeedUrl is non-nullable, matching production (ItunesPodcastDirectoryClient always
     // sets it) — pass feedUrl: "" for tests that need a show with no feed, mirroring how
     // ShowService/EpisodeService already treat "missing feed" via string.IsNullOrEmpty checks.
