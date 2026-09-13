@@ -412,6 +412,43 @@ public class PlaylistServiceTests
             c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
     }
 
+    // #663: iOS's auto-advance calls this read on every natural finish to resolve a dynamic
+    // playlist's playNextBehavior override, and treats a failed fetch as "playlist gone" —
+    // clearing its queue and silently stopping playback instead of advancing. A transient Cosmos
+    // failure in the recompute/persist step must not surface as a failed read.
+    [Fact]
+    public async Task GetPlaylistDetailAsync_FallsBackToStoredItemsWhenDynamicRecomputePersistThrows()
+    {
+        var config = new DynamicPlaylistConfig([ShowId], MaxEpisodes: null, [ShowId]);
+        var stored = new Playlist(
+            PlaylistId, UserId, "Dynamic Playlist", PlaylistType.Dynamic,
+            [
+                new PlaylistItem("unplayed", ShowId, DateTimeOffset.UtcNow, "i"),
+                new PlaylistItem("finished", ShowId, DateTimeOffset.UtcNow, "r"),
+            ],
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DynamicConfig: config);
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("unplayed", ShowId), MakeEpisode("finished", ShowId)]);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[MakeState("finished", completed: true)]);
+        _episodeService.Setup(s => s.GetEpisodeAsync(ShowId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string showId, string episodeId, CancellationToken _) => MakeEpisode(episodeId, showId));
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CosmosTestHelpers.MakeShow(ShowId));
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.TooManyRequests());
+
+        var result = await _sut.GetPlaylistDetailAsync(UserId, PlaylistId, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(["unplayed", "finished"], result!.Items.Select(i => i.EpisodeId));
+    }
+
     [Fact]
     public async Task RenamePlaylistAsync_ReturnsNullWhenPlaylistDoesNotExist()
     {

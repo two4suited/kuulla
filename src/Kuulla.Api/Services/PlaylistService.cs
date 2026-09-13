@@ -212,13 +212,30 @@ public class PlaylistService(
         // so the next reader, the sync feed, and iOS all converge on the pruned list without
         // waiting for an explicit recompute, while an unchanged playlist doesn't churn its
         // UpdatedAt / sync hash on every page view.
+        // Best-effort: a throttled/unavailable Cosmos call in the recompute/persist should fall
+        // back to serving the last-known list rather than 500ing the whole read, unlike a manual
+        // playlist's detail fetch this branch never touches Cosmos beyond the initial ReadAsync
+        // above. iOS's auto-advance (#629) calls this same read on every natural finish
+        // (PlaybackQueue.resolvePlayNextBehavior / begin(playlistId:)) — a 500 here reads as
+        // "playlist gone" and clears the queue, silently stopping playback instead of advancing.
+        // Only the known-transient status codes are swallowed — anything else (auth, a malformed
+        // query) still surfaces as a 500.
         if (playlist is { Type: PlaylistType.Dynamic, DynamicConfig: { } config })
         {
-            var fresh = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
-            if (!SameEpisodes(playlist.Items, fresh))
+            try
             {
-                playlist = playlist with { Items = fresh, UpdatedAt = DateTimeOffset.UtcNow };
-                await UpsertAsync(playlist, cancellationToken);
+                var fresh = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
+                if (!SameEpisodes(playlist.Items, fresh))
+                {
+                    var updated = playlist with { Items = fresh, UpdatedAt = DateTimeOffset.UtcNow };
+                    await UpsertAsync(updated, cancellationToken);
+                    playlist = updated;
+                }
+            }
+            catch (CosmosException ex) when (
+                ex.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable
+                    or HttpStatusCode.RequestTimeout)
+            {
             }
         }
 
