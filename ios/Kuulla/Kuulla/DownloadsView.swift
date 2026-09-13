@@ -17,9 +17,10 @@ struct DownloadsView: View {
     @Query(sort: \DownloadedEpisodeRecord.downloadedAt, order: .reverse)
     private var allRecords: [DownloadedEpisodeRecord]
     @State private var episodesById: [String: Episode] = [:]
-    // Show artwork keyed by showId, read from the on-device catalog cache (no artwork URL is
-    // stored on DownloadedEpisodeRecord itself — #535). Nil for a show that isn't cached.
-    @State private var artworkUrlByShowId: [String: URL] = [:]
+    // Full Show (title + artwork), keyed by showId, read from the on-device catalog cache — no
+    // show title/artwork URL is stored on DownloadedEpisodeRecord itself (#535). Missing for a
+    // show that isn't cached.
+    @State private var showsById: [String: Show] = [:]
     @State private var deleteError: String?
 
     private let catalogClient = PodcastCatalogClient()
@@ -32,24 +33,46 @@ struct DownloadsView: View {
         DownloadCleanup.totalBytes(for: records)
     }
 
+    // #690: per-show breakdown, so a user can see which subscriptions are actually using their
+    // storage rather than just an undifferentiated flat list. Grouped/sorted by show title (with
+    // showId as a stable tiebreak for two shows sharing a title, or while a title hasn't loaded
+    // yet) rather than by download recency, since the point of this screen's grouping is "which
+    // show", not "what's newest" — recency ordering is still what each show's own rows use.
+    private var showIdsBySizeGroup: [String] {
+        Dictionary(grouping: records, by: \.showId).keys.sorted { lhs, rhs in
+            let lhsTitle = showsById[lhs]?.title ?? ""
+            let rhsTitle = showsById[rhs]?.title ?? ""
+            return lhsTitle == rhsTitle ? lhs < rhs : lhsTitle < rhsTitle
+        }
+    }
+
+    private func records(forShowId showId: String) -> [DownloadedEpisodeRecord] {
+        records.filter { $0.showId == showId }
+    }
+
     var body: some View {
         List {
             if records.isEmpty {
                 Text("No downloaded episodes yet.")
                     .foregroundStyle(.secondary)
             } else {
-                Section {
-                    ForEach(records) { record in
-                        DownloadRow(
-                            record: record,
-                            episode: episodesById[record.id],
-                            artworkUrl: artworkUrlByShowId[record.showId])
+                ForEach(showIdsBySizeGroup, id: \.self) { showId in
+                    let showRecords = records(forShowId: showId)
+                    Section {
+                        ForEach(showRecords) { record in
+                            DownloadRow(
+                                record: record,
+                                episode: episodesById[record.id],
+                                artworkUrl: showsById[record.showId]?.artworkUrl.flatMap(URL.init))
+                        }
+                        .onDelete { offsets in
+                            deleteRecords(offsets.map { showRecords[$0] })
+                        }
+                    } header: {
+                        Text(showsById[showId]?.title ?? "Episode \(showRecords.first?.showId ?? "")")
+                    } footer: {
+                        Text(Self.byteCountFormatter.string(fromByteCount: Int64(DownloadCleanup.totalBytes(for: showRecords))))
                     }
-                    .onDelete { offsets in
-                        deleteRecords(at: offsets)
-                    }
-                } header: {
-                    Text(Self.byteCountFormatter.string(fromByteCount: Int64(totalBytes)))
                 }
             }
 
@@ -58,9 +81,21 @@ struct DownloadsView: View {
                     .foregroundStyle(.red)
             }
         }
-        .navigationTitle("Downloads")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // Overall total alongside the nav title (each show's own section footer below already
+            // shows that show's subtotal) — .principal rather than a subtitle API, to match this
+            // app's existing minimum iOS 17 deployment target.
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 0) {
+                    Text("Downloads").font(.headline)
+                    if !records.isEmpty {
+                        Text(Self.byteCountFormatter.string(fromByteCount: Int64(totalBytes)))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if records.count > 1 {
                     EditButton()
@@ -68,15 +103,29 @@ struct DownloadsView: View {
             }
             ToolbarItem(placement: .bottomBar) {
                 if !records.isEmpty, editMode?.wrappedValue.isEditing == true {
-                    Button("Delete All", role: .destructive) {
-                        deleteAll()
-                    }
+                    bulkActionsMenu
                 }
             }
         }
         .task(id: records.map(\.id)) {
-            loadArtwork()
+            loadShows()
             await loadEpisodeMetadata()
+        }
+    }
+
+    // #690's bulk actions: alongside the existing "Delete All", "Delete Played" clears anything
+    // already listened to, and "Delete Older Than" clears by how long a file has sat on this
+    // device — the three cover the "how do I get storage back" cases a user hits without having
+    // to individually swipe every row.
+    private var bulkActionsMenu: some View {
+        Menu("Delete\u{2026}") {
+            Button("Delete Played", role: .destructive) { deletePlayed() }
+            Menu("Delete Older Than") {
+                Button("7 Days") { deleteOlderThan(days: 7) }
+                Button("14 Days") { deleteOlderThan(days: 14) }
+                Button("30 Days") { deleteOlderThan(days: 30) }
+            }
+            Button("Delete All", role: .destructive) { deleteAll() }
         }
     }
 
@@ -86,14 +135,14 @@ struct DownloadsView: View {
         return formatter
     }()
 
-    // Show artwork is read straight from the on-device catalog cache — a synchronous SwiftData
-    // read, no network. A show that was never cached (or whose cache was cleared) simply has no
-    // thumbnail here, matching the best-effort stance of the episode-title lookup below (#535).
-    private func loadArtwork() {
-        for showId in Set(records.map(\.showId)) where artworkUrlByShowId[showId] == nil {
-            if let urlString = CatalogCache.show(id: showId, in: modelContext)?.artworkUrl,
-               let url = URL(string: urlString) {
-                artworkUrlByShowId[showId] = url
+    // Show title + artwork are read straight from the on-device catalog cache — a synchronous
+    // SwiftData read, no network. A show that was never cached (or whose cache was cleared)
+    // simply falls back to its id, matching the best-effort stance of the episode-title lookup
+    // below (#535).
+    private func loadShows() {
+        for showId in Set(records.map(\.showId)) where showsById[showId] == nil {
+            if let show = CatalogCache.show(id: showId, in: modelContext) {
+                showsById[showId] = show
             }
         }
     }
@@ -140,21 +189,26 @@ struct DownloadsView: View {
 
     // No manual list mutation on success — @Query re-runs off the same ModelContext save and
     // drops the deleted rows on its own.
-    private func deleteRecords(at offsets: IndexSet) {
+    private func deleteRecords(_ records: [DownloadedEpisodeRecord]) {
         deleteError = nil
-        let current = records
-        guard DownloadCleanup.delete(offsets.map { current[$0] }, from: modelContext) else {
+        guard DownloadCleanup.delete(records, from: modelContext) else {
             deleteError = "Something went wrong while deleting. Please try again."
             return
         }
     }
 
     private func deleteAll() {
-        deleteError = nil
-        guard DownloadCleanup.delete(records, from: modelContext) else {
-            deleteError = "Something went wrong while deleting. Please try again."
-            return
-        }
+        deleteRecords(records)
+    }
+
+    private func deletePlayed() {
+        let episodeIds = Set(records.map(\.id))
+        let statuses = EpisodeStatus.statusMap(for: episodeIds, in: modelContext)
+        deleteRecords(DownloadCleanup.playedRecords(records, statuses: statuses))
+    }
+
+    private func deleteOlderThan(days: Int) {
+        deleteRecords(DownloadCleanup.recordsOlderThan(days: days, in: records))
     }
 }
 
@@ -222,6 +276,31 @@ enum DownloadCleanup {
     // Pulled out as a pure function for testability, mirroring resolvedPlaybackURL's pattern.
     nonisolated static func shouldAutoDelete(completed: Bool, autoDeleteRule: AutoDeleteRule) -> Bool {
         completed && autoDeleteRule == .afterPlayed
+    }
+
+    // #690's "delete played" bulk action — a manual, on-demand sweep of every currently-listed
+    // download whose episode is Played or Auto-Played, independent of any per-show/global
+    // AutoDeleteRule (a user without that rule turned on can still clear played episodes by hand).
+    static func playedRecords(
+        _ records: [DownloadedEpisodeRecord], statuses: [String: EpisodeStatus]
+    ) -> [DownloadedEpisodeRecord] {
+        records.filter { record in
+            switch statuses[record.id] {
+            case .played, .autoPlayed: true
+            default: false
+            }
+        }
+    }
+
+    // #690's "delete older than N days" bulk action, keyed off downloadedAt (when the file
+    // landed on this device) rather than the episode's publish date — this is a storage-cleanup
+    // tool, and how long a file has been taking up space locally is what's relevant, not how old
+    // the episode itself is.
+    static func recordsOlderThan(
+        days: Int, in records: [DownloadedEpisodeRecord], now: Date = Date()
+    ) -> [DownloadedEpisodeRecord] {
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: now) else { return [] }
+        return records.filter { $0.downloadedAt < cutoff }
     }
 
     private static func removeFile(for record: DownloadedEpisodeRecord) {
