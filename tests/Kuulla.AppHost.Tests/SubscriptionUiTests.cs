@@ -35,8 +35,13 @@ public class SubscriptionUiTests(AppHostFixture fixture)
             await page.GetByRole(AriaRole.Button, new() { Name = "Unsubscribe" }).ClickAsync();
             await page.GetByRole(AriaRole.Button, new() { Name = "Subscribe" }).WaitForAsync();
 
+            // Asserts this show specifically is gone, not that the list is empty: the sign-in
+            // flow always logs in as the same fixed "Local Test User" (no per-test user id like
+            // the API-level tests use), and the Cosmos emulator persists data across separate
+            // `dotnet test` runs (AppHost.cs' WithDataVolume()), so an unrelated prior run could
+            // leave that user subscribed to some other show.
             await page.GotoAsync("/subscriptions");
-            await page.GetByText("You haven't subscribed to any shows yet.").WaitForAsync();
+            await Assertions.Expect(page.GetByText(show.Title)).Not.ToBeVisibleAsync();
         }
         finally
         {

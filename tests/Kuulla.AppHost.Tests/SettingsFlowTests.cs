@@ -10,11 +10,16 @@ public class SettingsFlowTests(AppHostFixture fixture)
     // End-to-end against the real API + Cosmos emulator (no mocks): a fresh user reads the
     // default settings, updates the unlistened episode count, then reads it back through the
     // actual Cosmos "settings" container.
+    //
+    // Own userId (see AuthenticateAsync's doc comment): the Cosmos emulator persists data across
+    // separate `dotnet test` runs (AppHost.cs' WithDataVolume(), meant for `aspire run`), so a
+    // fixed "local-test-user" here would pick up Version/state left behind by a prior run instead
+    // of starting from the fresh-user defaults this test asserts.
     [Fact]
     public async Task GetThenUpdate_RoundTripsThroughRealCosmos()
     {
         using var client = fixture.CreateApiClient();
-        await AuthenticateAsync(client);
+        await AuthenticateAsync(client, userId: $"settings-get-then-update-test-user-{Guid.NewGuid():N}");
 
         var defaultSettings = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
         Assert.Equal(5, defaultSettings?.UnlistenedEpisodeCount);
@@ -44,12 +49,16 @@ public class SettingsFlowTests(AppHostFixture fixture)
 
     // End-to-end against the real API + Cosmos emulator: a fresh user reads default (no-override)
     // per-show settings, sets an override, reads it back, then clears it back to no-override.
+    //
+    // Own userId + showId, same rationale as GetThenUpdate_RoundTripsThroughRealCosmos above: a
+    // fixed (user, show) pair here would pick up an override left behind by a prior run's
+    // persisted emulator data instead of the fresh "no override" state this test asserts.
     [Fact]
     public async Task ShowSettings_GetThenUpdateThenClear_RoundTripsThroughRealCosmos()
     {
         using var client = fixture.CreateApiClient();
-        await AuthenticateAsync(client);
-        const string showId = "show-1";
+        var showId = $"show-settings-test-{Guid.NewGuid():N}";
+        await AuthenticateAsync(client, userId: $"settings-show-test-user-{Guid.NewGuid():N}");
 
         var defaultSettings = await client.GetFromJsonAsync<ShowSettingsResponse>($"/api/settings/shows/{showId}");
         Assert.Equal(showId, defaultSettings?.ShowId);
@@ -87,10 +96,11 @@ public class SettingsFlowTests(AppHostFixture fixture)
     public async Task Notifications_UpdateThenRead_RoundTripsThroughRealCosmos()
     {
         using var client = fixture.CreateApiClient();
-        // Own userId (see AuthenticateAsync's doc comment) — GetThenUpdate_RoundTripsThroughRealCosmos
-        // above also writes the global UserSettings singleton for the default test user, and xUnit
-        // doesn't guarantee ordering between the two.
-        await AuthenticateAsync(client, userId: "settings-notifications-test-user");
+        // Own userId (see AuthenticateAsync's doc comment), and a fresh Guid rather than a fixed
+        // literal: the persisted emulator data (AppHost.cs' WithDataVolume()) carries a fixed
+        // literal's state across separate `dotnet test` runs, which broke the fresh-defaults
+        // assertion below on a second run.
+        await AuthenticateAsync(client, userId: $"settings-notifications-test-user-{Guid.NewGuid():N}");
 
         var defaultSettings = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
         Assert.True(defaultSettings?.NotificationsEnabled);
@@ -104,12 +114,15 @@ public class SettingsFlowTests(AppHostFixture fixture)
         Assert.False(reread?.NotificationsEnabled);
     }
 
+    // Own userId + showId, same rationale as ShowSettings_GetThenUpdateThenClear_RoundTripsThroughRealCosmos
+    // above: the initial "no override" assertion needs a (user, show) pair the persisted emulator
+    // data hasn't touched yet.
     [Fact]
     public async Task ShowNotifications_SetThenClear_RoundTripsThroughRealCosmos()
     {
         using var client = fixture.CreateApiClient();
-        await AuthenticateAsync(client);
-        const string showId = "show-notifications-1";
+        var showId = $"show-notifications-test-{Guid.NewGuid():N}";
+        await AuthenticateAsync(client, userId: $"settings-show-notifications-test-user-{Guid.NewGuid():N}");
 
         var defaultSettings = await client.GetFromJsonAsync<ShowSettingsResponse>($"/api/settings/shows/{showId}");
         Assert.Null(defaultSettings?.NotificationsEnabled);
@@ -135,7 +148,7 @@ public class SettingsFlowTests(AppHostFixture fixture)
     {
         using var client = fixture.CreateApiClient();
         // Own userId, same rationale as Notifications_UpdateThenRead_RoundTripsThroughRealCosmos.
-        await AuthenticateAsync(client, userId: "settings-sleep-timer-test-user");
+        await AuthenticateAsync(client, userId: $"settings-sleep-timer-test-user-{Guid.NewGuid():N}");
 
         var defaultSettings = await client.GetFromJsonAsync<UserSettingsResponse>("/api/settings");
         Assert.Null(defaultSettings?.SleepTimerDefaultDurationMinutes);
