@@ -216,6 +216,9 @@ struct EpisodeDetailView: View {
                 Text(streamBlockedMessage)
                     .font(.caption)
                     .foregroundStyle(KuullaColor.danger)
+                Text("Or download this episode above to play it without Wi-Fi.")
+                    .font(.caption)
+                    .foregroundStyle(KuullaColor.textMuted)
             }
 
             // A newer position came in from another device while this one keeps playing (#242):
