@@ -55,14 +55,23 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         interfaceController.setRootTemplate(
             CPTabBarTemplate(templates: [showsTemplate, playlistsTemplate]), animated: false, completion: nil)
 
-        // Set once per connect (#640) — CPNowPlayingTemplate.shared is a singleton for the whole
-        // CarPlay session, so this doesn't need re-wiring per playback session the way
+        // Set once per connect (#640/#642) — CPNowPlayingTemplate.shared is a singleton for the
+        // whole CarPlay session, so this doesn't need re-wiring per playback session the way
         // AudioPlayer's onDidFinishPlaying handler does. Skip back/forward already work for free
-        // via AudioPlayer.configureRemoteCommandCenter's MPRemoteCommandCenter wiring — only the
-        // Up Next button needed anything here. CarPlay reports button taps through the
-        // CPNowPlayingTemplateObserver protocol rather than a closure property.
+        // via AudioPlayer.configureRemoteCommandCenter's MPRemoteCommandCenter wiring. CarPlay
+        // reports Up Next taps through the CPNowPlayingTemplateObserver protocol rather than a
+        // closure property; the More button (Mark Played / Download / Add to Playlist, #642) is
+        // CPListItem's real equivalent of the phone's EpisodeSwipeAction set — CPListItem itself
+        // has no secondary tap target (no swipe, no long-press, no accessory-button handler in
+        // the CarPlay SDK), so these live on the currently-playing episode's Now Playing screen
+        // instead, which is where the driver already is right after picking an episode.
         CPNowPlayingTemplate.shared.isUpNextButtonEnabled = true
         CPNowPlayingTemplate.shared.add(self)
+        CPNowPlayingTemplate.shared.updateNowPlayingButtons([
+            CPNowPlayingMoreButton { [weak self] _ in
+                Task { await self?.presentEpisodeActions() }
+            },
+        ])
 
         loadTask = Task {
             async let subscriptions: Void = loadSubscriptionsList(into: showsTemplate)
@@ -616,6 +625,113 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
         let template = CPListTemplate(title: "Up Next", sections: [CPListSection(items: items)])
         interfaceController?.pushTemplate(template, animated: true, completion: nil)
+    }
+
+    // Episode actions (#642) — CPListItem's real equivalent of the phone's EpisodeSwipeAction set
+    // (Mark Played / Download / Add to Playlist), reached from the Now Playing screen's More
+    // button rather than a per-row control (see the didConnect comment on why). Acts on whatever
+    // AudioPlayer currently reports as playing — the only "this episode" CarPlay has once the
+    // driver has left the browse list behind for Now Playing.
+    private func presentEpisodeActions() async {
+        guard let interfaceController else { return }
+        guard let nowPlaying = AudioPlayer.shared.nowPlayingContext else {
+            interfaceController.presentTemplate(
+                CPActionSheetTemplate(
+                    title: "Nothing Playing", message: nil,
+                    actions: [CPAlertAction(title: "OK", style: .cancel) { [weak self] _ in
+                        self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
+                    }]),
+                animated: true, completion: nil)
+            return
+        }
+
+        let showId = nowPlaying.showId
+        let episodeId = nowPlaying.episodeId
+        let markPlayed = CPAlertAction(title: "Mark Played", style: .default) { [weak self] _ in
+            Task { await self?.markEpisodePlayed(showId: showId, episodeId: episodeId) }
+        }
+        let download = CPAlertAction(title: "Download", style: .default) { [weak self] _ in
+            Task { await self?.downloadEpisode(showId: showId, episodeId: episodeId) }
+        }
+        let addToPlaylist = CPAlertAction(title: "Add to Playlist", style: .default) { [weak self] _ in
+            Task { await self?.presentPlaylistPicker(showId: showId, episodeId: episodeId) }
+        }
+        let cancel = CPAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
+        }
+        interfaceController.presentTemplate(
+            CPActionSheetTemplate(title: "Episode Actions", message: nil, actions: [markPlayed, download, addToPlaylist, cancel]),
+            animated: true, completion: nil)
+    }
+
+    // Mirrors ShowDetailView.toggleCompleted's "mark played" branch: positionSeconds is the
+    // episode's full duration, same as a natural finish would persist.
+    private func markEpisodePlayed(showId: String, episodeId: String) async {
+        let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
+        await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
+        interfaceController?.dismissTemplate(animated: true, completion: nil)
+    }
+
+    // Only starts the download — DownloadManager already runs in-process and shares its SwiftData
+    // store with the phone UI, so a download kicked off here is picked up there (and vice versa)
+    // automatically; see #642's own note on why consuming it needs no further work.
+    private func downloadEpisode(showId: String, episodeId: String) async {
+        if let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId) {
+            DownloadManager.shared.startDownload(episode: episode)
+        }
+        interfaceController?.dismissTemplate(animated: true, completion: nil)
+    }
+
+    // Only one template may be presented modally at a time, so the action sheet has to come down
+    // before the playlist picker (a pushed CPListTemplate, not presentable itself) can go up.
+    private func presentPlaylistPicker(showId: String, episodeId: String) async {
+        interfaceController?.dismissTemplate(animated: true) { [weak self] _, _ in
+            Task { await self?.pushPlaylistPicker(showId: showId, episodeId: episodeId) }
+        }
+    }
+
+    // Mirrors AddToPlaylistSheet's phone reference implementation, simplified for a CPListTemplate
+    // (#642) — same unfiltered playlist list (including dynamic playlists; the server is the
+    // authority on whether adding to one is allowed), no inline "create new playlist" flow.
+    private func pushPlaylistPicker(showId: String, episodeId: String) async {
+        let playlists: [Playlist]
+        do {
+            playlists = try await playlistClient.getPlaylists().sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+        } catch {
+            let template = CPListTemplate(
+                title: "Add to Playlist",
+                sections: [CPListSection(items: [CPListItem(text: "Couldn't load your playlists.", detailText: nil)])])
+            interfaceController?.pushTemplate(template, animated: true, completion: nil)
+            return
+        }
+
+        guard !playlists.isEmpty else {
+            let template = CPListTemplate(
+                title: "Add to Playlist",
+                sections: [CPListSection(items: [CPListItem(text: "You haven't created any playlists yet.", detailText: nil)])])
+            interfaceController?.pushTemplate(template, animated: true, completion: nil)
+            return
+        }
+
+        let items = playlists.map { playlist -> CPListItem in
+            let item = CPListItem(text: playlist.name, detailText: nil)
+            item.handler = { [weak self] _, completion in
+                Task {
+                    await self?.addEpisode(showId: showId, episodeId: episodeId, toPlaylistId: playlist.id)
+                    completion()
+                }
+            }
+            return item
+        }
+        let template = CPListTemplate(title: "Add to Playlist", sections: [CPListSection(items: items)])
+        interfaceController?.pushTemplate(template, animated: true, completion: nil)
+    }
+
+    private func addEpisode(showId: String, episodeId: String, toPlaylistId playlistId: String) async {
+        try? await playlistClient.addItem(playlistId: playlistId, episodeId: episodeId, showId: showId)
+        interfaceController?.popTemplate(animated: true, completion: nil)
     }
 
     private static func persist(episodeId: String, showId: String, positionSeconds: Int, completed: Bool) async {
