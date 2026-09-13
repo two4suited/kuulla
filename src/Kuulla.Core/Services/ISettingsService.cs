@@ -121,6 +121,15 @@ public interface ISettingsService
     Task<bool> GetEffectiveVoiceBoostAsync(
         string userId, string showId, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateTrimSilenceAsync(
+        string userId, bool trimSilence, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowTrimSilenceAsync(
+        string userId, string showId, bool? trimSilence, CancellationToken cancellationToken);
+
+    Task<bool> GetEffectiveTrimSilenceAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateNotificationsEnabledAsync(
         string userId, bool notificationsEnabled, CancellationToken cancellationToken);
 

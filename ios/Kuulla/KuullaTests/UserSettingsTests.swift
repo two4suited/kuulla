@@ -6,7 +6,7 @@ final class UserSettingsTests: XCTestCase {
         userId: "u1", unlistenedEpisodeCount: .five, version: 1, autoArchiveRule: .after7Days,
         autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20, playbackSpeed: 1.5,
         autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true, smartSpeed: true,
-        voiceBoost: true, sleepTimerDefaultDurationMinutes: 15, autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top)
+        voiceBoost: true, trimSilence: true, sleepTimerDefaultDurationMinutes: 15, autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -26,6 +26,7 @@ final class UserSettingsTests: XCTestCase {
         // preserving it.
         XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
         XCTAssertEqual(updated.voiceBoost, base.voiceBoost)
+        XCTAssertEqual(updated.trimSilence, base.trimSilence)
         XCTAssertEqual(updated.sleepTimerDefaultDurationMinutes, base.sleepTimerDefaultDurationMinutes)
         XCTAssertEqual(updated.subscriptionSortOrder, base.subscriptionSortOrder)
         XCTAssertEqual(updated.subscriptionManualOrder, base.subscriptionManualOrder)

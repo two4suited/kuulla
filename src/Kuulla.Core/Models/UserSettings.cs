@@ -52,6 +52,10 @@ public record UserSettings(
     // rationale as SmartSpeed above (#679). SmartSpeed being on implies this boost too, but the
     // two are independently toggleable — see SmartSpeedProcessor on iOS.
     bool VoiceBoost = false,
+    // False is the safe default — trimming dead air audibly alters playback timing, same opt-in
+    // rationale as VoiceBoost above (#680). SmartSpeed being on implies this trimming too, but the
+    // two are independently toggleable — see SmartSpeedProcessor on iOS.
+    bool TrimSilence = false,
     // True is the default here (unlike the opt-in settings above) — notifications are the point
     // of registering a device for push, so a user who grants notification permission expects new
     // episodes to actually notify them until they turn it off, not silently do nothing.
@@ -119,7 +123,7 @@ public record UserSettings(
     public static UserSettings CreateDefault(string userId) =>
         new(userId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, AutoSkipIntroSeconds: 0, AutoSkipOutroSeconds: 0,
             PlaybackSpeed: 1.0f, AutoDeleteRule: AutoDeleteRule.Never, AutoDeleteAfterDays: 7, AutoDownloadNewEpisodes: false,
-            SmartSpeed: false, VoiceBoost: false, NotificationsEnabled: true, SleepTimerDefaultDurationMinutes: null,
+            SmartSpeed: false, VoiceBoost: false, TrimSilence: false, NotificationsEnabled: true, SleepTimerDefaultDurationMinutes: null,
             SubscriptionSortOrder: SubscriptionSortOrder.Title, UpdatedAt: DateTimeOffset.UtcNow);
 
     // Discriminator so a future cross-partition/container-wide query can filter by document

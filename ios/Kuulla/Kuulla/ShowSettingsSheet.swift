@@ -19,6 +19,7 @@ struct ShowSettingsSheet: View {
     @State private var playNextBehaviorSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var voiceBoostSaveError: String?
+    @State private var trimSilenceSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
@@ -34,6 +35,7 @@ struct ShowSettingsSheet: View {
     @State private var playNextBehaviorSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var voiceBoostSaveTask: Task<Void, Never>?
+    @State private var trimSilenceSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
     // so unlike the other settings here (where cancelling the previous Task is enough — an
@@ -225,6 +227,20 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let voiceBoostSaveError {
                         Text(voiceBoostSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Trim Silence", selection: trimSilenceOverrideBinding) {
+                        Text("Use global default").tag(Bool?.none)
+                        Text("On").tag(Bool?.some(true))
+                        Text("Off").tag(Bool?.some(false))
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let trimSilenceSaveError {
+                        Text(trimSilenceSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -660,6 +676,35 @@ struct ShowSettingsSheet: View {
             if !Task.isCancelled {
                 settings = previous
                 voiceBoostSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private var trimSilenceOverrideBinding: Binding<Bool?> {
+        Binding(
+            get: { settings?.trimSilence },
+            set: { newValue in
+                trimSilenceSaveTask?.cancel()
+                trimSilenceSaveTask = Task { await updateTrimSilenceOverride(newValue) }
+            }
+        )
+    }
+
+    private func updateTrimSilenceOverride(_ value: Bool?) async {
+        guard let previous = settings else { return }
+
+        trimSilenceSaveError = nil
+        settings = previous.with(trimSilence: value)
+
+        do {
+            let updated = try await settingsClient.updateShowTrimSilence(showId: showId, value: value)
+            if !Task.isCancelled {
+                settings = updated
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                trimSilenceSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

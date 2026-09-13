@@ -6,7 +6,7 @@ final class ShowSettingsTests: XCTestCase {
         id: "show:u1:s1", userId: "u1", showId: "s1", unlistenedEpisodeCount: .ten,
         version: 1, autoArchiveRule: .after7Days, autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20,
         playbackSpeed: 1.5, autoDownloadNewEpisodes: true, autoDeleteRule: .afterDays, autoDeleteAfterDays: 14,
-        smartSpeed: true, voiceBoost: true, autoAddNewEpisodesToUpNext: true, playNextBehavior: .topOfList)
+        smartSpeed: true, voiceBoost: true, trimSilence: true, autoAddNewEpisodesToUpNext: true, playNextBehavior: .topOfList)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -22,6 +22,7 @@ final class ShowSettingsTests: XCTestCase {
         XCTAssertEqual(updated.autoDownloadNewEpisodes, base.autoDownloadNewEpisodes)
         XCTAssertEqual(updated.smartSpeed, base.smartSpeed)
         XCTAssertEqual(updated.voiceBoost, base.voiceBoost)
+        XCTAssertEqual(updated.trimSilence, base.trimSilence)
         XCTAssertEqual(updated.autoAddNewEpisodesToUpNext, base.autoAddNewEpisodesToUpNext)
         XCTAssertEqual(updated.autoDeleteRule, base.autoDeleteRule)
         XCTAssertEqual(updated.autoDeleteAfterDays, base.autoDeleteAfterDays)

@@ -31,6 +31,7 @@ struct SettingsView: View {
     @State private var trailingSwipeActionsSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var voiceBoostSaveError: String?
+    @State private var trimSilenceSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
@@ -47,7 +48,14 @@ struct SettingsView: View {
     @State private var trailingSwipeActionsSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var voiceBoostSaveTask: Task<Void, Never>?
+    @State private var trimSilenceSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
+    // Read fresh whenever the view loads/refreshes settings (loadFromRemote/refreshFromRemote) —
+    // not itself an @Observable-backed value, since LocalSettings is a plain UserDefaults-backed
+    // enum (#680): AudioPlayer updates the underlying total from the background during playback,
+    // and this screen only needs to reflect it when it's actually visible, not live-tick while
+    // open, matching the "pragmatic running counter, not a live stats screen" scope of #680.
+    @State private var lifetimeSilenceTimeSavedSeconds: TimeInterval = LocalSettings.lifetimeSilenceTimeSavedSeconds
 
     // Counts in-flight update*() calls below. refreshFromRemote() (triggered by scenePhase
     // going active, e.g. the user switches away mid-edit and back) reads the on-disk mirror and
@@ -146,6 +154,25 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 } else {
                     Text("Normalizes loudness so quiet and loud episodes play at a consistent volume, independent of playback speed.")
+                }
+            }
+
+            Section {
+                Toggle("Trim Silence", isOn: trimSilenceBinding)
+                    .disabled(settings == nil)
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let trimSilenceSaveError {
+                        Text(trimSilenceSaveError)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Skips dead air between words, independent of playback speed.")
+                    }
+                    // < 60s would round down to "0m" via formatFriendlyDuration's floor and read as
+                    // a display bug rather than genuine early-days rounding.
+                    if lifetimeSilenceTimeSavedSeconds >= 60 {
+                        Text("\(EpisodeFormatting.formatFriendlyDuration(lifetimeSilenceTimeSavedSeconds)) saved so far")
+                    }
                 }
             }
 
@@ -523,6 +550,16 @@ struct SettingsView: View {
         )
     }
 
+    private var trimSilenceBinding: Binding<Bool> {
+        Binding(
+            get: { settings?.trimSilence ?? false },
+            set: { newValue in
+                trimSilenceSaveTask?.cancel()
+                trimSilenceSaveTask = Task { await updateTrimSilence(newValue) }
+            }
+        )
+    }
+
     private var notificationsEnabledBinding: Binding<Bool> {
         Binding(
             get: { settings?.notificationsEnabled ?? true },
@@ -656,6 +693,9 @@ struct SettingsView: View {
     // Re-pulls remote changes and, if the local mirror moved (another device's write landed),
     // applies it to this view's in-memory state. Cheap no-op when nothing changed.
     private func refreshFromRemote() async {
+        // Device-local, not part of the synced settings record — re-read directly rather than via
+        // syncEngine (#680).
+        lifetimeSilenceTimeSavedSeconds = LocalSettings.lifetimeSilenceTimeSavedSeconds
         await syncEngine?.syncNow()
         // Skip the assignment while an update*() above is mid-flight: its optimistic write
         // already reflects the user's pick, but the on-disk mirror this reads only catches up
@@ -972,6 +1012,28 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 voiceBoostSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateTrimSilence(_ value: Bool) async {
+        guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
+
+        trimSilenceSaveError = nil
+        settings = previous.with(trimSilence: value)
+
+        do {
+            let updated = try await settingsClient.updateTrimSilence(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                trimSilenceSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

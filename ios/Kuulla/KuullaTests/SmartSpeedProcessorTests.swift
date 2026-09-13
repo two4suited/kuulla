@@ -101,17 +101,17 @@ final class SilenceRunDetectorTests: XCTestCase {
     }
 }
 
-// Coverage for the #679 decoupling: SmartSpeedProcessor's silence-trim half and voice-boost half
-// must each gate independently in process(), with the RMS level computation itself unconditional.
-// The public init only takes the two raw settings (smartSpeed, voiceBoost) — it deliberately
-// doesn't expose "silence trim without boost" as a constructible state, since SmartSpeed has
-// always boosted quiet passages as half of its own effect (see the init's doc comment); that
-// policy is enforced once inside the processor rather than at each call site.
+// Coverage for the #679/#680 decoupling: SmartSpeedProcessor's silence-trim half and voice-boost
+// half must each gate independently in process(), with the RMS level computation itself
+// unconditional. The public init takes the three raw settings (smartSpeed, voiceBoost,
+// trimSilence) — SmartSpeed has always trimmed silence and boosted quiet passages as both halves
+// of its own effect (see the init's doc comment); that policy is enforced once inside the
+// processor rather than at each call site.
 final class SmartSpeedProcessorDecouplingTests: XCTestCase {
     // Voice Boost alone (SmartSpeed off) boosts gain but must never report a silence-state change,
     // even across many buffers of silence that would otherwise cross minimumSilenceDuration.
     func testVoiceBoostAloneBoostsButNeverReportsSilence() {
-        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true)
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true, trimSilence: false)
         processor.prepare()
 
         // A quiet-but-present level below boostTargetLevel should ramp gain upward over repeated
@@ -134,7 +134,7 @@ final class SmartSpeedProcessorDecouplingTests: XCTestCase {
     // SmartSpeed on (voiceBoost off at the call site) still boosts quiet passages and reports
     // silence transitions — SmartSpeed's own boost policy is preserved bit-for-bit.
     func testBothEnabledDoesBothWithoutDoubleApplying() {
-        let processor = SmartSpeedProcessor(smartSpeed: true, voiceBoost: false)
+        let processor = SmartSpeedProcessor(smartSpeed: true, voiceBoost: false, trimSilence: false)
         processor.prepare()
 
         var lastSamples: [Float] = []
@@ -149,5 +149,28 @@ final class SmartSpeedProcessorDecouplingTests: XCTestCase {
             if silenceState == true { sawSilenceStart = true }
         }
         XCTAssertTrue(sawSilenceStart, "silence transitions should still be reported when both are on")
+    }
+
+    // Trim Silence alone (SmartSpeed and Voice Boost both off) reports silence-state transitions
+    // but must never boost gain — the counterpart voiceBoost's own tests never had (#680).
+    func testTrimSilenceAloneReportsSilenceButDoesNotBoost() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: false, trimSilence: true)
+        processor.prepare()
+
+        // A quiet-but-present level that would ramp gain upward if voice boost were enabled must
+        // leave samples untouched here.
+        for tick in 0..<20 {
+            let (samples, silenceState) = runProcess(processor, amplitude: 0.05, itemTime: TimeInterval(tick) * 0.05)
+            XCTAssertNil(silenceState, "no silent run yet")
+            XCTAssertEqual(samples[0], 0.05, "voice boost is disabled; samples must pass through unchanged")
+        }
+
+        var sawSilenceStart = false
+        for tick in 0..<20 {
+            let (samples, silenceState) = runProcess(processor, amplitude: 0, itemTime: 20 + TimeInterval(tick) * 0.1)
+            if silenceState == true { sawSilenceStart = true }
+            XCTAssertEqual(samples[0], 0, "voice boost is disabled; silent samples must pass through unchanged")
+        }
+        XCTAssertTrue(sawSilenceStart, "silence transitions should still be reported with trimSilence alone")
     }
 }

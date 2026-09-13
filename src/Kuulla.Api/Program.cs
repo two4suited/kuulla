@@ -1853,6 +1853,29 @@ settings.MapPut("/shows/{showId}/voice-boost", async (
     return Results.Ok(result);
 });
 
+settings.MapPut("/trim-silence", async (
+    UpdateTrimSilenceRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateTrimSilenceAsync(userId, request.TrimSilence, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/trim-silence", async (
+    string showId,
+    UpdateShowTrimSilenceRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowTrimSilenceAsync(userId, showId, request.TrimSilence, ct);
+    return Results.Ok(result);
+});
+
 settings.MapPut("/notifications", async (
     UpdateNotificationsEnabledRequest request,
     ClaimsPrincipal user,

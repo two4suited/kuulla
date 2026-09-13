@@ -167,6 +167,16 @@ struct SettingsClient {
             body: UpdateShowVoiceBoostRequest(voiceBoost: value))
     }
 
+    func updateTrimSilence(_ value: Bool) async throws -> UserSettings {
+        try await apiClient.put(["api", "settings", "trim-silence"], body: UpdateTrimSilenceRequest(trimSilence: value))
+    }
+
+    func updateShowTrimSilence(showId: String, value: Bool?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "trim-silence"],
+            body: UpdateShowTrimSilenceRequest(trimSilence: value))
+    }
+
     func updateNotificationsEnabled(_ value: Bool) async throws -> UserSettings {
         try await apiClient.put(
             ["api", "settings", "notifications"],
@@ -296,6 +306,14 @@ private struct UpdateVoiceBoostRequest: Encodable {
 
 private struct UpdateShowVoiceBoostRequest: Encodable {
     let voiceBoost: Bool?
+}
+
+private struct UpdateTrimSilenceRequest: Encodable {
+    let trimSilence: Bool
+}
+
+private struct UpdateShowTrimSilenceRequest: Encodable {
+    let trimSilence: Bool?
 }
 
 private struct UpdateNotificationsEnabledRequest: Encodable {

@@ -1315,6 +1315,79 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateTrimSilenceAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 3,
+            AutoArchiveRule.Never, TrimSilence: false);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateTrimSilenceAsync(UserId, true, CancellationToken.None);
+
+        Assert.True(result.TrimSilence);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowTrimSilenceAsync_ClearsOverrideWhenValueIsNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, UnlistenedEpisodeCount.Ten, Version: 2, TrimSilence: true);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowTrimSilenceAsync(UserId, showId, null, CancellationToken.None);
+
+        Assert.Null(result.TrimSilence);
+    }
+
+    [Fact]
+    public async Task GetEffectiveTrimSilenceAsync_ReturnsShowOverrideWhenSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(showSettingsId, UserId, showId, null, Version: 2, TrimSilence: true);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectiveTrimSilenceAsync(UserId, showId, CancellationToken.None);
+
+        Assert.True(result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectiveTrimSilenceAsync_FallsBackToUserSettingsWhenNoOverride()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        var userSettings = new UserSettings(
+            UserId, UnlistenedEpisodeCount.Five, Version: 1, AutoArchiveRule.Never, TrimSilence: true);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveTrimSilenceAsync(UserId, showId, CancellationToken.None);
+
+        Assert.True(result);
+    }
+
+    [Fact]
     public async Task UpdateNotificationsEnabledAsync_IncrementsVersionOfExistingDocument()
     {
         var existing = new UserSettings(
@@ -1391,6 +1464,7 @@ public class SettingsServiceTests
         DateTimeOffset updatedAt,
         float playbackSpeed = 1.0f,
         bool? voiceBoost = null,
+        bool? trimSilence = null,
         bool? notificationsEnabled = true,
         int? sleepTimerDefaultDurationMinutes = null,
         SubscriptionSortOrder? subscriptionSortOrder = SubscriptionSortOrder.Title,
@@ -1403,7 +1477,7 @@ public class SettingsServiceTests
         PlayNextBehavior? playNextBehavior = PlayNextBehavior.NextInList) =>
         new(
             UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
-            voiceBoost, notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder,
+            voiceBoost, trimSilence, notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder,
             hideCaughtUpShows, autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions,
             playNextBehavior, updatedAt);
 
