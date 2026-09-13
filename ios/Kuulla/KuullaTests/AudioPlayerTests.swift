@@ -872,4 +872,66 @@ final class AudioPlayerTests: XCTestCase {
 
         XCTAssertTrue(callbackInvoked)
     }
+
+    // MARK: - Watch now-playing snapshot (#582)
+
+    func testCurrentWatchNowPlayingStateReflectsContextMetadataAndPlaybackState() {
+        let player = AudioPlayer()
+
+        player.play(
+            url: URL(string: "https://example.com/audio.mp3")!, startPosition: 30,
+            context: NowPlayingContext(showId: "show-1", episodeId: "ep-1", playlistId: nil),
+            metadata: NowPlayingMetadata(title: "Episode", showTitle: "Show", artworkURL: nil))
+
+        let state = player.currentWatchNowPlayingState()
+
+        XCTAssertEqual(state?.episodeId, "ep-1")
+        XCTAssertEqual(state?.showId, "show-1")
+        XCTAssertEqual(state?.title, "Episode")
+        XCTAssertEqual(state?.showTitle, "Show")
+        XCTAssertEqual(state?.position, 30)
+        XCTAssertEqual(state?.isPlaying, true)
+    }
+
+    func testCurrentWatchNowPlayingStateIsNilWithoutContext() {
+        let player = AudioPlayer()
+
+        player.play(
+            url: URL(string: "https://example.com/audio.mp3")!,
+            metadata: NowPlayingMetadata(title: "Episode", showTitle: nil, artworkURL: nil))
+
+        XCTAssertNil(player.currentWatchNowPlayingState())
+    }
+
+    func testCurrentWatchNowPlayingStateReflectsPauseAndSeek() {
+        let player = AudioPlayer()
+        player.play(
+            url: URL(string: "https://example.com/audio.mp3")!,
+            context: NowPlayingContext(showId: "show-1", episodeId: "ep-1", playlistId: nil),
+            metadata: NowPlayingMetadata(title: "Episode", showTitle: nil, artworkURL: nil))
+
+        player.pause()
+        XCTAssertEqual(player.currentWatchNowPlayingState()?.isPlaying, false)
+
+        player.seek(to: 75)
+        XCTAssertEqual(player.currentWatchNowPlayingState()?.position, 75)
+    }
+
+    func testDownsampledArtworkThumbnailProducesSmallerJPEGData() {
+        let size = CGSize(width: 600, height: 600)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+        let artwork = MPMediaItemArtwork(boundsSize: size) { _ in image }
+
+        let thumbnail = AudioPlayer.downsampledArtworkThumbnail(artwork, maxDimension: 80)
+
+        XCTAssertNotNil(thumbnail)
+        // JPEG magic bytes (0xFFD8) confirm this is actually encoded/compressed, not the raw
+        // full-size image passed through untouched.
+        XCTAssertEqual(thumbnail?.prefix(2), Data([0xFF, 0xD8]))
+        XCTAssertLessThan(thumbnail!.count, image.pngData()!.count)
+    }
 }

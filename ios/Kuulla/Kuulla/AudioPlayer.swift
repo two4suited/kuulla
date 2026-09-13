@@ -21,6 +21,27 @@ struct NowPlayingContext: Equatable {
     let playlistId: String?
 }
 
+// The subset of WatchNowPlayingState that actually warrants a republish to the watch (#582) —
+// deliberately excludes position/duration so the periodic time-observer tick (which updates those
+// every second via updateNowPlayingInfo()) doesn't spam WCSession's application context.
+private struct WatchNowPlayingStateKey: Equatable {
+    let episodeId: String?
+    let isPlaying: Bool
+    let hasArtwork: Bool
+
+    init(episodeId: String?, isPlaying: Bool, hasArtwork: Bool) {
+        self.episodeId = episodeId
+        self.isPlaying = isPlaying
+        self.hasArtwork = hasArtwork
+    }
+
+    init(_ state: WatchNowPlayingState?) {
+        episodeId = state?.episodeId
+        isPlaying = state?.isPlaying ?? false
+        hasArtwork = state?.artworkThumbnail != nil
+    }
+}
+
 @Observable
 final class AudioPlayer {
     // A single shared instance so playback survives navigation between episode screens
@@ -188,6 +209,13 @@ final class AudioPlayer {
     // second play() call for the same show doesn't re-download artwork already fetched, and a
     // stale completion for a since-replaced show can't clobber the current one's artwork.
     private var artworkURLBeingFetched: URL?
+    // Last state actually sent to the watch (#582), compared on every updateNowPlayingInfo() call
+    // so a plain per-second time-observer tick doesn't spam WCSession's application context —
+    // only episode identity, play state, or artwork arriving/changing should trigger a republish.
+    private var lastPublishedWatchStateKey: WatchNowPlayingStateKey?
+    // Monotonic counter handed to WatchConnectivitySession.publish(nowPlaying:sequence:) so it can
+    // discard an out-of-order delivery from an earlier, slower Task (see publishToWatch below).
+    private var nowPlayingPublishSequence = 0
 
     // pathObserver is a test-only seam (mirroring DownloadManager's) — production always uses the
     // real NWPathMonitor-backed default; tests inject a mock to simulate Wi-Fi/cellular
@@ -504,6 +532,10 @@ final class AudioPlayer {
             player?.seek(to: cmTime)
         }
         updateNowPlayingInfo()
+        // updateNowPlayingInfo()'s watch-publish only fires on episode/play-state/artwork
+        // changes (see publishNowPlayingStateToWatchIfChanged), none of which a seek touches —
+        // so the position jump needs this explicit, unconditional republish.
+        republishNowPlayingToWatch()
     }
 
     // Issues a seek whose completion is the one allowed to start playback (apply playbackSpeed,
@@ -1006,6 +1038,10 @@ final class AudioPlayer {
     private func updateNowPlayingInfo() {
         guard let nowPlayingMetadata else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            // nowPlayingMetadata is never actually reset to nil today, so this branch is
+            // currently dead — but if a future "stop/unload" path adds that, remember this
+            // early return also skips publishNowPlayingStateToWatchIfChanged() below, so the
+            // watch would keep showing the last episode forever instead of clearing (#582).
             return
         }
 
@@ -1024,6 +1060,72 @@ final class AudioPlayer {
             info[MPMediaItemPropertyArtwork] = artwork
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        publishNowPlayingStateToWatchIfChanged()
+    }
+
+    // Unconditional — used by seek() (which doesn't change episode identity, play state, or
+    // artwork, so publishNowPlayingStateToWatchIfChanged()'s dedup key would otherwise miss it)
+    // and by KuullaApp's reachability watcher, which needs the current snapshot resent the moment
+    // the watch reconnects regardless of whether anything changed while it was unreachable.
+    func republishNowPlayingToWatch() {
+        let state = currentWatchNowPlayingState()
+        lastPublishedWatchStateKey = WatchNowPlayingStateKey(state)
+        publishToWatch(state)
+    }
+
+    // Computes the dedup key from the raw properties first — deliberately *before* building the
+    // full WatchNowPlayingState — so the per-second periodic-time-observer tick (which also
+    // routes through updateNowPlayingInfo()) doesn't pay for an artwork resize + JPEG encode on
+    // every tick just to discard the result when nothing watch-relevant actually changed.
+    private func publishNowPlayingStateToWatchIfChanged() {
+        let key = WatchNowPlayingStateKey(
+            episodeId: nowPlayingContext?.episodeId, isPlaying: isPlaying, hasArtwork: artwork != nil)
+        guard key != lastPublishedWatchStateKey else { return }
+        lastPublishedWatchStateKey = key
+        publishToWatch(currentWatchNowPlayingState())
+    }
+
+    // Assigns a sequence number synchronously (on whatever thread every other AudioPlayer method
+    // already assumes is main — see the file-wide informal main-thread contract, e.g. onMain())
+    // before handing off to the actor. Unstructured `Task {}` creation order isn't guaranteed to
+    // match the order those Tasks reach WatchConnectivitySession's serialized queue, so without
+    // this a rapid pause-then-seek (or similar back-to-back state change) could have its two
+    // publishes land out of order and leave the watch showing the stale one; the actor uses the
+    // sequence to always keep the newest snapshot, regardless of delivery order.
+    private func publishToWatch(_ state: WatchNowPlayingState?) {
+        nowPlayingPublishSequence += 1
+        let sequence = nowPlayingPublishSequence
+        Task { await WatchConnectivitySession.shared.publish(nowPlaying: state, sequence: sequence) }
+    }
+
+    // Internal (not private) so tests can assert on the built snapshot directly, mirroring
+    // tickSleepTimer's own test-seam convention above.
+    func currentWatchNowPlayingState() -> WatchNowPlayingState? {
+        guard let nowPlayingContext, let nowPlayingMetadata else { return nil }
+        return WatchNowPlayingState(
+            episodeId: nowPlayingContext.episodeId,
+            showId: nowPlayingContext.showId,
+            title: nowPlayingMetadata.title,
+            showTitle: nowPlayingMetadata.showTitle,
+            artworkThumbnail: artwork.flatMap { Self.downsampledArtworkThumbnail($0) },
+            position: currentTime,
+            duration: duration,
+            isPlaying: isPlaying)
+    }
+
+    // Downsamples to a small square JPEG so the watch payload stays tiny — WCSession's
+    // application context is meant for small "current state" snapshots, not full-resolution
+    // images. artwork's own image(at:) ignores the requested size (see fetchArtworkIfNeeded
+    // above, which always returns the original), so the resize has to happen here instead.
+    static func downsampledArtworkThumbnail(_ artwork: MPMediaItemArtwork, maxDimension: CGFloat = 80) -> Data? {
+        guard let image = artwork.image(at: CGSize(width: maxDimension, height: maxDimension)),
+            image.size.width > 0, image.size.height > 0
+        else { return nil }
+        let scale = min(maxDimension / image.size.width, maxDimension / image.size.height, 1)
+        let targetSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: targetSize)) }
+        return resized.jpegData(compressionQuality: 0.6)
     }
 
     // Best-effort: artwork is a Now Playing nicety, so a failed/slow download just leaves the

@@ -87,6 +87,16 @@ struct KuullaApp: App {
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }
+                // Separate .task from the one above (rather than folded in): this one runs for
+                // the app's entire lifetime watching for the watch to (re)connect, and would
+                // otherwise block cold-launch auth restore/sync forever since `for await` never
+                // returns on its own (#582).
+                .task {
+                    for await reachable in await WatchConnectivitySession.shared.reachabilityUpdates
+                    where reachable {
+                        AudioPlayer.shared.republishNowPlayingToWatch()
+                    }
+                }
         }
         .modelContainer(modelContainer)
         .onChange(of: scenePhase) { _, newPhase in
