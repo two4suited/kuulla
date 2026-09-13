@@ -112,6 +112,24 @@ public interface ISettingsService
     Task<bool> GetEffectiveSmartSpeedAsync(
         string userId, string showId, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateVoiceBoostAsync(
+        string userId, bool voiceBoost, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowVoiceBoostAsync(
+        string userId, string showId, bool? voiceBoost, CancellationToken cancellationToken);
+
+    Task<bool> GetEffectiveVoiceBoostAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
+    Task<UserSettings> UpdateTrimSilenceAsync(
+        string userId, bool trimSilence, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowTrimSilenceAsync(
+        string userId, string showId, bool? trimSilence, CancellationToken cancellationToken);
+
+    Task<bool> GetEffectiveTrimSilenceAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateNotificationsEnabledAsync(
         string userId, bool notificationsEnabled, CancellationToken cancellationToken);
 

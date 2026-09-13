@@ -290,6 +290,48 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<UserSettings> UpdateVoiceBoostAsync(
+        bool voiceBoost, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/voice-boost", new { VoiceBoost = voiceBoost }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowVoiceBoostAsync(
+        string showId, bool? voiceBoost, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/voice-boost",
+            new { VoiceBoost = voiceBoost }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<UserSettings> UpdateTrimSilenceAsync(
+        bool trimSilence, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/trim-silence", new { TrimSilence = trimSilence }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowTrimSilenceAsync(
+        string showId, bool? trimSilence, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/trim-silence",
+            new { TrimSilence = trimSilence }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<UserSettings> UpdateSleepTimerDefaultDurationAsync(
         int sleepTimerDefaultDurationMinutes, CancellationToken cancellationToken = default)
     {

@@ -302,6 +302,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let autoSkipOutroSeconds = TimeInterval(show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
         let playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
         let smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
+        let voiceBoost = show?.voiceBoost ?? user?.voiceBoost ?? false
+        let trimSilence = show?.trimSilence ?? user?.trimSilence ?? false
 
         let list = PlaybackList(
             source: .show(id: entry.episode.showId),
@@ -311,7 +313,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             episode: entry.episode, showId: entry.episode.showId, showTitle: entry.show?.title ?? "",
             showArtworkUrl: entry.show?.artworkUrl, startPosition: TimeInterval(entry.positionSeconds),
             downloadRecord: entry.downloadRecord, autoSkipIntroSeconds: autoSkipIntroSeconds,
-            autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, list: list)
+            autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+            voiceBoost: voiceBoost, trimSilence: trimSilence, list: list)
     }
 
     private func subscriptionsSections(for subscriptions: [Subscription]) -> [CPListSection] {
@@ -438,6 +441,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let autoSkipOutroSeconds = TimeInterval(showSettingsResolved?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
         let playbackSpeed = showSettingsResolved?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
         let smartSpeed = showSettingsResolved?.smartSpeed ?? user?.smartSpeed ?? false
+        let voiceBoost = showSettingsResolved?.voiceBoost ?? user?.voiceBoost ?? false
+        let trimSilence = showSettingsResolved?.trimSilence ?? user?.trimSilence ?? false
 
         var startPosition: TimeInterval = 0
         var downloadRecord: DownloadedEpisodeRecord?
@@ -458,7 +463,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             showArtworkUrl: playlistItem.artworkUrl ?? show?.artworkUrl, startPosition: startPosition,
             downloadRecord: downloadRecord, autoSkipIntroSeconds: autoSkipIntroSeconds,
             autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
-            list: list, playlistId: playlistId)
+            voiceBoost: voiceBoost, trimSilence: trimSilence, list: list, playlistId: playlistId)
     }
 
     // Cache-first (#637): push instantly from CatalogCache.episodes if it has anything for this
@@ -556,11 +561,14 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                     let autoSkipOutroSeconds = TimeInterval(show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
                     let playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
                     let smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
+                    let voiceBoost = show?.voiceBoost ?? user?.voiceBoost ?? false
+                    let trimSilence = show?.trimSilence ?? user?.trimSilence ?? false
                     self?.play(
                         episode: episode, showId: showId, showTitle: showTitle, showArtworkUrl: showArtworkUrl,
                         startPosition: TimeInterval(positions[episode.id] ?? 0), downloadRecord: downloadRecords[episode.id],
                         autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-                        playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, list: list)
+                        playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost,
+                        trimSilence: trimSilence, list: list)
                     completion()
                 }
             }
@@ -574,7 +582,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private func play(
         episode: Episode, showId: String, showTitle: String, showArtworkUrl: String?, startPosition: TimeInterval,
         downloadRecord: DownloadedEpisodeRecord?, autoSkipIntroSeconds: TimeInterval, autoSkipOutroSeconds: TimeInterval,
-        playbackSpeed: Float, smartSpeed: Bool, list: PlaybackList, playlistId: String? = nil
+        playbackSpeed: Float, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, list: PlaybackList, playlistId: String? = nil
     ) {
         // Prefers a completed local download over the remote URL, same as EpisodeDetailView —
         // driving is exactly the poor-connectivity case offline downloads exist for.
@@ -607,7 +615,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             AudioPlayer.shared.play(
                 url: audioUrl, startPosition: startPosition,
                 autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
                 context: NowPlayingContext(showId: showId, episodeId: episode.id, playlistId: playlistId),
                 metadata: NowPlayingMetadata(
                     title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))))

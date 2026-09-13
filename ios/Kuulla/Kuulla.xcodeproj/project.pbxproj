@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		26538DB8EBE520C37A0EF6A3 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 843D0AB500324B3BEB2AE889 /* Foundation.framework */; };
+		625CFBCB8FE6BCB4E790A7C2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8E62DCE9F476EB5F67915638 /* Assets.xcassets */; };
+		783487B85C74372637C45E97 /* KuullaWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61CFFD4A39241CB14F23D36C /* KuullaWatchApp.swift */; };
 		A1000001 /* KuullaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001 /* KuullaApp.swift */; };
 		A1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000002 /* ContentView.swift */; };
 		A1000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000003 /* Assets.xcassets */; };
@@ -21,7 +24,6 @@
 		A1000012 /* PodcastCatalogClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013 /* PodcastCatalogClient.swift */; };
 		A1000013 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014 /* SearchView.swift */; };
 		A1000014 /* ShowDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015 /* ShowDetailView.swift */; };
-		U1000001 /* EpisodeSwipeActionsPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000001 /* EpisodeSwipeActionsPicker.swift */; };
 		A1000015 /* EpisodeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016 /* EpisodeDetailView.swift */; };
 		A1000016 /* Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017 /* Subscription.swift */; };
 		A1000017 /* SubscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018 /* SubscriptionClient.swift */; };
@@ -36,15 +38,26 @@
 		A1000040 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000040 /* DeepLinkRouter.swift */; };
 		A1000050 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000050 /* Theme.swift */; };
 		A1000051 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000051 /* Typography.swift */; };
-		A1000060 /* Fonts/Manrope.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000060 /* Fonts/Manrope.ttf */; };
-		A1000061 /* Fonts/SpaceGrotesk.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000061 /* Fonts/SpaceGrotesk.ttf */; };
-		A1000062 /* Fonts/JetBrainsMono.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000062 /* Fonts/JetBrainsMono.ttf */; };
-		A1000063 /* Fonts/LICENSES/Manrope-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000063 /* Fonts/LICENSES/Manrope-OFL.txt */; };
-		A1000064 /* Fonts/LICENSES/SpaceGrotesk-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000064 /* Fonts/LICENSES/SpaceGrotesk-OFL.txt */; };
-		A1000065 /* Fonts/LICENSES/JetBrainsMono-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000065 /* Fonts/LICENSES/JetBrainsMono-OFL.txt */; };
+		A1000060 /* Manrope.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000060 /* Manrope.ttf */; };
+		A1000061 /* SpaceGrotesk.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000061 /* SpaceGrotesk.ttf */; };
+		A1000062 /* JetBrainsMono.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A2000062 /* JetBrainsMono.ttf */; };
+		A1000063 /* Manrope-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000063 /* Manrope-OFL.txt */; };
+		A1000064 /* SpaceGrotesk-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000064 /* SpaceGrotesk-OFL.txt */; };
+		A1000065 /* JetBrainsMono-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = A2000065 /* JetBrainsMono-OFL.txt */; };
+		A2C0A036D61FD06B6BC6D962 /* KuullaWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 29A120B52EB44457BAF2010B /* KuullaWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AFE9AD7448C54AF6D1F54A2D /* WatchConnectivitySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51BA101E347CC1C1814D683 /* WatchConnectivitySession.swift */; };
 		B1000001 /* EpisodeStateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* EpisodeStateClient.swift */; };
 		B9000003 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = B9000002 /* GoogleSignIn */; };
 		C1000001 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001 /* CarPlaySceneDelegate.swift */; };
+		CA100001 /* SubscriptionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200001 /* SubscriptionRecord.swift */; };
+		CA100002 /* ShowRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200002 /* ShowRecord.swift */; };
+		CA100003 /* CachedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200003 /* CachedEpisodeRecord.swift */; };
+		CA100004 /* CatalogCacheState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200004 /* CatalogCacheState.swift */; };
+		CA100005 /* CatalogCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200005 /* CatalogCache.swift */; };
+		CA100006 /* CatalogRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200006 /* CatalogRefreshService.swift */; };
+		CA100007 /* CatalogRefreshEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200007 /* CatalogRefreshEnvironment.swift */; };
+		CA100008 /* CatalogCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200008 /* CatalogCacheTests.swift */; };
+		CA100009 /* CachedNewEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200009 /* CachedNewEpisodeRecord.swift */; };
 		D1000001 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000001 /* MockURLProtocol.swift */; };
 		D1000002 /* ApiClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000002 /* ApiClientTests.swift */; };
 		D1000003 /* PodcastCatalogClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000003 /* PodcastCatalogClientTests.swift */; };
@@ -62,6 +75,8 @@
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001 /* UITestSupport.swift */; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002 /* SearchAndSubscribeUITests.swift */; };
 		E1000003 /* PlaybackUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000003 /* PlaybackUITests.swift */; };
+		E6FA293F5610E89527FBF332 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB99ED1C65B5F2C64469C49B /* ContentView.swift */; };
+		EBCEE3867AB787693CDFB3DB /* WatchConnectivitySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51BA101E347CC1C1814D683 /* WatchConnectivitySession.swift */; };
 		F1000001 /* Syncable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001 /* Syncable.swift */; };
 		F1000002 /* SyncCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000002 /* SyncCursor.swift */; };
 		F1000003 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000003 /* SyncEngine.swift */; };
@@ -69,14 +84,13 @@
 		F1000005 /* EpisodeSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000005 /* EpisodeSyncAdapter.swift */; };
 		F1000006 /* CrossDeviceResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000006 /* CrossDeviceResume.swift */; };
 		F1000007 /* CrossDeviceResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000007 /* CrossDeviceResumeTests.swift */; };
-		PQ100001 /* PlaybackQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQ200001 /* PlaybackQueue.swift */; };
-		PQ100002 /* PlaybackQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQ200002 /* PlaybackQueueTests.swift */; };
 		G1000001 /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000001 /* FeedView.swift */; };
 		G1000002 /* EpisodeStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000002 /* EpisodeStatus.swift */; };
 		G1000003 /* EpisodeSyncEngineEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = G2000003 /* EpisodeSyncEngineEnvironment.swift */; };
 		H1000001 /* EpisodeStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000001 /* EpisodeStatusTests.swift */; };
 		H1000002 /* CarPlaySceneDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000002 /* CarPlaySceneDelegateTests.swift */; };
 		H1000003 /* ShowIconSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = H2000003 /* ShowIconSizeTests.swift */; };
+		I1000001 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = I2000001 /* CachedAsyncImage.swift */; };
 		J1000001 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000001 /* Playlist.swift */; };
 		J1000002 /* PlaylistSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000002 /* PlaylistSyncAdapter.swift */; };
 		J1000003 /* PlaylistSyncEngineEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000003 /* PlaylistSyncEngineEnvironment.swift */; };
@@ -86,9 +100,10 @@
 		J1000007 /* AddToPlaylistSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000007 /* AddToPlaylistSheet.swift */; };
 		J1000008 /* PlaylistSyncAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000008 /* PlaylistSyncAdapterTests.swift */; };
 		J1000009 /* PlaylistClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000009 /* PlaylistClientTests.swift */; };
-		J1000021 /* PlaylistCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000021 /* PlaylistCleanupTests.swift */; };
 		J1000010 /* UpNextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000010 /* UpNextView.swift */; };
 		J1000011 /* PlaylistIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000011 /* PlaylistIcons.swift */; };
+		J1000020 /* PlaylistSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000020 /* PlaylistSummaryTests.swift */; };
+		J1000021 /* PlaylistCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000021 /* PlaylistCleanupTests.swift */; };
 		K1000001 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000001 /* LibraryView.swift */; };
 		K1000002 /* UnplayedCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000002 /* UnplayedCounts.swift */; };
 		K1000003 /* UnplayedCountsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = K2000003 /* UnplayedCountsTests.swift */; };
@@ -100,6 +115,8 @@
 		N1000001 /* AutoSkipDuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000001 /* AutoSkipDuration.swift */; };
 		N1000002 /* PlaybackSpeedOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000002 /* PlaybackSpeedOption.swift */; };
 		N1000003 /* ShowIconSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000003 /* ShowIconSize.swift */; };
+		NB100001 /* NowPlayingBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = NB200001 /* NowPlayingBar.swift */; };
+		NP100001 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NP200001 /* NowPlayingView.swift */; };
 		P1000001 /* DownloadedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000001 /* DownloadedEpisodeRecord.swift */; };
 		P1000002 /* DownloadedEpisodeRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000002 /* DownloadedEpisodeRecordTests.swift */; };
 		P1000003 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000003 /* DownloadManager.swift */; };
@@ -114,6 +131,8 @@
 		P1000012 /* UserSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000012 /* UserSettingsTests.swift */; };
 		P1000013 /* ShowSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000013 /* ShowSettingsTests.swift */; };
 		P1000014 /* FeedViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000014 /* FeedViewTests.swift */; };
+		PQ100001 /* PlaybackQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQ200001 /* PlaybackQueue.swift */; };
+		PQ100002 /* PlaybackQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQ200002 /* PlaybackQueueTests.swift */; };
 		Q1000001 /* UserSettingsRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000001 /* UserSettingsRecord.swift */; };
 		Q1000002 /* SettingsSyncAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000002 /* SettingsSyncAdapter.swift */; };
 		Q1000003 /* SettingsSyncEngineEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = Q2000003 /* SettingsSyncEngineEnvironment.swift */; };
@@ -129,33 +148,28 @@
 		T1000001 /* SleepTimerDuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000001 /* SleepTimerDuration.swift */; };
 		T1000002 /* SleepTimerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000002 /* SleepTimerSheet.swift */; };
 		T1000003 /* SleepTimerSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003 /* SleepTimerSheetTests.swift */; };
+		U1000001 /* EpisodeSwipeActionsPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000001 /* EpisodeSwipeActionsPicker.swift */; };
 		V1000001 /* SafariView.swift in Sources */ = {isa = PBXBuildFile; fileRef = V2000001 /* SafariView.swift */; };
 		W1000001 /* SubscriptionSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000001 /* SubscriptionSortOrder.swift */; };
 		W1000002 /* SubscriptionSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000002 /* SubscriptionSort.swift */; };
 		W1000003 /* SubscriptionSortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000003 /* SubscriptionSortTests.swift */; };
-		J1000020 /* PlaylistSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = J2000020 /* PlaylistSummaryTests.swift */; };
 		X1000001 /* SubscriptionManualReorderRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = X2000001 /* SubscriptionManualReorderRow.swift */; };
 		Y1000001 /* ShowDisplaySettingsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = Y2000001 /* ShowDisplaySettingsMenu.swift */; };
-		I1000001 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = I2000001 /* CachedAsyncImage.swift */; };
 		Z1000001 /* ChapterScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000001 /* ChapterScrubber.swift */; };
 		Z1000002 /* ChapterScrubberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000002 /* ChapterScrubberTests.swift */; };
 		Z1000003 /* Transcript.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000003 /* Transcript.swift */; };
 		Z1000004 /* TranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000004 /* TranscriptView.swift */; };
 		Z1000005 /* TranscriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = Z2000005 /* TranscriptTests.swift */; };
-		CA100001 /* SubscriptionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200001 /* SubscriptionRecord.swift */; };
-		CA100002 /* ShowRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200002 /* ShowRecord.swift */; };
-		CA100003 /* CachedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200003 /* CachedEpisodeRecord.swift */; };
-		CA100009 /* CachedNewEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200009 /* CachedNewEpisodeRecord.swift */; };
-		CA100004 /* CatalogCacheState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200004 /* CatalogCacheState.swift */; };
-		CA100005 /* CatalogCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200005 /* CatalogCache.swift */; };
-		CA100006 /* CatalogRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200006 /* CatalogRefreshService.swift */; };
-		CA100007 /* CatalogRefreshEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200007 /* CatalogRefreshEnvironment.swift */; };
-		CA100008 /* CatalogCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200008 /* CatalogCacheTests.swift */; };
-		NB100001 /* NowPlayingBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = NB200001 /* NowPlayingBar.swift */; };
-		NP100001 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NP200001 /* NowPlayingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		D3D1011F1F609A3333E8E07D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A7000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 42B68B3ED20100B477F174F6;
+			remoteInfo = KuullaWatch;
+		};
 		D8000002 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A7000000 /* Project object */;
@@ -172,7 +186,25 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		04509B818B3E67F46023FAF3 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				A2C0A036D61FD06B6BC6D962 /* KuullaWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		29A120B52EB44457BAF2010B /* KuullaWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KuullaWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		61CFFD4A39241CB14F23D36C /* KuullaWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KuullaWatchApp.swift; sourceTree = "<group>"; };
+		843D0AB500324B3BEB2AE889 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		8E62DCE9F476EB5F67915638 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000000 /* Kuulla.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kuulla.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000001 /* KuullaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KuullaApp.swift; sourceTree = "<group>"; };
 		A2000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -189,7 +221,6 @@
 		A2000013 /* PodcastCatalogClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCatalogClient.swift; sourceTree = "<group>"; };
 		A2000014 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		A2000015 /* ShowDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDetailView.swift; sourceTree = "<group>"; };
-		U2000001 /* EpisodeSwipeActionsPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSwipeActionsPicker.swift; sourceTree = "<group>"; };
 		A2000016 /* EpisodeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeDetailView.swift; sourceTree = "<group>"; };
 		A2000017 /* Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscription.swift; sourceTree = "<group>"; };
 		A2000018 /* SubscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionClient.swift; sourceTree = "<group>"; };
@@ -205,14 +236,25 @@
 		A2000040 /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
 		A2000050 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		A2000051 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
-		A2000060 /* Fonts/Manrope.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Manrope.ttf; sourceTree = "<group>"; };
-		A2000061 /* Fonts/SpaceGrotesk.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/SpaceGrotesk.ttf; sourceTree = "<group>"; };
-		A2000062 /* Fonts/JetBrainsMono.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/JetBrainsMono.ttf; sourceTree = "<group>"; };
-		A2000063 /* Fonts/LICENSES/Manrope-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/Manrope-OFL.txt"; sourceTree = "<group>"; };
-		A2000064 /* Fonts/LICENSES/SpaceGrotesk-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/SpaceGrotesk-OFL.txt"; sourceTree = "<group>"; };
-		A2000065 /* Fonts/LICENSES/JetBrainsMono-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/JetBrainsMono-OFL.txt"; sourceTree = "<group>"; };
+		A2000060 /* Manrope.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/Manrope.ttf; sourceTree = "<group>"; };
+		A2000061 /* SpaceGrotesk.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/SpaceGrotesk.ttf; sourceTree = "<group>"; };
+		A2000062 /* JetBrainsMono.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fonts/JetBrainsMono.ttf; sourceTree = "<group>"; };
+		A2000063 /* Manrope-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/Manrope-OFL.txt"; sourceTree = "<group>"; };
+		A2000064 /* SpaceGrotesk-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/SpaceGrotesk-OFL.txt"; sourceTree = "<group>"; };
+		A2000065 /* JetBrainsMono-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/LICENSES/JetBrainsMono-OFL.txt"; sourceTree = "<group>"; };
+		AB99ED1C65B5F2C64469C49B /* ContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B2000001 /* EpisodeStateClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStateClient.swift; sourceTree = "<group>"; };
 		C2000001 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
+		C51BA101E347CC1C1814D683 /* WatchConnectivitySession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConnectivitySession.swift; sourceTree = "<group>"; };
+		CA200001 /* SubscriptionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionRecord.swift; sourceTree = "<group>"; };
+		CA200002 /* ShowRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowRecord.swift; sourceTree = "<group>"; };
+		CA200003 /* CachedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedEpisodeRecord.swift; sourceTree = "<group>"; };
+		CA200004 /* CatalogCacheState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheState.swift; sourceTree = "<group>"; };
+		CA200005 /* CatalogCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCache.swift; sourceTree = "<group>"; };
+		CA200006 /* CatalogRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshService.swift; sourceTree = "<group>"; };
+		CA200007 /* CatalogRefreshEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshEnvironment.swift; sourceTree = "<group>"; };
+		CA200008 /* CatalogCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheTests.swift; sourceTree = "<group>"; };
+		CA200009 /* CachedNewEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedNewEpisodeRecord.swift; sourceTree = "<group>"; };
 		D2000001 /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
 		D2000002 /* ApiClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiClientTests.swift; sourceTree = "<group>"; };
 		D2000003 /* PodcastCatalogClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastCatalogClientTests.swift; sourceTree = "<group>"; };
@@ -239,14 +281,13 @@
 		F2000005 /* EpisodeSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSyncAdapter.swift; sourceTree = "<group>"; };
 		F2000006 /* CrossDeviceResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossDeviceResume.swift; sourceTree = "<group>"; };
 		F2000007 /* CrossDeviceResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrossDeviceResumeTests.swift; sourceTree = "<group>"; };
-		PQ200001 /* PlaybackQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueue.swift; sourceTree = "<group>"; };
-		PQ200002 /* PlaybackQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueueTests.swift; sourceTree = "<group>"; };
 		G2000001 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
 		G2000002 /* EpisodeStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStatus.swift; sourceTree = "<group>"; };
 		G2000003 /* EpisodeSyncEngineEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSyncEngineEnvironment.swift; sourceTree = "<group>"; };
 		H2000001 /* EpisodeStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeStatusTests.swift; sourceTree = "<group>"; };
 		H2000002 /* CarPlaySceneDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegateTests.swift; sourceTree = "<group>"; };
 		H2000003 /* ShowIconSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowIconSizeTests.swift; sourceTree = "<group>"; };
+		I2000001 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
 		J2000001 /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
 		J2000002 /* PlaylistSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncAdapter.swift; sourceTree = "<group>"; };
 		J2000003 /* PlaylistSyncEngineEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncEngineEnvironment.swift; sourceTree = "<group>"; };
@@ -256,9 +297,10 @@
 		J2000007 /* AddToPlaylistSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPlaylistSheet.swift; sourceTree = "<group>"; };
 		J2000008 /* PlaylistSyncAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSyncAdapterTests.swift; sourceTree = "<group>"; };
 		J2000009 /* PlaylistClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistClientTests.swift; sourceTree = "<group>"; };
-		J2000021 /* PlaylistCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistCleanupTests.swift; sourceTree = "<group>"; };
 		J2000010 /* UpNextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpNextView.swift; sourceTree = "<group>"; };
 		J2000011 /* PlaylistIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistIcons.swift; sourceTree = "<group>"; };
+		J2000020 /* PlaylistSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSummaryTests.swift; sourceTree = "<group>"; };
+		J2000021 /* PlaylistCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistCleanupTests.swift; sourceTree = "<group>"; };
 		K2000001 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		K2000002 /* UnplayedCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnplayedCounts.swift; sourceTree = "<group>"; };
 		K2000003 /* UnplayedCountsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnplayedCountsTests.swift; sourceTree = "<group>"; };
@@ -270,6 +312,8 @@
 		N2000001 /* AutoSkipDuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSkipDuration.swift; sourceTree = "<group>"; };
 		N2000002 /* PlaybackSpeedOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedOption.swift; sourceTree = "<group>"; };
 		N2000003 /* ShowIconSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowIconSize.swift; sourceTree = "<group>"; };
+		NB200001 /* NowPlayingBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingBar.swift; sourceTree = "<group>"; };
+		NP200001 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
 		P2000001 /* DownloadedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecord.swift; sourceTree = "<group>"; };
 		P2000002 /* DownloadedEpisodeRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecordTests.swift; sourceTree = "<group>"; };
 		P2000003 /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
@@ -284,6 +328,8 @@
 		P2000012 /* UserSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsTests.swift; sourceTree = "<group>"; };
 		P2000013 /* ShowSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSettingsTests.swift; sourceTree = "<group>"; };
 		P2000014 /* FeedViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewTests.swift; sourceTree = "<group>"; };
+		PQ200001 /* PlaybackQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueue.swift; sourceTree = "<group>"; };
+		PQ200002 /* PlaybackQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQueueTests.swift; sourceTree = "<group>"; };
 		Q2000001 /* UserSettingsRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserSettingsRecord.swift; sourceTree = "<group>"; };
 		Q2000002 /* SettingsSyncAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncAdapter.swift; sourceTree = "<group>"; };
 		Q2000003 /* SettingsSyncEngineEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncEngineEnvironment.swift; sourceTree = "<group>"; };
@@ -299,33 +345,29 @@
 		T2000001 /* SleepTimerDuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerDuration.swift; sourceTree = "<group>"; };
 		T2000002 /* SleepTimerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheet.swift; sourceTree = "<group>"; };
 		T2000003 /* SleepTimerSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheetTests.swift; sourceTree = "<group>"; };
+		U2000001 /* EpisodeSwipeActionsPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSwipeActionsPicker.swift; sourceTree = "<group>"; };
 		V2000001 /* SafariView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariView.swift; sourceTree = "<group>"; };
 		W2000001 /* SubscriptionSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortOrder.swift; sourceTree = "<group>"; };
 		W2000002 /* SubscriptionSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSort.swift; sourceTree = "<group>"; };
 		W2000003 /* SubscriptionSortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortTests.swift; sourceTree = "<group>"; };
-		J2000020 /* PlaylistSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistSummaryTests.swift; sourceTree = "<group>"; };
 		X2000001 /* SubscriptionManualReorderRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManualReorderRow.swift; sourceTree = "<group>"; };
 		Y2000001 /* ShowDisplaySettingsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowDisplaySettingsMenu.swift; sourceTree = "<group>"; };
-		I2000001 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
 		Z2000001 /* ChapterScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubber.swift; sourceTree = "<group>"; };
 		Z2000002 /* ChapterScrubberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterScrubberTests.swift; sourceTree = "<group>"; };
 		Z2000003 /* Transcript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Transcript.swift; sourceTree = "<group>"; };
 		Z2000004 /* TranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptView.swift; sourceTree = "<group>"; };
 		Z2000005 /* TranscriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptTests.swift; sourceTree = "<group>"; };
-		CA200001 /* SubscriptionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionRecord.swift; sourceTree = "<group>"; };
-		CA200002 /* ShowRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowRecord.swift; sourceTree = "<group>"; };
-		CA200003 /* CachedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedEpisodeRecord.swift; sourceTree = "<group>"; };
-		CA200009 /* CachedNewEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedNewEpisodeRecord.swift; sourceTree = "<group>"; };
-		CA200004 /* CatalogCacheState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheState.swift; sourceTree = "<group>"; };
-		CA200005 /* CatalogCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCache.swift; sourceTree = "<group>"; };
-		CA200006 /* CatalogRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshService.swift; sourceTree = "<group>"; };
-		CA200007 /* CatalogRefreshEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshEnvironment.swift; sourceTree = "<group>"; };
-		CA200008 /* CatalogCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheTests.swift; sourceTree = "<group>"; };
-		NB200001 /* NowPlayingBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingBar.swift; sourceTree = "<group>"; };
-		NP200001 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		294746A24C982BB23ADCA9F5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26538DB8EBE520C37A0EF6A3 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B9000004 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -351,6 +393,42 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		01F227C68610B7B22D7795F7 /* KuullaWatch */ = {
+			isa = PBXGroup;
+			children = (
+				61CFFD4A39241CB14F23D36C /* KuullaWatchApp.swift */,
+				AB99ED1C65B5F2C64469C49B /* ContentView.swift */,
+				8E62DCE9F476EB5F67915638 /* Assets.xcassets */,
+			);
+			name = KuullaWatch;
+			path = KuullaWatch;
+			sourceTree = "<group>";
+		};
+		492AA3265179AF72A6D30D56 /* watchOS */ = {
+			isa = PBXGroup;
+			children = (
+				843D0AB500324B3BEB2AE889 /* Foundation.framework */,
+			);
+			name = watchOS;
+			sourceTree = "<group>";
+		};
+		5FCB2579A226017C050F1735 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				492AA3265179AF72A6D30D56 /* watchOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		87D49C6C8A1592A72AFAA591 /* KuullaShared */ = {
+			isa = PBXGroup;
+			children = (
+				C51BA101E347CC1C1814D683 /* WatchConnectivitySession.swift */,
+			);
+			name = KuullaShared;
+			path = KuullaShared;
+			sourceTree = "<group>";
+		};
 		A3000000 = {
 			isa = PBXGroup;
 			children = (
@@ -358,6 +436,9 @@
 				D4000000 /* KuullaTests */,
 				E4000000 /* KuullaUITests */,
 				A3000002 /* Products */,
+				01F227C68610B7B22D7795F7 /* KuullaWatch */,
+				87D49C6C8A1592A72AFAA591 /* KuullaShared */,
+				5FCB2579A226017C050F1735 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -449,12 +530,12 @@
 				V2000001 /* SafariView.swift */,
 				A2000050 /* Theme.swift */,
 				A2000051 /* Typography.swift */,
-				A2000060 /* Fonts/Manrope.ttf */,
-				A2000061 /* Fonts/SpaceGrotesk.ttf */,
-				A2000062 /* Fonts/JetBrainsMono.ttf */,
-				A2000063 /* Fonts/LICENSES/Manrope-OFL.txt */,
-				A2000064 /* Fonts/LICENSES/SpaceGrotesk-OFL.txt */,
-				A2000065 /* Fonts/LICENSES/JetBrainsMono-OFL.txt */,
+				A2000060 /* Manrope.ttf */,
+				A2000061 /* SpaceGrotesk.ttf */,
+				A2000062 /* JetBrainsMono.ttf */,
+				A2000063 /* Manrope-OFL.txt */,
+				A2000064 /* SpaceGrotesk-OFL.txt */,
+				A2000065 /* JetBrainsMono-OFL.txt */,
 				A2000003 /* Assets.xcassets */,
 				A2000007 /* Info.plist */,
 				CA200001 /* SubscriptionRecord.swift */,
@@ -477,6 +558,7 @@
 				A2000000 /* Kuulla.app */,
 				D3000000 /* KuullaTests.xctest */,
 				E3000000 /* KuullaUITests.xctest */,
+				29A120B52EB44457BAF2010B /* KuullaWatch.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -542,6 +624,23 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		42B68B3ED20100B477F174F6 /* KuullaWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 803EB16EAD1F2050FE858F65 /* Build configuration list for PBXNativeTarget "KuullaWatch" */;
+			buildPhases = (
+				779FBEE4CEC3257B8590BBAE /* Sources */,
+				294746A24C982BB23ADCA9F5 /* Frameworks */,
+				AAA454F28EEA21D0F8EC8EB6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KuullaWatch;
+			productName = KuullaWatch;
+			productReference = 29A120B52EB44457BAF2010B /* KuullaWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
 		A4000000 /* Kuulla */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A6000000 /* Build configuration list for PBXNativeTarget "Kuulla" */;
@@ -549,10 +648,12 @@
 				A5000001 /* Sources */,
 				A5000002 /* Resources */,
 				B9000004 /* Frameworks */,
+				04509B818B3E67F46023FAF3 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5C50F64DF6FBA8CD768050B0 /* PBXTargetDependency */,
 			);
 			name = Kuulla;
 			packageProductDependencies = (
@@ -625,6 +726,7 @@
 				A4000000 /* Kuulla */,
 				D5000000 /* KuullaTests */,
 				E5000000 /* KuullaUITests */,
+				42B68B3ED20100B477F174F6 /* KuullaWatch */,
 			);
 		};
 /* End PBXProject section */
@@ -635,18 +737,36 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000003 /* Assets.xcassets in Resources */,
-				A1000060 /* Fonts/Manrope.ttf in Resources */,
-				A1000061 /* Fonts/SpaceGrotesk.ttf in Resources */,
-				A1000062 /* Fonts/JetBrainsMono.ttf in Resources */,
-				A1000063 /* Fonts/LICENSES/Manrope-OFL.txt in Resources */,
-				A1000064 /* Fonts/LICENSES/SpaceGrotesk-OFL.txt in Resources */,
-				A1000065 /* Fonts/LICENSES/JetBrainsMono-OFL.txt in Resources */,
+				A1000060 /* Manrope.ttf in Resources */,
+				A1000061 /* SpaceGrotesk.ttf in Resources */,
+				A1000062 /* JetBrainsMono.ttf in Resources */,
+				A1000063 /* Manrope-OFL.txt in Resources */,
+				A1000064 /* SpaceGrotesk-OFL.txt in Resources */,
+				A1000065 /* JetBrainsMono-OFL.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA454F28EEA21D0F8EC8EB6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				625CFBCB8FE6BCB4E790A7C2 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		779FBEE4CEC3257B8590BBAE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				783487B85C74372637C45E97 /* KuullaWatchApp.swift in Sources */,
+				E6FA293F5610E89527FBF332 /* ContentView.swift in Sources */,
+				AFE9AD7448C54AF6D1F54A2D /* WatchConnectivitySession.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A5000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -745,6 +865,7 @@
 				CA100007 /* CatalogRefreshEnvironment.swift in Sources */,
 				NB100001 /* NowPlayingBar.swift in Sources */,
 				NP100001 /* NowPlayingView.swift in Sources */,
+				EBCEE3867AB787693CDFB3DB /* WatchConnectivitySession.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -809,6 +930,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		5C50F64DF6FBA8CD768050B0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = KuullaWatch;
+			target = 42B68B3ED20100B477F174F6 /* KuullaWatch */;
+			targetProxy = D3D1011F1F609A3333E8E07D /* PBXContainerItemProxy */;
+		};
 		D8000001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A4000000 /* Kuulla */;
@@ -822,6 +949,38 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		9606566FDB71A49DFFA81AC6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 96VJBK4H9P;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Kuulla;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.kuulla.app;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kuulla.app.watch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
 		A8000000 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -925,6 +1084,39 @@
 			};
 			name = Release;
 		};
+		C30F5B9FC0C0B2E08DEF3870 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 96VJBK4H9P;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Kuulla;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.kuulla.app;
+				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kuulla.app.watch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 		D9000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -998,6 +1190,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		803EB16EAD1F2050FE858F65 /* Build configuration list for PBXNativeTarget "KuullaWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C30F5B9FC0C0B2E08DEF3870 /* Release */,
+				9606566FDB71A49DFFA81AC6 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A6000000 /* Build configuration list for PBXNativeTarget "Kuulla" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -127,6 +127,42 @@
             </div>
 
             <div class="mb-3" style="max-width: 24rem;">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="voice-boost"
+                           disabled="@isVoiceBoostSaving" checked="@selectedVoiceBoost"
+                           @onchange="OnVoiceBoostChangedAsync" />
+                    <label class="form-check-label" for="voice-boost">Voice Boost</label>
+                </div>
+                <div class="form-text">Normalizes loudness so quiet and loud episodes play at a consistent volume, independent of playback speed.</div>
+                @if (voiceBoostSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@voiceBoostSaveError</p>
+                }
+                else if (voiceBoostSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
+            <div class="mb-3" style="max-width: 24rem;">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="trim-silence"
+                           disabled="@isTrimSilenceSaving" checked="@selectedTrimSilence"
+                           @onchange="OnTrimSilenceChangedAsync" />
+                    <label class="form-check-label" for="trim-silence">Trim Silence</label>
+                </div>
+                <div class="form-text">Skips dead air between words, independent of playback speed.</div>
+                @if (trimSilenceSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@trimSilenceSaveError</p>
+                }
+                else if (trimSilenceSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
+            <div class="mb-3" style="max-width: 24rem;">
                 <label class="form-label" for="play-next">When an episode finishes</label>
                 <select id="play-next" class="form-select" disabled="@isPlayNextSaving"
                         value="@selectedPlayNextBehavior" @onchange="OnPlayNextBehaviorChangedAsync">
@@ -320,6 +356,14 @@
     private bool isSmartSpeedSaving;
     private string? smartSpeedSaveError;
     private bool smartSpeedSaveSavedConfirmation;
+    private bool selectedVoiceBoost;
+    private bool isVoiceBoostSaving;
+    private string? voiceBoostSaveError;
+    private bool voiceBoostSaveSavedConfirmation;
+    private bool selectedTrimSilence;
+    private bool isTrimSilenceSaving;
+    private string? trimSilenceSaveError;
+    private bool trimSilenceSaveSavedConfirmation;
     private PlayNextBehavior selectedPlayNextBehavior;
     private bool isPlayNextSaving;
     private string? playNextSaveError;
@@ -407,6 +451,8 @@
             selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
             selectedPlaybackSpeed = settings.PlaybackSpeed;
             selectedSmartSpeed = settings.SmartSpeed;
+            selectedVoiceBoost = settings.VoiceBoost;
+            selectedTrimSilence = settings.TrimSilence;
             selectedPlayNextBehavior = settings.PlayNextBehavior;
             selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
             selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
@@ -459,6 +505,8 @@
         selectedAutoSkipOutroSeconds = settings.AutoSkipOutroSeconds;
         selectedPlaybackSpeed = settings.PlaybackSpeed;
         selectedSmartSpeed = settings.SmartSpeed;
+        selectedVoiceBoost = settings.VoiceBoost;
+        selectedTrimSilence = settings.TrimSilence;
         selectedPlayNextBehavior = settings.PlayNextBehavior;
         selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
         selectedAutoDownloadNewEpisodes = settings.AutoDownloadNewEpisodes;
@@ -673,6 +721,60 @@
         finally
         {
             isSmartSpeedSaving = false;
+        }
+
+        await SyncOwnWriteBestEffortAsync();
+    }
+
+    private async Task OnVoiceBoostChangedAsync(ChangeEventArgs args)
+    {
+        var value = args.Value is bool boolValue && boolValue;
+        var previous = selectedVoiceBoost;
+        selectedVoiceBoost = value;
+        isVoiceBoostSaving = true;
+        voiceBoostSaveError = null;
+        voiceBoostSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateVoiceBoostAsync(value);
+            voiceBoostSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedVoiceBoost = previous;
+            voiceBoostSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isVoiceBoostSaving = false;
+        }
+
+        await SyncOwnWriteBestEffortAsync();
+    }
+
+    private async Task OnTrimSilenceChangedAsync(ChangeEventArgs args)
+    {
+        var value = args.Value is bool boolValue && boolValue;
+        var previous = selectedTrimSilence;
+        selectedTrimSilence = value;
+        isTrimSilenceSaving = true;
+        trimSilenceSaveError = null;
+        trimSilenceSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateTrimSilenceAsync(value);
+            trimSilenceSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedTrimSilence = previous;
+            trimSilenceSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isTrimSilenceSaving = false;
         }
 
         await SyncOwnWriteBestEffortAsync();

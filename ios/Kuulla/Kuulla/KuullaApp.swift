@@ -68,6 +68,7 @@ struct KuullaApp: App {
                 .environment(\.settingsSyncEngine, settingsSyncEngine)
                 .environment(\.catalogRefresh, catalogRefreshService)
                 .task {
+                    await WatchConnectivitySession.shared.activate()
                     await AuthManager.shared.restorePreviousSignIn()
                     if AuthManager.shared.isSignedIn {
                         // Cold launch is the one automatic full sync (#488): the browsing
