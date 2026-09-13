@@ -894,7 +894,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // Keyed by a SHA256 of the URL string rather than the URL itself — Swift's String.hashValue
     // is randomized per process launch, so it can't be used to name a file that needs to resolve
     // to the same path across CarPlay sessions.
-    private static func artworkDiskCacheFileURL(for urlString: String) -> URL? {
+    private nonisolated static func artworkDiskCacheFileURL(for urlString: String) -> URL? {
         guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
         let directory = base.appendingPathComponent("CarPlayArtwork", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
