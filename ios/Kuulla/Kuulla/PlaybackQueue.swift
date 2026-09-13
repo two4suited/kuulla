@@ -64,7 +64,7 @@ final class PlaybackQueue {
     // this a multi-hop .topOfList chain would ping-pong forever between the snapshot's first two
     // items (each hop only knowing to skip the single episode that *just* finished) instead of
     // working through the rest of the list.
-    private var consumedEpisodeIds: Set<String> = []
+    private(set) var consumedEpisodeIds: Set<String> = []
     var playlistId: String? { source?.playlistId }
     // The episode currently playing as a queue item — guards a stale begin() (from a playlist
     // screen the user opened then backed out of without pressing Play) against advancing when
@@ -81,6 +81,11 @@ final class PlaybackQueue {
         else { return [] }
         return orderedItems[(index + 1)...].filter { !consumedEpisodeIds.contains($0.episodeId) }
     }
+
+    // The full ordered snapshot, unfiltered — the Now Playing screen's inline queue (#647) renders
+    // this directly (unlike upNextItems, which drops everything up to and including the current
+    // episode) so already-played rows stay visible instead of disappearing from the list.
+    var sessionItems: [QueueItem] { orderedItems }
 
     private var progressTrackingTask: Task<Void, Never>?
 
@@ -290,6 +295,18 @@ final class PlaybackQueue {
     func playUpNextItem(_ item: QueueItem) async {
         currentEpisodeId = item.episodeId
         await playItem(item, playlistId: source?.playlistId)
+    }
+
+    // The item that would play automatically when the current episode finishes — resolved exactly
+    // the way handleNaturalFinish resolves it (same override lookup, same consumed set), but
+    // without any of its side effects. The Now Playing screen's inline queue (#647) uses this to
+    // highlight which row is "plays next" rather than assuming positional order, since a
+    // .topOfList override can point somewhere other than the very next item in the snapshot.
+    func resolvedNextItem() async -> QueueItem? {
+        guard let source, let currentEpisodeId else { return nil }
+        let showId = orderedItems.first { $0.episodeId == currentEpisodeId }?.showId
+        let behavior = await resolvePlayNextBehavior(source: source, showId: showId)
+        return Self.nextItem(after: currentEpisodeId, in: orderedItems, behavior: behavior, consumed: consumedEpisodeIds)
     }
 
     private func quickPlay(episodeId: String, showId: String, arm: () async -> Void) async {
