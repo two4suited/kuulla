@@ -397,12 +397,9 @@ final class AudioPlayer {
         // philosophy above. Weak item mirrors the guard above: a later play() that replaces
         // self.player (and drops this item) makes the assignment a no-op instead of touching a
         // dropped item.
-        Task { [weak item] in
+        Task { @MainActor [weak item] in
             guard let item else { return }
-            let mix = await processor.makeAudioMix(for: item)
-            await MainActor.run {
-                item.audioMix = mix
-            }
+            item.audioMix = await processor.makeAudioMix(for: item)
         }
         return processor
     }
