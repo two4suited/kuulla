@@ -20,6 +20,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // to read the app's shared instances from.
     static var modelContainer: ModelContainer?
     static var episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>?
+    static var settingsSyncEngine: SyncEngine<SettingsSyncAdapter>?
 
     var interfaceController: CPInterfaceController?
 
@@ -37,6 +38,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // CarPlay session left to have driven it.
     private var loadTask: Task<Void, Never>?
     private var progressTrackingTask: Task<Void, Never>?
+    private var episodeSyncTask: Task<Void, Never>?
+    private var settingsSyncTask: Task<Void, Never>?
 
     func templateApplicationScene(
         _ templateApplicationScene: CPTemplateApplicationScene,
@@ -60,21 +63,39 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // AudioPlayer's onDidFinishPlaying handler does. Skip back/forward already work for free
         // via AudioPlayer.configureRemoteCommandCenter's MPRemoteCommandCenter wiring. CarPlay
         // reports Up Next taps through the CPNowPlayingTemplateObserver protocol rather than a
-        // closure property; the More button (Mark Played / Download / Add to Playlist, #642) is
-        // CPListItem's real equivalent of the phone's EpisodeSwipeAction set — CPListItem itself
-        // has no secondary tap target (no swipe, no long-press, no accessory-button handler in
-        // the CarPlay SDK), so these live on the currently-playing episode's Now Playing screen
-        // instead, which is where the driver already is right after picking an episode.
+        // closure property. The four action buttons (Mark Played / Download / Add to Playlist /
+        // Playback Speed) sit directly on the Now Playing screen as their own buttons rather than
+        // behind a single "More" menu — CPListItem itself has no secondary tap target (no swipe,
+        // no long-press, no accessory-button handler in the CarPlay SDK) and a hidden-behind-a-menu
+        // control takes an extra tap while driving, so each option gets its own glanceable button
+        // (CarPlay allows up to 5 on CPNowPlayingTemplate).
         CPNowPlayingTemplate.shared.isUpNextButtonEnabled = true
         CPNowPlayingTemplate.shared.add(self)
-        CPNowPlayingTemplate.shared.updateNowPlayingButtons([
-            CPNowPlayingMoreButton { [weak self] _ in
-                Task { await self?.presentEpisodeActions() }
-            },
-        ])
+        updateNowPlayingActionButtons()
+
+        // Kicked off up front, in parallel with the cache-painted list load below, rather than
+        // waited on before painting anything — CarPlay connecting is exactly the "phone app hasn't
+        // been opened in a while" case (#488 turned off sync-on-every-foreground), so without this
+        // CarPlay would only ever reflect whatever the phone last synced on its own, which reads as
+        // a second, out-of-sync device rather than a mirror of the one in the driver's pocket.
+        // loadSubscriptionsList awaits these before its settled (network-refreshed) repaint so that
+        // pass's played/caught-up state matches what just landed from the server.
+        let episodeSyncEngine = Self.episodeSyncEngine
+        let settingsSyncEngine = Self.settingsSyncEngine
+        let episodeSync = Task { () async -> Void in
+            guard let episodeSyncEngine else { return }
+            await episodeSyncEngine.syncNow()
+        }
+        let settingsSync = Task { () async -> Void in
+            guard let settingsSyncEngine else { return }
+            await settingsSyncEngine.syncNow()
+        }
+        episodeSyncTask = episodeSync
+        settingsSyncTask = settingsSync
 
         loadTask = Task {
-            async let subscriptions: Void = loadSubscriptionsList(into: showsTemplate)
+            async let subscriptions: Void = loadSubscriptionsList(
+                into: showsTemplate, episodeSync: episodeSync, settingsSync: settingsSync)
             async let playlists: Void = loadPlaylistsList(into: playlistsTemplate)
             _ = await (subscriptions, playlists)
         }
@@ -90,6 +111,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         loadTask = nil
         progressTrackingTask?.cancel()
         progressTrackingTask = nil
+        episodeSyncTask?.cancel()
+        episodeSyncTask = nil
+        settingsSyncTask?.cancel()
+        settingsSyncTask = nil
     }
 
     private static func emptyListTemplate(title: String) -> CPListTemplate {
@@ -105,7 +130,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // A Continue Listening section (#639), when there's anything in progress, sits above the
     // shows list either way — it reads local EpisodeStateRecords directly rather than needing its
     // own cache-vs-network distinction, so it's computed once and reused for both paints.
-    private func loadSubscriptionsList(into template: CPListTemplate) async {
+    private func loadSubscriptionsList(
+        into template: CPListTemplate, episodeSync: Task<Void, Never>, settingsSync: Task<Void, Never>
+    ) async {
         let context = Self.modelContainer.map(ModelContext.init)
 
         var continueListening: CPListSection?
@@ -122,9 +149,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             // the subscriptions cache itself is empty.
             if !cachedSubscriptions.isEmpty || continueListening != nil {
                 let localSettings = Self.localUserSettings(in: context)
+                // Mirrors SubscriptionsView/LibraryView's "Hide caught-up shows" filter (a synced
+                // setting the phone already honors) — CarPlay was ignoring it entirely and always
+                // showing every subscribed show, finished or not.
                 let cached = sortedSubscriptions(
                     cachedSubscriptions, by: localSettings?.subscriptionSortOrder ?? .title,
-                    manualOrder: localSettings?.subscriptionManualOrder ?? [])
+                    manualOrder: localSettings?.subscriptionManualOrder ?? [],
+                    activeShowIds: Self.activeShowIds(in: context), hideCaughtUp: localSettings?.hideCaughtUpShows ?? false)
                 template.updateSections([continueListening].compactMap { $0 } + subscriptionsSections(for: cached))
                 paintedFromCache = true
             }
@@ -133,14 +164,22 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         do {
             async let subscriptionsResult = subscriptionClient.getSubscriptions()
             async let settingsResult = try? settingsClient.getSettings()
+            // Waited on alongside the network fetches above (kicked off in didConnect, so they're
+            // already in flight) — this settled repaint reflects the played state and settings the
+            // phone last synced, not whatever this device held before CarPlay connected.
+            await episodeSync.value
+            await settingsSync.value
             let subscriptions = try await subscriptionsResult
             let settings = await settingsResult
             if let context {
                 CatalogCache.replaceSubscriptions(subscriptions, in: context)
             }
+            let localSettings = context.flatMap(Self.localUserSettings)
+            let activeShowIds = context.map(Self.activeShowIds)
             let sorted = sortedSubscriptions(
                 subscriptions, by: settings?.subscriptionSortOrder ?? .title,
-                manualOrder: settings?.subscriptionManualOrder ?? [])
+                manualOrder: settings?.subscriptionManualOrder ?? [],
+                activeShowIds: activeShowIds, hideCaughtUp: settings?.hideCaughtUpShows ?? localSettings?.hideCaughtUpShows ?? false)
             template.updateSections([continueListening].compactMap { $0 } + subscriptionsSections(for: sorted))
         } catch {
             // The cache already painted something useful — leave it up rather than clobbering it
@@ -159,6 +198,14 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private static func localUserSettings(in context: ModelContext) -> UserSettingsRecord? {
         let id = UserSettingsRecord.localId
         return try? context.fetch(FetchDescriptor<UserSettingsRecord>(predicate: #Predicate { $0.id == id })).first
+    }
+
+    // Shows with at least one unplayed or in-progress episode — the complement of "caught up".
+    // Mirrors SubscriptionsView.activeShowIds, but always computed (rather than nil-until-loaded)
+    // since CatalogCache's underlying queries are synchronous local SwiftData reads here, with no
+    // separate "has this loaded yet" state to gate on.
+    private static func activeShowIds(in context: ModelContext) -> Set<String> {
+        Set(CatalogCache.unplayedCounts(in: context).keys).union(CatalogCache.inProgressShowIds(in: context))
     }
 
     // Capped like ShowDetailView's own lists favor a short, scannable set over an exhaustive one —
@@ -558,6 +605,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 metadata: NowPlayingMetadata(
                     title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))))
 
+            // Refreshes the speed button's rendered label for this episode's resolved speed
+            // (show override, or the global default) — otherwise it would keep showing whatever
+            // the previously playing episode's speed was.
+            updateNowPlayingActionButtons()
+
             // Mirrors EpisodeDetailView.startProgressTracking()'s periodic save so an episode
             // started from CarPlay resumes where it left off, and gets marked played on finish,
             // the same as one started from the phone.
@@ -628,40 +680,77 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     // Episode actions (#642) — CPListItem's real equivalent of the phone's EpisodeSwipeAction set
-    // (Mark Played / Download / Add to Playlist), reached from the Now Playing screen's More
-    // button rather than a per-row control (see the didConnect comment on why). Acts on whatever
-    // AudioPlayer currently reports as playing — the only "this episode" CarPlay has once the
-    // driver has left the browse list behind for Now Playing.
-    private func presentEpisodeActions() async {
-        guard let interfaceController else { return }
-        guard let nowPlaying = AudioPlayer.shared.nowPlayingContext else {
-            interfaceController.presentTemplate(
-                CPActionSheetTemplate(
-                    title: "Nothing Playing", message: nil,
-                    actions: [CPAlertAction(title: "OK", style: .cancel) { [weak self] _ in
-                        self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
-                    }]),
-                animated: true, completion: nil)
-            return
+    // (Mark Played / Download / Add to Playlist), plus Playback Speed, each as its own button
+    // directly on the Now Playing screen (see the didConnect comment on why: a single "More" menu
+    // button hid every option behind an extra tap while driving). Rebuilt whenever the currently
+    // playing episode or its speed changes so the speed button's rendered label stays current.
+    // Acts on whatever AudioPlayer currently reports as playing — the only "this episode" CarPlay
+    // has once the driver has left the browse list behind for Now Playing.
+    private func updateNowPlayingActionButtons() {
+        let speedButton = CPNowPlayingImageButton(image: Self.playbackSpeedButtonImage(for: AudioPlayer.shared.playbackSpeed)) {
+            [weak self] _ in
+            Task { await self?.cyclePlaybackSpeed() }
         }
+        let markPlayedButton = CPNowPlayingImageButton(image: UIImage(systemName: "checkmark.circle") ?? UIImage()) {
+            [weak self] _ in
+            Task { await self?.markCurrentEpisodePlayed() }
+        }
+        let downloadButton = CPNowPlayingImageButton(image: UIImage(systemName: "arrow.down.circle") ?? UIImage()) {
+            [weak self] _ in
+            Task { await self?.downloadCurrentEpisode() }
+        }
+        let addToPlaylistButton = CPNowPlayingImageButton(image: UIImage(systemName: "text.badge.plus") ?? UIImage()) {
+            [weak self] _ in
+            Task { await self?.addCurrentEpisodeToPlaylist() }
+        }
+        CPNowPlayingTemplate.shared.updateNowPlayingButtons([speedButton, markPlayedButton, downloadButton, addToPlaylistButton])
+    }
 
-        let showId = nowPlaying.showId
-        let episodeId = nowPlaying.episodeId
-        let markPlayed = CPAlertAction(title: "Mark Played", style: .default) { [weak self] _ in
-            Task { await self?.markEpisodePlayed(showId: showId, episodeId: episodeId) }
-        }
-        let download = CPAlertAction(title: "Download", style: .default) { [weak self] _ in
-            Task { await self?.downloadEpisode(showId: showId, episodeId: episodeId) }
-        }
-        let addToPlaylist = CPAlertAction(title: "Add to Playlist", style: .default) { [weak self] _ in
-            Task { await self?.presentPlaylistPicker(showId: showId, episodeId: episodeId) }
-        }
-        let cancel = CPAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
-            self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
-        }
-        interfaceController.presentTemplate(
-            CPActionSheetTemplate(title: "Episode Actions", message: nil, actions: [markPlayed, download, addToPlaylist, cancel]),
-            animated: true, completion: nil)
+    // Renders the button's face as its own text ("1.5×"), the same value NowPlayingView's speed
+    // pill shows on the phone — CPNowPlayingImageButton only takes a plain UIImage, with no title
+    // label of its own, so a driver glancing at the button has nothing to read otherwise.
+    private static func playbackSpeedButtonImage(for speed: Float) -> UIImage {
+        let label = PlaybackSpeedOption(rawValue: speed)?.label
+            ?? "\(speed.formatted(.number.precision(.fractionLength(0...2))))x"
+        let size = CGSize(width: 64, height: 44)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 20, weight: .semibold),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: paragraph,
+            ]
+            (label as NSString).draw(
+                in: CGRect(x: 0, y: (size.height - 24) / 2, width: size.width, height: 24), withAttributes: attributes)
+        }.withRenderingMode(.alwaysOriginal)
+    }
+
+    // The pure "what's next" cycle, pulled out for unit testing (mirrors
+    // EpisodeDetailView.cyclePlaybackSpeed / NowPlayingView.cyclePlaybackSpeed) — wraps back to the
+    // slowest preset after the fastest. A value outside the presets (e.g. a synced override) starts
+    // the cycle from the slowest preset rather than crashing on a missing match.
+    nonisolated static func nextPlaybackSpeed(after current: Float) -> Float {
+        let options = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
+        let currentIndex = options.firstIndex { $0.rawValue == current } ?? -1
+        return options[(currentIndex + 1) % options.count].rawValue
+    }
+
+    // Applies the change live to whatever's playing (mirrors EpisodeDetailView/NowPlayingView:
+    // CarPlay drives the same AudioPlayer) and best-effort saves it as the new global default —
+    // simplified to a fire-and-forget save, without those screens' request-coalescing, since a
+    // CarPlay button tap is far less rapid-fire than a slider drag.
+    private func cyclePlaybackSpeed() async {
+        let next = Self.nextPlaybackSpeed(after: AudioPlayer.shared.playbackSpeed)
+        AudioPlayer.shared.setPlaybackSpeed(next)
+        updateNowPlayingActionButtons()
+        _ = try? await settingsClient.updatePlaybackSpeed(next)
+    }
+
+    private func markCurrentEpisodePlayed() async {
+        guard let nowPlaying = AudioPlayer.shared.nowPlayingContext else { return }
+        await markEpisodePlayed(showId: nowPlaying.showId, episodeId: nowPlaying.episodeId)
     }
 
     // Mirrors ShowDetailView.toggleCompleted's "mark played" branch: positionSeconds is the
@@ -669,7 +758,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private func markEpisodePlayed(showId: String, episodeId: String) async {
         let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
         await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
-        interfaceController?.dismissTemplate(animated: true, completion: nil)
+    }
+
+    private func downloadCurrentEpisode() async {
+        guard let nowPlaying = AudioPlayer.shared.nowPlayingContext else { return }
+        await downloadEpisode(showId: nowPlaying.showId, episodeId: nowPlaying.episodeId)
     }
 
     // Only starts the download — DownloadManager already runs in-process and shares its SwiftData
@@ -679,15 +772,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         if let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId) {
             DownloadManager.shared.startDownload(episode: episode)
         }
-        interfaceController?.dismissTemplate(animated: true, completion: nil)
     }
 
-    // Only one template may be presented modally at a time, so the action sheet has to come down
-    // before the playlist picker (a pushed CPListTemplate, not presentable itself) can go up.
-    private func presentPlaylistPicker(showId: String, episodeId: String) async {
-        interfaceController?.dismissTemplate(animated: true) { [weak self] _, _ in
-            Task { await self?.pushPlaylistPicker(showId: showId, episodeId: episodeId) }
-        }
+    private func addCurrentEpisodeToPlaylist() async {
+        guard let nowPlaying = AudioPlayer.shared.nowPlayingContext else { return }
+        await pushPlaylistPicker(showId: nowPlaying.showId, episodeId: nowPlaying.episodeId)
     }
 
     // Mirrors AddToPlaylistSheet's phone reference implementation, simplified for a CPListTemplate

@@ -18,6 +18,18 @@ final class CarPlaySceneDelegateTests: XCTestCase {
         XCTAssertEqual(text, "New")
     }
 
+    func testNextPlaybackSpeedCyclesUpward() {
+        XCTAssertEqual(CarPlaySceneDelegate.nextPlaybackSpeed(after: 1.0), 1.2)
+    }
+
+    func testNextPlaybackSpeedWrapsAfterFastest() {
+        XCTAssertEqual(CarPlaySceneDelegate.nextPlaybackSpeed(after: 3.0), 0.5)
+    }
+
+    func testNextPlaybackSpeedStartsFromSlowestForUnknownValue() {
+        XCTAssertEqual(CarPlaySceneDelegate.nextPlaybackSpeed(after: 1.35), 0.5)
+    }
+
     private func makeEpisode(durationSeconds: TimeInterval?) -> Episode {
         let durationField = durationSeconds.map { "\"duration\":\"\(Int($0 / 3600)):\(Int($0 / 60) % 60):\(Int($0) % 60)\"," } ?? ""
         let json = """
