@@ -284,7 +284,10 @@ final class AudioPlayer {
             // dropped item.
             Task { [weak item] in
                 guard let item else { return }
-                item.audioMix = await processor.makeAudioMix(for: item)
+                let mix = await processor.makeAudioMix(for: item)
+                await MainActor.run {
+                    item.audioMix = mix
+                }
             }
             smartSpeedProcessor = processor
         } else {
