@@ -208,12 +208,12 @@ final class AudioPlayer {
             // resuming here would race it and could start playback from the wrong position
             // (mirrors pause()'s own pendingSeekPlayer-clearing guard above).
             guard wasPlayingBeforeInterruption, pendingSeekPlayer == nil else { return }
-            // Reactivate synchronously here rather than relying on resume()'s own (deliberately
-            // async, off-main) setActive(true): an interruption that ends right as the phone
-            // locks gives the app almost no background execution budget, and the OS can suspend
-            // the process before that dispatched block ever runs — leaving the session inactive
-            // and playback silently stuck paused (looks identical to "locking pauses playback").
-            // Blocking main briefly here is safe: this fires once per interruption, not per frame.
+            // Reactivate synchronously here too, ahead of resume()'s own setActive(true): an
+            // interruption that ends right as the phone locks gives the app almost no background
+            // execution budget, and the OS can suspend the process between this line and resume()
+            // actually running — leaving the session inactive and playback silently stuck paused
+            // (looks identical to "locking pauses playback"). Blocking main briefly here is safe:
+            // this fires once per interruption, not per frame.
             try? AVAudioSession.sharedInstance().setActive(true)
             resume()
         @unknown default:
@@ -364,6 +364,14 @@ final class AudioPlayer {
         // like "tapping play from the lock screen does nothing"). Mirrors the same fix already
         // applied to handleInterruption's .ended case. Blocking main briefly here is safe: this
         // fires once per tap, not per frame.
+        //
+        // Deliberately not the iOS 17+ activate(options:completionHandler:) / async activate() API
+        // (#656): both return before the session is actually active and report success later via a
+        // completion/continuation, which is the same "dispatched off main" shape that caused #612 —
+        // the OS can suspend the process before that completion runs, leaving .rate set and
+        // isPlaying true with no active session. There's no async variant that blocks until the
+        // session is confirmed active, so the synchronous call — and the main-thread warning it
+        // logs — is intentional here, not an oversight.
         try? AVAudioSession.sharedInstance().setActive(true)
         // .rate rather than .play() so resuming doesn't silently reset speed back to 1.0.
         player?.rate = playbackSpeed
