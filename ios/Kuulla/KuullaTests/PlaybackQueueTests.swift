@@ -139,4 +139,29 @@ final class PlaybackQueueTests: XCTestCase {
         let queue = PlaybackQueue()
         XCTAssertEqual(queue.upNextItems, [])
     }
+
+    // MARK: - sessionItems / resolvedNextItem (#647)
+
+    @MainActor
+    func testSessionItemsReturnsTheWholeSnapshotIncludingConsumedAndCurrentEpisodes() {
+        let queue = PlaybackQueue()
+        queue.begin(
+            list: PlaybackList(source: .show(id: "show-a"), items: items(["a", "b", "c"])),
+            currentEpisodeId: "b")
+
+        XCTAssertEqual(queue.sessionItems.map(\.episodeId), ["a", "b", "c"])
+    }
+
+    @MainActor
+    func testSessionItemsIsEmptyWhenNothingIsArmed() {
+        let queue = PlaybackQueue()
+        XCTAssertEqual(queue.sessionItems, [])
+    }
+
+    @MainActor
+    func testResolvedNextItemIsNilWhenNothingIsArmed() async {
+        let queue = PlaybackQueue()
+        let next = await queue.resolvedNextItem()
+        XCTAssertNil(next)
+    }
 }
