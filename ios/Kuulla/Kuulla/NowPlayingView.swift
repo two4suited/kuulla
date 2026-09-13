@@ -2,9 +2,8 @@ import SwiftData
 import SwiftUI
 
 // The dedicated full-screen player (#646), replacing the mini bar's previous behavior of routing
-// to EpisodeDetailView. Player chrome (artwork, title, scrubber, transport) plus the inline
-// up-next queue (#647); chapter markers and quick-access controls are follow-up issues (#648,
-// #649) that build on top of this screen.
+// to EpisodeDetailView. Player chrome (artwork, title, scrubber, transport), the inline up-next
+// queue (#647), chapter markers (#649), and playback speed / sleep timer quick controls (#648).
 @MainActor
 struct NowPlayingView: View {
     // Presented as a sheet from ContentView; called on the close button tap (swipe-to-dismiss is
@@ -25,7 +24,20 @@ struct NowPlayingView: View {
     // async settings/playlist fetch rather than being derivable from the snapshot alone.
     @State private var nextEpisodeId: String?
 
+    // Chapter markers on the scrubber (#649). Non-nil while a chapter link (e.g. a sponsor URL)
+    // is open in the in-app browser.
+    @State private var chapterLinkURL: URL?
+
+    // Quick-access playback speed / sleep timer controls (#648).
+    @State private var isShowingSleepTimer = false
+    @State private var playbackSpeedSaveTask: Task<Void, Never>?
+    @State private var playbackSpeedSaveError: String?
+    // Bumped on every cyclePlaybackSpeed() call — same coalescing pattern as
+    // EpisodeDetailView.savePlaybackSpeed, so only the latest value a user settles on is sent.
+    @State private var playbackSpeedSaveVersion = 0
+
     private let catalogClient = PodcastCatalogClient()
+    private let settingsClient = SettingsClient()
 
     // Matches NowPlayingBar's skip intervals — every surface skips by the same amount.
     private static let skipBackInterval: TimeInterval = 15
@@ -42,42 +54,63 @@ struct NowPlayingView: View {
     private var displayedTime: TimeInterval { isDragging ? dragValue : audioPlayer.currentTime }
     private var remainingTime: TimeInterval { max(effectiveDuration - displayedTime, 0) }
 
+    // The currently-playing episode's chapters, if any and if resolved yet — reuses
+    // resolvedEpisodes (populated for the queue's rows too) rather than a separate fetch, keyed by
+    // AudioPlayer's own nowPlayingContext since a deep-linked episode has no PlaybackQueue session
+    // to source it from.
+    private var currentEpisodeChapters: [EpisodeChapter] {
+        guard let episodeId = audioPlayer.nowPlayingContext?.episodeId else { return [] }
+        return resolvedEpisodes[episodeId]?.chapters ?? []
+    }
+
     var body: some View {
         if let metadata = audioPlayer.nowPlayingMetadata {
-            VStack(spacing: Space.xl) {
+            VStack(spacing: 0) {
                 closeButton
 
-                Spacer(minLength: 0)
+                // A single ScrollView for everything below the close button — the up-next queue
+                // (#647) and, for a chapter-heavy episode, ChapterScrubber's own chapter list
+                // (#649) are both unbounded in length, so the chrome above them can't be fixed
+                // height without risking either one overflowing the screen.
+                ScrollView {
+                    VStack(spacing: Space.xl) {
+                        artwork(metadata)
 
-                artwork(metadata)
+                        VStack(spacing: Space.xs) {
+                            Text(metadata.title)
+                                .font(.kuullaTitle(20, relativeTo: .title2))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                            if let showTitle = metadata.showTitle {
+                                Text(showTitle)
+                                    .font(.kuullaBody(15))
+                                    .foregroundStyle(KuullaColor.textMuted)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .padding(.horizontal, Space.lg)
 
-                VStack(spacing: Space.xs) {
-                    Text(metadata.title)
-                        .font(.kuullaTitle(20, relativeTo: .title2))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                    if let showTitle = metadata.showTitle {
-                        Text(showTitle)
-                            .font(.kuullaBody(15))
-                            .foregroundStyle(KuullaColor.textMuted)
-                            .lineLimit(1)
+                        if currentEpisodeChapters.isEmpty {
+                            scrubber
+                        } else {
+                            ChapterScrubber(
+                                currentTime: displayedTime, duration: effectiveDuration,
+                                chapters: currentEpisodeChapters,
+                                onSeek: { audioPlayer.seek(to: $0) },
+                                onOpenLink: { chapterLinkURL = $0 })
+                        }
+
+                        transportControls
+
+                        quickControls
+
+                        if playbackQueue.source != nil {
+                            upNextSection
+                        }
                     }
-                }
-                .padding(.horizontal, Space.lg)
-
-                scrubber
-
-                transportControls
-
-                if playbackQueue.source != nil {
-                    upNextList
-                } else {
-                    // No armed session (e.g. a deep-linked single episode) — hide the queue
-                    // entirely rather than showing an empty state (#647).
-                    Spacer(minLength: 0)
+                    .padding(Space.lg)
                 }
             }
-            .padding(Space.lg)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(KuullaColor.background)
             .task(id: playbackQueue.sessionItems) {
@@ -85,6 +118,18 @@ struct NowPlayingView: View {
             }
             .task(id: playbackQueue.currentEpisodeId) {
                 nextEpisodeId = await playbackQueue.resolvedNextItem()?.episodeId
+            }
+            .task(id: audioPlayer.nowPlayingContext?.episodeId) {
+                await loadCurrentEpisodeMetadataIfNeeded()
+            }
+            .sheet(isPresented: Binding(get: { chapterLinkURL != nil }, set: { if !$0 { chapterLinkURL = nil } })) {
+                if let chapterLinkURL {
+                    // .id forces a fresh SFSafariViewController when the URL changes — its URL
+                    // can't be updated after init, mirroring EpisodeDetailView's own chapter link
+                    // sheet.
+                    SafariView(url: chapterLinkURL)
+                        .id(chapterLinkURL)
+                }
             }
         } else {
             // Nothing loaded (e.g. the session ended while this screen was still open) — dismiss
@@ -103,6 +148,10 @@ struct NowPlayingView: View {
             }
             .accessibilityLabel("Close")
         }
+        // Now that the rest of the content lives in a ScrollView with its own Space.lg padding
+        // (see body), the close button — outside that scroll view so it stays fixed — needs the
+        // same padding applied directly rather than inheriting it from a shared parent.
+        .padding([.horizontal, .top], Space.lg)
     }
 
     private func artwork(_ metadata: NowPlayingMetadata) -> some View {
@@ -191,24 +240,130 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
     }
 
-    // The current session's ordered snapshot, rendered in full (#647) — not just the remainder
-    // after the current episode, so already-played rows stay visible rather than disappearing.
-    // Scrolls independently of the fixed player chrome above it.
-    private var upNextList: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(playbackQueue.sessionItems, id: \.episodeId) { item in
-                    queueRow(item)
-                    if item.episodeId != playbackQueue.sessionItems.last?.episodeId {
-                        Divider()
+    // A value pill (speed) and an icon button (sleep timer) — compact supplementary chrome, not a
+    // settings page (#648). Unlike EpisodeDetailView's own copy of these controls, this screen only
+    // ever shows while something is actually loaded in AudioPlayer, so there's no need for that
+    // view's "is this screen's episode the one actually playing" guard before applying a live
+    // rate change — audioPlayer.playbackSpeed already reflects what's playing right now.
+    private var quickControls: some View {
+        VStack(spacing: Space.xs) {
+            HStack(spacing: Space.sm) {
+                Button {
+                    cyclePlaybackSpeed()
+                } label: {
+                    Text(playbackSpeedLabel)
+                        .font(.kuullaMono(13))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .foregroundStyle(audioPlayer.playbackSpeed == 1.0 ? KuullaColor.textMuted : KuullaColor.signalInk)
+                }
+                .buttonStyle(.plain)
+                .modifier(EpisodeControlChrome(isActive: audioPlayer.playbackSpeed != 1.0))
+                .accessibilityLabel("Playback speed, \(playbackSpeedLabel)")
+                .accessibilityHint("Cycles to the next speed")
+
+                Button {
+                    isShowingSleepTimer = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: sleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
+                            .font(.system(size: 15))
+                        if let remaining = SleepTimerSheet.formatRemaining(audioPlayer.sleepTimerRemainingSeconds) {
+                            Text(remaining)
+                                .font(.kuullaMono(13))
+                        } else if audioPlayer.sleepTimerEndOfEpisodeEnabled {
+                            Text("EOE")
+                                .font(.kuullaMono(13))
+                        }
                     }
+                    .foregroundStyle(sleepTimerActive ? KuullaColor.signalInk : KuullaColor.textMuted)
+                }
+                .buttonStyle(.plain)
+                .modifier(EpisodeControlChrome(isActive: sleepTimerActive))
+                .accessibilityLabel(sleepTimerButtonTitle)
+            }
+
+            if let playbackSpeedSaveError {
+                Text(playbackSpeedSaveError)
+                    .font(.caption)
+                    .foregroundStyle(KuullaColor.danger)
+            }
+        }
+        .sheet(isPresented: $isShowingSleepTimer) {
+            SleepTimerSheet()
+        }
+    }
+
+    private var playbackSpeedLabel: String {
+        if let option = PlaybackSpeedOption(rawValue: audioPlayer.playbackSpeed) {
+            return option.label
+        }
+        return "\(audioPlayer.playbackSpeed.formatted(.number.precision(.fractionLength(0...2))))x"
+    }
+
+    private var sleepTimerActive: Bool {
+        audioPlayer.sleepTimerEndOfEpisodeEnabled || audioPlayer.sleepTimerRemainingSeconds != nil
+    }
+
+    private var sleepTimerButtonTitle: String {
+        if audioPlayer.sleepTimerEndOfEpisodeEnabled {
+            return "Sleep Timer: End of Episode"
+        }
+        if let remaining = SleepTimerSheet.formatRemaining(audioPlayer.sleepTimerRemainingSeconds) {
+            return "Sleep Timer: \(remaining)"
+        }
+        return "Sleep Timer"
+    }
+
+    // Cycles through the common speed presets and applies the change live, mirroring
+    // EpisodeDetailView.cyclePlaybackSpeed. A value outside the presets (e.g. a synced override)
+    // starts the cycle from the slowest preset rather than crashing on a missing match.
+    private func cyclePlaybackSpeed() {
+        let options = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
+        let currentIndex = options.firstIndex { $0.rawValue == audioPlayer.playbackSpeed } ?? -1
+        let next = options[(currentIndex + 1) % options.count]
+
+        audioPlayer.setPlaybackSpeed(next.rawValue)
+        savePlaybackSpeed(next.rawValue)
+    }
+
+    // Chains each save behind the previous one, same rationale as
+    // EpisodeDetailView.savePlaybackSpeed — the endpoint is a plain read-then-upsert, so
+    // overlapping in-flight PUTs could otherwise land out of order and persist a stale speed.
+    private func savePlaybackSpeed(_ value: Float) {
+        playbackSpeedSaveVersion += 1
+        let requestVersion = playbackSpeedSaveVersion
+        let previousTask = playbackSpeedSaveTask
+        playbackSpeedSaveTask = Task {
+            await previousTask?.value
+            guard requestVersion == playbackSpeedSaveVersion else { return }
+
+            playbackSpeedSaveError = nil
+            do {
+                _ = try await settingsClient.updatePlaybackSpeed(value)
+            } catch {
+                if requestVersion == playbackSpeedSaveVersion {
+                    playbackSpeedSaveError = "Something went wrong while saving your default speed."
                 }
             }
         }
-        // Without this, the ScrollView sizes to its content inside the enclosing VStack instead
-        // of filling the space the old trailing Spacer(minLength: 0) used to claim — a long queue
-        // would overflow past the screen edge instead of scrolling in place.
-        .frame(maxHeight: .infinity)
+    }
+
+    // The current session's ordered snapshot, rendered in full (#647) — not just the remainder
+    // after the current episode, so already-played rows stay visible rather than disappearing.
+    // Part of the screen's single outer ScrollView (see body) rather than scrolling on its own, so
+    // it shares scroll space with a chapter-heavy episode's own chapter list instead of each
+    // claiming a separately-scrolling region.
+    private var upNextSection: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Divider()
+            ForEach(playbackQueue.sessionItems, id: \.episodeId) { item in
+                queueRow(item)
+                if item.episodeId != playbackQueue.sessionItems.last?.episodeId {
+                    Divider()
+                }
+            }
+        }
     }
 
     private func queueRow(_ item: PlaybackQueue.QueueItem) -> some View {
@@ -279,6 +434,22 @@ struct NowPlayingView: View {
             }
         }
         resolvedEpisodes = episodes
+    }
+
+    // Resolves the currently-playing episode into resolvedEpisodes for its chapters (#649) —
+    // separate from loadEpisodeMetadata above because a deep-linked episode (no PlaybackQueue
+    // session) never appears in sessionItems at all, but still needs its chapters resolved for the
+    // scrubber. A no-op whenever the episode is already resolved, which is the common case once
+    // loadEpisodeMetadata has already fetched it as part of the session's own queue.
+    private func loadCurrentEpisodeMetadataIfNeeded() async {
+        guard let context = audioPlayer.nowPlayingContext, resolvedEpisodes[context.episodeId] == nil else { return }
+        if let cached = CatalogCache.episode(showId: context.showId, episodeId: context.episodeId, in: modelContext) {
+            resolvedEpisodes[context.episodeId] = cached
+            return
+        }
+        if let episode = try? await catalogClient.getEpisode(showId: context.showId, episodeId: context.episodeId) {
+            resolvedEpisodes[context.episodeId] = episode
+        }
     }
 }
 
