@@ -100,15 +100,6 @@ struct ContentView: View {
                     .tabItem { Label("Playlists", systemImage: "music.note.list") }
                     .tag(AppTab.playlists)
             }
-            // Pinned above the tab bar on every tab whenever AudioPlayer has something loaded
-            // (#542). Tapping it presents the full-screen Now Playing view as a dismissible sheet
-            // (#607, #646) — swipe down or the close button return to whichever tab was active —
-            // rather than pushing onto that tab's stack, which left no way back to the tab bar.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                NowPlayingBar {
-                    isShowingNowPlaying = true
-                }
-            }
             .onChange(of: deepLinkRouter.pendingRoute) { _, _ in applyPendingDeepLinkIfNeeded() }
             .onAppear { applyPendingDeepLinkIfNeeded() }
             .sheet(isPresented: $isShowingNowPlaying) {
@@ -135,6 +126,12 @@ struct ContentView: View {
         deepLinkRouter.pendingRoute = nil
     }
 
+    // Each tab gets its own copy of the bar (rather than one shared inset on the TabView) because
+    // a safeAreaInset applied to the TabView itself renders on top of — and hides — the system tab
+    // bar instead of sitting above it (#597). Pinned above the tab bar on every tab whenever
+    // AudioPlayer has something loaded (#542). Tapping it presents the full-screen Now Playing view
+    // as a dismissible sheet (#607, #646) — swipe down or the close button return to whichever tab
+    // was active — rather than pushing onto that tab's stack, which left no way back to the tab bar.
     private func tab<Content: View>(_ tabId: AppTab, @ViewBuilder content: () -> Content) -> some View {
         NavigationStack(path: Binding(
             get: { tabPaths[tabId, default: NavigationPath()] },
@@ -144,6 +141,11 @@ struct ContentView: View {
                 .navigationDestination(for: CatalogRoute.self) { route in
                     destination(for: route)
                 }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            NowPlayingBar {
+                isShowingNowPlaying = true
+            }
         }
     }
 
