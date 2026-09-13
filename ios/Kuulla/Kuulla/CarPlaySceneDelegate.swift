@@ -522,9 +522,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let statuses: [String: EpisodeStatus]
         let positions: [String: Int]
         var downloadRecords: [String: DownloadedEpisodeRecord] = [:]
+        var archived: Set<String> = []
         if let context {
             let episodeIds = Set(episodes.map(\.id))
-            (statuses, positions, _) = EpisodeStatus.statusAndPositionMaps(for: episodeIds, in: context)
+            (statuses, positions, archived) = EpisodeStatus.statusAndPositionMaps(for: episodeIds, in: context)
             let downloadDescriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { episodeIds.contains($0.id) })
             let records = (try? context.fetch(downloadDescriptor)) ?? []
             downloadRecords = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) })
@@ -532,6 +533,12 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             statuses = [:]
             positions = [:]
         }
+
+        // Matches ShowDetailView's default "Unfinished" tab — hides played and archived
+        // episodes so CarPlay's episode list follows the same convention as opening the show in
+        // the iOS app, rather than always showing the show's full back catalogue.
+        let episodes = EpisodeListFilter.apply(
+            episodes: episodes, statuses: statuses, filter: .unfinished, sort: .newestFirst, archived: archived)
 
         // Snapshot of this browse page so a finished episode can auto-advance through it (#629),
         // the same way ShowDetailView arms PlaybackQueue from its own displayed list.
