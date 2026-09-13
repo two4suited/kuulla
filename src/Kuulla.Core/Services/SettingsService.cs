@@ -181,6 +181,10 @@ public class SettingsService(
                 // Null means the pushing client predates #629 — keep whatever's stored rather
                 // than resetting it to NextInList.
                 change.PlayNextBehavior ?? stored?.PlayNextBehavior ?? PlayNextBehavior.NextInList,
+                // Null means the pushing client predates #689 — keep whatever's stored rather
+                // than resetting the limit to unlimited/charging-only to off.
+                AutoDownloadEpisodeLimit: change.AutoDownloadEpisodeLimit ?? stored?.AutoDownloadEpisodeLimit ?? 0,
+                AutoDownloadChargingOnly: change.AutoDownloadChargingOnly ?? stored?.AutoDownloadChargingOnly ?? false,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -456,6 +460,54 @@ public class SettingsService(
 
         var userSettings = await GetSettingsAsync(userId, cancellationToken);
         return userSettings.AutoDownloadNewEpisodes;
+    }
+
+    // Bundled the same way UpdateAutoDeleteRuleAsync bundles rule+afterDays (#689) — the two
+    // fields are set together from the same "Auto-Download Rules" per-show sheet, so one endpoint
+    // rather than two halves that could otherwise race each other.
+    public Task<UserSettings> UpdateAutoDownloadRulesAsync(
+        string userId, int autoDownloadEpisodeLimit, bool autoDownloadChargingOnly, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(
+            userId,
+            current => current with
+            {
+                AutoDownloadEpisodeLimit = autoDownloadEpisodeLimit,
+                AutoDownloadChargingOnly = autoDownloadChargingOnly,
+            },
+            cancellationToken);
+
+    public async Task<ShowSettings> UpdateShowAutoDownloadRulesAsync(
+        string userId, string showId, int? autoDownloadEpisodeLimit, bool? autoDownloadChargingOnly,
+        CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            AutoDownloadEpisodeLimit = autoDownloadEpisodeLimit,
+            AutoDownloadChargingOnly = autoDownloadChargingOnly,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<(int EpisodeLimit, bool ChargingOnly)> GetEffectiveAutoDownloadRulesAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.AutoDownloadEpisodeLimit is { } limitOverride && showSettings.AutoDownloadChargingOnly is { } chargingOverride)
+        {
+            return (limitOverride, chargingOverride);
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        var limit = showSettings.AutoDownloadEpisodeLimit ?? userSettings.AutoDownloadEpisodeLimit;
+        var chargingOnly = showSettings.AutoDownloadChargingOnly ?? userSettings.AutoDownloadChargingOnly;
+        return (limit, chargingOnly);
     }
 
     public Task<UserSettings> UpdateAutoAddNewEpisodesToUpNextAsync(

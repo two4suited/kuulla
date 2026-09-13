@@ -67,4 +67,9 @@ public record UserSettingsChange(
     // Nullable, same rationale as UpNextInsertPosition above — a client that predates #629 omits
     // the property, and null means "keep whatever's stored" rather than resetting to NextInList.
     PlayNextBehavior? PlayNextBehavior,
+    // Nullable, same rationale as PlayNextBehavior above — a client that predates #689 omits
+    // these, and SettingsService.SyncAsync keeps the stored value rather than resetting the limit
+    // to unlimited or charging-only to off.
+    int? AutoDownloadEpisodeLimit,
+    bool? AutoDownloadChargingOnly,
     DateTimeOffset UpdatedAt);

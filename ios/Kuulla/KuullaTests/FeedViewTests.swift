@@ -24,6 +24,18 @@ final class FeedViewTests: XCTestCase {
         XCTAssertFalse(FeedView.shouldAutoDownload(downloadStatus: nil, showOverride: false, globalDefault: true))
     }
 
+    // MARK: isAutoDownloadAllowedRightNow (#689)
+
+    func testChargingOnlyOffAlwaysAllows() {
+        XCTAssertTrue(FeedView.isAutoDownloadAllowedRightNow(chargingOnly: false, isCharging: false))
+        XCTAssertTrue(FeedView.isAutoDownloadAllowedRightNow(chargingOnly: false, isCharging: true))
+    }
+
+    func testChargingOnlyOnRequiresCharging() {
+        XCTAssertFalse(FeedView.isAutoDownloadAllowedRightNow(chargingOnly: true, isCharging: false))
+        XCTAssertTrue(FeedView.isAutoDownloadAllowedRightNow(chargingOnly: true, isCharging: true))
+    }
+
     // MARK: displayItems (#534)
 
     private func newEpisode(id: String, publishedAt: Date?, autoPlayed: Bool) -> NewEpisode {

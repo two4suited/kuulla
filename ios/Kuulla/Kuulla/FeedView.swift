@@ -27,6 +27,7 @@ struct FeedView: View {
 
     private let subscriptionClient = SubscriptionClient()
     private let settingsClient = SettingsClient()
+    private let chargingStateProvider: DeviceChargingStateProviding = UIDeviceChargingStateProvider()
 
     var body: some View {
         // A List (rather than ScrollView + LazyVStack, as before), matching ShowDetailView — its
@@ -136,24 +137,43 @@ struct FeedView: View {
         let candidates = episodes.filter { downloadStatusByEpisodeId[$0.id] == nil }
         guard !candidates.isEmpty else { return }
 
-        let globalDefault = (try? await settingsClient.getSettings())?.autoDownloadNewEpisodes ?? false
-        let showOverrides = await fetchShowAutoDownloadOverrides(for: Set(candidates.map(\.showId)))
+        let globalSettings = try? await settingsClient.getSettings()
+        let globalDefault = globalSettings?.autoDownloadNewEpisodes ?? false
+        let globalEpisodeLimit = globalSettings?.autoDownloadEpisodeLimit ?? 0
+        let globalChargingOnly = globalSettings?.autoDownloadChargingOnly ?? false
+        let showSettingsById = await fetchShowSettings(for: Set(candidates.map(\.showId)))
+        // Read once per round rather than per episode — battery state doesn't change fast enough
+        // for that distinction to matter, and it keeps every episode in this round evaluated
+        // against the same charging snapshot.
+        let isCharging = chargingStateProvider.isCharging
 
-        var didStartAnyDownload = false
+        var showIdsWithNewDownloads: Set<String> = []
         for episode in candidates {
             // A show whose settings fetch failed has no key here at all — distinct from a show
             // that was fetched successfully and has no override (present with a nil value).
-            // Falling through to globalDefault for a failed fetch would risk silently
+            // Falling through to the global default for a failed fetch would risk silently
             // overriding a user's explicit per-show opt-out (override == false) with a
             // transient network hiccup; skipping this episode for this round instead fails
             // closed, and the next refresh gets another chance to resolve it correctly.
-            guard let showOverride = showOverrides[episode.showId] else { continue }
-            if Self.shouldAutoDownload(
-                downloadStatus: downloadStatusByEpisodeId[episode.id], showOverride: showOverride, globalDefault: globalDefault
-            ) {
-                DownloadManager.shared.startDownload(episode: episode)
-                didStartAnyDownload = true
-            }
+            guard let showSettings = showSettingsById[episode.showId] else { continue }
+            guard Self.shouldAutoDownload(
+                downloadStatus: downloadStatusByEpisodeId[episode.id],
+                showOverride: showSettings.autoDownloadNewEpisodes, globalDefault: globalDefault
+            ) else { continue }
+
+            let chargingOnly = showSettings.autoDownloadChargingOnly ?? globalChargingOnly
+            guard Self.isAutoDownloadAllowedRightNow(chargingOnly: chargingOnly, isCharging: isCharging) else { continue }
+
+            DownloadManager.shared.startDownload(episode: episode)
+            showIdsWithNewDownloads.insert(episode.showId)
+        }
+
+        // #689's "latest N episodes" rule — enforced after starting this round's downloads (not
+        // before), so a show whose limit was just reached still gets the newest episode before
+        // anything is evicted.
+        for showId in showIdsWithNewDownloads {
+            let limit = showSettingsById[showId]?.autoDownloadEpisodeLimit ?? globalEpisodeLimit
+            DownloadManager.shared.enforceEpisodeLimit(showId: showId, limit: limit, in: modelContext)
         }
 
         // startDownload writes a .downloading DownloadedEpisodeRecord synchronously — including
@@ -162,7 +182,7 @@ struct FeedView: View {
         // DownloadManager.progress has no entry for a queued episode either. Without this,
         // affected rows would keep showing the down-arrow until something else happened to
         // trigger a refresh.
-        if didStartAnyDownload {
+        if !showIdsWithNewDownloads.isEmpty {
             refreshStatuses()
         }
     }
@@ -174,25 +194,31 @@ struct FeedView: View {
         return showOverride ?? globalDefault
     }
 
+    // #689's "charging only" auto-download condition — unlike Wi-Fi-only downloads (#180), this
+    // has no queue: it's re-checked on every feed refresh, so an episode simply auto-downloads on
+    // the next refresh that happens to land while charging rather than waiting on a live observer.
+    static func isAutoDownloadAllowedRightNow(chargingOnly: Bool, isCharging: Bool) -> Bool {
+        !chargingOnly || isCharging
+    }
+
     // Bounded concurrency (mirroring DownloadsView's episode-metadata fetch) rather than one
     // request per distinct show at once — a user subscribed to many shows with new episodes
     // shouldn't burst-request the API for every one of them simultaneously. A show whose fetch
     // fails is left out of the returned dictionary entirely (not inserted with a nil value) —
     // triggerAutoDownloads relies on that key's absence to distinguish "fetch failed" from
-    // "fetched fine, no override" and skip the episode rather than guessing.
-    private func fetchShowAutoDownloadOverrides(for showIds: Set<String>) async -> [String: Bool?] {
-        var overridesByShowId: [String: Bool?] = [:]
+    // "fetched fine, no override" and skip the episode rather than guessing. Returns the whole
+    // ShowSettings (rather than just the on/off override, as before #689) so the auto-download,
+    // episode-limit, and charging-only overrides all come from the one request per show.
+    private func fetchShowSettings(for showIds: Set<String>) async -> [String: ShowSettings] {
+        var settingsByShowId: [String: ShowSettings] = [:]
         let maxConcurrentRequests = 4
         var iterator = showIds.makeIterator()
 
-        await withTaskGroup(of: (showId: String, override: Bool?, didFail: Bool).self) { group in
+        await withTaskGroup(of: (showId: String, settings: ShowSettings?).self) { group in
             func addTaskIfAvailable() {
                 guard let showId = iterator.next() else { return }
                 group.addTask {
-                    guard let showSettings = try? await self.settingsClient.getShowSettings(showId: showId) else {
-                        return (showId, nil, true)
-                    }
-                    return (showId, showSettings.autoDownloadNewEpisodes, false)
+                    (showId, try? await self.settingsClient.getShowSettings(showId: showId))
                 }
             }
 
@@ -200,14 +226,14 @@ struct FeedView: View {
                 addTaskIfAvailable()
             }
             for await result in group {
-                if !result.didFail {
-                    overridesByShowId[result.showId] = result.override
+                if let settings = result.settings {
+                    settingsByShowId[result.showId] = settings
                 }
                 addTaskIfAvailable()
             }
         }
 
-        return overridesByShowId
+        return settingsByShowId
     }
 
     private func restoreAutoPlayed(episodeId: String) async {

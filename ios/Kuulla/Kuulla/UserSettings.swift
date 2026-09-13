@@ -53,6 +53,12 @@ struct UserSettings: Codable, Hashable {
     // What plays when an episode finishes (#629). Defaults to .nextInList (raw 0) when absent —
     // the API's own default and what manual playlists did before the setting existed (#532).
     let playNextBehavior: PlayNextBehavior
+    // Caps how many auto-downloaded episodes are kept per show (#689). 0 (see decoder) means
+    // unlimited when absent, matching the API's own CLR-zero default.
+    let autoDownloadEpisodeLimit: Int
+    // Only auto-download while charging (#689). Defaults to false (opt-in) when absent, same
+    // rationale as autoDownloadNewEpisodes.
+    let autoDownloadChargingOnly: Bool
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -72,6 +78,8 @@ struct UserSettings: Codable, Hashable {
         leadingSwipeActions: [EpisodeSwipeAction] = [],
         trailingSwipeActions: [EpisodeSwipeAction] = [.addToPlaylist, .markPlayed],
         playNextBehavior: PlayNextBehavior = .nextInList,
+        autoDownloadEpisodeLimit: Int = 0,
+        autoDownloadChargingOnly: Bool = false,
         updatedAt: Date = .distantPast
     ) {
         self.userId = userId
@@ -97,6 +105,8 @@ struct UserSettings: Codable, Hashable {
         self.leadingSwipeActions = leadingSwipeActions
         self.trailingSwipeActions = trailingSwipeActions
         self.playNextBehavior = playNextBehavior
+        self.autoDownloadEpisodeLimit = autoDownloadEpisodeLimit
+        self.autoDownloadChargingOnly = autoDownloadChargingOnly
         self.updatedAt = updatedAt
     }
 
@@ -105,7 +115,7 @@ struct UserSettings: Codable, Hashable {
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, voiceBoost, trimSilence, notificationsEnabled
         case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, hideCaughtUpShows
         case autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions
-        case playNextBehavior, updatedAt
+        case playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -160,6 +170,10 @@ struct UserSettings: Codable, Hashable {
             [EpisodeSwipeAction].self, forKey: .trailingSwipeActions) ?? [.addToPlaylist, .markPlayed]
         // Default to .nextInList when absent (#629), same rationale as upNextInsertPosition above.
         playNextBehavior = try container.decodeIfPresent(PlayNextBehavior.self, forKey: .playNextBehavior) ?? .nextInList
+        // Default to 0 (unlimited) when absent (predates #689), same rationale as autoArchiveRule above.
+        autoDownloadEpisodeLimit = try container.decodeIfPresent(Int.self, forKey: .autoDownloadEpisodeLimit) ?? 0
+        // Default to false (off) when absent (predates #689), same rationale as autoDownloadNewEpisodes above.
+        autoDownloadChargingOnly = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadChargingOnly) ?? false
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -196,7 +210,9 @@ struct UserSettings: Codable, Hashable {
         upNextInsertPosition: UpNextInsertPosition? = nil,
         leadingSwipeActions: [EpisodeSwipeAction]? = nil,
         trailingSwipeActions: [EpisodeSwipeAction]? = nil,
-        playNextBehavior: PlayNextBehavior? = nil
+        playNextBehavior: PlayNextBehavior? = nil,
+        autoDownloadEpisodeLimit: Int? = nil,
+        autoDownloadChargingOnly: Bool? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -220,6 +236,8 @@ struct UserSettings: Codable, Hashable {
             leadingSwipeActions: leadingSwipeActions ?? self.leadingSwipeActions,
             trailingSwipeActions: trailingSwipeActions ?? self.trailingSwipeActions,
             playNextBehavior: playNextBehavior ?? self.playNextBehavior,
+            autoDownloadEpisodeLimit: autoDownloadEpisodeLimit ?? self.autoDownloadEpisodeLimit,
+            autoDownloadChargingOnly: autoDownloadChargingOnly ?? self.autoDownloadChargingOnly,
             updatedAt: updatedAt)
     }
 }

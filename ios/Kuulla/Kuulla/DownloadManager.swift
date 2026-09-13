@@ -300,6 +300,30 @@ final class DownloadManager: NSObject {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
+
+    // #689's "latest N episodes" auto-download rule — called by FeedView after starting this
+    // round's auto-downloads for a show whose effective limit is non-zero. Evicts by downloadedAt
+    // (download recency) rather than the episode's publish date: auto-download only ever
+    // triggers off "new episode" notifications, so download order already tracks publish order in
+    // practice, and this avoids an extra per-episode metadata fetch just to enforce the cap.
+    func enforceEpisodeLimit(showId: String, limit: Int, in context: ModelContext) {
+        guard limit > 0 else { return }
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.showId == showId })
+        let records = ((try? context.fetch(descriptor)) ?? []).filter { $0.status == .complete || $0.status == .downloading }
+        for record in Self.recordsToEvict(current: records, limit: limit) {
+            if record.status == .downloading {
+                cancelDownload(episodeId: record.id)
+            } else {
+                DownloadCleanup.delete([record], from: context)
+            }
+        }
+    }
+
+    // Pulled out as a pure function for testability, mirroring DownloadCleanup.shouldAutoDelete.
+    static func recordsToEvict(current: [DownloadedEpisodeRecord], limit: Int) -> [DownloadedEpisodeRecord] {
+        guard limit > 0, current.count > limit else { return [] }
+        return Array(current.sorted { $0.downloadedAt > $1.downloadedAt }.dropFirst(limit))
+    }
 }
 
 // URLSession invokes its delegate on the background queue passed to init (delegateQueue: nil

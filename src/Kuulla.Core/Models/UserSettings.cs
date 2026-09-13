@@ -115,6 +115,16 @@ public record UserSettings(
     // playlists did before this setting existed (#532). Per-show and per-playlist overrides live
     // on ShowSettings / Playlist; resolution order is playlist → show → this global value.
     PlayNextBehavior PlayNextBehavior = PlayNextBehavior.NextInList,
+    // Caps how many auto-downloaded episodes are kept per show (#689) — 0 is the CLR zero value
+    // and means unlimited, matching AutoSkipIntroSeconds/AutoSkipOutroSeconds' "0 = off" convention,
+    // so a settings document written before this field existed deserializes to "no limit" (today's
+    // behavior) with no DefaultValueHandling needed. Only meaningful when AutoDownloadNewEpisodes
+    // is on; enforced by evicting the oldest downloaded episode for the show, not by refusing new
+    // ones, so the "latest N" framing (#689) actually holds as new episodes arrive.
+    int AutoDownloadEpisodeLimit = 0,
+    // False is the safe default — same "opt-in, not on-by-default" convention as
+    // AutoDownloadNewEpisodes above. Only meaningful when AutoDownloadNewEpisodes is on.
+    bool AutoDownloadChargingOnly = false,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {

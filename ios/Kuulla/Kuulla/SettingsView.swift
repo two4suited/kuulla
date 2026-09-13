@@ -15,6 +15,7 @@ struct SettingsView: View {
     @Environment(\.settingsSyncEngine) private var syncEngine
     @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
 
     @State private var settings: UserSettings?
     @State private var isLoading = false
@@ -24,6 +25,7 @@ struct SettingsView: View {
     @State private var autoSkipSaveError: String?
     @State private var autoDeleteSaveError: String?
     @State private var autoDownloadSaveError: String?
+    @State private var autoDownloadRulesSaveError: String?
     @State private var autoAddUpNextSaveError: String?
     @State private var upNextInsertPositionSaveError: String?
     @State private var playNextBehaviorSaveError: String?
@@ -41,6 +43,7 @@ struct SettingsView: View {
     @State private var autoSkipSaveTask: Task<Void, Never>?
     @State private var autoDeleteSaveTask: Task<Void, Never>?
     @State private var autoDownloadSaveTask: Task<Void, Never>?
+    @State private var autoDownloadRulesSaveTask: Task<Void, Never>?
     @State private var autoAddUpNextSaveTask: Task<Void, Never>?
     @State private var upNextInsertPositionSaveTask: Task<Void, Never>?
     @State private var playNextBehaviorSaveTask: Task<Void, Never>?
@@ -270,6 +273,21 @@ struct SettingsView: View {
                 Toggle("Auto-download new episodes", isOn: autoDownloadNewEpisodesBinding)
                     .disabled(settings == nil)
 
+                // Only shown when auto-download is actually on — these two rules (#689) are
+                // meaningless otherwise.
+                if settings?.autoDownloadNewEpisodes == true {
+                    Picker("Keep downloaded", selection: autoDownloadEpisodeLimitBinding) {
+                        Text("All episodes").tag(0)
+                        ForEach([1, 3, 5, 10, 20], id: \.self) { count in
+                            Text("Latest \(count)").tag(count)
+                        }
+                    }
+                    .disabled(settings == nil)
+
+                    Toggle("Only while charging", isOn: autoDownloadChargingOnlyBinding)
+                        .disabled(settings == nil)
+                }
+
                 Picker("Delete downloads", selection: autoDeleteRuleBinding) {
                     ForEach(AutoDeleteRule.allCases) { option in
                         Text(option.label).tag(option)
@@ -295,6 +313,10 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     if let autoDownloadSaveError {
                         Text(autoDownloadSaveError)
+                            .foregroundStyle(.red)
+                    }
+                    if let autoDownloadRulesSaveError {
+                        Text(autoDownloadRulesSaveError)
                             .foregroundStyle(.red)
                     }
                     if let autoDeleteSaveError {
@@ -580,6 +602,33 @@ struct SettingsView: View {
         )
     }
 
+    // Episode limit and charging-only are set together via one endpoint (#689, mirroring
+    // AutoDeleteRule's rule+afterDays bundling), so each binding's setter carries the *other*
+    // field's current value along rather than clobbering it.
+    private var autoDownloadEpisodeLimitBinding: Binding<Int> {
+        Binding(
+            get: { settings?.autoDownloadEpisodeLimit ?? 0 },
+            set: { newValue in
+                autoDownloadRulesSaveTask?.cancel()
+                autoDownloadRulesSaveTask = Task {
+                    await updateAutoDownloadRules(episodeLimit: newValue, chargingOnly: settings?.autoDownloadChargingOnly ?? false)
+                }
+            }
+        )
+    }
+
+    private var autoDownloadChargingOnlyBinding: Binding<Bool> {
+        Binding(
+            get: { settings?.autoDownloadChargingOnly ?? false },
+            set: { newValue in
+                autoDownloadRulesSaveTask?.cancel()
+                autoDownloadRulesSaveTask = Task {
+                    await updateAutoDownloadRules(episodeLimit: settings?.autoDownloadEpisodeLimit ?? 0, chargingOnly: newValue)
+                }
+            }
+        )
+    }
+
     private var autoAddNewEpisodesToUpNextBinding: Binding<Bool> {
         Binding(
             get: { settings?.autoAddNewEpisodesToUpNext ?? false },
@@ -847,6 +896,62 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 autoDownloadSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateAutoDownloadRules(episodeLimit: Int, chargingOnly: Bool) async {
+        guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
+
+        autoDownloadRulesSaveError = nil
+        settings = previous.with(autoDownloadEpisodeLimit: episodeLimit, autoDownloadChargingOnly: chargingOnly)
+
+        do {
+            let updated = try await settingsClient.updateAutoDownloadRules(episodeLimit: episodeLimit, chargingOnly: chargingOnly)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+                // Otherwise a lowered limit would only take effect the next time each show
+                // happens to get a new episode auto-downloaded (FeedView.triggerAutoDownloads),
+                // which could be days away or never for an inactive show — the user just asked
+                // to reclaim storage, so it applies immediately (#689).
+                await enforceEpisodeLimitAcrossDownloadedShows(newGlobalLimit: episodeLimit)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                autoDownloadRulesSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    // A show with its own episode-limit override keeps that override rather than the new global
+    // value — only shows inheriting the global default are affected by this change. Bounded
+    // concurrency, mirroring FeedView.fetchShowSettings, rather than one request per show at once.
+    private func enforceEpisodeLimitAcrossDownloadedShows(newGlobalLimit: Int) async {
+        let showIds = Set((try? modelContext.fetch(FetchDescriptor<DownloadedEpisodeRecord>()))?.map(\.showId) ?? [])
+        guard !showIds.isEmpty else { return }
+
+        let maxConcurrentRequests = 4
+        var iterator = showIds.makeIterator()
+        await withTaskGroup(of: (showId: String, episodeLimitOverride: Int?).self) { group in
+            func addTaskIfAvailable() {
+                guard let showId = iterator.next() else { return }
+                group.addTask {
+                    let showSettings = try? await self.settingsClient.getShowSettings(showId: showId)
+                    return (showId, showSettings?.autoDownloadEpisodeLimit)
+                }
+            }
+
+            for _ in 0..<min(maxConcurrentRequests, showIds.count) {
+                addTaskIfAvailable()
+            }
+            for await result in group {
+                let effectiveLimit = result.episodeLimitOverride ?? newGlobalLimit
+                DownloadManager.shared.enforceEpisodeLimit(showId: result.showId, limit: effectiveLimit, in: modelContext)
+                addTaskIfAvailable()
             }
         }
     }

@@ -6,7 +6,8 @@ final class ShowSettingsTests: XCTestCase {
         id: "show:u1:s1", userId: "u1", showId: "s1", unlistenedEpisodeCount: .ten,
         version: 1, autoArchiveRule: .after7Days, autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20,
         playbackSpeed: 1.5, autoDownloadNewEpisodes: true, autoDeleteRule: .afterDays, autoDeleteAfterDays: 14,
-        smartSpeed: true, voiceBoost: true, trimSilence: true, autoAddNewEpisodesToUpNext: true, playNextBehavior: .topOfList)
+        smartSpeed: true, voiceBoost: true, trimSilence: true, autoAddNewEpisodesToUpNext: true, playNextBehavior: .topOfList,
+        autoDownloadEpisodeLimit: 5, autoDownloadChargingOnly: true)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -27,6 +28,25 @@ final class ShowSettingsTests: XCTestCase {
         XCTAssertEqual(updated.autoDeleteRule, base.autoDeleteRule)
         XCTAssertEqual(updated.autoDeleteAfterDays, base.autoDeleteAfterDays)
         XCTAssertEqual(updated.playNextBehavior, base.playNextBehavior)
+        XCTAssertEqual(updated.autoDownloadEpisodeLimit, base.autoDownloadEpisodeLimit)
+        XCTAssertEqual(updated.autoDownloadChargingOnly, base.autoDownloadChargingOnly)
+    }
+
+    // MARK: autoDownloadEpisodeLimit / autoDownloadChargingOnly (#689)
+
+    func testWithChangingAutoDownloadRulesTogether() {
+        let updated = base.with(autoDownloadEpisodeLimit: Int?.some(1), autoDownloadChargingOnly: Bool?.none)
+        XCTAssertEqual(updated.autoDownloadEpisodeLimit, 1)
+        XCTAssertNil(updated.autoDownloadChargingOnly)
+        // Other fields untouched.
+        XCTAssertEqual(updated.autoDownloadNewEpisodes, base.autoDownloadNewEpisodes)
+    }
+
+    func testWithExplicitNilClearsTheAutoDownloadEpisodeLimitOverride() {
+        let updated = base.with(autoDownloadEpisodeLimit: Int?.none)
+        XCTAssertNil(updated.autoDownloadEpisodeLimit)
+        // chargingOnly left untouched because it wasn't passed.
+        XCTAssertEqual(updated.autoDownloadChargingOnly, base.autoDownloadChargingOnly)
     }
 
     func testWithExplicitNilClearsThePlayNextBehaviorOverride() {

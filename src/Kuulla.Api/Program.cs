@@ -1215,6 +1215,11 @@ sync.MapPost("/settings", async (
         {
             return Results.BadRequest(new { error = "'playNextBehavior' is not a valid value." });
         }
+        if (change.AutoDownloadEpisodeLimit is { } autoDownloadEpisodeLimit &&
+            !TryValidateAutoDownloadEpisodeLimit(autoDownloadEpisodeLimit, out var autoDownloadEpisodeLimitError))
+        {
+            return Results.BadRequest(new { error = autoDownloadEpisodeLimitError });
+        }
     }
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -1644,6 +1649,21 @@ bool TryValidateAutoDeleteAfterDays(int days, string fieldName, out string? erro
     return true;
 }
 
+// 0 (unlimited) is valid alongside any positive count — only reject negative input. Shared by
+// the sync endpoint and both auto-download-rules endpoints below so the message stays in sync
+// across all three (#689).
+bool TryValidateAutoDownloadEpisodeLimit(int limit, out string? error)
+{
+    if (limit < 0)
+    {
+        error = "'autoDownloadEpisodeLimit' must be 0 (unlimited) or greater.";
+        return false;
+    }
+
+    error = null;
+    return true;
+}
+
 settings.MapPut("/auto-delete", async (
     UpdateAutoDeleteRuleRequest request,
     ClaimsPrincipal user,
@@ -1715,6 +1735,41 @@ settings.MapPut("/shows/{showId}/auto-download", async (
 {
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateShowAutoDownloadNewEpisodesAsync(userId, showId, request.AutoDownloadNewEpisodes, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/auto-download-rules", async (
+    UpdateAutoDownloadRulesRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateAutoDownloadEpisodeLimit(request.AutoDownloadEpisodeLimit, out var episodeLimitError))
+    {
+        return Results.BadRequest(new { error = episodeLimitError });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateAutoDownloadRulesAsync(
+        userId, request.AutoDownloadEpisodeLimit, request.AutoDownloadChargingOnly, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/auto-download-rules", async (
+    string showId,
+    UpdateShowAutoDownloadRulesRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (request.AutoDownloadEpisodeLimit is { } limit && !TryValidateAutoDownloadEpisodeLimit(limit, out var episodeLimitError))
+    {
+        return Results.BadRequest(new { error = episodeLimitError });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowAutoDownloadRulesAsync(
+        userId, showId, request.AutoDownloadEpisodeLimit, request.AutoDownloadChargingOnly, ct);
     return Results.Ok(result);
 });
 

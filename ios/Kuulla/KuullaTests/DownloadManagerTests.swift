@@ -297,4 +297,86 @@ final class DownloadManagerTests: XCTestCase {
             XCTAssertTrue(try context.fetch(descriptor).isEmpty)
         }
     }
+
+    // MARK: recordsToEvict (#689)
+
+    func testRecordsToEvictKeepsNewestByDownloadedAtAndEvictsOlder() {
+        let old = DownloadedEpisodeRecord(
+            id: "old", showId: "show1", localFilePath: "", fileSizeBytes: 0,
+            downloadedAt: Date(timeIntervalSince1970: 1), status: .complete)
+        let mid = DownloadedEpisodeRecord(
+            id: "mid", showId: "show1", localFilePath: "", fileSizeBytes: 0,
+            downloadedAt: Date(timeIntervalSince1970: 2), status: .complete)
+        let new = DownloadedEpisodeRecord(
+            id: "new", showId: "show1", localFilePath: "", fileSizeBytes: 0,
+            downloadedAt: Date(timeIntervalSince1970: 3), status: .complete)
+
+        let evicted = DownloadManager.recordsToEvict(current: [old, mid, new], limit: 2)
+
+        XCTAssertEqual(evicted.map(\.id), ["old"])
+    }
+
+    func testRecordsToEvictReturnsEmptyWhenAtOrUnderLimit() {
+        let record = DownloadedEpisodeRecord(
+            id: "ep1", showId: "show1", localFilePath: "", fileSizeBytes: 0, downloadedAt: Date(), status: .complete)
+
+        XCTAssertTrue(DownloadManager.recordsToEvict(current: [record], limit: 1).isEmpty)
+    }
+
+    func testRecordsToEvictReturnsEmptyWhenLimitIsZero() {
+        let record = DownloadedEpisodeRecord(
+            id: "ep1", showId: "show1", localFilePath: "", fileSizeBytes: 0, downloadedAt: Date(), status: .complete)
+
+        XCTAssertTrue(DownloadManager.recordsToEvict(current: [record], limit: 0).isEmpty)
+    }
+
+    // MARK: enforceEpisodeLimit (#689)
+
+    func testEnforceEpisodeLimitDeletesOldestCompletedDownloadBeyondLimit() async throws {
+        let container = try makeContainer()
+        let manager = await makeManager(container: container)
+        let context = ModelContext(container)
+        let old = DownloadedEpisodeRecord(
+            id: "old", showId: "show1", localFilePath: "", fileSizeBytes: 0,
+            downloadedAt: Date(timeIntervalSince1970: 1), status: .complete)
+        let new = DownloadedEpisodeRecord(
+            id: "new", showId: "show1", localFilePath: "", fileSizeBytes: 0,
+            downloadedAt: Date(timeIntervalSince1970: 2), status: .complete)
+        context.insert(old)
+        context.insert(new)
+        try context.save()
+
+        manager.enforceEpisodeLimit(showId: "show1", limit: 1, in: context)
+
+        let remaining = try context.fetch(FetchDescriptor<DownloadedEpisodeRecord>())
+        XCTAssertEqual(remaining.map(\.id), ["new"])
+    }
+
+    func testEnforceEpisodeLimitDoesNothingWhenLimitIsZero() async throws {
+        let container = try makeContainer()
+        let manager = await makeManager(container: container)
+        let context = ModelContext(container)
+        let record = DownloadedEpisodeRecord(
+            id: "ep1", showId: "show1", localFilePath: "", fileSizeBytes: 0, downloadedAt: Date(), status: .complete)
+        context.insert(record)
+        try context.save()
+
+        manager.enforceEpisodeLimit(showId: "show1", limit: 0, in: context)
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<DownloadedEpisodeRecord>()).count, 1)
+    }
+
+    func testEnforceEpisodeLimitIgnoresOtherShows() async throws {
+        let container = try makeContainer()
+        let manager = await makeManager(container: container)
+        let context = ModelContext(container)
+        let record = DownloadedEpisodeRecord(
+            id: "ep1", showId: "other-show", localFilePath: "", fileSizeBytes: 0, downloadedAt: Date(), status: .complete)
+        context.insert(record)
+        try context.save()
+
+        manager.enforceEpisodeLimit(showId: "show1", limit: 1, in: context)
+
+        XCTAssertEqual(try context.fetch(FetchDescriptor<DownloadedEpisodeRecord>()).count, 1)
+    }
 }
