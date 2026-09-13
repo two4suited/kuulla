@@ -92,6 +92,42 @@ browse → Now Playing flow can be exercised today.
    over the network can lag the first render (`imageCache` fills on the second visit). Treat a
    real-device pass (step 4 above) as the acceptance gate.
 
+### Troubleshooting the CarPlay Simulator
+
+Confirmed via `Simulator` app + guest OS log inspection (2026-09-12):
+
+- **Menu click does nothing (no window at all).** Usually a stale external-display capture
+  session left behind by another tool that attached to the Simulator's screen (e.g. a crashed
+  screen-mirroring/automation tool). Symptom in the host log
+  (`/usr/bin/log show --process Simulator --style compact`, filter for `ROCKit`/`sidecar`): repeated
+  `Failed to try resuming capture session` followed by, right as you click CarPlay, `ROCKit Soft
+  Assertion Failure ... Invalid impersonatable proxy UUID specified` for
+  `SimDisplayIOSurfaceRenderable`. Fix: fully kill Simulator (`kill -9 <pid>`, found via
+  `ps -axo pid,comm | grep -i 'MacOS/Simulator$'`), `xcrun simctl shutdown all`, then reboot the
+  device and relaunch Simulator fresh.
+- **Menu click registers (`perform action for menu item` in the host log) but still no window,
+  or the window opens with only the 4 built-in icons (Phone/Maps/Music/Now Playing).** Check the
+  host log for `unable to find target mode matching size: (800.0, 480.0), scale: 2.0` right after
+  the click — that's CarPlay's virtual-display resolution negotiation failing for this specific
+  simulated device/runtime pairing. It's device-specific, not a Kuulla bug: switch to a different
+  simulated device (e.g. iPhone 17 Pro Max instead of iPhone 17 Pro) and retry.
+- **CarPlay window opens fine but Kuulla's icon never appears.** The CarPlay window snapshots
+  installed apps at connect time. If Kuulla was installed/relaunched *after* CarPlay was already
+  open, toggle it off and back on (I/O → External Displays → CarPlay, click twice) to force
+  re-enumeration, rather than assuming the app is broken.
+- **The `com.apple.developer.carplay-audio` entitlement is never present on a Simulator build,
+  confirmed with `codesign -d --entitlements - --xml <path>/Kuulla.app`** — it comes back an empty
+  `<dict/>` even with `-allowProvisioningUpdates` and the real team's Apple Development identity,
+  because Xcode always ad-hoc-signs Simulator builds (`TeamIdentifier=not set`) regardless of the
+  scheme's signing settings. This is expected, not a regression — don't chase it. It's also why
+  entitlement state is irrelevant to whether the app shows up on the CarPlay Simulator's home
+  screen at all.
+- **Useful log commands** — host Simulator.app process:
+  `/usr/bin/log show --last 5m --predicate 'process == "Simulator"' --style compact`; the *guest*
+  iOS inside a given simulator (SpringBoard, installd, runningboardd — this is where you see
+  Kuulla's actual scene/install lifecycle):
+  `xcrun simctl spawn <udid> log show --last 10m --predicate 'eventMessage contains[c] "kuulla"' --style compact`.
+
 ## Implementation audit (2026-09-10)
 
 Reviewed `CarPlaySceneDelegate.swift`, the scene wiring in `KuullaApp.swift`, `Info.plist`, and
