@@ -6,9 +6,8 @@ import SwiftUI
 // until the first play() of the session gives AudioPlayer a context to show.
 @MainActor
 struct NowPlayingBar: View {
-    // Tapping the bar hands the loaded episode's route back to ContentView, which pushes it onto
-    // the active tab's own navigation stack (the bar has no NavigationPath of its own).
-    let onOpen: (CatalogRoute) -> Void
+    // Tapping the bar presents the full-screen Now Playing view (#646).
+    let onOpen: () -> Void
 
     @State private var audioPlayer = AudioPlayer.shared
 
@@ -17,35 +16,24 @@ struct NowPlayingBar: View {
     private static let skipBackInterval: TimeInterval = 15
     private static let skipForwardInterval: TimeInterval = 30
 
-    // The EpisodeDetailView route for whatever is loaded — .playlistEpisode when the session was
-    // started from a manual playlist, so reopening it from the bar keeps auto-advance (#532)
-    // armed; a plain .episode otherwise. Pulled out as a pure function for unit testing, mirroring
-    // the codebase's other decision-logic seams.
-    nonisolated static func route(for context: NowPlayingContext) -> CatalogRoute {
-        if let playlistId = context.playlistId {
-            return .playlistEpisode(playlistId: playlistId, showId: context.showId, episodeId: context.episodeId)
-        }
-        return .episode(showId: context.showId, episodeId: context.episodeId)
-    }
-
     private var progress: Double {
         guard audioPlayer.duration > 0 else { return 0 }
         return min(1, max(0, audioPlayer.currentTime / audioPlayer.duration))
     }
 
     var body: some View {
-        if let context = audioPlayer.nowPlayingContext, let metadata = audioPlayer.nowPlayingMetadata {
+        if audioPlayer.nowPlayingContext != nil, let metadata = audioPlayer.nowPlayingMetadata {
             VStack(spacing: 0) {
                 Divider()
                 HStack(spacing: Space.md) {
                     Button {
-                        onOpen(Self.route(for: context))
+                        onOpen()
                     } label: {
                         episodeLabel(metadata)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Now playing: \(metadata.title)")
-                    .accessibilityHint("Opens the episode")
+                    .accessibilityHint("Opens the player")
 
                     transportControls
                 }
