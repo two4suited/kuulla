@@ -32,10 +32,11 @@ struct ContentView: View {
     // than a single shared NavigationPath — Library is the natural "content" home to land a
     // show/episode deep link (#218) regardless of which tab was active when it arrived.
     @State private var tabPaths: [AppTab: NavigationPath] = [:]
-    // Set when the mini player bar is tapped (#607) — presented as a dismissible sheet rather
-    // than pushed onto the active tab's stack, so it never covers the tab bar with no way back:
-    // swipe-down-to-dismiss (native to .sheet) or the explicit close button both return here.
-    @State private var nowPlayingRoute: CatalogRoute?
+    // Set when the mini player bar is tapped (#607) — presents the full-screen Now Playing view
+    // (#646) as a dismissible sheet rather than pushing onto the active tab's stack, so it never
+    // covers the tab bar with no way back: swipe-down-to-dismiss (native to .sheet) or the
+    // explicit close button both return here.
+    @State private var isShowingNowPlaying = false
 
     var body: some View {
         content
@@ -100,29 +101,19 @@ struct ContentView: View {
                     .tag(AppTab.playlists)
             }
             // Pinned above the tab bar on every tab whenever AudioPlayer has something loaded
-            // (#542). Tapping it presents the episode as a dismissible sheet (#607) — swipe down
-            // or the close button return to whichever tab was active — rather than pushing onto
-            // that tab's stack, which left no way back to the tab bar.
+            // (#542). Tapping it presents the full-screen Now Playing view as a dismissible sheet
+            // (#607, #646) — swipe down or the close button return to whichever tab was active —
+            // rather than pushing onto that tab's stack, which left no way back to the tab bar.
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                NowPlayingBar { route in
-                    nowPlayingRoute = route
+                NowPlayingBar {
+                    isShowingNowPlaying = true
                 }
             }
             .onChange(of: deepLinkRouter.pendingRoute) { _, _ in applyPendingDeepLinkIfNeeded() }
             .onAppear { applyPendingDeepLinkIfNeeded() }
-            .sheet(item: $nowPlayingRoute) { route in
-                NavigationStack {
-                    destination(for: route)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button {
-                                    nowPlayingRoute = nil
-                                } label: {
-                                    Image(systemName: "chevron.down")
-                                }
-                                .accessibilityLabel("Close")
-                            }
-                        }
+            .sheet(isPresented: $isShowingNowPlaying) {
+                NowPlayingView {
+                    isShowingNowPlaying = false
                 }
                 .presentationDragIndicator(.visible)
             }
