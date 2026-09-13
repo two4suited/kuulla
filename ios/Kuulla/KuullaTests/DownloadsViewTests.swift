@@ -247,4 +247,52 @@ final class DownloadCleanupTests: XCTestCase {
         let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
         XCTAssertFalse(try context.fetch(descriptor).isEmpty)
     }
+
+    // MARK: - playedRecords (#690)
+
+    func testPlayedRecordsIncludesPlayedAndAutoPlayedButNotOthers() {
+        let played = makeRecord(id: "played", fileSizeBytes: 1, localFilePath: "")
+        let autoPlayed = makeRecord(id: "auto-played", fileSizeBytes: 1, localFilePath: "")
+        let inProgress = makeRecord(id: "in-progress", fileSizeBytes: 1, localFilePath: "")
+        let new = makeRecord(id: "new", fileSizeBytes: 1, localFilePath: "")
+        let statuses: [String: EpisodeStatus] = [
+            "played": .played, "auto-played": .autoPlayed, "in-progress": .inProgress,
+        ]
+
+        let result = DownloadCleanup.playedRecords([played, autoPlayed, inProgress, new], statuses: statuses)
+
+        XCTAssertEqual(Set(result.map(\.id)), ["played", "auto-played"])
+    }
+
+    func testPlayedRecordsTreatsMissingStatusAsNotPlayed() {
+        let record = makeRecord(id: "ep1", fileSizeBytes: 1, localFilePath: "")
+
+        let result = DownloadCleanup.playedRecords([record], statuses: [:])
+
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    // MARK: - recordsOlderThan (#690)
+
+    func testRecordsOlderThanExcludesRecordsNewerThanCutoff() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let old = makeRecord(id: "old", fileSizeBytes: 1, localFilePath: "")
+        old.downloadedAt = Calendar.current.date(byAdding: .day, value: -10, to: now)!
+        let recent = makeRecord(id: "recent", fileSizeBytes: 1, localFilePath: "")
+        recent.downloadedAt = Calendar.current.date(byAdding: .day, value: -1, to: now)!
+
+        let result = DownloadCleanup.recordsOlderThan(days: 7, in: [old, recent], now: now)
+
+        XCTAssertEqual(result.map(\.id), ["old"])
+    }
+
+    func testRecordsOlderThanIsEmptyWhenNothingIsOldEnough() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let recent = makeRecord(id: "recent", fileSizeBytes: 1, localFilePath: "")
+        recent.downloadedAt = now
+
+        let result = DownloadCleanup.recordsOlderThan(days: 30, in: [recent], now: now)
+
+        XCTAssertTrue(result.isEmpty)
+    }
 }
