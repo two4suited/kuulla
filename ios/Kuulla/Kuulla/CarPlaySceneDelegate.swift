@@ -55,6 +55,15 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         interfaceController.setRootTemplate(
             CPTabBarTemplate(templates: [showsTemplate, playlistsTemplate]), animated: false, completion: nil)
 
+        // Set once per connect (#640) — CPNowPlayingTemplate.shared is a singleton for the whole
+        // CarPlay session, so this doesn't need re-wiring per playback session the way
+        // AudioPlayer's onDidFinishPlaying handler does. Skip back/forward already work for free
+        // via AudioPlayer.configureRemoteCommandCenter's MPRemoteCommandCenter wiring — only the
+        // Up Next button needed anything here. CarPlay reports button taps through the
+        // CPNowPlayingTemplateObserver protocol rather than a closure property.
+        CPNowPlayingTemplate.shared.isUpNextButtonEnabled = true
+        CPNowPlayingTemplate.shared.add(self)
+
         loadTask = Task {
             async let subscriptions: Void = loadSubscriptionsList(into: showsTemplate)
             async let playlists: Void = loadPlaylistsList(into: playlistsTemplate)
@@ -67,6 +76,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         didDisconnectInterfaceController interfaceController: CPInterfaceController
     ) {
         self.interfaceController = nil
+        CPNowPlayingTemplate.shared.remove(self)
         loadTask?.cancel()
         loadTask = nil
         progressTrackingTask?.cancel()
@@ -554,8 +564,58 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
         // Most of CPNowPlayingTemplate's content (title, artwork, elapsed time, transport state)
         // comes for free from the MPNowPlayingInfoCenter/MPRemoteCommandCenter wiring AudioPlayer
-        // already does for the lock screen — button configuration is #118's job.
+        // already does for the lock screen — the Up Next button is wired once in didConnect (#640).
         interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true, completion: nil)
+    }
+
+    // Up Next screen (#640) — pushed from nowPlayingTemplateUpNextButtonTapped below. Titles
+    // resolve cache-first via CatalogCache.episode, falling back to the network concurrently for
+    // anything not cached, mirroring continueListeningSection's resolution.
+    private func pushUpNextList() async {
+        let queueItems = PlaybackQueue.shared.upNextItems
+        guard !queueItems.isEmpty else {
+            let template = CPListTemplate(
+                title: "Up Next",
+                sections: [CPListSection(items: [CPListItem(text: "Nothing queued up next.", detailText: nil)])])
+            interfaceController?.pushTemplate(template, animated: true, completion: nil)
+            return
+        }
+
+        let context = Self.modelContainer.map(ModelContext.init)
+        var episodes: [Episode?] = queueItems.map { item in
+            context.flatMap { CatalogCache.episode(showId: item.showId, episodeId: item.episodeId, in: $0) }
+        }
+
+        await withTaskGroup(of: (Int, Episode?).self) { group in
+            for (index, item) in queueItems.enumerated() where episodes[index] == nil {
+                let showId = item.showId
+                let episodeId = item.episodeId
+                group.addTask { [catalogClient] in
+                    (index, try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId))
+                }
+            }
+            for await (index, episode) in group {
+                episodes[index] = episode
+            }
+        }
+
+        let items = zip(queueItems, episodes).map { queueItem, episode -> CPListItem in
+            let item = CPListItem(text: episode?.title ?? "(episode unavailable)", detailText: nil)
+            item.handler = { [weak self] _, completion in
+                Task {
+                    await PlaybackQueue.shared.playUpNextItem(queueItem)
+                    // Pops this list back to the Now Playing screen it was pushed from, rather
+                    // than leaving the user looking at a now-stale queue for the episode that just
+                    // started playing.
+                    self?.interfaceController?.popTemplate(animated: true, completion: nil)
+                    completion()
+                }
+            }
+            return item
+        }
+
+        let template = CPListTemplate(title: "Up Next", sections: [CPListSection(items: items)])
+        interfaceController?.pushTemplate(template, animated: true, completion: nil)
     }
 
     private static func persist(episodeId: String, showId: String, positionSeconds: Int, completed: Bool) async {
@@ -638,5 +698,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         [episode.duration.map(EpisodeFormatting.formatDuration), status.label]
             .compactMap { $0 }
             .joined(separator: " · ")
+    }
+}
+
+// #640: CarPlay reports the Now Playing screen's Up Next button tap through this observer
+// protocol rather than a closure property — added/removed in didConnect/didDisconnect above.
+extension CarPlaySceneDelegate: CPNowPlayingTemplateObserver {
+    func nowPlayingTemplateUpNextButtonTapped(_ nowPlayingTemplate: CPNowPlayingTemplate) {
+        Task { await pushUpNextList() }
     }
 }
