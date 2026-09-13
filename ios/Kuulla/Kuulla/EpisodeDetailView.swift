@@ -1002,7 +1002,9 @@ struct EpisodeDetailView: View {
 // Shared chrome for the episode control row's compact buttons: an equal-width, ~40pt-tall
 // neutral raised square. `isActive` swaps in the lime-soft fill + lime hairline for buttons
 // that are in a live/enabled state (non-default speed, running sleep timer, marked played).
-private struct EpisodeControlChrome: ViewModifier {
+// Shared with NowPlayingView's quick controls row (#648) — same compact pill/icon-button chrome
+// on both screens.
+struct EpisodeControlChrome: ViewModifier {
     var isActive = false
 
     func body(content: Content) -> some View {
