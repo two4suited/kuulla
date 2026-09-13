@@ -16,6 +16,10 @@ struct ShowSettings: Codable, Hashable {
     let autoDeleteRule: AutoDeleteRule?
     let autoDeleteAfterDays: Int?
     let smartSpeed: Bool?
+    // nil means "no override" — inherit the user's global voiceBoost (#679).
+    let voiceBoost: Bool?
+    // nil means "no override" — inherit the user's global trimSilence (#680).
+    let trimSilence: Bool?
     let autoAddNewEpisodesToUpNext: Bool?
     // nil means "no override" — inherit the user's global UpNextInsertPosition.
     let upNextInsertPosition: UpNextInsertPosition?
@@ -29,7 +33,7 @@ struct ShowSettings: Codable, Hashable {
         version: Int, autoArchiveRule: AutoArchiveRule?,
         autoSkipIntroSeconds: Int? = nil, autoSkipOutroSeconds: Int? = nil, playbackSpeed: Float? = nil,
         autoDownloadNewEpisodes: Bool? = nil, autoDeleteRule: AutoDeleteRule? = nil, autoDeleteAfterDays: Int? = nil,
-        smartSpeed: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
+        smartSpeed: Bool? = nil, voiceBoost: Bool? = nil, trimSilence: Bool? = nil, autoAddNewEpisodesToUpNext: Bool? = nil,
         upNextInsertPosition: UpNextInsertPosition? = nil,
         notificationsEnabled: Bool? = nil,
         playNextBehavior: PlayNextBehavior? = nil
@@ -47,6 +51,8 @@ struct ShowSettings: Codable, Hashable {
         self.autoDeleteRule = autoDeleteRule
         self.autoDeleteAfterDays = autoDeleteAfterDays
         self.smartSpeed = smartSpeed
+        self.voiceBoost = voiceBoost
+        self.trimSilence = trimSilence
         self.autoAddNewEpisodesToUpNext = autoAddNewEpisodesToUpNext
         self.upNextInsertPosition = upNextInsertPosition
         self.notificationsEnabled = notificationsEnabled
@@ -55,7 +61,7 @@ struct ShowSettings: Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
-        case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, autoAddNewEpisodesToUpNext
+        case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, voiceBoost, trimSilence, autoAddNewEpisodesToUpNext
         case upNextInsertPosition, notificationsEnabled, playNextBehavior
     }
 
@@ -76,6 +82,8 @@ struct ShowSettings: Codable, Hashable {
         autoDeleteRule = try container.decodeIfPresent(AutoDeleteRule.self, forKey: .autoDeleteRule)
         autoDeleteAfterDays = try container.decodeIfPresent(Int.self, forKey: .autoDeleteAfterDays)
         smartSpeed = try container.decodeIfPresent(Bool.self, forKey: .smartSpeed)
+        voiceBoost = try container.decodeIfPresent(Bool.self, forKey: .voiceBoost)
+        trimSilence = try container.decodeIfPresent(Bool.self, forKey: .trimSilence)
         autoAddNewEpisodesToUpNext = try container.decodeIfPresent(Bool.self, forKey: .autoAddNewEpisodesToUpNext)
         upNextInsertPosition = try container.decodeIfPresent(UpNextInsertPosition.self, forKey: .upNextInsertPosition)
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)
@@ -100,6 +108,8 @@ struct ShowSettings: Codable, Hashable {
         autoDeleteRule: AutoDeleteRule?? = nil,
         autoDeleteAfterDays: Int?? = nil,
         smartSpeed: Bool?? = nil,
+        voiceBoost: Bool?? = nil,
+        trimSilence: Bool?? = nil,
         autoAddNewEpisodesToUpNext: Bool?? = nil,
         upNextInsertPosition: UpNextInsertPosition?? = nil,
         notificationsEnabled: Bool?? = nil,
@@ -117,6 +127,8 @@ struct ShowSettings: Codable, Hashable {
             autoDeleteRule: autoDeleteRule ?? self.autoDeleteRule,
             autoDeleteAfterDays: autoDeleteAfterDays ?? self.autoDeleteAfterDays,
             smartSpeed: smartSpeed ?? self.smartSpeed,
+            voiceBoost: voiceBoost ?? self.voiceBoost,
+            trimSilence: trimSilence ?? self.trimSilence,
             autoAddNewEpisodesToUpNext: autoAddNewEpisodesToUpNext ?? self.autoAddNewEpisodesToUpNext,
             upNextInsertPosition: upNextInsertPosition ?? self.upNextInsertPosition,
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,

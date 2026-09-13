@@ -5,6 +5,13 @@ import MediaToolbox
 // both halves of SmartSpeed (#202) without migrating off AVPlayer — see docs/smartspeed-spike.md
 // for why this approach was chosen over an AVAudioEngine-based player.
 //
+// The gain-boost half also implements Voice Boost (#679) as an independently-toggleable behavior,
+// and the silence-trim half likewise implements Trim Silence (#680) the same way: silenceTrimEnabled
+// and voiceBoostEnabled gate the two halves separately, so either can run without the other
+// (SmartSpeed alone still does both, exactly as before #679/#680; Voice Boost alone boosts without
+// silence-trimming; Trim Silence alone trims without boosting; any combination does exactly its
+// enabled halves without double-applying).
+//
 // The tap's process callback runs synchronously on a real-time audio thread, just before
 // rendering, and only ever sees audio AVPlayer has already decoded/buffered.
 //
@@ -44,8 +51,26 @@ final class SmartSpeedProcessor {
     // resumes after a confirmed run. Never fired redundantly for the same state.
     var onSilenceStateChanged: ((_ isSilent: Bool) -> Void)?
 
+    // Invoked off the main thread from the tap's real-time callback whenever a confirmed silent
+    // run ends (the same instant onSilenceStateChanged fires false), carrying that run's
+    // itemTime duration — the raw input AudioPlayer needs to compute real-world time saved
+    // (#680). Only fired while silenceTrimEnabled is true, same gating as onSilenceStateChanged.
+    var onSilenceRunCompleted: ((_ runItemDuration: TimeInterval) -> Void)?
+
+    // SmartSpeed has always trimmed silence and boosted quiet passages as both halves of its own
+    // effect (the footer copy in SettingsView says as much) — that policy lives here, not at each
+    // call site, so a future second construction site can't forget it and silently regress
+    // SmartSpeed. Trim Silence (#680) and Voice Boost (#679) each let one half run standalone.
+    private let silenceTrimEnabled: Bool
+    private let voiceBoostEnabled: Bool
+
     private var silenceDetector = SilenceRunDetector()
     private var smoothedGain: Float = 1.0
+
+    init(smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool) {
+        self.silenceTrimEnabled = smartSpeed || trimSilence
+        self.voiceBoostEnabled = smartSpeed || voiceBoost
+    }
 
     // Builds an AVMutableAudioMix with this processor installed as the tap on `item`'s first
     // audio track. Returns an audio mix with no tap (a no-op passthrough) if the item has no
@@ -119,12 +144,14 @@ final class SmartSpeedProcessor {
         (try? await asset.loadTracks(withMediaType: .audio))?.first
     }
 
-    fileprivate func prepare() {
+    // Internal (not fileprivate) so tests can drive process() directly against a synthetic
+    // AudioBufferList — mirrors SilenceRunDetector.observe's own test-seam visibility.
+    func prepare() {
         silenceDetector = SilenceRunDetector()
         smoothedGain = 1.0
     }
 
-    fileprivate func process(bufferList: UnsafeMutableAudioBufferListPointer, itemTime: TimeInterval) {
+    func process(bufferList: UnsafeMutableAudioBufferListPointer, itemTime: TimeInterval) {
         var sumOfSquares: Float = 0
         var sampleCount = 0
         for buffer in bufferList {
@@ -138,24 +165,29 @@ final class SmartSpeedProcessor {
         }
         let level = sampleCount > 0 ? (sumOfSquares / Float(sampleCount)).squareRoot() : 0
 
-        let targetGain = Self.boostGain(forLevel: level)
-        smoothedGain += (targetGain - smoothedGain) * Self.gainSmoothingFactor
-        if smoothedGain > 1.001 {
-            for buffer in bufferList {
-                guard let raw = buffer.mData else { continue }
-                let samples = raw.assumingMemoryBound(to: Float.self)
-                let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
-                for i in 0..<count {
-                    // A soft (tanh) limiter rather than a hard clamp — smoothedGain's ramp keeps
-                    // most samples well inside ±1 already, so this only softens the rare outlier
-                    // instead of hard-clipping it into audible distortion.
-                    samples[i] = tanhf(samples[i] * smoothedGain)
+        if voiceBoostEnabled {
+            let targetGain = Self.boostGain(forLevel: level)
+            smoothedGain += (targetGain - smoothedGain) * Self.gainSmoothingFactor
+            if smoothedGain > 1.001 {
+                for buffer in bufferList {
+                    guard let raw = buffer.mData else { continue }
+                    let samples = raw.assumingMemoryBound(to: Float.self)
+                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                    for i in 0..<count {
+                        // A soft (tanh) limiter rather than a hard clamp — smoothedGain's ramp keeps
+                        // most samples well inside ±1 already, so this only softens the rare outlier
+                        // instead of hard-clipping it into audible distortion.
+                        samples[i] = tanhf(samples[i] * smoothedGain)
+                    }
                 }
             }
         }
 
-        if let isSilent = silenceDetector.observe(level: level, itemTime: itemTime) {
+        if silenceTrimEnabled, let isSilent = silenceDetector.observe(level: level, itemTime: itemTime) {
             onSilenceStateChanged?(isSilent)
+            if !isSilent, let runDuration = silenceDetector.lastCompletedRunDuration {
+                onSilenceRunCompleted?(runDuration)
+            }
         }
     }
 
@@ -175,7 +207,23 @@ final class SmartSpeedProcessor {
 // unit-testable without a real tap.
 struct SilenceRunDetector {
     private var candidateStartItemTime: TimeInterval?
-    private var isInConfirmedSilence = false
+    // itemTime at the instant a run is confirmed (crosses minimumSilenceDuration) — distinct from
+    // candidateStartItemTime (when the run actually went quiet): the rate multiplier only applies
+    // from confirmation onward, not for the leading minimumSilenceDuration stretch that still
+    // played at the normal rate while the run was just a candidate. lastCompletedRunDuration must
+    // measure from here, not from candidateStartItemTime, or every run's reported duration (and so
+    // every #680 time-saved computation) overcounts by ~minimumSilenceDuration. Its own non-nil-ness
+    // doubles as "is this run confirmed" — a separate isInConfirmedSilence Bool would just be
+    // state that has to be kept in lockstep with this one instead of derived from it.
+    private var confirmedStartItemTime: TimeInterval?
+
+    // The just-ended confirmed run's sped-up itemTime duration (end itemTime minus
+    // confirmedStartItemTime — the span that was actually played at the faster rate, not the
+    // leading minimumSilenceDuration before confirmation) — set only on the same observe(...) call
+    // that returns false, nil on every other call. A read-only side channel (#680) rather than
+    // changing observe(...)'s own Bool? return shape, so every existing call site (and test)
+    // keeping that shape doesn't need to change.
+    private(set) var lastCompletedRunDuration: TimeInterval?
 
     // Returns true the instant a silent run first crosses SmartSpeedProcessor.minimumSilenceDuration,
     // false the instant a confirmed run ends (level rises back above threshold), and nil on every
@@ -183,21 +231,27 @@ struct SilenceRunDetector {
     // run, or a non-silent buffer with no active run to end).
     mutating func observe(level: Float, itemTime: TimeInterval) -> Bool? {
         guard level < SmartSpeedProcessor.silenceThresholdLinear else {
+            let confirmedStart = confirmedStartItemTime
             candidateStartItemTime = nil
-            guard isInConfirmedSilence else { return nil }
-            isInConfirmedSilence = false
+            confirmedStartItemTime = nil
+            guard let confirmedStart else {
+                lastCompletedRunDuration = nil
+                return nil
+            }
+            lastCompletedRunDuration = itemTime - confirmedStart
             return false
         }
 
+        lastCompletedRunDuration = nil
         if candidateStartItemTime == nil {
             candidateStartItemTime = itemTime
         }
 
-        guard !isInConfirmedSilence, let start = candidateStartItemTime,
+        guard confirmedStartItemTime == nil, let start = candidateStartItemTime,
               itemTime - start >= SmartSpeedProcessor.minimumSilenceDuration
         else { return nil }
 
-        isInConfirmedSilence = true
+        confirmedStartItemTime = itemTime
         return true
     }
 }

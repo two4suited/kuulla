@@ -24,4 +24,28 @@ enum LocalSettings {
     static var wifiOnlyStreaming: Bool {
         UserDefaults.standard.bool(forKey: wifiOnlyStreamingKey)
     }
+
+    static let lifetimeSilenceTimeSavedSecondsKey = "lifetimeSilenceTimeSavedSeconds"
+
+    // Lifetime, on-device running total of real-world seconds saved by silence-trimming (#680,
+    // Overcast's "time saved" framing) — accumulates whenever trimSilence OR smartSpeed is on,
+    // since both drive SmartSpeedProcessor.silenceTrimEnabled. Device-local like the settings
+    // above: this is a per-device listening stat, not a user preference that should round-trip
+    // through the API and get averaged/overwritten across a person's other devices — each
+    // device's own silence-trim activity only ever happens on that device, so there's nothing to
+    // reconcile the way UserSettings' synced fields do.
+    static var lifetimeSilenceTimeSavedSeconds: Double {
+        get { UserDefaults.standard.double(forKey: lifetimeSilenceTimeSavedSecondsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: lifetimeSilenceTimeSavedSecondsKey) }
+    }
+
+    // Adds to the running total rather than replacing it — the read-modify-write is safe today
+    // because AudioPlayer's only call site dispatches onto DispatchQueue.main.async (the same
+    // place onSilenceStateChanged is already handled), never calling this concurrently. That's an
+    // ordering convention at the call site, not something the compiler enforces here — a future
+    // second caller must keep dispatching to main too, or this needs real synchronization.
+    static func addSilenceTimeSaved(_ seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        lifetimeSilenceTimeSavedSeconds += seconds
+    }
 }

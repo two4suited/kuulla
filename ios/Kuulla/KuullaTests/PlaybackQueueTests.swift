@@ -96,6 +96,43 @@ final class PlaybackQueueTests: XCTestCase {
         XCTAssertNil(PlaybackQueue.nextItem(after: "a", in: items(["a", "b", "c"]), behavior: .stop))
     }
 
+    // MARK: - shouldUsePreload (#683 gapless playback)
+
+    // The preload prepared ahead of time is still the authoritative pick and AudioPlayer reports
+    // it's actually buffered — this is the case that lets handleNaturalFinish swap in instead of
+    // running the full slow resolution chain.
+    func testShouldUsePreloadIsTrueWhenThePreloadedEpisodeMatchesTheAuthoritativeNextItemAndIsReady() {
+        let next = PlaybackQueue.QueueItem(showId: "show-b", episodeId: "b")
+        XCTAssertTrue(PlaybackQueue.shouldUsePreload(preloadedEpisodeId: "b", next: next, preloadIsReady: true))
+    }
+
+    // Regression shape for the #663/#670 fragility this same finish-handling path already had: a
+    // preload started for one episode (say, the list's plain "next" item) must never be used once
+    // the authoritative resolution at actual finish time picks a different one — e.g. a playlist
+    // was edited, or a PlayNextBehavior override changed, in the few seconds between the preload
+    // firing and the episode actually ending. The stale preload is discarded and the slow path
+    // (playItem's full resolution) must run instead.
+    func testShouldUsePreloadIsFalseWhenThePreloadedEpisodeNoLongerMatchesTheAuthoritativeNextItem() {
+        let next = PlaybackQueue.QueueItem(showId: "show-c", episodeId: "c")
+        XCTAssertFalse(PlaybackQueue.shouldUsePreload(preloadedEpisodeId: "b", next: next, preloadIsReady: true))
+    }
+
+    // Mirrors the same "user skipped ahead" shape: after the user jumps straight to a different
+    // episode (bypassing the episode the preload was originally started for), the next natural
+    // finish's authoritative resolution has nothing to do with what was preloaded.
+    func testShouldUsePreloadIsFalseWhenNoPreloadWasEverStarted() {
+        let next = PlaybackQueue.QueueItem(showId: "show-b", episodeId: "b")
+        XCTAssertFalse(PlaybackQueue.shouldUsePreload(preloadedEpisodeId: nil, next: next, preloadIsReady: false))
+    }
+
+    // A preload that matches the correct episode but hasn't actually finished buffering (the
+    // network fetch is still in flight, or genuinely slow) must fall through to the slow path
+    // rather than blocking on it or swapping in an item that isn't ready.
+    func testShouldUsePreloadIsFalseWhenTheMatchingPreloadIsNotYetReady() {
+        let next = PlaybackQueue.QueueItem(showId: "show-b", episodeId: "b")
+        XCTAssertFalse(PlaybackQueue.shouldUsePreload(preloadedEpisodeId: "b", next: next, preloadIsReady: false))
+    }
+
     // MARK: - resolve (playlist -> show -> global)
 
     func testResolvePrefersPlaylistOverrideOverShowOverrideAndGlobal() {

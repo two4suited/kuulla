@@ -40,6 +40,8 @@ struct SettingsSyncAdapter: SyncAdapter {
                 autoDeleteAfterDays: $0.autoDeleteAfterDays,
                 autoDownloadNewEpisodes: $0.autoDownloadNewEpisodes,
                 smartSpeed: $0.smartSpeed,
+                voiceBoost: $0.voiceBoost,
+                trimSilence: $0.trimSilence,
                 notificationsEnabled: $0.notificationsEnabled,
                 sleepTimerDefaultDurationMinutes: $0.sleepTimerDefaultDurationMinutes,
                 subscriptionSortOrder: $0.subscriptionSortOrder,
@@ -87,6 +89,13 @@ private struct UserSettingsChangeDTO: Encodable {
     let autoDeleteAfterDays: Int
     let autoDownloadNewEpisodes: Bool
     let smartSpeed: Bool
+    // Non-optional — this client always knows the field and always sends it (#679); the API's
+    // nullable UserSettingsChange.VoiceBoost only exists for older clients that omit it.
+    let voiceBoost: Bool
+    // Non-optional, same rationale as voiceBoost above — this client always knows the field and
+    // always sends it (#680); the API's nullable UserSettingsChange.TrimSilence only exists for
+    // older clients that omit it.
+    let trimSilence: Bool
     let notificationsEnabled: Bool
     let sleepTimerDefaultDurationMinutes: Int?
     // Non-optional (unlike the API's nullable UserSettingsChange.SubscriptionSortOrder) — this
@@ -141,6 +150,10 @@ private struct UserSettingsDTO: Decodable {
     let autoDeleteAfterDays: Int
     let autoDownloadNewEpisodes: Bool
     let smartSpeed: Bool
+    // Optional so a response from an API that predates #679 still decodes; asRecord falls back.
+    let voiceBoost: Bool?
+    // Optional so a response from an API that predates #680 still decodes; asRecord falls back.
+    let trimSilence: Bool?
     let notificationsEnabled: Bool
     let sleepTimerDefaultDurationMinutes: Int?
     let subscriptionSortOrder: SubscriptionSortOrder
@@ -163,7 +176,8 @@ private struct UserSettingsDTO: Decodable {
             unlistenedEpisodeCount: unlistenedEpisodeCount, autoArchiveRule: autoArchiveRule,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds, playbackSpeed: playbackSpeed,
             autoDeleteRule: autoDeleteRule, autoDeleteAfterDays: autoDeleteAfterDays, autoDownloadNewEpisodes: autoDownloadNewEpisodes,
-            smartSpeed: smartSpeed, notificationsEnabled: notificationsEnabled,
+            smartSpeed: smartSpeed, voiceBoost: voiceBoost ?? false, trimSilence: trimSilence ?? false,
+            notificationsEnabled: notificationsEnabled,
             sleepTimerDefaultDurationMinutes: sleepTimerDefaultDurationMinutes,
             subscriptionSortOrder: subscriptionSortOrder, subscriptionManualOrder: subscriptionManualOrder ?? [],
             hideCaughtUpShows: hideCaughtUpShows ?? false,

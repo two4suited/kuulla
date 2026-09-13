@@ -280,6 +280,40 @@ else
                     </div>
 
                     <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Voice Boost</div>
+                        <SegmentedChoice TValue="bool" Id="show-voice-boost"
+                                         AriaLabel="Voice Boost" Disabled="isShowVoiceBoostSaving"
+                                         Options="OnOffOptions"
+                                         Value="showVoiceBoostOverride"
+                                         ValueChanged="OnShowVoiceBoostChangedAsync" />
+                        @if (showVoiceBoostError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showVoiceBoostError</p>
+                        }
+                        else if (showVoiceBoostSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Trim Silence</div>
+                        <SegmentedChoice TValue="bool" Id="show-trim-silence"
+                                         AriaLabel="Trim Silence" Disabled="isShowTrimSilenceSaving"
+                                         Options="OnOffOptions"
+                                         Value="showTrimSilenceOverride"
+                                         ValueChanged="OnShowTrimSilenceChangedAsync" />
+                        @if (showTrimSilenceError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showTrimSilenceError</p>
+                        }
+                        else if (showTrimSilenceSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="show-setting mt-3">
                         <div class="form-label mb-1">Notifications</div>
                         <SegmentedChoice TValue="bool" Id="show-notifications-enabled"
                                          AriaLabel="Notifications" Disabled="isShowNotificationsSaving"
@@ -526,6 +560,14 @@ else
     private bool isShowSmartSpeedSaving;
     private string? showSmartSpeedError;
     private bool showSmartSpeedSavedConfirmation;
+    private bool? showVoiceBoostOverride;
+    private bool isShowVoiceBoostSaving;
+    private string? showVoiceBoostError;
+    private bool showVoiceBoostSavedConfirmation;
+    private bool? showTrimSilenceOverride;
+    private bool isShowTrimSilenceSaving;
+    private string? showTrimSilenceError;
+    private bool showTrimSilenceSavedConfirmation;
     private PlayNextBehavior? showPlayNextBehaviorOverride;
     private bool isShowPlayNextSaving;
     private string? showPlayNextError;
@@ -659,6 +701,14 @@ else
         isShowSmartSpeedSaving = false;
         showSmartSpeedError = null;
         showSmartSpeedSavedConfirmation = false;
+        showVoiceBoostOverride = null;
+        isShowVoiceBoostSaving = false;
+        showVoiceBoostError = null;
+        showVoiceBoostSavedConfirmation = false;
+        showTrimSilenceOverride = null;
+        isShowTrimSilenceSaving = false;
+        showTrimSilenceError = null;
+        showTrimSilenceSavedConfirmation = false;
         showPlayNextBehaviorOverride = null;
         isShowPlayNextSaving = false;
         showPlayNextError = null;
@@ -726,6 +776,8 @@ else
             showAutoSkipOutroSecondsOverride = settings.AutoSkipOutroSeconds;
             showPlaybackSpeedOverride = settings.PlaybackSpeed;
             showSmartSpeedOverride = settings.SmartSpeed;
+            showVoiceBoostOverride = settings.VoiceBoost;
+            showTrimSilenceOverride = settings.TrimSilence;
             showNotificationsEnabledOverride = settings.NotificationsEnabled;
             showPlayNextBehaviorOverride = settings.PlayNextBehavior;
         }
@@ -1023,6 +1075,54 @@ else
         finally
         {
             isShowSmartSpeedSaving = false;
+        }
+    }
+
+    private async Task OnShowVoiceBoostChangedAsync(bool? value)
+    {
+        var previous = showVoiceBoostOverride;
+        showVoiceBoostOverride = value;
+        isShowVoiceBoostSaving = true;
+        showVoiceBoostError = null;
+        showVoiceBoostSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowVoiceBoostAsync(Id, value);
+            showVoiceBoostSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showVoiceBoostOverride = previous;
+            showVoiceBoostError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowVoiceBoostSaving = false;
+        }
+    }
+
+    private async Task OnShowTrimSilenceChangedAsync(bool? value)
+    {
+        var previous = showTrimSilenceOverride;
+        showTrimSilenceOverride = value;
+        isShowTrimSilenceSaving = true;
+        showTrimSilenceError = null;
+        showTrimSilenceSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowTrimSilenceAsync(Id, value);
+            showTrimSilenceSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showTrimSilenceOverride = previous;
+            showTrimSilenceError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowTrimSilenceSaving = false;
         }
     }
 

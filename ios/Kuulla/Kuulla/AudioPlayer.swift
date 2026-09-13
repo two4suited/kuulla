@@ -63,14 +63,22 @@ final class AudioPlayer {
     // actually playing in the background.
     var onDidFinishPlaying: ((URL) -> Void)?
 
+    // Fires once per session, a few seconds before the current item's natural end — the signal
+    // PlaybackQueue (#683) uses to kick off resolving and preloading the next queue item's audio
+    // ahead of time, so a natural finish can swap to an already-buffered player instead of running
+    // the full async resolution chain live. Single-slot, assigned-at-play() contract mirrors
+    // onDidFinishPlaying exactly, for the same reason (a screen that never presses play can't
+    // steal the callback from whichever episode is actually playing).
+    var onApproachingEnd: (() -> Void)?
+
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
 
     // The current session's SmartSpeed processor, purely so play()/removeObservers() have
     // something to reference — its actual memory lifetime is owned by the tap itself (see
     // SmartSpeedProcessor.makeAudioMix's passRetained/release), independent of this property. nil
-    // whenever SmartSpeed is off, so the tap-processing cost is only ever paid when the feature is
-    // actually in use.
+    // whenever SmartSpeed, Voice Boost, and Trim Silence are all off, so the tap-processing cost
+    // is only ever paid when at least one of the three is actually in use.
     private var smartSpeedProcessor: SmartSpeedProcessor?
 
     private var autoSkipOutroSeconds: TimeInterval = 0
@@ -78,6 +86,45 @@ final class AudioPlayer {
     // observer keeps ticking after the skip fires, since the item is merely paused, not
     // deallocated or seeked to its true end).
     private var hasTriggeredOutroSkip = false
+
+    // MARK: - Gapless preload (#683)
+
+    // Seconds of remaining playback at which onApproachingEnd fires. Long enough that a normal
+    // network fetch of the next episode's playable URL plus a few seconds of buffering usually
+    // finishes before the current item actually ends (closing most of the hard-cut gap, which was
+    // otherwise bound by that same network/DB latency happening live at end-of-track); short
+    // enough that it doesn't hold a second AVPlayerItem/AVPlayer pair — and its network
+    // connection — open for meaningfully longer than necessary.
+    static let approachingEndLeadSeconds: TimeInterval = 10
+
+    // Guards onApproachingEnd against firing more than once per session — mirrors
+    // hasTriggeredOutroSkip's own guard, for the same reason (the periodic observer keeps
+    // ticking after the threshold is crossed).
+    private var hasFiredApproachingEnd = false
+
+    // A second, fully inert AVPlayerItem/AVPlayer pair prepared ahead of time for the next queue
+    // item, built by preloadNext() and consumed by swapToPendingPreload(). Never assigned to
+    // `player`/`currentURL`, and publishes no @Observable state — so it's invisible to the
+    // currently-playing session unless and until a caller actually swaps to it. pendingNextItem is
+    // kept alongside pendingNextPlayer (rather than read via pendingNextPlayer.currentItem) so the
+    // KVO observer below and the swap's identity check both compare against the exact item the
+    // observer was attached to.
+    private var pendingNextPlayer: AVPlayer?
+    private var pendingNextItem: AVPlayerItem?
+    private var pendingNextURL: URL?
+    private var pendingNextContext: NowPlayingContext?
+    private var pendingNextMetadata: NowPlayingMetadata?
+    private var pendingNextStartPosition: TimeInterval = 0
+    private var pendingNextAutoSkipOutroSeconds: TimeInterval = 0
+    private var pendingNextPlaybackSpeed: Float = 1.0
+    private var pendingNextSmartSpeedProcessor: SmartSpeedProcessor?
+    private var pendingNextStatusObserver: NSKeyValueObservation?
+
+    // True once pendingNextItem's KVO status has reached .readyToPlay. Tracked explicitly (rather
+    // than read straight off pendingNextItem.status at swap time) so it can also be driven
+    // directly by markPendingPreloadReady() in tests, where a fake network URL's AVPlayerItem
+    // never actually reaches readyToPlay.
+    private(set) var pendingNextIsReady = false
 
     // Counts down in real wall-clock time via its own Timer, independent of AVPlayer's periodic
     // time observer — a sleep timer should keep ticking (and eventually fire) even while playback
@@ -224,7 +271,7 @@ final class AudioPlayer {
     func play(
         url: URL, startPosition: TimeInterval = 0,
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
-        playbackSpeed: Float = 1.0, smartSpeed: Bool = false,
+        playbackSpeed: Float = 1.0, smartSpeed: Bool = false, voiceBoost: Bool = false, trimSilence: Bool = false,
         context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
     ) {
         streamBlockedMessage = nil
@@ -247,52 +294,14 @@ final class AudioPlayer {
         pendingSeekPlayer = nil
         pendingSeekGeneration += 1
 
-        let item = AVPlayerItem(url: url)
-        // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
-        // without the chipmunk effect a naive rate change would produce.
-        item.audioTimePitchAlgorithm = .timeDomain
+        // A manual play() always makes any outstanding preload stale, whether or not it was ever
+        // going to be used — this is a brand-new session, possibly for a completely different
+        // episode than whatever nextItem() had in mind when the preload was started.
+        discardPendingPreload()
 
-        if smartSpeed {
-            let processor = SmartSpeedProcessor()
-            // Captures item weakly so a later play() that replaces self.player (and drops this
-            // item) can't have this stale session's detector adjust the new player's rate out
-            // from under it — the identity check below is the real guard, this just avoids
-            // retaining a dead item purely to compare against.
-            processor.onSilenceStateChanged = { [weak self, weak item] isSilent in
-                DispatchQueue.main.async {
-                    // isPlaying/pendingSeekPlayer guards mirror setPlaybackSpeed's own: a paused
-                    // session must not have this resume it by setting a nonzero rate, and a
-                    // saved-position seek still in flight must not have its deferred-start-until-
-                    // seeked behavior defeated by a rate change landing early.
-                    guard let self, let item, self.player?.currentItem === item,
-                          self.isPlaying, self.pendingSeekPlayer == nil
-                    else { return }
-                    self.player?.rate = isSilent
-                        ? self.playbackSpeed * SmartSpeedProcessor.silenceSkipRateMultiplier
-                        : self.playbackSpeed
-                }
-            }
-            // Setting audioMix asynchronously (rather than blocking play() on it, #657) races the
-            // item's own internal buffering in principle, but not in practice: the item can't
-            // reach readyToPlay — and so can't start actually decoding/rendering audio — without
-            // itself first resolving the asset's tracks, which is the same underlying load this
-            // await is waiting on. Should that ever lose the race (e.g. an already-cached local
-            // file), the outcome is silent degradation to "no SmartSpeed effect" for that one
-            // playback session, not a crash — consistent with makeAudioMix's own no-op-on-failure
-            // philosophy above. Weak item mirrors the guard above: a later play() that replaces
-            // self.player (and drops this item) makes the assignment a no-op instead of touching a
-            // dropped item.
-            Task { [weak item] in
-                guard let item else { return }
-                let mix = await processor.makeAudioMix(for: item)
-                await MainActor.run {
-                    item.audioMix = mix
-                }
-            }
-            smartSpeedProcessor = processor
-        } else {
-            smartSpeedProcessor = nil
-        }
+        let item = AVPlayerItem(url: url)
+        smartSpeedProcessor = makeSmartSpeedProcessorIfNeeded(
+            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
 
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
@@ -301,6 +310,7 @@ final class AudioPlayer {
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
         self.playbackSpeed = playbackSpeed
         hasTriggeredOutroSkip = false
+        hasFiredApproachingEnd = false
 
         // Only skip the intro on a fresh start (startPosition 0) — a saved resume position
         // means playback already passed the intro once, so it shouldn't be skipped again on
@@ -322,15 +332,96 @@ final class AudioPlayer {
         nowPlayingContext = context
         applyMetadata(metadata)
 
-        timeObserverToken = newPlayer.addPeriodicTimeObserver(
+        wireUpFreshlyStartedPlayer(item: item, player: newPlayer, url: url)
+    }
+
+    // Builds a SmartSpeedProcessor and wires its silence-detection callbacks + async audioMix
+    // assignment for `item`, exactly as play() has always done — pulled out so preloadNext() can
+    // build the same wiring for a pending item without duplicating this block. Returns nil (and
+    // leaves `item` untouched) when smartSpeed/voiceBoost/trimSilence are all off, matching
+    // play()'s own "only pay the tap-processing cost when actually in use" contract.
+    private func makeSmartSpeedProcessorIfNeeded(
+        for item: AVPlayerItem, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool
+    ) -> SmartSpeedProcessor? {
+        // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
+        // without the chipmunk effect a naive rate change would produce. Applied unconditionally
+        // (not just when SmartSpeed/VoiceBoost/TrimSilence are on) since every session, preloaded
+        // or not, can have its rate changed via setPlaybackSpeed().
+        item.audioTimePitchAlgorithm = .timeDomain
+
+        guard smartSpeed || voiceBoost || trimSilence else { return nil }
+
+        let processor = SmartSpeedProcessor(smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
+        // Captures item weakly so a later play()/swapToPendingPreload() that replaces self.player
+        // (and drops this item) can't have this stale session's detector adjust the new player's
+        // rate out from under it — the identity check below is the real guard, this just avoids
+        // retaining a dead item purely to compare against.
+        processor.onSilenceStateChanged = { [weak self, weak item] isSilent in
+            DispatchQueue.main.async {
+                // isPlaying/pendingSeekPlayer guards mirror setPlaybackSpeed's own: a paused
+                // session must not have this resume it by setting a nonzero rate, and a
+                // saved-position seek still in flight must not have its deferred-start-until-
+                // seeked behavior defeated by a rate change landing early.
+                guard let self, let item, self.player?.currentItem === item,
+                      self.isPlaying, self.pendingSeekPlayer == nil
+                else { return }
+                self.player?.rate = isSilent
+                    ? self.playbackSpeed * SmartSpeedProcessor.silenceSkipRateMultiplier
+                    : self.playbackSpeed
+            }
+        }
+        // Accumulates real-world time saved by silence-trimming (#680) into the lifetime,
+        // on-device counter — see LocalSettings.lifetimeSilenceTimeSavedSeconds's own doc
+        // comment for why this is device-local rather than synced. Real time actually spent
+        // listening through the run was runItemDuration / (playbackSpeed *
+        // silenceSkipRateMultiplier); without the skip it would have taken runItemDuration /
+        // playbackSpeed — the difference between those two is what was saved. Dispatched to
+        // main (mirroring onSilenceStateChanged above) since this reads self.playbackSpeed,
+        // which is otherwise only ever touched on main.
+        processor.onSilenceRunCompleted = { [weak self] runItemDuration in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let speed = TimeInterval(self.playbackSpeed)
+                let skipMultiplier = TimeInterval(SmartSpeedProcessor.silenceSkipRateMultiplier)
+                let timeSaved: TimeInterval = runItemDuration / speed * (1 - 1 / skipMultiplier)
+                LocalSettings.addSilenceTimeSaved(timeSaved)
+            }
+        }
+        // Setting audioMix asynchronously (rather than blocking play() on it, #657) races the
+        // item's own internal buffering in principle, but not in practice: the item can't
+        // reach readyToPlay — and so can't start actually decoding/rendering audio — without
+        // itself first resolving the asset's tracks, which is the same underlying load this
+        // await is waiting on. Should that ever lose the race (e.g. an already-cached local
+        // file), the outcome is silent degradation to "no SmartSpeed effect" for that one
+        // playback session, not a crash — consistent with makeAudioMix's own no-op-on-failure
+        // philosophy above. Weak item mirrors the guard above: a later play() that replaces
+        // self.player (and drops this item) makes the assignment a no-op instead of touching a
+        // dropped item.
+        Task { [weak item] in
+            guard let item else { return }
+            let mix = await processor.makeAudioMix(for: item)
+            await MainActor.run {
+                item.audioMix = mix
+            }
+        }
+        return processor
+    }
+
+    // Attaches the periodic time observer and end-of-item observer that every freshly-started
+    // player session needs — shared by play() and swapToPendingPreload() so a gapless swap gets
+    // exactly the same bookkeeping a fresh play() call would, rather than a hand-duplicated subset
+    // of it that could silently drift out of sync.
+    private func wireUpFreshlyStartedPlayer(item: AVPlayerItem, player: AVPlayer, url: URL) {
+        timeObserverToken = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             guard let self else { return }
             self.currentTime = time.seconds
-            if let itemDuration = newPlayer.currentItem?.duration.seconds, itemDuration.isFinite {
+            if let itemDuration = player.currentItem?.duration.seconds, itemDuration.isFinite {
                 self.duration = itemDuration
             }
             self.checkAutoSkipOutro(url: url)
+            self.checkApproachingEnd()
             self.updateNowPlayingInfo()
         }
 
@@ -398,6 +489,14 @@ final class AudioPlayer {
     func seek(to time: TimeInterval) {
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         currentTime = time
+        // A manual seek can move well away from (or back into) the approaching-end window, and any
+        // outstanding preload was resolved for "whatever plays after wherever the user was" — no
+        // longer trustworthy once they've jumped around. Discarding here (rather than only on the
+        // next natural finish or fresh play()) also stops holding open a second AVPlayerItem/
+        // AVPlayer pair — and its network connection — for a transition the user may no longer be
+        // heading toward.
+        hasFiredApproachingEnd = false
+        discardPendingPreload()
         if pendingSeekPlayer != nil {
             // play()'s saved-position seek hasn't landed yet. Issue this one as the new governing
             // seek so playback starts from *this* target once it actually lands — and so the
@@ -579,6 +678,10 @@ final class AudioPlayer {
     func fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: URL) {
         if sleepTimerEndOfEpisodeEnabled {
             sleepTimerEndOfEpisodeEnabled = false
+            // Playback is intentionally stopping here — any preload started for "what plays
+            // next" is now wasted, so free it instead of leaving a second AVPlayer/network
+            // connection open for no reason.
+            discardPendingPreload()
             return
         }
         onDidFinishPlaying?(url)
@@ -593,6 +696,182 @@ final class AudioPlayer {
         let threshold = duration - autoSkipOutroSeconds
         guard threshold > 0 else { return false }
         return currentTime >= threshold
+    }
+
+    // Fires onApproachingEnd once remaining playback (duration - currentTime) crosses
+    // approachingEndLeadSeconds — mirrors checkAutoSkipOutro's own threshold-crossing shape, just
+    // against a fixed lead time instead of a per-show configured outro.
+    private func checkApproachingEnd() {
+        guard !hasFiredApproachingEnd,
+              Self.shouldFireApproachingEnd(currentTime: currentTime, duration: duration, leadSeconds: Self.approachingEndLeadSeconds)
+        else { return }
+        hasFiredApproachingEnd = true
+        onApproachingEnd?()
+    }
+
+    // Pulled out as a pure function so the boundary condition is unit-testable without a real,
+    // ticking AVPlayer — mirrors shouldTriggerOutroSkip exactly. Duration not yet known (<= 0)
+    // means there's nothing to compare against, so it never fires prematurely before the item has
+    // actually loaded.
+    static func shouldFireApproachingEnd(currentTime: TimeInterval, duration: TimeInterval, leadSeconds: TimeInterval) -> Bool {
+        guard duration > 0 else { return false }
+        return duration - currentTime <= leadSeconds
+    }
+
+    // MARK: - Gapless preload (#683)
+
+    // Builds a second, inert AVPlayerItem/AVPlayer pair for `url` and lets it start buffering
+    // toward .readyToPlay, without touching `player`/`currentURL` or publishing any @Observable
+    // change — the currently-playing session is completely unaffected until (and unless)
+    // swapToPendingPreload() is actually called. Mirrors play()'s own item/player construction
+    // (including the .timeDomain pitch algorithm and SmartSpeedProcessor tap wiring) so the
+    // eventual swap needs no further setup beyond what wireUpFreshlyStartedPlayer already does.
+    // Discards any previous pending preload first — callers (PlaybackQueue) are expected to
+    // request at most one at a time per session, but this makes that a guarantee rather than an
+    // assumption.
+    func preloadNext(
+        url: URL, startPosition: TimeInterval = 0, autoSkipIntroSeconds: TimeInterval = 0,
+        playbackSpeed: Float = 1.0, autoSkipOutroSeconds: TimeInterval = 0,
+        smartSpeed: Bool = false, voiceBoost: Bool = false, trimSilence: Bool = false,
+        context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
+    ) {
+        discardPendingPreload()
+
+        let item = AVPlayerItem(url: url)
+        let processor = makeSmartSpeedProcessorIfNeeded(
+            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
+
+        let newPlayer = AVPlayer(playerItem: item)
+        // Deliberately left at rate 0 — preloading only buffers the item toward readyToPlay, it
+        // must not audibly start playing anything until swapToPendingPreload() takes over.
+        newPlayer.rate = 0
+
+        // Mirrors play()'s own "skip the intro only on a fresh start" rule — a next-queue-item
+        // preload is always a fresh start (there's no "resume this episode" path into
+        // preloadNext), so startPosition (a saved resume position, e.g. the user previously
+        // stopped partway through this same episode from a different session) always wins when
+        // present.
+        let effectiveStartPosition = startPosition > 0 ? startPosition : autoSkipIntroSeconds
+
+        pendingNextPlayer = newPlayer
+        pendingNextItem = item
+        pendingNextURL = url
+        pendingNextContext = context
+        pendingNextMetadata = metadata
+        pendingNextStartPosition = effectiveStartPosition
+        pendingNextAutoSkipOutroSeconds = autoSkipOutroSeconds
+        pendingNextPlaybackSpeed = playbackSpeed
+        pendingNextSmartSpeedProcessor = processor
+        pendingNextIsReady = false
+
+        // Issued immediately (unlike play()'s deferred-until-seek-completes rate apply) rather
+        // than reproducing play()'s full governing-seek machinery: this seek has minutes, not
+        // milliseconds, to land before swapToPendingPreload() actually applies a nonzero rate to
+        // it, so the audible "start at 0 then jump" race play()'s own comment describes doesn't
+        // apply here in practice.
+        if effectiveStartPosition > 0 {
+            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600))
+        }
+
+        // AVPlayerItem.status isn't guaranteed to update on main, and every pending* property is
+        // otherwise only ever read/written on main (mirroring issueGoverningSeek's own dispatch)
+        // — hop explicitly rather than relying on incidental timing.
+        pendingNextStatusObserver = item.observe(\.status, options: [.new]) { [weak self] observedItem, _ in
+            DispatchQueue.main.async {
+                guard let self, self.pendingNextItem === observedItem else { return }
+                self.pendingNextIsReady = observedItem.status == .readyToPlay
+            }
+        }
+    }
+
+    // Internal (not private) so tests can simulate the preloaded item reaching readyToPlay
+    // without waiting on a real KVO status transition — a fake network URL's AVPlayerItem never
+    // actually resolves in a unit test. Mirrors completeGoverningSeek / tickSleepTimer's own test
+    // seams for the same reason (AVFoundation state that can't be driven deterministically here).
+    func markPendingPreloadReady() {
+        pendingNextIsReady = true
+    }
+
+    // Cheap, synchronous check for whether a ready preload exists for `url` — exposed so a caller
+    // (PlaybackQueue) can decide whether to use it without reaching into any of AudioPlayer's
+    // private preload state directly.
+    func hasPendingPreload(for url: URL) -> Bool {
+        pendingNextIsReady && pendingNextURL == url
+    }
+
+    // Swaps the current session over to the already-prepared preload, applying exactly the same
+    // bookkeeping a fresh play() call would (Now Playing info, remote command wiring via
+    // updateNowPlayingInfo/applyMetadata, periodic time + end-of-item observers) via the same
+    // wireUpFreshlyStartedPlayer helper play() itself uses — so a gapless swap is indistinguishable
+    // from a fresh play() to every other part of the app. Returns false (and changes nothing) when
+    // there's no preload, or it hasn't reached readyToPlay yet, or its player/item have gone out of
+    // sync somehow — callers must fall back to the full, slow play() path in that case.
+    @discardableResult
+    func swapToPendingPreload() -> Bool {
+        guard pendingNextIsReady,
+              let newPlayer = pendingNextPlayer, let item = pendingNextItem, newPlayer.currentItem === item,
+              let url = pendingNextURL
+        else { return false }
+
+        let context = pendingNextContext
+        let metadata = pendingNextMetadata
+        let startPosition = pendingNextStartPosition
+        let autoSkipOutroSeconds = pendingNextAutoSkipOutroSeconds
+        let playbackSpeed = pendingNextPlaybackSpeed
+        let processor = pendingNextSmartSpeedProcessor
+        // Clears the pending-preload slot before this session's own state is applied below —
+        // wireUpFreshlyStartedPlayer's periodic observer can in principle tick synchronously
+        // enough to want a clean slate, and there is nothing left in the pending slot worth
+        // keeping regardless of how the rest of this method proceeds.
+        discardPendingPreload()
+
+        removeObservers()
+        // This is a brand-new governing session, exactly like play()'s own — any saved-position
+        // seek from the previous session is moot.
+        pendingSeekPlayer = nil
+        pendingSeekGeneration += 1
+
+        player = newPlayer
+        currentURL = url
+        // Set optimistically, mirroring play()'s own currentTime = effectiveStartPosition — the
+        // preload's seek (issued back in preloadNext(), with a multi-second head start) has
+        // almost always already landed by the time a swap happens, so unlike play() there's no
+        // need to defer this behind a governing-seek completion.
+        currentTime = startPosition
+        duration = 0
+        self.autoSkipOutroSeconds = autoSkipOutroSeconds
+        self.playbackSpeed = playbackSpeed
+        self.smartSpeedProcessor = processor
+        hasTriggeredOutroSkip = false
+        hasFiredApproachingEnd = false
+        isPlaying = true
+        nowPlayingContext = context
+        applyMetadata(metadata)
+
+        newPlayer.rate = playbackSpeed
+
+        wireUpFreshlyStartedPlayer(item: item, player: newPlayer, url: url)
+        return true
+    }
+
+    // Drops the pending preload, if any — called whenever it's known to be stale: a fresh play()
+    // call (any manual play, including one for a completely different episode), a successful swap
+    // (nothing left to hold onto), and the sleep timer consuming a finish instead of advancing.
+    // Internal (not private) so PlaybackQueue can also drop it explicitly when it clears or re-arms
+    // a session (e.g. the user backs out of the list a preload was started for) without waiting on
+    // a subsequent play() call to clean it up.
+    func discardPendingPreload() {
+        pendingNextStatusObserver = nil
+        pendingNextPlayer = nil
+        pendingNextItem = nil
+        pendingNextURL = nil
+        pendingNextContext = nil
+        pendingNextMetadata = nil
+        pendingNextStartPosition = 0
+        pendingNextAutoSkipOutroSeconds = 0
+        pendingNextPlaybackSpeed = 1.0
+        pendingNextSmartSpeedProcessor = nil
+        pendingNextIsReady = false
     }
 
     private func removeObservers() {

@@ -713,6 +713,22 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertFalse(player.sleepTimerEndOfEpisodeEnabled)
     }
 
+    // The sleep timer stopping here means playback won't advance to the preloaded episode at
+    // all — leaving its second AVPlayer/network connection open would just waste resources.
+    func testFireOnDidFinishPlayingDiscardsPendingPreloadWhenEndOfEpisodeSleepTimerStopsHere() {
+        let player = AudioPlayer()
+        let url = URL(string: "https://example.com/audio.mp3")!
+        player.play(url: url)
+        let nextURL = URL(string: "https://example.com/b.mp3")!
+        player.preloadNext(url: nextURL)
+        player.markPendingPreloadReady()
+        player.startSleepTimerForEndOfEpisode()
+
+        player.fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
+
+        XCTAssertFalse(player.hasPendingPreload(for: nextURL))
+    }
+
     func testFireOnDidFinishPlayingInvokesCallbackWhenNoEndOfEpisodeSleepTimerIsArmed() {
         let player = AudioPlayer()
         let url = URL(string: "https://example.com/audio.mp3")!
@@ -722,6 +738,124 @@ final class AudioPlayerTests: XCTestCase {
         player.fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
 
         XCTAssertEqual(receivedURL, url)
+    }
+
+    // MARK: - Gapless preload (#683)
+
+    func testShouldFireApproachingEndIsFalseUntilRemainingPlaybackCrossesTheLeadTime() {
+        XCTAssertFalse(AudioPlayer.shouldFireApproachingEnd(currentTime: 585, duration: 600, leadSeconds: 10))
+        XCTAssertTrue(AudioPlayer.shouldFireApproachingEnd(currentTime: 590, duration: 600, leadSeconds: 10))
+        XCTAssertTrue(AudioPlayer.shouldFireApproachingEnd(currentTime: 595, duration: 600, leadSeconds: 10))
+    }
+
+    func testShouldFireApproachingEndIsFalseBeforeDurationIsKnown() {
+        XCTAssertFalse(AudioPlayer.shouldFireApproachingEnd(currentTime: 0, duration: 0, leadSeconds: 10))
+    }
+
+    // A preload that has reached readyToPlay (simulated via markPendingPreloadReady, since a fake
+    // network URL's AVPlayerItem never actually resolves in a unit test) and is still for the
+    // requested URL swaps in as the active player — currentURL, isPlaying, and the applied rate
+    // all reflect the preloaded session immediately, exactly like a fresh play() would.
+    func testSwapToPendingPreloadReplacesTheActivePlayerWhenReady() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/a.mp3")!)
+        let nextURL = URL(string: "https://example.com/b.mp3")!
+
+        player.preloadNext(url: nextURL, playbackSpeed: 1.25)
+        XCTAssertFalse(player.hasPendingPreload(for: nextURL), "not ready until the item's status reaches readyToPlay")
+        player.markPendingPreloadReady()
+        XCTAssertTrue(player.hasPendingPreload(for: nextURL))
+
+        let swapped = player.swapToPendingPreload()
+
+        XCTAssertTrue(swapped)
+        XCTAssertEqual(player.currentURL, nextURL)
+        XCTAssertTrue(player.isPlaying)
+        XCTAssertEqual(player.currentPlayerRate, 1.25)
+        // The preload is consumed by a successful swap — nothing left to swap to a second time.
+        XCTAssertFalse(player.hasPendingPreload(for: nextURL))
+    }
+
+    // An unready preload (never marked ready — mirrors a preload whose network fetch is still in
+    // flight when the current item actually ends) must not be swapped in; the caller is expected
+    // to fall back to the full, slow play() path instead.
+    func testSwapToPendingPreloadFailsWhenTheItemIsNotYetReady() {
+        let player = AudioPlayer()
+        let currentURL = URL(string: "https://example.com/a.mp3")!
+        player.play(url: currentURL)
+        player.preloadNext(url: URL(string: "https://example.com/b.mp3")!)
+
+        let swapped = player.swapToPendingPreload()
+
+        XCTAssertFalse(swapped)
+        XCTAssertEqual(player.currentURL, currentURL, "an unready preload must not disturb the currently-playing session")
+    }
+
+    func testSwapToPendingPreloadFailsWhenNoPreloadWasEverStarted() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/a.mp3")!)
+
+        XCTAssertFalse(player.swapToPendingPreload())
+    }
+
+    // A stale preload — one prepared for an episode the user then skipped past by starting a
+    // completely different manual play() session (the same shape as "the user skipped to episode
+    // C before A finished") — must be discarded rather than swapped in later. play() always
+    // invalidates any outstanding preload for exactly this reason (#663/#670's fragility lives in
+    // this same finish-handling path, so a stale preload silently winning here would be a
+    // regression of the same kind).
+    func testAFreshPlayCallDiscardsAnyOutstandingPreloadEvenIfLaterMarkedReady() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/a.mp3")!)
+        let staleNextURL = URL(string: "https://example.com/b.mp3")!
+        player.preloadNext(url: staleNextURL)
+        player.markPendingPreloadReady()
+
+        let newSessionURL = URL(string: "https://example.com/c.mp3")!
+        player.play(url: newSessionURL)
+
+        XCTAssertFalse(player.hasPendingPreload(for: staleNextURL))
+        XCTAssertFalse(player.swapToPendingPreload())
+        XCTAssertEqual(player.currentURL, newSessionURL)
+    }
+
+    func testHasPendingPreloadIsFalseForADifferentURLThanTheOneBeingPreloaded() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/a.mp3")!)
+        let preloadedURL = URL(string: "https://example.com/b.mp3")!
+        player.preloadNext(url: preloadedURL)
+        player.markPendingPreloadReady()
+
+        XCTAssertFalse(player.hasPendingPreload(for: URL(string: "https://example.com/other.mp3")!))
+        XCTAssertTrue(player.hasPendingPreload(for: preloadedURL))
+    }
+
+    func testDiscardPendingPreloadClearsAReadyPreload() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/a.mp3")!)
+        let nextURL = URL(string: "https://example.com/b.mp3")!
+        player.preloadNext(url: nextURL)
+        player.markPendingPreloadReady()
+
+        player.discardPendingPreload()
+
+        XCTAssertFalse(player.hasPendingPreload(for: nextURL))
+        XCTAssertFalse(player.swapToPendingPreload())
+    }
+
+    // The preloaded session carries its own settings (speed, start position) independently of
+    // whatever the outgoing session was configured with.
+    func testSwapToPendingPreloadAppliesThePreloadedSessionsOwnStartPosition() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/a.mp3")!, playbackSpeed: 2.0)
+        let nextURL = URL(string: "https://example.com/b.mp3")!
+        player.preloadNext(url: nextURL, startPosition: 42, playbackSpeed: 1.0)
+        player.markPendingPreloadReady()
+
+        player.swapToPendingPreload()
+
+        XCTAssertEqual(player.currentTime, 42)
+        XCTAssertEqual(player.currentPlayerRate, 1.0)
     }
 
     func testFireOnDidFinishPlayingInvokesCallbackWhenADurationSleepTimerIsStillRunning() {

@@ -15,6 +15,14 @@ public record UserSettingsChange(
     int AutoDeleteAfterDays,
     bool AutoDownloadNewEpisodes,
     bool SmartSpeed,
+    // Nullable, same rationale as NotificationsEnabled below — a client that predates #679 omits
+    // the JSON property, and null means "this client doesn't know about this setting yet", so
+    // SettingsService.SyncAsync falls back to the stored value instead of clobbering it.
+    bool? VoiceBoost,
+    // Nullable, same rationale as VoiceBoost above — a client that predates #680 omits the JSON
+    // property, and null means "this client doesn't know about this setting yet", so
+    // SettingsService.SyncAsync falls back to the stored value instead of clobbering it.
+    bool? TrimSilence,
     // Nullable (unlike every non-nullable field above) because this field is newer than the
     // rest of this DTO: an existing client that hasn't been updated to send it yet will omit
     // the JSON property entirely, and minimal-API request binding (System.Text.Json) populates a

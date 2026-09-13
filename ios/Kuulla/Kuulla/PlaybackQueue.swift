@@ -89,6 +89,19 @@ final class PlaybackQueue {
 
     private var progressTrackingTask: Task<Void, Never>?
 
+    // The result of resolving and preparing the next queue item's audio ahead of time (#683
+    // gapless playback), started when AudioPlayer.onApproachingEnd fires and consumed (or
+    // discarded) by handleNaturalFinish. Kept here — rather than re-derived from
+    // AudioPlayer.shared's own preload state — because it carries the fields (duration,
+    // showId/episodeId, playlistId) handleNaturalFinish needs to finish wiring the session without
+    // re-running playItem()'s episode/show fetches, which is the entire point of preloading.
+    private struct PreloadedNext {
+        let item: QueueItem
+        let audioUrl: URL
+        let duration: TimeInterval?
+    }
+    private var preloadedNext: PreloadedNext?
+
     private let playlistClient: PlaylistClient
     private let catalogClient: PodcastCatalogClient
     private let settingsClient: SettingsClient
@@ -139,6 +152,21 @@ final class PlaybackQueue {
         }
     }
 
+    // The pure "should the in-flight preload be used" decision (#683), pulled out for unit testing
+    // exactly like nextItem()/resolve() above. A preload started ahead of time for
+    // `preloadedEpisodeId` is only still correct if it matches `next` — the *authoritative*
+    // decision handleNaturalFinish just made by calling nextItem()/resolve() itself with
+    // up-to-the-moment behavior/playlist state — since the preload's own guess (made up to
+    // approachingEndLeadSeconds earlier) could have gone stale in the meantime (a playlist edit,
+    // a PlayNextBehavior change, or the user having jumped to a different episode already).
+    // `preloadIsReady` is AudioPlayer's own mechanical "did the AVPlayerItem actually finish
+    // buffering" fact — kept as a separate parameter (rather than folded into a single bool by the
+    // caller) so this function's two independent failure reasons (wrong episode vs. not buffered
+    // yet) both stay visible to whoever's testing it.
+    nonisolated static func shouldUsePreload(preloadedEpisodeId: String?, next: QueueItem, preloadIsReady: Bool) -> Bool {
+        preloadIsReady && preloadedEpisodeId == next.episodeId
+    }
+
     // Resolution order for the setting (#629): playlist override → show override → global. When
     // playback was started from a playlist, the playlist wins over the finished episode's show
     // because the user is explicitly listening to that list.
@@ -154,6 +182,13 @@ final class PlaybackQueue {
     func begin(list: PlaybackList, currentEpisodeId: String) {
         rearm(source: list.source, currentEpisodeId: currentEpisodeId)
         orderedItems = list.items
+        // Without this, the episode this call is armed for never gets its own approaching-end
+        // preload wired — only episodes reached via a LATER playItem()/startPlayingPreloadedItem
+        // call would. Since every playback session (EpisodeDetailView's Play, CarPlay) starts here
+        // before AudioPlayer.play() is called separately, that would mean the very first
+        // transition of every session always took the slow path — arming it here instead closes
+        // that gap (#683 follow-up).
+        armApproachingEndPreload(sessionEpisodeId: currentEpisodeId)
     }
 
     // Armed by EpisodeDetailView when it starts playback of an episode reached via the
@@ -175,6 +210,9 @@ final class PlaybackQueue {
         guard source?.playlistId == playlistId, self.currentEpisodeId == currentEpisodeId else { return }
         source = .playlist(id: playlistId, type: detail.type)
         orderedItems = detail.items.map { QueueItem(showId: $0.showId, episodeId: $0.episodeId) }
+        // Same reasoning as the other begin() overload — arms this session's own approaching-end
+        // preload rather than leaving it only reachable via a later playItem() call.
+        armApproachingEndPreload(sessionEpisodeId: currentEpisodeId)
     }
 
     private func rearm(source: PlaybackListSource, currentEpisodeId: String) {
@@ -187,6 +225,13 @@ final class PlaybackQueue {
         // episode is now stale.
         progressTrackingTask?.cancel()
         progressTrackingTask = nil
+        // Any preload in flight was resolved against the session being replaced — it no longer
+        // corresponds to anything this re-armed session will finish into. AudioPlayer's own play()
+        // would discard its side of this anyway (see AudioPlayer.play()'s own comment), but that
+        // hasn't necessarily run yet at this point in begin()/quickPlay(), so drop it explicitly
+        // here too rather than leaving a stale reference sitting in `preloadedNext` until it does.
+        preloadedNext = nil
+        AudioPlayer.shared.discardPendingPreload()
     }
 
     // Playback that didn't start from a list (a deep link, a CarPlay Now Playing pick) forgets any
@@ -198,6 +243,12 @@ final class PlaybackQueue {
         consumedEpisodeIds = []
         progressTrackingTask?.cancel()
         progressTrackingTask = nil
+        preloadedNext = nil
+        AudioPlayer.shared.discardPendingPreload()
+        // Defense-in-depth alongside startPreloadingNext's own currentEpisodeId guard: without this,
+        // a stale closure captured for whatever session was just cleared stays armed on AudioPlayer
+        // until some later begin()/playItem() reassigns it.
+        AudioPlayer.shared.onApproachingEnd = nil
     }
 
     // Called from an AudioPlayer.onDidFinishPlaying handler *after* the finished episode's
@@ -225,8 +276,59 @@ final class PlaybackQueue {
             clear()
             return
         }
+
+        // A preload started ~approachingEndLeadSeconds ago may already have this episode's audio
+        // buffered and ready — if it's still the authoritative pick (see shouldUsePreload's own
+        // comment on why that can't just be assumed) and AudioPlayer confirms it's actually ready,
+        // swap to it directly instead of running playItem()'s full episode/show/settings
+        // resolution chain live, which is exactly the network/DB-latency gap #683 exists to close.
+        if let preloadedNext, Self.shouldUsePreload(
+            preloadedEpisodeId: preloadedNext.item.episodeId, next: next,
+            preloadIsReady: AudioPlayer.shared.hasPendingPreload(for: preloadedNext.audioUrl)
+        ) {
+            self.preloadedNext = nil
+            currentEpisodeId = next.episodeId
+            startPlayingPreloadedItem(preloadedNext, playlistId: source.playlistId)
+            return
+        }
+
+        preloadedNext = nil
+        AudioPlayer.shared.discardPendingPreload()
         currentEpisodeId = next.episodeId
         await playItem(next, playlistId: source.playlistId)
+    }
+
+    // The fast path counterpart to playItem() below — wires up onDidFinishPlaying and progress
+    // tracking exactly the same way, but swaps AudioPlayer straight to the already-prepared
+    // preload instead of awaiting a fresh episode/show/settings resolution and building a new
+    // AVPlayerItem. Synchronous (unlike playItem()) since everything it needs was already resolved
+    // when the preload was started — that's the entire point.
+    private func startPlayingPreloadedItem(_ preloaded: PreloadedNext, playlistId: String?) {
+        let episodeId = preloaded.item.episodeId
+        let showId = preloaded.item.showId
+        let duration = preloaded.duration
+        let audioUrl = preloaded.audioUrl
+
+        AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
+            guard finishedURL == audioUrl else { return }
+            Task {
+                await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
+                await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
+            }
+        }
+
+        // Falls back to the full slow path if AudioPlayer's own state changed out from under us
+        // between the hasPendingPreload() check above and this call (e.g. it somehow lost
+        // readiness) — defensive, since shouldUsePreload already checked readiness, but
+        // swapToPendingPreload's own guard is the one source of truth for whether the swap
+        // actually happened.
+        guard AudioPlayer.shared.swapToPendingPreload() else {
+            Task { await playItem(preloaded.item, playlistId: playlistId) }
+            return
+        }
+
+        armApproachingEndPreload(sessionEpisodeId: episodeId)
+        startProgressTracking(audioUrl: audioUrl, episodeId: episodeId, showId: showId)
     }
 
     // Looked up at finish time rather than at begin() so an override the user edits mid-episode
@@ -330,16 +432,32 @@ final class PlaybackQueue {
         await playItem(QueueItem(showId: showId, episodeId: episodeId), playlistId: source?.playlistId)
     }
 
-    // Starts an episode from outside the detail screen — an auto-advance, or a direct quickPlay()
-    // call from a list row's play button (#616). Deliberately mirrors CarPlaySceneDelegate.play()
-    // rather than reaching into EpisodeDetailView — both are "start an arbitrary episode from
-    // outside the detail screen" paths, and the app already keeps that resolution logic
-    // duplicated per surface (resolvedPlaybackURL, the show-override-else-global settings fetch,
-    // the periodic progress save).
-    private func playItem(_ item: QueueItem, playlistId: String?) async {
+    // Everything resolvePlayableEpisode() below needs to hand back to a caller that's actually
+    // going to use the result — either to start playback now (playItem) or to preload it ahead of
+    // time (startPreloadingNext, #683).
+    private struct ResolvedPlayableEpisode {
+        let audioUrl: URL
+        let episode: Episode
+        let show: Show?
+        let startPosition: TimeInterval
+        let autoSkipIntroSeconds: TimeInterval
+        let autoSkipOutroSeconds: TimeInterval
+        let playbackSpeed: Float
+        let smartSpeed: Bool
+        let voiceBoost: Bool
+        let trimSilence: Bool
+    }
+
+    // The episode/show/settings/download-record resolution chain shared by playItem() and
+    // startPreloadingNext() (#683) — pulled out so gapless preloading runs exactly the same
+    // resolution playItem() always has, rather than a hand-duplicated (and possibly
+    // drifted-out-of-sync) copy of it. Returns nil when the episode can't be resolved at all
+    // (deleted, unreachable) or has no playable URL — callers decide what "give up" means for
+    // their own context: playItem() clears the whole queue, while a failed preload just quietly
+    // skips preloading and lets the slow path run again at actual finish time.
+    private func resolvePlayableEpisode(_ item: QueueItem) async -> ResolvedPlayableEpisode? {
         guard let episode = try? await catalogClient.getEpisode(showId: item.showId, episodeId: item.episodeId) else {
-            clear()
-            return
+            return nil
         }
         // Best-effort: only feeds the Now Playing artist/artwork.
         let show = try? await catalogClient.getShow(id: item.showId)
@@ -351,6 +469,8 @@ final class PlaybackQueue {
         let autoSkipOutroSeconds = TimeInterval(showResolved?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
         let playbackSpeed = showResolved?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
         let smartSpeed = showResolved?.smartSpeed ?? user?.smartSpeed ?? false
+        let voiceBoost = showResolved?.voiceBoost ?? user?.voiceBoost ?? false
+        let trimSilence = showResolved?.trimSilence ?? user?.trimSilence ?? false
 
         var startPosition: TimeInterval = 0
         var downloadRecord: DownloadedEpisodeRecord?
@@ -370,14 +490,30 @@ final class PlaybackQueue {
         guard let audioUrl = EpisodeDetailView.resolvedPlaybackURL(
             audioUrlString: episode.audioUrl, downloadRecord: downloadRecord,
             downloadsDirectory: DownloadManager.downloadsDirectory())
-        else {
+        else { return nil }
+
+        return ResolvedPlayableEpisode(
+            audioUrl: audioUrl, episode: episode, show: show, startPosition: startPosition,
+            autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
+            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
+    }
+
+    // Starts an episode from outside the detail screen — an auto-advance, or a direct quickPlay()
+    // call from a list row's play button (#616). Deliberately mirrors CarPlaySceneDelegate.play()
+    // rather than reaching into EpisodeDetailView — both are "start an arbitrary episode from
+    // outside the detail screen" paths, and the app already keeps that resolution logic
+    // duplicated per surface (resolvedPlaybackURL, the show-override-else-global settings fetch,
+    // the periodic progress save).
+    private func playItem(_ item: QueueItem, playlistId: String?) async {
+        guard let resolved = await resolvePlayableEpisode(item) else {
             clear()
             return
         }
 
         let episodeId = item.episodeId
         let showId = item.showId
-        let duration = episode.duration
+        let duration = resolved.episode.duration
+        let audioUrl = resolved.audioUrl
 
         AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
             guard finishedURL == audioUrl else { return }
@@ -388,15 +524,61 @@ final class PlaybackQueue {
         }
 
         AudioPlayer.shared.play(
-            url: audioUrl, startPosition: startPosition,
-            autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed,
+            url: audioUrl, startPosition: resolved.startPosition,
+            autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
+            playbackSpeed: resolved.playbackSpeed, smartSpeed: resolved.smartSpeed,
+            voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
             context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: NowPlayingMetadata(
-                title: episode.title, showTitle: show?.title,
-                artworkURL: show?.artworkUrl.flatMap(URL.init(string:))))
+                title: resolved.episode.title, showTitle: resolved.show?.title,
+                artworkURL: resolved.show?.artworkUrl.flatMap(URL.init(string:))))
 
+        armApproachingEndPreload(sessionEpisodeId: episodeId)
         startProgressTracking(audioUrl: audioUrl, episodeId: episodeId, showId: showId)
+    }
+
+    // MARK: - Gapless preload (#683)
+
+    // Arms AudioPlayer.onApproachingEnd for the session that just started playing
+    // `sessionEpisodeId` — single-slot, reassigned by every playItem() call (and by the fast swap
+    // path in startPlayingPreloadedItem below) exactly like onDidFinishPlaying's own wiring, so
+    // whichever episode is actually playing owns the callback.
+    private func armApproachingEndPreload(sessionEpisodeId: String) {
+        AudioPlayer.shared.onApproachingEnd = { [weak self] in
+            Task { await self?.startPreloadingNext(sessionEpisodeId: sessionEpisodeId) }
+        }
+    }
+
+    // Resolves and preloads whatever nextItem()/resolve() currently pick as "plays after
+    // sessionEpisodeId" — called once per session, ~AudioPlayer.approachingEndLeadSeconds before
+    // it naturally ends. Deliberately re-runs the same nextItem()/resolve() lookup
+    // handleNaturalFinish will run again at the actual finish (rather than caching this call's
+    // result as final) since a playlist edit or PlayNextBehavior change in the intervening seconds
+    // must not be preloaded past — shouldUsePreload() is what actually reconciles the two lookups
+    // at finish time.
+    private func startPreloadingNext(sessionEpisodeId: String) async {
+        guard let source, currentEpisodeId == sessionEpisodeId else { return }
+        let showId = orderedItems.first { $0.episodeId == sessionEpisodeId }?.showId
+        let behavior = await resolvePlayNextBehavior(source: source, showId: showId)
+        // The user may have skipped to a different episode entirely while this was in flight —
+        // mirrors playItem's own staleness guards (and resolvedNextItem's precondition) against
+        // acting on a resolution that's no longer for the episode actually still playing.
+        guard currentEpisodeId == sessionEpisodeId,
+              let next = Self.nextItem(after: sessionEpisodeId, in: orderedItems, behavior: behavior, consumed: consumedEpisodeIds)
+        else { return }
+
+        guard let resolved = await resolvePlayableEpisode(next), currentEpisodeId == sessionEpisodeId else { return }
+
+        preloadedNext = PreloadedNext(item: next, audioUrl: resolved.audioUrl, duration: resolved.episode.duration)
+        AudioPlayer.shared.preloadNext(
+            url: resolved.audioUrl, startPosition: resolved.startPosition,
+            autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, playbackSpeed: resolved.playbackSpeed,
+            autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
+            smartSpeed: resolved.smartSpeed, voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
+            context: NowPlayingContext(showId: next.showId, episodeId: next.episodeId, playlistId: playlistId),
+            metadata: NowPlayingMetadata(
+                title: resolved.episode.title, showTitle: resolved.show?.title,
+                artworkURL: resolved.show?.artworkUrl.flatMap(URL.init(string:))))
     }
 
     // Mirrors EpisodeDetailView.startProgressTracking() / CarPlay's own loop so an auto-advanced
