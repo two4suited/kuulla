@@ -121,8 +121,16 @@ struct PlaylistsView: View {
         try? modelContext.save()
     }
 
-    private func createPlaylist(name: String, icon: String?, accentColor: String?) async throws {
-        let created = try await playlistClient.createPlaylist(name: name, icon: icon, accentColor: accentColor)
+    private func createPlaylist(
+        name: String, icon: String?, accentColor: String?, dynamicConfig: DynamicPlaylistConfig?
+    ) async throws {
+        let created: Playlist
+        if let dynamicConfig {
+            created = try await playlistClient.createDynamicPlaylist(
+                name: name, config: dynamicConfig, icon: icon, accentColor: accentColor)
+        } else {
+            created = try await playlistClient.createPlaylist(name: name, icon: icon, accentColor: accentColor)
+        }
         // Optimistic — show it now; the sync then pulls the server's authoritative row into the
         // local store so it persists across launches and reaches every other PlaylistRecord reader.
         playlists = (playlists + [PlaylistSummary(playlist: created)])
@@ -164,22 +172,105 @@ struct PlaylistsView: View {
 }
 
 private struct NewPlaylistSheet: View {
-    let onCreate: (String, String?, String?) async throws -> Void
+    let onCreate: (String, String?, String?, DynamicPlaylistConfig?) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var icon: String?
     @State private var accentColor: String?
+    @State private var isDynamic = false
+    @State private var maxEpisodes = 20
+    @State private var priorityList: [String] = []
+    @State private var pendingShowId = ""
+    @State private var subscriptions: [Subscription] = []
+    @State private var isLoadingSubscriptions = false
+    @State private var subscriptionsError: String?
     @State private var isCreating = false
     @State private var errorMessage: String?
+
+    private let subscriptionClient = SubscriptionClient()
+
+    private var availableSubscriptions: [Subscription] {
+        subscriptions
+            .filter { !priorityList.contains($0.showId) }
+            .sorted { $0.showTitle.localizedCaseInsensitiveCompare($1.showTitle) == .orderedAscending }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 TextField("Playlist name", text: $name)
+
                 Section {
-                    PlaylistAppearancePicker(icon: $icon, accentColor: $accentColor)
+                    Picker("Type", selection: $isDynamic) {
+                        Text("Manual").tag(false)
+                        Text("Dynamic").tag(true)
+                    }
+                    .pickerStyle(.segmented)
                 }
+
+                if isDynamic {
+                    Section("Max episodes") {
+                        Stepper(value: $maxEpisodes, in: 1...100) {
+                            Text("\(maxEpisodes)")
+                        }
+                    }
+
+                    Section("Add a podcast") {
+                        Picker("Podcast", selection: $pendingShowId) {
+                            Text("Choose a podcast")
+                                .tag("")
+                            ForEach(availableSubscriptions, id: \.showId) { subscription in
+                                Text(subscription.showTitle)
+                                    .tag(subscription.showId)
+                            }
+                        }
+
+                        Button("Add") {
+                            guard !pendingShowId.isEmpty else { return }
+                            if !priorityList.contains(pendingShowId) {
+                                priorityList.append(pendingShowId)
+                                pendingShowId = ""
+                            }
+                        }
+                        .disabled(pendingShowId.isEmpty)
+                    }
+
+                    if priorityList.isEmpty {
+                        Section {
+                            Text("Choose at least one podcast. Episodes are pulled from the highest-priority podcast first.")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Section("Priority order") {
+                            ForEach(priorityList, id: \.self) { showId in
+                                HStack {
+                                    Text(showTitle(for: showId))
+                                    Spacer()
+                                    Button(role: .destructive) {
+                                        priorityList.removeAll { $0 == showId }
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .onMove { source, destination in
+                                priorityList.move(fromOffsets: source, toOffset: destination)
+                            }
+                        }
+                    }
+
+                    if let subscriptionsError {
+                        Text(subscriptionsError)
+                            .foregroundStyle(.red)
+                    }
+                } else {
+                    Section {
+                        PlaylistAppearancePicker(icon: $icon, accentColor: $accentColor)
+                    }
+                }
+
                 if let errorMessage {
                     Text(errorMessage)
                         .foregroundStyle(.red)
@@ -191,28 +282,60 @@ private struct NewPlaylistSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if isDynamic && priorityList.count > 1 {
+                        EditButton()
+                    }
                     if isCreating {
                         ProgressView()
                     } else {
                         Button("Create") {
                             Task { await create() }
                         }
-                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(isCreateDisabled)
                     }
                 }
             }
+            .task(id: isDynamic) {
+                guard isDynamic, subscriptions.isEmpty else { return }
+                await loadSubscriptions()
+            }
         }
+    }
+
+    private var isCreateDisabled: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        return isDynamic && priorityList.isEmpty
+    }
+
+    private func loadSubscriptions() async {
+        isLoadingSubscriptions = true
+        subscriptionsError = nil
+        do {
+            subscriptions = try await subscriptionClient.getSubscriptions()
+        } catch {
+            subscriptionsError = "Something went wrong while loading your subscriptions. Please try again."
+        }
+        isLoadingSubscriptions = false
+    }
+
+    private func showTitle(for showId: String) -> String {
+        subscriptions.first { $0.showId == showId }?.showTitle ?? showId
     }
 
     private func create() async {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        if isDynamic && priorityList.isEmpty { return }
 
         isCreating = true
         errorMessage = nil
         do {
-            try await onCreate(trimmed, icon, accentColor)
+            let config = isDynamic
+                ? DynamicPlaylistConfig(showIds: priorityList, maxEpisodes: maxEpisodes, priorityList: priorityList)
+                : nil
+            try await onCreate(trimmed, icon, accentColor, config)
             dismiss()
         } catch {
             errorMessage = "Something went wrong while creating this playlist. Please try again."
