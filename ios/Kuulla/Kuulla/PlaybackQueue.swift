@@ -71,6 +71,17 @@ final class PlaybackQueue {
     // some unrelated episode later finishes.
     private(set) var currentEpisodeId: String?
 
+    // The remaining items after currentEpisodeId in the armed snapshot, minus any already
+    // finished this session — CarPlay's Up Next screen (#640) reads this directly rather than
+    // re-deriving nextItem(after:in:behavior:) itself, since Up Next shows the plain remainder of
+    // the list regardless of which PlayNextBehavior a natural finish would actually resolve to.
+    var upNextItems: [QueueItem] {
+        guard let currentEpisodeId,
+              let index = orderedItems.firstIndex(where: { $0.episodeId == currentEpisodeId })
+        else { return [] }
+        return orderedItems[(index + 1)...].filter { !consumedEpisodeIds.contains($0.episodeId) }
+    }
+
     private var progressTrackingTask: Task<Void, Never>?
 
     private let playlistClient: PlaylistClient
@@ -269,6 +280,16 @@ final class PlaybackQueue {
         await quickPlay(episodeId: episodeId, showId: showId) {
             begin(list: list, currentEpisodeId: episodeId)
         }
+    }
+
+    // Jumps directly to an item from upNextItems (#640) — CarPlay's Up Next screen. Only advances
+    // currentEpisodeId within the already-armed snapshot rather than re-arming from scratch (the
+    // way quickPlay's arm() closures do for a fresh list), so a later natural finish continues
+    // from this item's own position in orderedItems, and handleNaturalFinish's manual-playlist
+    // removal / PlayNextBehavior resolution still see the same source they would have otherwise.
+    func playUpNextItem(_ item: QueueItem) async {
+        currentEpisodeId = item.episodeId
+        await playItem(item, playlistId: source?.playlistId)
     }
 
     private func quickPlay(episodeId: String, showId: String, arm: () async -> Void) async {

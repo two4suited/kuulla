@@ -112,4 +112,31 @@ final class PlaybackQueueTests: XCTestCase {
         let resolved = PlaybackQueue.resolve(playlistOverride: nil, showOverride: nil, global: .topOfList)
         XCTAssertEqual(resolved, .topOfList)
     }
+
+    // MARK: - upNextItems (#640)
+
+    @MainActor
+    func testUpNextItemsReturnsEverythingAfterCurrentEpisode() {
+        let queue = PlaybackQueue()
+        queue.begin(
+            list: PlaybackList(source: .show(id: "show-a"), items: items(["a", "b", "c", "d"])),
+            currentEpisodeId: "b")
+
+        XCTAssertEqual(queue.upNextItems.map(\.episodeId), ["c", "d"])
+    }
+
+    @MainActor
+    func testUpNextItemsIsEmptyForTheLastEpisodeInTheSnapshot() {
+        let queue = PlaybackQueue()
+        queue.begin(
+            list: PlaybackList(source: .show(id: "show-a"), items: items(["a", "b"])), currentEpisodeId: "b")
+
+        XCTAssertEqual(queue.upNextItems, [])
+    }
+
+    @MainActor
+    func testUpNextItemsIsEmptyWhenNothingIsArmed() {
+        let queue = PlaybackQueue()
+        XCTAssertEqual(queue.upNextItems, [])
+    }
 }
