@@ -668,6 +668,39 @@ public class PlaylistServiceTests
         Assert.Equal("live", only.Id);
     }
 
+    // #747: the list endpoint's "N episodes" count is read straight off each Playlist's stored
+    // Items, so a dynamic playlist needs the same played-episode prune GetPlaylistDetailAsync
+    // applies — otherwise the list count keeps counting a finished episode until the detail view
+    // happens to be opened.
+    [Fact]
+    public async Task GetPlaylistsAsync_PrunesPlayedEpisodesFromDynamicPlaylistCount()
+    {
+        var config = new DynamicPlaylistConfig([ShowId], MaxEpisodes: null, [ShowId]);
+        var stored = new Playlist(
+            PlaylistId, UserId, "Dynamic Playlist", PlaylistType.Dynamic,
+            [
+                new PlaylistItem("unplayed", ShowId, DateTimeOffset.UtcNow, "i"),
+                new PlaylistItem("finished", ShowId, DateTimeOffset.UtcNow, "r"),
+            ],
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DynamicConfig: config);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[stored]));
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("unplayed", ShowId), MakeEpisode("finished", ShowId)]);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[MakeState("finished", completed: true)]);
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var results = await _sut.GetPlaylistsAsync(UserId, CancellationToken.None);
+
+        var only = Assert.Single(results);
+        Assert.Equal(["unplayed"], only.Items.Select(i => i.EpisodeId));
+    }
+
     [Fact]
     public async Task SyncAsync_ReturnsTombstoneAsServerChange()
     {
@@ -682,6 +715,39 @@ public class PlaylistServiceTests
         var change = Assert.Single(result.ServerChanges);
         Assert.Equal(PlaylistId, change.Id);
         Assert.True(change.Deleted);
+    }
+
+    // #747: a device's local playlist store — and the "N episodes" count it renders — is built
+    // from SyncAsync's server changes, so the sync feed needs the same played-episode prune as the
+    // detail read and the list endpoint, or a synced device keeps showing a stale, unpruned count.
+    [Fact]
+    public async Task SyncAsync_PrunesPlayedEpisodesFromDynamicPlaylistBeforePushingServerChange()
+    {
+        var config = new DynamicPlaylistConfig([ShowId], MaxEpisodes: null, [ShowId]);
+        var stored = new Playlist(
+            PlaylistId, UserId, "Dynamic Playlist", PlaylistType.Dynamic,
+            [
+                new PlaylistItem("unplayed", ShowId, DateTimeOffset.UtcNow, "i"),
+                new PlaylistItem("finished", ShowId, DateTimeOffset.UtcNow, "r"),
+            ],
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DynamicConfig: config);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[stored]));
+        _episodeService.Setup(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<Episode>)[MakeEpisode("unplayed", ShowId), MakeEpisode("finished", ShowId)]);
+        _episodeStateService
+            .Setup(s => s.GetShowStatesAsync(UserId, ShowId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<EpisodeState>)[MakeState("finished", completed: true)]);
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        var result = await _sut.SyncAsync(
+            UserId, "device-1", DateTimeOffset.MinValue, localHash: "stale", [], CancellationToken.None);
+
+        var change = Assert.Single(result.ServerChanges);
+        Assert.Equal(["unplayed"], change.Items.Select(i => i.EpisodeId));
     }
 
     [Fact]
