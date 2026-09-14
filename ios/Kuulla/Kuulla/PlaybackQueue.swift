@@ -252,10 +252,11 @@ final class PlaybackQueue {
     }
 
     // Called from an AudioPlayer.onDidFinishPlaying handler *after* the finished episode's
-    // completion has been persisted. Removes it from a manual playlist (#532), then starts
-    // whatever the resolved PlayNextBehavior picks, or clears the queue when there's nothing.
-    // The sleep timer's "stop at end of episode" never gets here — AudioPlayer consumes the
-    // finish before the handler runs (fireOnDidFinishPlayingUnlessSleepTimerStopsHere).
+    // completion has been persisted. Removes it from every manual playlist (#532, #569 — not just
+    // the one it was played from, since the same episode can be added to more than one), then
+    // starts whatever the resolved PlayNextBehavior picks, or clears the queue when there's
+    // nothing. The sleep timer's "stop at end of episode" never gets here — AudioPlayer consumes
+    // the finish before the handler runs (fireOnDidFinishPlayingUnlessSleepTimerStopsHere).
     func handleNaturalFinish(finishedEpisodeId: String) async {
         guard let source, finishedEpisodeId == currentEpisodeId else { return }
         let finishedShowId = orderedItems.first { $0.episodeId == finishedEpisodeId }?.showId
@@ -263,10 +264,10 @@ final class PlaybackQueue {
         // Best-effort — a failed removal shouldn't block advancing playback. The next sync (or
         // simply opening the playlist) still shows the episode; the user can delete it by hand.
         // Dynamic playlists drop played episodes on their own server-side recompute, and show /
-        // New Episodes lists aren't editable, so only a manual playlist is touched.
-        if case .playlist(let playlistId, .manual) = source {
-            try? await playlistClient.removeItem(playlistId: playlistId, episodeId: finishedEpisodeId)
-        }
+        // New Episodes lists aren't editable, so PlaylistCleanup already skips those and only
+        // touches manual playlists.
+        await PlaylistCleanup.removeFromManualPlaylists(
+            episodeId: finishedEpisodeId, completed: true, playlistClient: playlistClient)
 
         consumedEpisodeIds.insert(finishedEpisodeId)
         let behavior = await resolvePlayNextBehavior(source: source, showId: finishedShowId)

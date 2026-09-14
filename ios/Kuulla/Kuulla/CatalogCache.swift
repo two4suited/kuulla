@@ -338,6 +338,13 @@ enum CatalogCache {
 
         if didChange {
             try? context.save()
+            // Single choke point for every caller of this function (EpisodeDetailView,
+            // ShowDetailView, FeedView, restoreAutoPlayed) rather than each one separately
+            // remembering to refresh the icon badge — the exact "call site forgets it" bug class
+            // this whole change set exists to fix for playlists (#569). Gated on didChange so a
+            // plain 20s position tick (completed: false, nothing actually toggled) doesn't pay for
+            // a badge recompute it can't have affected.
+            Task { await AppIconBadge.refresh(in: context) }
         }
     }
 
@@ -380,17 +387,25 @@ enum CatalogCache {
     // stale unplayed badge / counting as "active" before the next full refresh (#533).
     static func removeShowFromSnapshot(showId: String, in context: ModelContext) {
         guard let row = existingState(in: context) else { return }
+        var didChange = false
         if let data = row.unplayedCountsData,
            var byShow = try? JSONDecoder().decode([String: Int].self, from: data),
            byShow.removeValue(forKey: showId) != nil {
             row.unplayedCountsData = try? JSONEncoder().encode(byShow)
+            didChange = true
         }
         if let data = row.inProgressShowIdsData,
            var ids = try? JSONDecoder().decode([String].self, from: data),
            let index = ids.firstIndex(of: showId) {
             ids.remove(at: index)
             row.inProgressShowIdsData = try? JSONEncoder().encode(ids)
+            didChange = true
         }
         try? context.save()
+        // Mirrors recordEpisodeStateChange's own badge-refresh choke point — an unsubscribe or
+        // "mark all played" can drop a show's whole unplayed count in one shot.
+        if didChange {
+            Task { await AppIconBadge.refresh(in: context) }
+        }
     }
 }

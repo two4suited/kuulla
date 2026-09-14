@@ -8,6 +8,10 @@ struct SettingsView: View {
     // UserDefaults keys LocalSettings exposes for non-View code (DownloadManager, AudioPlayer).
     @AppStorage(LocalSettings.wifiOnlyDownloadsKey) private var wifiOnlyDownloads = true
     @AppStorage(LocalSettings.wifiOnlyStreamingKey) private var wifiOnlyStreaming = false
+    @AppStorage(LocalSettings.appIconBadgeModeKey) private var appIconBadgeMode = AppIconBadgeMode.off
+    // "" is the sentinel for "nothing picked yet" — @AppStorage needs a concrete default, and
+    // LocalSettings.appIconBadgePlaylistId already treats an empty string as nil.
+    @AppStorage(LocalSettings.appIconBadgePlaylistIdKey) private var appIconBadgePlaylistId = ""
 
     // #43: settingsSyncEngine pulls another device's changes into UserSettingsRecord on launch/
     // foreground/background refresh; this view mirrors its own successful writes into the same
@@ -35,6 +39,9 @@ struct SettingsView: View {
     @State private var voiceBoostSaveError: String?
     @State private var trimSilenceSaveError: String?
     @State private var notificationsEnabledSaveError: String?
+    // Loaded from the local PlaylistRecord store (PlaylistsView's own pattern) rather than a
+    // network fetch — this picker only needs to list what's already synced to the device.
+    @State private var badgePlaylists: [PlaylistSummary] = []
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
     // one while a save is in flight) means the last value the user picked always wins, even if
     // they pick again before the prior PUT has resolved.
@@ -358,6 +365,41 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("Badge Shows", selection: $appIconBadgeMode) {
+                    ForEach(AppIconBadgeMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .onChange(of: appIconBadgeMode) { _, _ in
+                    if appIconBadgeMode == .playlist {
+                        readLocalBadgePlaylists()
+                    }
+                    Task { await AppIconBadge.refresh(in: modelContext) }
+                }
+
+                if appIconBadgeMode == .playlist {
+                    if badgePlaylists.isEmpty {
+                        Text("You haven't created any playlists yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Playlist", selection: $appIconBadgePlaylistId) {
+                            Text("Choose a Playlist").tag("")
+                            ForEach(badgePlaylists) { playlist in
+                                Text(playlist.name).tag(playlist.id)
+                            }
+                        }
+                        .onChange(of: appIconBadgePlaylistId) { _, _ in
+                            Task { await AppIconBadge.refresh(in: modelContext) }
+                        }
+                    }
+                }
+            } header: {
+                Text("App Icon Badge")
+            } footer: {
+                Text("Shows a count on the Home Screen icon — either how many unplayed episodes you have, or how many episodes are in a playlist you pick.")
+            }
+
+            Section {
                 Button {
                     opmlImportError = nil
                     isOpmlImporterPresented = true
@@ -475,6 +517,11 @@ struct SettingsView: View {
         .task {
             await loadSettings()
         }
+        .onAppear {
+            if appIconBadgeMode == .playlist {
+                readLocalBadgePlaylists()
+            }
+        }
         .onChange(of: scenePhase) { _, newPhase in
             // Re-syncs when this view resumes in the foreground with another device's change
             // waiting — same trigger KuullaApp uses for episodes/playlists, scoped here so it
@@ -482,6 +529,14 @@ struct SettingsView: View {
             guard newPhase == .active, settings != nil else { return }
             Task { await refreshFromRemote() }
         }
+    }
+
+    // Mirrors PlaylistsView.readLocalPlaylists — this picker only needs whatever's already synced
+    // to the device, not a fresh network fetch. Excludes "Up Next": it's an auto-managed queue
+    // whose contents churn with playback, not something a badge count should be pinned to.
+    private func readLocalBadgePlaylists() {
+        let records = (try? modelContext.fetch(FetchDescriptor<PlaylistRecord>())) ?? []
+        badgePlaylists = PlaylistSummary.list(from: records, excludingUpNext: true)
     }
 
     private var unlistenedEpisodeCountBinding: Binding<UnlistenedEpisodeCount> {

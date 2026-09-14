@@ -48,4 +48,36 @@ enum LocalSettings {
         guard seconds > 0 else { return }
         lifetimeSilenceTimeSavedSeconds += seconds
     }
+
+    static let appIconBadgeModeKey = "appIconBadgeMode"
+    static let appIconBadgePlaylistIdKey = "appIconBadgePlaylistId"
+
+    // SettingsView binds these same keys via @AppStorage directly; this pair exists so
+    // non-View code (AppIconBadge) reads them without duplicating the keys, mirroring this
+    // enum's own reason for existing.
+    static var appIconBadgeMode: AppIconBadgeMode {
+        UserDefaults.standard.string(forKey: appIconBadgeModeKey).flatMap(AppIconBadgeMode.init(rawValue:)) ?? .off
+    }
+
+    static var appIconBadgePlaylistId: String? {
+        UserDefaults.standard.string(forKey: appIconBadgePlaylistIdKey).flatMap { $0.isEmpty ? nil : $0 }
+    }
+}
+
+// What the Home Screen icon badge counts, configurable in Settings. Device-local like the rest of
+// LocalSettings — the icon badge itself is a per-device OS surface, so there's nothing to sync.
+enum AppIconBadgeMode: String, CaseIterable, Identifiable {
+    case off
+    case unplayedEpisodes
+    case playlist
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .off: "Off"
+        case .unplayedEpisodes: "Unplayed Episodes"
+        case .playlist: "A Playlist"
+        }
+    }
 }
