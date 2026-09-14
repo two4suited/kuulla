@@ -101,6 +101,22 @@ public class ApnsNotificationServiceTests
     }
 
     [Fact]
+    public async Task NotifyNewEpisodesAsync_SetsContentAvailableForBackgroundSync()
+    {
+        var token = MakeToken();
+        ApplePush? sentPush = null;
+        _apnsClient
+            .Setup(c => c.SendAsync(It.IsAny<ApplePush>(), It.IsAny<CancellationToken>()))
+            .Callback<ApplePush, CancellationToken>((p, _) => sentPush = p)
+            .ReturnsAsync(ApnsResponse.Successful());
+
+        await _sut.NotifyNewEpisodesAsync([token], ShowId, "Show Title", [MakeEpisode("ep-1")], CancellationToken.None);
+
+        Assert.NotNull(sentPush);
+        Assert.True(sentPush!.IsContentAvailable);
+    }
+
+    [Fact]
     public async Task NotifyNewEpisodesAsync_OmitsEpisodeIdWhenMultipleNewEpisodes()
     {
         var token = MakeToken();
