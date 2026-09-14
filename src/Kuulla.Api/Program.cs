@@ -540,6 +540,7 @@ shows.MapPost("/{id}/episode-state/mark-all-played", async (
     IShowService showService,
     IEpisodeService episodeService,
     IEpisodeStateService episodeStateService,
+    IPlaylistService playlistService,
     CancellationToken ct) =>
 {
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -568,6 +569,18 @@ shows.MapPost("/{id}/episode-state/mark-all-played", async (
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
         app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after mark-all-played", userId, id);
+    }
+
+    // Best-effort (#724): a newly-played episode shouldn't linger in a manual playlist, but a
+    // transient failure here shouldn't turn a successful mark-all-played into a 5xx.
+    try
+    {
+        await playlistService.RemoveEpisodesFromManualPlaylistsAsync(
+            userId, updated.Select(state => state.EpisodeId).ToList(), ct);
+    }
+    catch (Exception ex) when (ex is not OperationCanceledException)
+    {
+        app.Logger.LogError(ex, "Failed to prune manual playlists for user {UserId} on show {ShowId} after mark-all-played", userId, id);
     }
 
     return Results.Ok(new MarkAllPlayedResult(episodes.Count, updated.Count, updated));
@@ -820,6 +833,7 @@ episodeState.MapPut("/{id}/state", async (
     ClaimsPrincipal user,
     IEpisodeStateService episodeStateService,
     IEpisodeService episodeService,
+    IPlaylistService playlistService,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.ShowId))
@@ -846,6 +860,22 @@ episodeState.MapPut("/{id}/state", async (
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
         app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after an episode state update", userId, request.ShowId);
+    }
+
+    // Best-effort (#724): a newly-played episode shouldn't linger in a manual playlist, but a
+    // transient failure here shouldn't turn a successful state update into a 5xx. Marking an
+    // episode unplayed again doesn't re-add it — that's a deliberate "remove from queue" action,
+    // not something to undo.
+    if (request.Completed)
+    {
+        try
+        {
+            await playlistService.RemoveEpisodesFromManualPlaylistsAsync(userId, [id], ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            app.Logger.LogError(ex, "Failed to prune manual playlists for user {UserId} after episode {EpisodeId} was marked played", userId, id);
+        }
     }
 
     return Results.Ok(result);

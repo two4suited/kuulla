@@ -801,6 +801,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         guard persisted else { return }
         await PlaylistCleanup.removeFromManualPlaylists(episodeId: episodeId, completed: true, playlistClient: playlistClient)
         await Self.cleanupDownloadIfEligible(episodeId: episodeId)
+        // #724: this path never patched the Shows/Subscriptions badge cache the way the phone UI's
+        // mark-played toggles do, so an episode marked played from CarPlay's Now Playing screen
+        // kept showing as unplayed there until the next full sync.
+        if let context = Self.modelContainer.map(ModelContext.init) {
+            CatalogCache.recordEpisodeStateChange(
+                episodeId: episodeId, showId: showId, completed: true, positionSeconds: 0, in: context)
+        }
     }
 
     private func downloadCurrentEpisode() async {

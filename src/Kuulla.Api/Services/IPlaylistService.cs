@@ -52,6 +52,14 @@ public interface IPlaylistService
     // the keep-for-resubscribe policy.
     Task RemoveShowAsync(string userId, string showId, CancellationToken cancellationToken);
 
+    // Marking an episode played (single or bulk mark-all-played, #724) should drop it from any
+    // manual playlist it's sitting in — an already-heard episode has no reason to keep taking up
+    // a queue slot. Dynamic playlists aren't touched here since they self-prune played episodes on
+    // read (PruneDynamicPlaylistAsync). Only playlists that actually contain one of the given
+    // episode ids are written, so unaffected playlists don't churn their UpdatedAt / sync hash.
+    Task RemoveEpisodesFromManualPlaylistsAsync(
+        string userId, IReadOnlyList<string> episodeIds, CancellationToken cancellationToken);
+
     Task<Playlist?> ReorderItemAsync(
         string userId,
         string id,
