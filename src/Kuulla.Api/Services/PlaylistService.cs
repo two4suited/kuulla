@@ -26,7 +26,13 @@ public class PlaylistService(
     public async Task<IReadOnlyList<Playlist>> GetPlaylistsAsync(string userId, CancellationToken cancellationToken)
     {
         var all = await QueryAllAsync(userId, cancellationToken);
-        return all.Where(p => !p.Deleted).ToList();
+        var active = all.Where(p => !p.Deleted).ToList();
+
+        // The list view's "N episodes" count comes straight from each Playlist's stored Items, so
+        // it needs the same lazy prune GetPlaylistDetailAsync applies — otherwise a dynamic
+        // playlist's list-level count keeps counting played episodes until its detail view happens
+        // to be opened (#747).
+        return await Task.WhenAll(active.Select(p => PruneDynamicPlaylistAsync(userId, p, cancellationToken)));
     }
 
     public async Task<Playlist> CreatePlaylistAsync(
@@ -195,6 +201,50 @@ public class PlaylistService(
         return true;
     }
 
+    // A dynamic playlist's stored Items are only as fresh as its last create / config-save /
+    // explicit recompute. The #112 auto-insert hook only ever *adds* newly-published episodes;
+    // nothing prunes an episode once the user finishes it, so the stored list (and the
+    // "N episodes total" count built from it) drifts to include played episodes over time
+    // (follow-up to #433, which only fixed freshly-computed playlists). Rebuild from current
+    // play state on read, and persist the result only when the episode set actually changed —
+    // so the next reader, the sync feed, and iOS all converge on the pruned list without
+    // waiting for an explicit recompute, while an unchanged playlist doesn't churn its
+    // UpdatedAt / sync hash on every page view.
+    // Best-effort: a throttled/unavailable Cosmos call in the recompute/persist should fall
+    // back to serving the last-known list rather than 500ing the whole read, unlike a manual
+    // playlist's read this branch never touches Cosmos beyond the initial ReadAsync in the caller.
+    // iOS's auto-advance (#629) calls GetPlaylistDetailAsync on every natural finish
+    // (PlaybackQueue.resolvePlayNextBehavior / begin(playlistId:)) — a 500 here reads as
+    // "playlist gone" and clears the queue, silently stopping playback instead of advancing.
+    // Only the known-transient status codes are swallowed — anything else (auth, a malformed
+    // query) still surfaces as a 500.
+    private async Task<Playlist> PruneDynamicPlaylistAsync(
+        string userId, Playlist playlist, CancellationToken cancellationToken)
+    {
+        if (playlist is not { Type: PlaylistType.Dynamic, DynamicConfig: { } config })
+        {
+            return playlist;
+        }
+
+        try
+        {
+            var fresh = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
+            if (!SameEpisodes(playlist.Items, fresh))
+            {
+                var updated = playlist with { Items = fresh, UpdatedAt = DateTimeOffset.UtcNow };
+                await UpsertAsync(updated, cancellationToken);
+                return updated;
+            }
+        }
+        catch (CosmosException ex) when (
+            ex.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable
+                or HttpStatusCode.RequestTimeout)
+        {
+        }
+
+        return playlist;
+    }
+
     public async Task<PlaylistDetail?> GetPlaylistDetailAsync(string userId, string id, CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
@@ -203,41 +253,7 @@ public class PlaylistService(
             return null;
         }
 
-        // A dynamic playlist's stored Items are only as fresh as its last create / config-save /
-        // explicit recompute. The #112 auto-insert hook only ever *adds* newly-published episodes;
-        // nothing prunes an episode once the user finishes it, so the stored list (and the
-        // "N episodes total" count built from it) drifts to include played episodes over time
-        // (follow-up to #433, which only fixed freshly-computed playlists). Rebuild from current
-        // play state on read, and persist the result only when the episode set actually changed —
-        // so the next reader, the sync feed, and iOS all converge on the pruned list without
-        // waiting for an explicit recompute, while an unchanged playlist doesn't churn its
-        // UpdatedAt / sync hash on every page view.
-        // Best-effort: a throttled/unavailable Cosmos call in the recompute/persist should fall
-        // back to serving the last-known list rather than 500ing the whole read, unlike a manual
-        // playlist's detail fetch this branch never touches Cosmos beyond the initial ReadAsync
-        // above. iOS's auto-advance (#629) calls this same read on every natural finish
-        // (PlaybackQueue.resolvePlayNextBehavior / begin(playlistId:)) — a 500 here reads as
-        // "playlist gone" and clears the queue, silently stopping playback instead of advancing.
-        // Only the known-transient status codes are swallowed — anything else (auth, a malformed
-        // query) still surfaces as a 500.
-        if (playlist is { Type: PlaylistType.Dynamic, DynamicConfig: { } config })
-        {
-            try
-            {
-                var fresh = await ComputeDynamicItemsAsync(userId, config, cancellationToken);
-                if (!SameEpisodes(playlist.Items, fresh))
-                {
-                    var updated = playlist with { Items = fresh, UpdatedAt = DateTimeOffset.UtcNow };
-                    await UpsertAsync(updated, cancellationToken);
-                    playlist = updated;
-                }
-            }
-            catch (CosmosException ex) when (
-                ex.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable
-                    or HttpStatusCode.RequestTimeout)
-            {
-            }
-        }
+        playlist = await PruneDynamicPlaylistAsync(userId, playlist, cancellationToken);
 
         // Resolve each distinct show once (not once per item) — a playlist with many episodes
         // from the same show shouldn't re-fetch that show's artwork per item.
@@ -531,9 +547,18 @@ public class PlaylistService(
     // domain's tombstone GC, run opportunistically on each sync rather than as a separate job.
     // A GC delete that races another writer (404/412) is ignored: the row is already gone or
     // will be re-evaluated next sweep.
+    //
+    // This is also the feed that populates each device's local PlaylistRecord store (#511) — the
+    // "N episodes" count iOS shows in the playlist list comes straight from a synced dynamic
+    // playlist's Items, so it needs the same lazy prune GetPlaylistDetailAsync applies, or the
+    // list-level count keeps counting played episodes until the detail view happens to be opened
+    // on some device (#747).
     private async Task<IReadOnlyList<Playlist>> QueryAllForSyncAsync(string userId, CancellationToken cancellationToken)
     {
         var all = await QueryAllAsync(userId, cancellationToken);
+        all = await Task.WhenAll(all.Select(p => p.Deleted
+            ? Task.FromResult(p)
+            : PruneDynamicPlaylistAsync(userId, p, cancellationToken)));
 
         var cutoff = DateTimeOffset.UtcNow - TombstoneRetention;
         var expired = all.Where(p => p.Deleted && p.UpdatedAt < cutoff).ToList();
