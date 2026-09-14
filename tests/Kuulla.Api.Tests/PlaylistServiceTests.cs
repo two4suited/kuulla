@@ -1029,6 +1029,88 @@ public class PlaylistServiceTests
         _episodeService.Verify(s => s.GetAllEpisodesOrderedAsync(ShowId, It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task RemoveEpisodesFromManualPlaylistsAsync_StripsMatchingItemsFromManualPlaylists()
+    {
+        var playlist = MakePlaylist(items:
+        [
+            new PlaylistItem("keep-1", "show-2", DateTimeOffset.UtcNow, "a"),
+            new PlaylistItem("drop-1", ShowId, DateTimeOffset.UtcNow, "b"),
+            new PlaylistItem("keep-2", "show-3", DateTimeOffset.UtcNow, "c"),
+        ]);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[playlist]));
+        Playlist? saved = null;
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => saved = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+
+        await _sut.RemoveEpisodesFromManualPlaylistsAsync(UserId, ["drop-1"], CancellationToken.None);
+
+        Assert.NotNull(saved);
+        Assert.Equal(["keep-1", "keep-2"], saved!.Items.Select(i => i.EpisodeId));
+    }
+
+    [Fact]
+    public async Task RemoveEpisodesFromManualPlaylistsAsync_LeavesPlaylistsWithoutTheEpisodeUntouched()
+    {
+        var playlist = MakePlaylist(items: [new PlaylistItem("keep-1", "show-2", DateTimeOffset.UtcNow, "a")]);
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[playlist]));
+
+        await _sut.RemoveEpisodesFromManualPlaylistsAsync(UserId, ["drop-1"], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveEpisodesFromManualPlaylistsAsync_SkipsTombstonedPlaylists()
+    {
+        var tombstone = MakePlaylist(items: [new PlaylistItem("drop-1", ShowId, DateTimeOffset.UtcNow, "a")])
+            with { Deleted = true };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[tombstone]));
+
+        await _sut.RemoveEpisodesFromManualPlaylistsAsync(UserId, ["drop-1"], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveEpisodesFromManualPlaylistsAsync_SkipsDynamicPlaylists()
+    {
+        var dynamic = MakePlaylist() with
+        {
+            Type = PlaylistType.Dynamic,
+            DynamicConfig = new DynamicPlaylistConfig(ShowIds: [ShowId], MaxEpisodes: null, PriorityList: [ShowId]),
+            Items = [new PlaylistItem("drop-1", ShowId, DateTimeOffset.UtcNow, "a")],
+        };
+        _playlistsContainer
+            .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(() => CosmosTestHelpers.FeedIterator<Playlist>((IReadOnlyList<Playlist>)[dynamic]));
+
+        await _sut.RemoveEpisodesFromManualPlaylistsAsync(UserId, ["drop-1"], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task RemoveEpisodesFromManualPlaylistsAsync_NoOpsOnEmptyEpisodeIdList()
+    {
+        await _sut.RemoveEpisodesFromManualPlaylistsAsync(UserId, [], CancellationToken.None);
+
+        _playlistsContainer.Verify(
+            c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()),
+            Times.Never);
+    }
+
     private void SetUpEmptyQuery() =>
         _playlistsContainer
             .Setup(c => c.GetItemQueryIterator<Playlist>(It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))

@@ -425,6 +425,35 @@ public class PlaylistService(
         }
     }
 
+    public async Task RemoveEpisodesFromManualPlaylistsAsync(
+        string userId, IReadOnlyList<string> episodeIds, CancellationToken cancellationToken)
+    {
+        if (episodeIds.Count == 0)
+        {
+            return;
+        }
+
+        var episodeIdSet = episodeIds.ToHashSet();
+        var playlists = await QueryAllAsync(userId, cancellationToken);
+
+        foreach (var playlist in playlists)
+        {
+            if (playlist.Deleted || playlist.Type != PlaylistType.Manual)
+            {
+                continue;
+            }
+
+            if (playlist.Items.All(item => !episodeIdSet.Contains(item.EpisodeId)))
+            {
+                continue;
+            }
+
+            var remaining = playlist.Items.Where(item => !episodeIdSet.Contains(item.EpisodeId)).ToList();
+            var updated = playlist with { Items = remaining, UpdatedAt = DateTimeOffset.UtcNow };
+            await UpsertAsync(updated, cancellationToken);
+        }
+    }
+
     public async Task<Playlist?> ReorderItemAsync(
         string userId,
         string id,

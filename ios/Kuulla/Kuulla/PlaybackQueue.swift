@@ -269,6 +269,23 @@ final class PlaybackQueue {
         await PlaylistCleanup.removeFromManualPlaylists(
             episodeId: finishedEpisodeId, completed: true, playlistClient: playlistClient)
 
+        // #724: this path (natural finish / auto-advance) never patched the Shows/Subscriptions
+        // badge cache the way the manual "mark played" toggles do, so an episode finished by
+        // playback kept showing as unplayed there until the next full sync. Reads the show id back
+        // from the just-persisted EpisodeStateRecord rather than trusting finishedShowId (derived
+        // from orderedItems above) — an item played via begin(playlistId:)/playUpNextItem that's
+        // since been pruned from the in-memory snapshot would otherwise silently skip this.
+        if let modelContainer = Self.modelContainer {
+            let context = ModelContext(modelContainer)
+            let descriptor = FetchDescriptor<EpisodeStateRecord>(
+                predicate: #Predicate { $0.id == finishedEpisodeId })
+            if let showId = (try? context.fetch(descriptor).first)?.showId ?? finishedShowId {
+                CatalogCache.recordEpisodeStateChange(
+                    episodeId: finishedEpisodeId, showId: showId, completed: true,
+                    positionSeconds: 0, in: context)
+            }
+        }
+
         consumedEpisodeIds.insert(finishedEpisodeId)
         let behavior = await resolvePlayNextBehavior(source: source, showId: finishedShowId)
         guard let next = Self.nextItem(
