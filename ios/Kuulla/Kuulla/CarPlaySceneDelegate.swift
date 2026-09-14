@@ -21,6 +21,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     static var modelContainer: ModelContainer?
     static var episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>?
     static var settingsSyncEngine: SyncEngine<SettingsSyncAdapter>?
+    static var playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?
 
     var interfaceController: CPInterfaceController?
 
@@ -40,6 +41,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private var progressTrackingTask: Task<Void, Never>?
     private var episodeSyncTask: Task<Void, Never>?
     private var settingsSyncTask: Task<Void, Never>?
+    private var playlistSyncTask: Task<Void, Never>?
 
     func templateApplicationScene(
         _ templateApplicationScene: CPTemplateApplicationScene,
@@ -82,6 +84,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // pass's played/caught-up state matches what just landed from the server.
         let episodeSyncEngine = Self.episodeSyncEngine
         let settingsSyncEngine = Self.settingsSyncEngine
+        let playlistSyncEngine = Self.playlistSyncEngine
         let episodeSync = Task { () async -> Void in
             guard let episodeSyncEngine else { return }
             await episodeSyncEngine.syncNow()
@@ -90,13 +93,18 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             guard let settingsSyncEngine else { return }
             await settingsSyncEngine.syncNow()
         }
+        let playlistSync = Task { () async -> Void in
+            guard let playlistSyncEngine else { return }
+            await playlistSyncEngine.syncNow()
+        }
         episodeSyncTask = episodeSync
         settingsSyncTask = settingsSync
+        playlistSyncTask = playlistSync
 
         loadTask = Task {
             async let subscriptions: Void = loadSubscriptionsList(
                 into: showsTemplate, episodeSync: episodeSync, settingsSync: settingsSync)
-            async let playlists: Void = loadPlaylistsList(into: playlistsTemplate)
+            async let playlists: Void = loadPlaylistsList(into: playlistsTemplate, playlistSync: playlistSync)
             _ = await (subscriptions, playlists)
         }
     }
@@ -115,6 +123,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         episodeSyncTask = nil
         settingsSyncTask?.cancel()
         settingsSyncTask = nil
+        playlistSyncTask?.cancel()
+        playlistSyncTask = nil
     }
 
     private static func emptyListTemplate(title: String) -> CPListTemplate {
@@ -339,26 +349,42 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         return [CPListSection(items: items)]
     }
 
-    // Network-only (#641) — playlists have no on-device cache the way CatalogCache mirrors
-    // subscriptions/episodes, so this is a plain fetch-then-render like pushEpisodesList's
-    // network refresh half, without a cache-painted first pass.
-    private func loadPlaylistsList(into template: CPListTemplate) async {
-        do {
-            let playlists = try await playlistClient.getPlaylists()
-            template.updateSections(playlistsSections(for: playlists))
-        } catch {
+    // Cache-first (#758): paint instantly from the locally-synced PlaylistRecord store (kept
+    // current by PlaylistSyncAdapter, the same store PlaylistsView reads) via
+    // PlaylistSummary.list(from:), then await the playlist sync kicked off in didConnect (mirrors
+    // loadSubscriptionsList's episodeSync/settingsSync wait) and repaint from the settled store.
+    // CarPlay never makes its own playlist list network call now — replaces the old network-only
+    // fetch (#641).
+    private func loadPlaylistsList(into template: CPListTemplate, playlistSync: Task<Void, Never>) async {
+        let context = Self.modelContainer.map(ModelContext.init)
+
+        var paintedFromCache = false
+        if let context {
+            let cached = PlaylistSummary.local(in: context)
+            if !cached.isEmpty {
+                template.updateSections(playlistsSections(for: cached))
+                paintedFromCache = true
+            }
+        }
+
+        await playlistSync.value
+        guard !Task.isCancelled else { return }
+
+        guard let context else {
+            guard !paintedFromCache else { return }
             template.updateSections(
                 [CPListSection(items: [CPListItem(text: "Couldn't load your playlists.", detailText: nil)])])
+            return
         }
+        template.updateSections(playlistsSections(for: PlaylistSummary.local(in: context)))
     }
 
-    private func playlistsSections(for playlists: [Playlist]) -> [CPListSection] {
+    private func playlistsSections(for playlists: [PlaylistSummary]) -> [CPListSection] {
         guard !playlists.isEmpty else {
             return [CPListSection(items: [CPListItem(text: "You haven't created any playlists yet.", detailText: nil)])]
         }
         let items = playlists.map { playlist -> CPListItem in
-            let episodeCount = playlist.items.count
-            let item = CPListItem(text: playlist.name, detailText: "\(episodeCount) episode\(episodeCount == 1 ? "" : "s")")
+            let item = CPListItem(text: playlist.name, detailText: "\(playlist.itemCount) episode\(playlist.itemCount == 1 ? "" : "s")")
             item.accessoryType = .disclosureIndicator
             item.handler = { [weak self] _, completion in
                 Task {
@@ -371,50 +397,75 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         return [CPListSection(items: items)]
     }
 
-    // Mirrors PlaylistDetailView's phone reference implementation: GET /api/playlists/{id}
-    // resolves each item's title/artwork server-side, no separate per-episode fetch needed just
-    // to render the row.
+    // Cache-first (#758): push instantly from the locally-synced PlaylistRecord via
+    // PlaylistDetail.local(id:in:) (shared with PlaylistDetailView's own local placeholder), then
+    // refresh from the network and update the same template's sections/title in place — mirrors
+    // pushEpisodesList's cache-then-network shape. Still a live GET /api/playlists/{id} refresh
+    // behind the cache paint (unlike the list screen, which is now sync-only): a dynamic
+    // playlist's item set is server-recomputed, and PlaylistSyncAdapter doesn't push that
+    // recomputation back down on its own.
     private func pushPlaylistDetail(playlistId: String, playlistName: String) async {
-        let detail: PlaylistDetail?
+        let context = Self.modelContainer.map(ModelContext.init)
+
+        var pushedTemplate: CPListTemplate?
+        if let context, let local = PlaylistDetail.local(id: playlistId, in: context) {
+            let template = playlistDetailTemplate(detail: local)
+            interfaceController?.pushTemplate(template, animated: true, completion: nil)
+            pushedTemplate = template
+        }
+
         do {
-            detail = try await playlistClient.getPlaylistDetail(id: playlistId)
+            guard let detail = try await playlistClient.getPlaylistDetail(id: playlistId) else {
+                // 404 — deleted server-side since the list was loaded.
+                let sections = [CPListSection(items: [CPListItem(text: "This playlist no longer exists.", detailText: nil)])]
+                if let pushedTemplate {
+                    pushedTemplate.updateSections(sections)
+                } else {
+                    interfaceController?.pushTemplate(
+                        CPListTemplate(title: playlistName, sections: sections), animated: true, completion: nil)
+                }
+                return
+            }
+            let freshTemplate = playlistDetailTemplate(detail: detail)
+            if let pushedTemplate {
+                // CPListTemplate.title is get-only after init — a rename since the cache-painted
+                // pass (rare: only another device renaming this playlist mid-session) won't
+                // retitle the pushed screen, same tradeoff pushEpisodesList accepts for showTitle.
+                pushedTemplate.updateSections(freshTemplate.sections)
+            } else {
+                interfaceController?.pushTemplate(freshTemplate, animated: true, completion: nil)
+            }
         } catch {
-            let template = CPListTemplate(
-                title: playlistName,
-                sections: [CPListSection(items: [CPListItem(text: "Couldn't load this playlist.", detailText: nil)])])
-            interfaceController?.pushTemplate(template, animated: true, completion: nil)
-            return
+            // The cache already painted something useful — leave it up rather than clobbering it
+            // with an error, same tolerance loadSubscriptionsList gives a stale-but-present cache.
+            guard pushedTemplate == nil else { return }
+            interfaceController?.pushTemplate(
+                CPListTemplate(
+                    title: playlistName,
+                    sections: [CPListSection(items: [CPListItem(text: "Couldn't load this playlist.", detailText: nil)])]),
+                animated: true, completion: nil)
         }
+    }
 
-        guard let detail else {
-            // 404 — deleted server-side since the list was loaded.
-            let template = CPListTemplate(
-                title: playlistName,
-                sections: [CPListSection(items: [CPListItem(text: "This playlist no longer exists.", detailText: nil)])])
-            interfaceController?.pushTemplate(template, animated: true, completion: nil)
-            return
-        }
-
+    private func playlistDetailTemplate(detail: PlaylistDetail) -> CPListTemplate {
         guard !detail.items.isEmpty else {
-            let template = CPListTemplate(
+            return CPListTemplate(
                 title: detail.name,
                 sections: [CPListSection(items: [CPListItem(text: "This playlist is empty.", detailText: nil)])])
-            interfaceController?.pushTemplate(template, animated: true, completion: nil)
-            return
         }
 
         // Snapshot of this playlist's order so a finished episode can auto-advance through it
         // (#629), mirroring PlaybackQueue.begin(playlistId:currentEpisodeId:) but built from the
         // detail this screen already has on hand rather than re-fetching it a second time.
         let list = PlaybackList(
-            source: .playlist(id: playlistId, type: detail.type),
+            source: .playlist(id: detail.id, type: detail.type),
             items: detail.items.map { PlaybackQueue.QueueItem(showId: $0.showId, episodeId: $0.episodeId) })
 
         let items = detail.items.map { playlistItem -> CPListItem in
             let item = CPListItem(text: playlistItem.title ?? "(episode unavailable)", detailText: nil)
             item.handler = { [weak self] _, completion in
                 Task {
-                    await self?.playPlaylistItem(playlistItem, playlistId: playlistId, list: list)
+                    await self?.playPlaylistItem(playlistItem, playlistId: detail.id, list: list)
                     completion()
                 }
             }
@@ -422,8 +473,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             return item
         }
 
-        let template = CPListTemplate(title: detail.name, sections: [CPListSection(items: items)])
-        interfaceController?.pushTemplate(template, animated: true, completion: nil)
+        return CPListTemplate(title: detail.name, sections: [CPListSection(items: items)])
     }
 
     // A playlist's items can span shows, unlike pushEpisodesList's single-show settingsTask, so
