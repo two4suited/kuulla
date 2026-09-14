@@ -596,9 +596,15 @@ final class PlaybackQueue {
                 try? await Task.sleep(for: .seconds(20))
                 guard !Task.isCancelled, AudioPlayer.shared.currentURL == audioUrl else { return }
                 guard AudioPlayer.shared.isPlaying else { continue }
+                let positionSeconds = Int(AudioPlayer.shared.currentTime)
+                // Promotes this tick to completed once playback is within the near-end threshold
+                // of the episode's duration (#704) rather than always reporting false.
+                let completed = EpisodeProgress.isNearEnd(
+                    positionSeconds: positionSeconds, duration: AudioPlayer.shared.duration,
+                    thresholdSeconds: EpisodeProgress.nearEndThresholdSeconds)
                 await Self.persist(
                     episodeId: episodeId, showId: showId,
-                    positionSeconds: Int(AudioPlayer.shared.currentTime), completed: false)
+                    positionSeconds: positionSeconds, completed: completed)
             }
         }
     }

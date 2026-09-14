@@ -926,16 +926,24 @@ struct EpisodeDetailView: View {
     }
 
     private func persistProgress(completed: Bool) async {
+        let position = Int(audioPlayer.currentTime)
+        // Promotes a tick/pause report to completed once playback is within the near-end
+        // threshold of the episode's duration (#704), so an episode isn't left stuck
+        // "in progress" forever just because a listener didn't sit through its trailing
+        // outro/credits.
+        let isCompleted = completed || EpisodeProgress.isNearEnd(
+            positionSeconds: position, duration: audioPlayer.duration,
+            thresholdSeconds: EpisodeProgress.nearEndThresholdSeconds)
+
         // A periodic tick always reports completed: false — it must never downgrade a record that
         // was just marked completed (via natural finish or the manual toggle), since a tick can
         // still be in flight right after either of those events.
-        if !completed && stateRecord?.completed == true {
+        if !isCompleted && stateRecord?.completed == true {
             return
         }
 
-        let position = Int(audioPlayer.currentTime)
-        guard position > 0 || completed else { return }
-        await persist(positionSeconds: position, completed: completed)
+        guard position > 0 || isCompleted else { return }
+        await persist(positionSeconds: position, completed: isCompleted)
     }
 
     private func persist(positionSeconds: Int, completed: Bool) async {
