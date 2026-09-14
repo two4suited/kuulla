@@ -55,7 +55,13 @@ else
     </div>
 
     <div class="d-flex align-items-center justify-content-between mb-3">
-        <span class="text-muted small">@playlist.Items.Count episode@(playlist.Items.Count == 1 ? "" : "s") total</span>
+        <span class="text-muted small">
+            @playlist.Items.Count episode@(playlist.Items.Count == 1 ? "" : "s") total
+            @if (RemainingQueueDuration is { } remaining)
+            {
+                @: &middot; @QueueTimeEstimate.Format(remaining) left at @PlaybackSpeedUi.Format(playbackSpeed)
+            }
+        </span>
         <button type="button" class="btn btn-sm @(showOnlyUnplayed ? "btn-primary" : "btn-outline-primary")"
                 aria-pressed="@showOnlyUnplayed"
                 @onclick="ToggleOnlyUnplayedAsync">
@@ -304,6 +310,54 @@ else
     private bool showOnlyUnplayed;
     private readonly Dictionary<string, EpisodeState> episodeStatesById = [];
 
+    // Global playback speed (#724), used as a flat multiplier across every item in the queue
+    // regardless of which show it's from — a per-show-accurate estimate would need a
+    // GetShowSettingsAsync round trip per distinct show in the queue, which is a lot of extra
+    // fetches for a display-only estimate. Loaded alongside episode states below.
+    private float playbackSpeed = 1.0f;
+
+    // Sum of (Duration - PositionSeconds) across items that aren't finished, divided by
+    // playbackSpeed. Null (hides the estimate entirely) until episode states have loaded and at
+    // least one remaining item has a known Duration — a mid-load "0m left" would be misleading.
+    private TimeSpan? RemainingQueueDuration
+    {
+        get
+        {
+            if (playlist is null || !episodeStatesLoaded)
+            {
+                return null;
+            }
+
+            TimeSpan? total = null;
+            foreach (var item in playlist.Items)
+            {
+                if (item.Duration is not { } duration)
+                {
+                    continue;
+                }
+
+                var state = episodeStatesById.GetValueOrDefault(item.EpisodeId);
+                if (state is { Completed: true })
+                {
+                    continue;
+                }
+
+                var positionSeconds = state?.PositionSeconds ?? 0;
+                var remaining = duration - TimeSpan.FromSeconds(positionSeconds);
+                if (remaining <= TimeSpan.Zero)
+                {
+                    continue;
+                }
+
+                total = (total ?? TimeSpan.Zero) + remaining;
+            }
+
+            return total is { } t ? t / playbackSpeed : null;
+        }
+    }
+
+    private bool episodeStatesLoaded;
+
     // Surfaces server-side auto-insertions/evictions (#112) into a dynamic playlist without the
     // user having to leave and re-enter this page — follows the existing poll-on-focus pattern
     // (SyncStatusService.cs/SyncStatusIndicator.razor, #86) rather than a new mechanism. Unlike
@@ -354,6 +408,8 @@ else
         upNextInsertPositionSaved = false;
         busyEpisodeIds.Clear();
         episodeStatesById.Clear();
+        episodeStatesLoaded = false;
+        playbackSpeed = 1.0f;
         showOnlyUnplayed = true;
 
         isLoading = true;
@@ -371,33 +427,35 @@ else
         }
 
         // Unplayed-only is the default filter (set above), so hydrate episode states up front
-        // rather than waiting for the user to toggle it.
+        // rather than waiting for the user to toggle it. Episode states also feed
+        // RemainingQueueDuration now (#724), so this load is no longer purely filter-driven.
         await LoadEpisodeStatesAsync();
 
         if (playlist is not null)
         {
             await InitializeSyncStatusAsync();
-            await LoadUpNextSettingsAsync();
+            await LoadSettingsAsync();
         }
     }
 
-    // #510: the Up Next queue's behaviour settings render inside this page's edit panel rather
-    // than on the global Settings page — detected by the same well-known name UpNext.razor
-    // resolves the queue by. Non-fatal on failure, matching InitializeSyncStatusAsync's
-    // supplementary-feature stance: the playlist still renders, the section just stays hidden.
-    private async Task LoadUpNextSettingsAsync()
+    // #510's Up Next queue-behaviour section and #724's playback-speed-adjusted remaining time
+    // both need the same UserSettings document, so they're fetched together here rather than as
+    // two separate GetSettingsAsync round trips. Non-fatal on failure, matching
+    // InitializeSyncStatusAsync's supplementary-feature stance: the playlist still renders, the
+    // Up Next section just stays hidden and the remaining-time estimate falls back to 1x.
+    private async Task LoadSettingsAsync()
     {
-        if (playlist is not { Type: PlaylistType.Manual, Name: WellKnownPlaylists.UpNextName })
-        {
-            return;
-        }
-
         try
         {
             var settings = await SettingsClient.GetSettingsAsync();
-            upNextAutoAdd = settings.AutoAddNewEpisodesToUpNext;
-            upNextInsertPosition = settings.UpNextInsertPosition;
-            isUpNext = true;
+            playbackSpeed = settings.PlaybackSpeed;
+
+            if (playlist is { Type: PlaylistType.Manual, Name: WellKnownPlaylists.UpNextName })
+            {
+                upNextAutoAdd = settings.AutoAddNewEpisodesToUpNext;
+                upNextInsertPosition = settings.UpNextInsertPosition;
+                isUpNext = true;
+            }
         }
         catch (HttpRequestException)
         {
@@ -502,6 +560,7 @@ else
         if (playlist is null || playlist.Items.Count == 0)
         {
             episodeStatesById.Clear();
+            episodeStatesLoaded = true;
             return;
         }
 
@@ -514,6 +573,8 @@ else
             {
                 episodeStatesById[state.Key] = state.Value;
             }
+
+            episodeStatesLoaded = true;
         }
         catch (HttpRequestException)
         {
@@ -549,12 +610,12 @@ else
             // torn down here — otherwise OnAfterRenderAsync won't reattach it (guarded by
             // `_module is not null`) once the draggable list comes back after the filter is toggled off.
             await DisposeInteropAsync();
-            await LoadEpisodeStatesAsync();
         }
-        else
-        {
-            episodeStatesById.Clear();
-        }
+
+        // Reload either way (previously this branch just cleared the dictionary when turning the
+        // filter off) — RemainingQueueDuration reads episode states regardless of showOnlyUnplayed
+        // now, so they need to stay fresh in both modes, not just the filtered one.
+        await LoadEpisodeStatesAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

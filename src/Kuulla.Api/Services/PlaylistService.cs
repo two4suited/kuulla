@@ -251,7 +251,8 @@ public class PlaylistService(
             var episode = await episodeService.GetEpisodeAsync(item.ShowId, item.EpisodeId, cancellationToken);
             showsById.TryGetValue(item.ShowId, out var show);
             return new PlaylistItemDetail(
-                item.EpisodeId, item.ShowId, episode?.Title, show?.ArtworkUrl, item.AddedAt, item.Order);
+                item.EpisodeId, item.ShowId, episode?.Title, show?.ArtworkUrl, item.AddedAt, item.Order,
+                episode?.Duration);
         }));
 
         return new PlaylistDetail(

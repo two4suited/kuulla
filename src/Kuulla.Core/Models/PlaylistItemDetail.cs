@@ -9,4 +9,8 @@ public record PlaylistItemDetail(
     string? Title,
     string? ArtworkUrl,
     DateTimeOffset AddedAt,
-    string Order);
+    string Order,
+    // Nullable for the same reason as Episode.Duration — not every RSS feed supplies one, and
+    // this rides along unchanged from there (#724's queue-remaining-time estimate treats a
+    // missing duration as "unknown", not zero).
+    TimeSpan? Duration = null);
