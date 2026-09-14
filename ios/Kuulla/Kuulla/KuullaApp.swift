@@ -82,6 +82,7 @@ struct KuullaApp: App {
                         // cold-start on the catalog refresh.
                         async let notifications: Void = PushNotificationManager.shared.syncAuthorizationStatus()
                         _ = await (catalog, notifications)
+                        await AppIconBadge.refresh(in: modelContainer.mainContext)
                     }
                 }
                 .onOpenURL { url in
@@ -109,12 +110,20 @@ struct KuullaApp: App {
                     // refresh still cover the automatic cases.
                     Task { await PushNotificationManager.shared.syncAuthorizationStatus() }
                 }
+                // Catches changes made on another device (or in another app session) since this
+                // one last computed the badge — cheap local-only read, so it's fine on every
+                // foreground even though catalog/playlist sync itself isn't (#488 above).
+                // Deliberately not gated on isSignedIn like the sync call above: a badge left over
+                // from before a sign-out should still clear to zero (everything local reads as
+                // empty once signed out), not linger until the next launch.
+                Task { await AppIconBadge.refresh(in: modelContainer.mainContext) }
             case .background:
                 if AuthManager.shared.isSignedIn {
                     episodeSyncEngine.scheduleBackgroundRefresh()
                     playlistSyncEngine.scheduleBackgroundRefresh()
                     settingsSyncEngine.scheduleBackgroundRefresh()
                 }
+                Task { await AppIconBadge.refresh(in: modelContainer.mainContext) }
             case .inactive:
                 break
             @unknown default:

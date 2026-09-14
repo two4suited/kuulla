@@ -607,7 +607,17 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 self?.progressTrackingTask?.cancel()
                 self?.progressTrackingTask = nil
                 Task {
-                    await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
+                    let persisted = await Self.persist(
+                        episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
+                    // Mirrors EpisodeDetailView.persist()'s auto-delete hook (#179/#532) — CarPlay's
+                    // own persist() has no equivalent, so a natural finish here would otherwise
+                    // never honor "delete after played" the way the phone UI does. Gated on the
+                    // write actually committing — deleting a download or stripping a playlist entry
+                    // for an episode the sync record never actually recorded as played would be
+                    // wrong, and the download deletion can't be undone short of a re-download.
+                    if persisted {
+                        await Self.cleanupDownloadIfEligible(episodeId: episodeId)
+                    }
                     await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: episodeId)
                 }
             }
@@ -769,10 +779,17 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     // Mirrors ShowDetailView.toggleCompleted's "mark played" branch: positionSeconds is the
-    // episode's full duration, same as a natural finish would persist.
+    // episode's full duration, same as a natural finish would persist. Also mirrors that branch's
+    // cleanup calls (#569/#532) — without these, an episode marked played from CarPlay's Now
+    // Playing screen would strand itself in manual playlists and skip auto-delete-after-played.
     private func markEpisodePlayed(showId: String, episodeId: String) async {
         let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
-        await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
+        let persisted = await Self.persist(
+            episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
+        // Gated on the write actually committing — see Self.persist's own doc comment.
+        guard persisted else { return }
+        await PlaylistCleanup.removeFromManualPlaylists(episodeId: episodeId, completed: true, playlistClient: playlistClient)
+        await Self.cleanupDownloadIfEligible(episodeId: episodeId)
     }
 
     private func downloadCurrentEpisode() async {
@@ -838,8 +855,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         interfaceController?.popTemplate(animated: true, completion: nil)
     }
 
-    private static func persist(episodeId: String, showId: String, positionSeconds: Int, completed: Bool) async {
-        guard let syncEngine = episodeSyncEngine else { return }
+    // Returns whether the write actually committed — callers that follow a completed: true persist
+    // with playlist/download cleanup (markEpisodePlayed, the natural-finish handler) must not strip
+    // the episode from playlists or delete its download on the strength of a write that never
+    // landed, since DownloadCleanup's delete is irreversible without a re-download.
+    @discardableResult
+    private static func persist(episodeId: String, showId: String, positionSeconds: Int, completed: Bool) async -> Bool {
+        guard let syncEngine = episodeSyncEngine else { return false }
         do {
             try await syncEngine.write { context in
                 let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
@@ -856,11 +878,25 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                         completed: completed, updatedAt: Date(), isDirty: true))
                 }
             }
+            return true
         } catch {
             // Mirrors EpisodeDetailView.persist()'s own assertionFailure — a silent try? here
             // would hide a lost playback position/completion write with nothing to point at.
             assertionFailure("Failed to persist episode state from CarPlay: \(episodeId): \(error)")
+            return false
         }
+    }
+
+    // Mirrors EpisodeDetailView.persist()'s DownloadCleanup.deleteIfAutoDeleteEligible call, using
+    // only the global rule — CarPlay has no per-show ShowSettings loaded the way EpisodeDetailView
+    // does, so a per-show override can't be resolved here; this is best-effort like every other
+    // cleanup call in this file.
+    private static func cleanupDownloadIfEligible(episodeId: String) async {
+        guard let context = modelContainer.map(ModelContext.init) else { return }
+        let autoDeleteRule = localUserSettings(in: context)?.autoDeleteRule ?? .never
+        DownloadCleanup.deleteIfAutoDeleteEligible(
+            episodeId: episodeId, completed: true, autoDeleteRule: autoDeleteRule, in: context)
+        await AppIconBadge.refresh(in: context)
     }
 
     // Best-effort artwork fetch for a list item — mirrors AudioPlayer.fetchArtworkIfNeeded's
