@@ -51,6 +51,20 @@ final class SmartSpeedProcessorTests: XCTestCase {
         // (SmartSpeedProcessor.process) treats anything <= 1 as a no-op rather than attenuating.
         XCTAssertLessThan(SmartSpeedProcessor.boostGain(forLevel: 0.9), 1)
     }
+
+    // MARK: linearGain(forDb:) (#708)
+
+    func testLinearGainIsExactlyOneAtZeroDb() {
+        XCTAssertEqual(SmartSpeedProcessor.linearGain(forDb: 0), 1)
+    }
+
+    func testLinearGainDoublesRoughlyEverySixDb() {
+        XCTAssertEqual(SmartSpeedProcessor.linearGain(forDb: 6), 1.995, accuracy: 0.01)
+    }
+
+    func testLinearGainHalvesRoughlyEveryNegativeSixDb() {
+        XCTAssertEqual(SmartSpeedProcessor.linearGain(forDb: -6), 0.501, accuracy: 0.01)
+    }
 }
 
 final class SilenceRunDetectorTests: XCTestCase {
@@ -172,5 +186,53 @@ final class SmartSpeedProcessorDecouplingTests: XCTestCase {
             XCTAssertEqual(samples[0], 0, "voice boost is disabled; silent samples must pass through unchanged")
         }
         XCTAssertTrue(sawSilenceStart, "silence transitions should still be reported with trimSilence alone")
+    }
+}
+
+// Coverage for #708's fixed per-show/global volume offset — a static gain applied on top of (or
+// entirely independent of) voiceBoost's dynamic boost.
+final class SmartSpeedProcessorVolumeOffsetTests: XCTestCase {
+    func testZeroOffsetLeavesSamplesUnchangedWithNoOtherEffectEnabled() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: false, trimSilence: false, volumeOffsetDb: 0)
+        processor.prepare()
+
+        let (samples, _) = runProcess(processor, amplitude: 0.1)
+        XCTAssertEqual(samples[0], 0.1)
+    }
+
+    func testPositiveOffsetBoostsSamplesWithNoVoiceBoostEnabled() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: false, trimSilence: false, volumeOffsetDb: 6)
+        processor.prepare()
+
+        let (samples, _) = runProcess(processor, amplitude: 0.1)
+        // tanh-limited boost, so compare against the raw gain applied before limiting.
+        let expectedGain = SmartSpeedProcessor.linearGain(forDb: 6)
+        XCTAssertEqual(samples[0], tanhf(0.1 * expectedGain), accuracy: 0.0001)
+        XCTAssertGreaterThan(samples[0], 0.1)
+    }
+
+    func testNegativeOffsetAttenuatesSamplesWithoutDistortion() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: false, trimSilence: false, volumeOffsetDb: -6)
+        processor.prepare()
+
+        let (samples, _) = runProcess(processor, amplitude: 0.1)
+        // Attenuation-only path skips the tanh limiter (see process()'s own rationale), so this
+        // should be an exact linear multiply, not a soft-clipped value.
+        let expectedGain = SmartSpeedProcessor.linearGain(forDb: -6)
+        XCTAssertEqual(samples[0], 0.1 * expectedGain, accuracy: 0.0001)
+        XCTAssertLessThan(samples[0], 0.1)
+    }
+
+    func testOffsetStillAppliesWhenVoiceBoostAlsoEnabled() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true, trimSilence: false, volumeOffsetDb: 6)
+        processor.prepare()
+
+        // Run several buffers so voiceBoost's smoothedGain has ramped toward its target — the
+        // combined gain (dynamic boost * fixed offset) should exceed either alone.
+        var lastSamples: [Float] = []
+        for tick in 0..<20 {
+            (lastSamples, _) = runProcess(processor, amplitude: 0.05, itemTime: TimeInterval(tick) * 0.05)
+        }
+        XCTAssertGreaterThan(lastSamples[0], SmartSpeedProcessor.boostGain(forLevel: 0.05) * 0.05 * 0.9)
     }
 }

@@ -22,6 +22,7 @@ struct ShowSettingsSheet: View {
     @State private var playNextBehaviorSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var voiceBoostSaveError: String?
+    @State private var volumeOffsetSaveError: String?
     @State private var trimSilenceSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Cancelling the previous save when a new selection comes in (rather than dropping the new
@@ -39,6 +40,7 @@ struct ShowSettingsSheet: View {
     @State private var playNextBehaviorSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var voiceBoostSaveTask: Task<Void, Never>?
+    @State private var volumeOffsetSaveTask: Task<Void, Never>?
     @State private var trimSilenceSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
     // Bumped on every playback-speed override change; the endpoint is a plain read-then-upsert,
@@ -49,6 +51,9 @@ struct ShowSettingsSheet: View {
     // behind their predecessor in savePlaybackSpeedOverride, keeps requests in-order and
     // coalesces away any that are superseded before they'd even be sent.
     @State private var playbackSpeedSaveVersion = 0
+    // Same race-avoidance rationale as playbackSpeedSaveVersion above — the volume-offset
+    // endpoint is also a plain read-then-upsert.
+    @State private var volumeOffsetSaveVersion = 0
     // The per-show insert-position control only makes sense when new episodes are actually being
     // auto-added for this show, which can be true purely via the global default — so the sheet
     // needs the global auto-add value, not just this show's override.
@@ -266,6 +271,19 @@ struct ShowSettingsSheet: View {
                 } footer: {
                     if let voiceBoostSaveError {
                         Text(voiceBoostSaveError)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Picker("Volume offset", selection: volumeOffsetOverrideBinding) {
+                        Text("Use global default").tag(Float?.none)
+                        volumeOffsetPickerOptions(for: settings?.volumeOffsetDb)
+                    }
+                    .disabled(settings == nil)
+                } footer: {
+                    if let volumeOffsetSaveError {
+                        Text(volumeOffsetSaveError)
                             .foregroundStyle(.red)
                     }
                 }
@@ -500,6 +518,55 @@ struct ShowSettingsSheet: View {
                 if requestVersion == playbackSpeedSaveVersion {
                     settings = previous
                     playbackSpeedSaveError = "Something went wrong while saving. Please try again."
+                }
+            }
+        }
+    }
+
+    private var volumeOffsetOverrideBinding: Binding<Float?> {
+        Binding(
+            get: { settings?.volumeOffsetDb },
+            set: { newValue in
+                updateVolumeOffsetOverride(newValue)
+            }
+        )
+    }
+
+    // Same rationale as playbackSpeedPickerOptions above — the presets don't cover every value
+    // the API accepts (-12...12), so an override saved from elsewhere that doesn't match one of
+    // them gets a synthesized "Custom" row rather than silently snapping to the nearest preset.
+    @ViewBuilder
+    private func volumeOffsetPickerOptions(for currentValue: Float?) -> some View {
+        ForEach(VolumeOffsetOption.allCases) { option in
+            Text(option.label).tag(Float?.some(option.rawValue))
+        }
+        if let currentValue, VolumeOffsetOption(rawValue: currentValue) == nil {
+            Text("Custom (\(currentValue.formatted(.number.precision(.fractionLength(0...1)))) dB)").tag(Float?.some(currentValue))
+        }
+    }
+
+    private func updateVolumeOffsetOverride(_ value: Float?) {
+        guard let previous = settings else { return }
+
+        volumeOffsetSaveError = nil
+        settings = previous.with(volumeOffsetDb: value)
+
+        volumeOffsetSaveVersion += 1
+        let requestVersion = volumeOffsetSaveVersion
+        let previousTask = volumeOffsetSaveTask
+        volumeOffsetSaveTask = Task {
+            await previousTask?.value
+            guard requestVersion == volumeOffsetSaveVersion else { return }
+
+            do {
+                let updated = try await settingsClient.updateShowVolumeOffset(showId: showId, value: value)
+                if requestVersion == volumeOffsetSaveVersion {
+                    settings = updated
+                }
+            } catch {
+                if requestVersion == volumeOffsetSaveVersion {
+                    settings = previous
+                    volumeOffsetSaveError = "Something went wrong while saving. Please try again."
                 }
             }
         }

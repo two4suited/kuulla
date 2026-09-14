@@ -117,6 +117,7 @@
 		N1000001 /* AutoSkipDuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000001 /* AutoSkipDuration.swift */; };
 		N1000002 /* PlaybackSpeedOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000002 /* PlaybackSpeedOption.swift */; };
 		N1000003 /* ShowIconSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000003 /* ShowIconSize.swift */; };
+		N1000004 /* VolumeOffsetOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = N2000004 /* VolumeOffsetOption.swift */; };
 		NB100001 /* NowPlayingBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = NB200001 /* NowPlayingBar.swift */; };
 		NP100001 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NP200001 /* NowPlayingView.swift */; };
 		P1000001 /* DownloadedEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = P2000001 /* DownloadedEpisodeRecord.swift */; };
@@ -317,6 +318,7 @@
 		N2000001 /* AutoSkipDuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoSkipDuration.swift; sourceTree = "<group>"; };
 		N2000002 /* PlaybackSpeedOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedOption.swift; sourceTree = "<group>"; };
 		N2000003 /* ShowIconSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowIconSize.swift; sourceTree = "<group>"; };
+		N2000004 /* VolumeOffsetOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeOffsetOption.swift; sourceTree = "<group>"; };
 		NB200001 /* NowPlayingBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingBar.swift; sourceTree = "<group>"; };
 		NP200001 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
 		P2000001 /* DownloadedEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadedEpisodeRecord.swift; sourceTree = "<group>"; };
@@ -495,6 +497,7 @@
 				P2000011 /* AutoDeleteRule.swift */,
 				N2000001 /* AutoSkipDuration.swift */,
 				N2000002 /* PlaybackSpeedOption.swift */,
+				N2000004 /* VolumeOffsetOption.swift */,
 				N2000003 /* ShowIconSize.swift */,
 				F2000001 /* Syncable.swift */,
 				F2000002 /* SyncCursor.swift */,
@@ -825,6 +828,7 @@
 				N1000001 /* AutoSkipDuration.swift in Sources */,
 				N1000002 /* PlaybackSpeedOption.swift in Sources */,
 				N1000003 /* ShowIconSize.swift in Sources */,
+				N1000004 /* VolumeOffsetOption.swift in Sources */,
 				F1000001 /* Syncable.swift in Sources */,
 				F1000002 /* SyncCursor.swift in Sources */,
 				F1000003 /* SyncEngine.swift in Sources */,

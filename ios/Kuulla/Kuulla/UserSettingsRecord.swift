@@ -67,6 +67,8 @@ final class UserSettingsRecord: Syncable {
     // Inline default required, same lightweight-migration reason as the fields above (#689).
     var autoDownloadEpisodeLimit: Int = 0
     var autoDownloadChargingOnly: Bool = false
+    // Inline default required, same lightweight-migration reason as the fields above (#708).
+    var volumeOffsetDb: Float = 0
     var version: Int
     var updatedAt: Date
     var isDirty: Bool
@@ -86,6 +88,7 @@ final class UserSettingsRecord: Syncable {
         playNextBehavior: PlayNextBehavior = .nextInList,
         autoDownloadEpisodeLimit: Int = 0,
         autoDownloadChargingOnly: Bool = false,
+        volumeOffsetDb: Float = 0,
         version: Int, updatedAt: Date, isDirty: Bool = false
     ) {
         id = Self.localId
@@ -112,6 +115,7 @@ final class UserSettingsRecord: Syncable {
         self.playNextBehaviorRaw = playNextBehavior
         self.autoDownloadEpisodeLimit = autoDownloadEpisodeLimit
         self.autoDownloadChargingOnly = autoDownloadChargingOnly
+        self.volumeOffsetDb = volumeOffsetDb
         self.version = version
         self.updatedAt = updatedAt
         self.isDirty = isDirty
@@ -136,6 +140,7 @@ final class UserSettingsRecord: Syncable {
             playNextBehavior: settings.playNextBehavior,
             autoDownloadEpisodeLimit: settings.autoDownloadEpisodeLimit,
             autoDownloadChargingOnly: settings.autoDownloadChargingOnly,
+            volumeOffsetDb: settings.volumeOffsetDb,
             version: settings.version, updatedAt: settings.updatedAt, isDirty: isDirty)
     }
 
@@ -165,6 +170,7 @@ final class UserSettingsRecord: Syncable {
         playNextBehavior = settings.playNextBehavior
         autoDownloadEpisodeLimit = settings.autoDownloadEpisodeLimit
         autoDownloadChargingOnly = settings.autoDownloadChargingOnly
+        volumeOffsetDb = settings.volumeOffsetDb
         version = settings.version
         updatedAt = settings.updatedAt
         self.isDirty = isDirty
@@ -197,6 +203,7 @@ final class UserSettingsRecord: Syncable {
         playNextBehavior = other.playNextBehavior
         autoDownloadEpisodeLimit = other.autoDownloadEpisodeLimit
         autoDownloadChargingOnly = other.autoDownloadChargingOnly
+        volumeOffsetDb = other.volumeOffsetDb
         version = other.version
         updatedAt = other.updatedAt
         self.isDirty = isDirty
@@ -223,6 +230,7 @@ final class UserSettingsRecord: Syncable {
             playNextBehavior: playNextBehavior,
             autoDownloadEpisodeLimit: autoDownloadEpisodeLimit,
             autoDownloadChargingOnly: autoDownloadChargingOnly,
+            volumeOffsetDb: volumeOffsetDb,
             updatedAt: updatedAt)
     }
 }

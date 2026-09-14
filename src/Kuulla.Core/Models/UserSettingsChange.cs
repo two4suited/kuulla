@@ -72,4 +72,8 @@ public record UserSettingsChange(
     // to unlimited or charging-only to off.
     int? AutoDownloadEpisodeLimit,
     bool? AutoDownloadChargingOnly,
+    // Nullable, same rationale as AutoDownloadEpisodeLimit above — a client that predates #708
+    // omits this, and SettingsService.SyncAsync keeps the stored value rather than resetting the
+    // offset to 0.
+    float? VolumeOffsetDb,
     DateTimeOffset UpdatedAt);

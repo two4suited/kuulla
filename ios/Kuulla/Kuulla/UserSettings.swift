@@ -59,6 +59,10 @@ struct UserSettings: Codable, Hashable {
     // Only auto-download while charging (#689). Defaults to false (opt-in) when absent, same
     // rationale as autoDownloadNewEpisodes.
     let autoDownloadChargingOnly: Bool
+    // A fixed per-show/global dB gain adjustment (#708) — a simpler, predictable complement to
+    // voiceBoost's dynamic loudness boost. Defaults to 0 (unmodified) when absent, same rationale
+    // as playbackSpeed defaulting to 1.0 above. Applied by AudioPlayer via SmartSpeedProcessor.
+    let volumeOffsetDb: Float
     // Server-stamped (docs/sync-conventions.md) — drives last-write-wins for #43's settings
     // sync. .distantPast when absent (see decoder below) so a locally-constructed UserSettings
     // never accidentally wins an LWW comparison against a real server timestamp.
@@ -80,6 +84,7 @@ struct UserSettings: Codable, Hashable {
         playNextBehavior: PlayNextBehavior = .nextInList,
         autoDownloadEpisodeLimit: Int = 0,
         autoDownloadChargingOnly: Bool = false,
+        volumeOffsetDb: Float = 0,
         updatedAt: Date = .distantPast
     ) {
         self.userId = userId
@@ -107,6 +112,7 @@ struct UserSettings: Codable, Hashable {
         self.playNextBehavior = playNextBehavior
         self.autoDownloadEpisodeLimit = autoDownloadEpisodeLimit
         self.autoDownloadChargingOnly = autoDownloadChargingOnly
+        self.volumeOffsetDb = volumeOffsetDb
         self.updatedAt = updatedAt
     }
 
@@ -115,7 +121,7 @@ struct UserSettings: Codable, Hashable {
         case autoDeleteRule, autoDeleteAfterDays, autoDownloadNewEpisodes, smartSpeed, voiceBoost, trimSilence, notificationsEnabled
         case sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder, hideCaughtUpShows
         case autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions
-        case playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly, updatedAt
+        case playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly, volumeOffsetDb, updatedAt
     }
 
     // Defaults to .never when absent so a response that predates #187's field addition still
@@ -174,6 +180,8 @@ struct UserSettings: Codable, Hashable {
         autoDownloadEpisodeLimit = try container.decodeIfPresent(Int.self, forKey: .autoDownloadEpisodeLimit) ?? 0
         // Default to false (off) when absent (predates #689), same rationale as autoDownloadNewEpisodes above.
         autoDownloadChargingOnly = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadChargingOnly) ?? false
+        // Default to 0 (unmodified) when absent (predates #708), same rationale as playbackSpeed above.
+        volumeOffsetDb = try container.decodeIfPresent(Float.self, forKey: .volumeOffsetDb) ?? 0
         // Default to .distantPast when absent (predates #41), same rationale as autoArchiveRule
         // above — never lets a stale/missing timestamp beat a real one in an LWW comparison.
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .distantPast
@@ -212,7 +220,8 @@ struct UserSettings: Codable, Hashable {
         trailingSwipeActions: [EpisodeSwipeAction]? = nil,
         playNextBehavior: PlayNextBehavior? = nil,
         autoDownloadEpisodeLimit: Int? = nil,
-        autoDownloadChargingOnly: Bool? = nil
+        autoDownloadChargingOnly: Bool? = nil,
+        volumeOffsetDb: Float? = nil
     ) -> UserSettings {
         UserSettings(
             userId: userId, unlistenedEpisodeCount: unlistenedEpisodeCount ?? self.unlistenedEpisodeCount,
@@ -238,6 +247,7 @@ struct UserSettings: Codable, Hashable {
             playNextBehavior: playNextBehavior ?? self.playNextBehavior,
             autoDownloadEpisodeLimit: autoDownloadEpisodeLimit ?? self.autoDownloadEpisodeLimit,
             autoDownloadChargingOnly: autoDownloadChargingOnly ?? self.autoDownloadChargingOnly,
+            volumeOffsetDb: volumeOffsetDb ?? self.volumeOffsetDb,
             updatedAt: updatedAt)
     }
 }

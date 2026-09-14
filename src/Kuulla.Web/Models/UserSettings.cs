@@ -25,6 +25,9 @@ public record UserSettings(
     // What plays when an episode finishes (#629). Web-side mirror of
     // Kuulla.Core.Models.UserSettings.PlayNextBehavior; NextInList is the API's default.
     PlayNextBehavior PlayNextBehavior = PlayNextBehavior.NextInList,
+    // A fixed per-show/global dB gain adjustment (#708) — a simpler, predictable complement to
+    // VoiceBoost's dynamic loudness boost. 0 = unmodified.
+    float VolumeOffsetDb = 0f,
     DateTimeOffset UpdatedAt = default,
     string? DeviceId = null);
 

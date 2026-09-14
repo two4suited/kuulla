@@ -185,6 +185,9 @@ public class SettingsService(
                 // than resetting the limit to unlimited/charging-only to off.
                 AutoDownloadEpisodeLimit: change.AutoDownloadEpisodeLimit ?? stored?.AutoDownloadEpisodeLimit ?? 0,
                 AutoDownloadChargingOnly: change.AutoDownloadChargingOnly ?? stored?.AutoDownloadChargingOnly ?? false,
+                // Null means the pushing client predates #708 — keep whatever's stored rather
+                // than resetting the offset to 0.
+                VolumeOffsetDb: change.VolumeOffsetDb ?? stored?.VolumeOffsetDb ?? 0f,
                 UpdatedAt: DateTimeOffset.UtcNow,
                 DeviceId: deviceId),
             readStoredAsync: (id, ct) => ReadStoredSettingsAsync(id, ct),
@@ -508,6 +511,40 @@ public class SettingsService(
         var limit = showSettings.AutoDownloadEpisodeLimit ?? userSettings.AutoDownloadEpisodeLimit;
         var chargingOnly = showSettings.AutoDownloadChargingOnly ?? userSettings.AutoDownloadChargingOnly;
         return (limit, chargingOnly);
+    }
+
+    public Task<UserSettings> UpdateVolumeOffsetAsync(
+        string userId, float volumeOffsetDb, CancellationToken cancellationToken) =>
+        UpdateSettingsWithRetryAsync(userId, current => current with { VolumeOffsetDb = volumeOffsetDb }, cancellationToken);
+
+    public async Task<ShowSettings> UpdateShowVolumeOffsetAsync(
+        string userId, string showId, float? volumeOffsetDb, CancellationToken cancellationToken)
+    {
+        var current = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        var updated = current with
+        {
+            VolumeOffsetDb = volumeOffsetDb,
+            Version = current.Version + 1,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeviceId = null,
+        };
+
+        var response = await settingsContainer.UpsertItemAsync(
+            updated, new PartitionKey(updated.Id), cancellationToken: cancellationToken);
+        return response.Resource;
+    }
+
+    public async Task<float> GetEffectiveVolumeOffsetAsync(
+        string userId, string showId, CancellationToken cancellationToken)
+    {
+        var showSettings = await GetShowSettingsAsync(userId, showId, cancellationToken);
+        if (showSettings.VolumeOffsetDb is { } showOverride)
+        {
+            return showOverride;
+        }
+
+        var userSettings = await GetSettingsAsync(userId, cancellationToken);
+        return userSettings.VolumeOffsetDb;
     }
 
     public Task<UserSettings> UpdateAutoAddNewEpisodesToUpNextAsync(

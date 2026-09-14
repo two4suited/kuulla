@@ -297,6 +297,23 @@ else
                     </div>
 
                     <div class="show-setting mt-3">
+                        <div class="form-label mb-1">Volume offset</div>
+                        <InheritableSlider Id="show-volume-offset" AriaLabel="Volume offset"
+                                           Disabled="isShowVolumeOffsetSaving" Min="-12f" Max="12f" Step="1f" SeedValue="0f"
+                                           Format="VolumeOffsetUi.Format" GlobalValue="globalVolumeOffsetDb"
+                                           Value="showVolumeOffsetOverride"
+                                           ValueChanged="OnShowVolumeOffsetChangedAsync" />
+                        @if (showVolumeOffsetError is not null)
+                        {
+                            <p class="text-danger mt-1 mb-0">@showVolumeOffsetError</p>
+                        }
+                        else if (showVolumeOffsetSavedConfirmation)
+                        {
+                            <p class="text-success mt-1 mb-0">Saved.</p>
+                        }
+                    </div>
+
+                    <div class="show-setting mt-3">
                         <div class="form-label mb-1">Trim Silence</div>
                         <SegmentedChoice TValue="bool" Id="show-trim-silence"
                                          AriaLabel="Trim Silence" Disabled="isShowTrimSilenceSaving"
@@ -542,6 +559,7 @@ else
     private int? globalAutoSkipIntroSeconds;
     private int? globalAutoSkipOutroSeconds;
     private float? globalPlaybackSpeed;
+    private float? globalVolumeOffsetDb;
     private AutoDeleteRule? showAutoDeleteRuleOverride;
     private int? showAutoDeleteAfterDaysOverride;
     private bool isShowAutoDeleteSaving;
@@ -564,6 +582,10 @@ else
     private bool isShowVoiceBoostSaving;
     private string? showVoiceBoostError;
     private bool showVoiceBoostSavedConfirmation;
+    private float? showVolumeOffsetOverride;
+    private bool isShowVolumeOffsetSaving;
+    private string? showVolumeOffsetError;
+    private bool showVolumeOffsetSavedConfirmation;
     private bool? showTrimSilenceOverride;
     private bool isShowTrimSilenceSaving;
     private string? showTrimSilenceError;
@@ -683,6 +705,7 @@ else
         globalAutoSkipIntroSeconds = null;
         globalAutoSkipOutroSeconds = null;
         globalPlaybackSpeed = null;
+        globalVolumeOffsetDb = null;
         showAutoDeleteRuleOverride = null;
         showAutoDeleteAfterDaysOverride = null;
         isShowAutoDeleteSaving = false;
@@ -705,6 +728,10 @@ else
         isShowVoiceBoostSaving = false;
         showVoiceBoostError = null;
         showVoiceBoostSavedConfirmation = false;
+        showVolumeOffsetOverride = null;
+        isShowVolumeOffsetSaving = false;
+        showVolumeOffsetError = null;
+        showVolumeOffsetSavedConfirmation = false;
         showTrimSilenceOverride = null;
         isShowTrimSilenceSaving = false;
         showTrimSilenceError = null;
@@ -777,6 +804,7 @@ else
             showPlaybackSpeedOverride = settings.PlaybackSpeed;
             showSmartSpeedOverride = settings.SmartSpeed;
             showVoiceBoostOverride = settings.VoiceBoost;
+            showVolumeOffsetOverride = settings.VolumeOffsetDb;
             showTrimSilenceOverride = settings.TrimSilence;
             showNotificationsEnabledOverride = settings.NotificationsEnabled;
             showPlayNextBehaviorOverride = settings.PlayNextBehavior;
@@ -795,6 +823,7 @@ else
             globalAutoSkipIntroSeconds = global.AutoSkipIntroSeconds;
             globalAutoSkipOutroSeconds = global.AutoSkipOutroSeconds;
             globalPlaybackSpeed = global.PlaybackSpeed;
+            globalVolumeOffsetDb = global.VolumeOffsetDb;
         }
         catch (HttpRequestException)
         {
@@ -1099,6 +1128,30 @@ else
         finally
         {
             isShowVoiceBoostSaving = false;
+        }
+    }
+
+    private async Task OnShowVolumeOffsetChangedAsync(float? value)
+    {
+        var previous = showVolumeOffsetOverride;
+        showVolumeOffsetOverride = value;
+        isShowVolumeOffsetSaving = true;
+        showVolumeOffsetError = null;
+        showVolumeOffsetSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateShowVolumeOffsetAsync(Id, value);
+            showVolumeOffsetSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            showVolumeOffsetOverride = previous;
+            showVolumeOffsetError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isShowVolumeOffsetSaving = false;
         }
     }
 

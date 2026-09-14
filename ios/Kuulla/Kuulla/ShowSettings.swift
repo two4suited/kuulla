@@ -32,6 +32,8 @@ struct ShowSettings: Codable, Hashable {
     let autoDownloadEpisodeLimit: Int?
     // nil means "no override" — inherit the user's global AutoDownloadChargingOnly (#689).
     let autoDownloadChargingOnly: Bool?
+    // nil means "no override" — inherit the user's global volumeOffsetDb (#708).
+    let volumeOffsetDb: Float?
 
     init(
         id: String, userId: String, showId: String, unlistenedEpisodeCount: UnlistenedEpisodeCount?,
@@ -43,7 +45,8 @@ struct ShowSettings: Codable, Hashable {
         notificationsEnabled: Bool? = nil,
         playNextBehavior: PlayNextBehavior? = nil,
         autoDownloadEpisodeLimit: Int? = nil,
-        autoDownloadChargingOnly: Bool? = nil
+        autoDownloadChargingOnly: Bool? = nil,
+        volumeOffsetDb: Float? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -66,12 +69,13 @@ struct ShowSettings: Codable, Hashable {
         self.playNextBehavior = playNextBehavior
         self.autoDownloadEpisodeLimit = autoDownloadEpisodeLimit
         self.autoDownloadChargingOnly = autoDownloadChargingOnly
+        self.volumeOffsetDb = volumeOffsetDb
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, userId, showId, unlistenedEpisodeCount, version, autoArchiveRule, autoSkipIntroSeconds, autoSkipOutroSeconds, playbackSpeed
         case autoDownloadNewEpisodes, autoDeleteRule, autoDeleteAfterDays, smartSpeed, voiceBoost, trimSilence, autoAddNewEpisodesToUpNext
-        case upNextInsertPosition, notificationsEnabled, playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly
+        case upNextInsertPosition, notificationsEnabled, playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly, volumeOffsetDb
     }
 
     // Defaults to nil (no override) when absent so a response that predates #187's field
@@ -99,6 +103,7 @@ struct ShowSettings: Codable, Hashable {
         playNextBehavior = try container.decodeIfPresent(PlayNextBehavior.self, forKey: .playNextBehavior)
         autoDownloadEpisodeLimit = try container.decodeIfPresent(Int.self, forKey: .autoDownloadEpisodeLimit)
         autoDownloadChargingOnly = try container.decodeIfPresent(Bool.self, forKey: .autoDownloadChargingOnly)
+        volumeOffsetDb = try container.decodeIfPresent(Float.self, forKey: .volumeOffsetDb)
     }
 
     // Copies every field except the ones explicitly overridden. Every field here is itself
@@ -126,7 +131,8 @@ struct ShowSettings: Codable, Hashable {
         notificationsEnabled: Bool?? = nil,
         playNextBehavior: PlayNextBehavior?? = nil,
         autoDownloadEpisodeLimit: Int?? = nil,
-        autoDownloadChargingOnly: Bool?? = nil
+        autoDownloadChargingOnly: Bool?? = nil,
+        volumeOffsetDb: Float?? = nil
     ) -> ShowSettings {
         ShowSettings(
             id: id, userId: userId, showId: showId,
@@ -147,6 +153,7 @@ struct ShowSettings: Codable, Hashable {
             notificationsEnabled: notificationsEnabled ?? self.notificationsEnabled,
             playNextBehavior: playNextBehavior ?? self.playNextBehavior,
             autoDownloadEpisodeLimit: autoDownloadEpisodeLimit ?? self.autoDownloadEpisodeLimit,
-            autoDownloadChargingOnly: autoDownloadChargingOnly ?? self.autoDownloadChargingOnly)
+            autoDownloadChargingOnly: autoDownloadChargingOnly ?? self.autoDownloadChargingOnly,
+            volumeOffsetDb: volumeOffsetDb ?? self.volumeOffsetDb)
     }
 }

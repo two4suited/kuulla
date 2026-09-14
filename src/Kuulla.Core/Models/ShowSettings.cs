@@ -60,6 +60,10 @@ public record ShowSettings(
     // Null means "no override — inherit the user's global AutoDownloadChargingOnly" (#689). Only
     // meaningful when the effective AutoDownloadNewEpisodes is on.
     bool? AutoDownloadChargingOnly = null,
+    // Null means "no override — inherit the user's global VolumeOffsetDb" (#708). A fixed per-show
+    // gain adjustment — a simpler, predictable complement to VoiceBoost's dynamic boost, for shows
+    // that are consistently too quiet or too loud relative to the rest of a user's subscriptions.
+    float? VolumeOffsetDb = null,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {

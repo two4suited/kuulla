@@ -7,7 +7,7 @@ final class ShowSettingsTests: XCTestCase {
         version: 1, autoArchiveRule: .after7Days, autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20,
         playbackSpeed: 1.5, autoDownloadNewEpisodes: true, autoDeleteRule: .afterDays, autoDeleteAfterDays: 14,
         smartSpeed: true, voiceBoost: true, trimSilence: true, autoAddNewEpisodesToUpNext: true, playNextBehavior: .topOfList,
-        autoDownloadEpisodeLimit: 5, autoDownloadChargingOnly: true)
+        autoDownloadEpisodeLimit: 5, autoDownloadChargingOnly: true, volumeOffsetDb: 4.5)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -30,6 +30,19 @@ final class ShowSettingsTests: XCTestCase {
         XCTAssertEqual(updated.playNextBehavior, base.playNextBehavior)
         XCTAssertEqual(updated.autoDownloadEpisodeLimit, base.autoDownloadEpisodeLimit)
         XCTAssertEqual(updated.autoDownloadChargingOnly, base.autoDownloadChargingOnly)
+        XCTAssertEqual(updated.volumeOffsetDb, base.volumeOffsetDb)
+    }
+
+    // MARK: volumeOffsetDb (#708)
+
+    func testWithSetsTheVolumeOffsetDbOverride() {
+        let updated = base.with(volumeOffsetDb: Float?.some(-6.0))
+        XCTAssertEqual(updated.volumeOffsetDb, -6.0)
+    }
+
+    func testWithExplicitNilClearsTheVolumeOffsetDbOverride() {
+        let updated = base.with(volumeOffsetDb: Float?.none)
+        XCTAssertNil(updated.volumeOffsetDb)
     }
 
     // MARK: autoDownloadEpisodeLimit / autoDownloadChargingOnly (#689)

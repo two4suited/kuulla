@@ -24,4 +24,6 @@ public record ShowSettings(
     // Null means "no override — inherit the user's global NotificationsEnabled".
     bool? NotificationsEnabled = null,
     // Null means "no override — inherit the user's global PlayNextBehavior" (#629).
-    PlayNextBehavior? PlayNextBehavior = null);
+    PlayNextBehavior? PlayNextBehavior = null,
+    // Null means "no override — inherit the user's global VolumeOffsetDb" (#708).
+    float? VolumeOffsetDb = null);

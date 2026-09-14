@@ -1220,6 +1220,11 @@ sync.MapPost("/settings", async (
         {
             return Results.BadRequest(new { error = autoDownloadEpisodeLimitError });
         }
+        if (change.VolumeOffsetDb is { } volumeOffsetDb &&
+            !TryValidateVolumeOffsetDb(volumeOffsetDb, "volumeOffsetDb", out var volumeOffsetDbError))
+        {
+            return Results.BadRequest(new { error = volumeOffsetDbError });
+        }
     }
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
@@ -1770,6 +1775,70 @@ settings.MapPut("/shows/{showId}/auto-download-rules", async (
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var result = await settingsService.UpdateShowAutoDownloadRulesAsync(
         userId, showId, request.AutoDownloadEpisodeLimit, request.AutoDownloadChargingOnly, ct);
+    return Results.Ok(result);
+});
+
+// A wide-but-bounded range in dB — generous enough to compensate for a genuinely quiet or loud
+// feed without pretending this is a substitute for real loudness normalization (#708).
+const float MinVolumeOffsetDb = -12f;
+const float MaxVolumeOffsetDb = 12f;
+
+bool TryValidateVolumeOffsetDb(float volumeOffsetDb, string fieldName, out string? error)
+{
+    // NaN compares false against both bounds below, so it would otherwise slip through the range
+    // check entirely — reject it explicitly, same rationale as TryValidatePlaybackSpeed.
+    if (float.IsNaN(volumeOffsetDb) || float.IsInfinity(volumeOffsetDb) ||
+        volumeOffsetDb < MinVolumeOffsetDb || volumeOffsetDb > MaxVolumeOffsetDb)
+    {
+        error = $"'{fieldName}' must be between {MinVolumeOffsetDb} and {MaxVolumeOffsetDb}.";
+        return false;
+    }
+
+    error = null;
+    return true;
+}
+
+bool TryValidateNullableVolumeOffsetDb(float? volumeOffsetDb, string fieldName, out string? error)
+{
+    if (volumeOffsetDb is { } value)
+    {
+        return TryValidateVolumeOffsetDb(value, fieldName, out error);
+    }
+
+    error = null;
+    return true;
+}
+
+settings.MapPut("/volume-offset", async (
+    UpdateVolumeOffsetRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateVolumeOffsetDb(request.VolumeOffsetDb, "volumeOffsetDb", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateVolumeOffsetAsync(userId, request.VolumeOffsetDb, ct);
+    return Results.Ok(result);
+});
+
+settings.MapPut("/shows/{showId}/volume-offset", async (
+    string showId,
+    UpdateShowVolumeOffsetRequest request,
+    ClaimsPrincipal user,
+    ISettingsService settingsService,
+    CancellationToken ct) =>
+{
+    if (!TryValidateNullableVolumeOffsetDb(request.VolumeOffsetDb, "volumeOffsetDb", out var error))
+    {
+        return Results.BadRequest(new { error });
+    }
+
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var result = await settingsService.UpdateShowVolumeOffsetAsync(userId, showId, request.VolumeOffsetDb, ct);
     return Results.Ok(result);
 });
 

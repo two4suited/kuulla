@@ -7,7 +7,7 @@ final class UserSettingsTests: XCTestCase {
         autoSkipIntroSeconds: 10, autoSkipOutroSeconds: 20, playbackSpeed: 1.5,
         autoDeleteRule: .afterPlayed, autoDeleteAfterDays: 14, autoDownloadNewEpisodes: true, smartSpeed: true,
         voiceBoost: true, trimSilence: true, sleepTimerDefaultDurationMinutes: 15, autoAddNewEpisodesToUpNext: true, upNextInsertPosition: .top,
-        autoDownloadEpisodeLimit: 5, autoDownloadChargingOnly: true)
+        autoDownloadEpisodeLimit: 5, autoDownloadChargingOnly: true, volumeOffsetDb: 4.5)
 
     func testWithChangingOneFieldPreservesEveryOtherField() {
         let updated = base.with(playbackSpeed: 2.0)
@@ -39,6 +39,33 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(updated.playNextBehavior, base.playNextBehavior)
         XCTAssertEqual(updated.autoDownloadEpisodeLimit, base.autoDownloadEpisodeLimit)
         XCTAssertEqual(updated.autoDownloadChargingOnly, base.autoDownloadChargingOnly)
+        XCTAssertEqual(updated.volumeOffsetDb, base.volumeOffsetDb)
+    }
+
+    // MARK: volumeOffsetDb (#708)
+
+    func testWithSetsVolumeOffsetDb() {
+        let updated = base.with(volumeOffsetDb: -6.0)
+
+        XCTAssertEqual(updated.volumeOffsetDb, -6.0)
+    }
+
+    func testDecodingResponseMissingVolumeOffsetDbDefaultsToZero() throws {
+        let json = """
+        {"userId": "u1", "unlistenedEpisodeCount": 5, "version": 1}
+        """
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.volumeOffsetDb, 0)
+    }
+
+    func testDecodingVolumeOffsetDbFromWireValue() throws {
+        let json = """
+        {"userId": "u1", "unlistenedEpisodeCount": 5, "version": 1, "volumeOffsetDb": 3.5}
+        """
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.volumeOffsetDb, 3.5)
     }
 
     // MARK: autoDownloadEpisodeLimit / autoDownloadChargingOnly (#689)
