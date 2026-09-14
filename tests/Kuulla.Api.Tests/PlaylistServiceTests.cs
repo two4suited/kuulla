@@ -349,6 +349,27 @@ public class PlaylistServiceTests
     }
 
     [Fact]
+    public async Task GetPlaylistDetailAsync_IncludesEpisodeDuration()
+    {
+        var item = new PlaylistItem("episode-1", ShowId, DateTimeOffset.UtcNow, "m");
+        var playlist = MakePlaylist(items: [item]);
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+
+        var episode = new Episode(
+            "episode-1", ShowId, "Episode Title", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(42),
+            "https://audio.example/1.mp3", null, null, null);
+        _episodeService.Setup(s => s.GetEpisodeAsync(ShowId, "episode-1", It.IsAny<CancellationToken>())).ReturnsAsync(episode);
+        _showService.Setup(s => s.GetByIdAsync(ShowId, It.IsAny<CancellationToken>())).ReturnsAsync(CosmosTestHelpers.MakeShow(ShowId));
+
+        var result = await _sut.GetPlaylistDetailAsync(UserId, PlaylistId, CancellationToken.None);
+
+        var detailItem = Assert.Single(result!.Items);
+        Assert.Equal(TimeSpan.FromMinutes(42), detailItem.Duration);
+    }
+
+    [Fact]
     public async Task GetPlaylistDetailAsync_PrunesPlayedEpisodesFromDynamicPlaylistAndPersists()
     {
         var config = new DynamicPlaylistConfig([ShowId], MaxEpisodes: null, [ShowId]);

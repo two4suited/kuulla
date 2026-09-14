@@ -209,6 +209,50 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void ShowsRemainingQueueDuration_AtCurrentPlaybackSpeed()
+    {
+        // 45min unstarted + 20min remaining of a 30min episode already 10min in = 65min raw;
+        // a completed 40min episode contributes nothing. At 2x that's 32.5min -> "32m".
+        var detail = MakeDetail(
+            new PlaylistItemDetail("episode-1", "show-1", "Unstarted Episode", null, DateTimeOffset.UtcNow, "m", TimeSpan.FromMinutes(45)),
+            new PlaylistItemDetail("episode-2", "show-1", "Partly Played Episode", null, DateTimeOffset.UtcNow, "n", TimeSpan.FromMinutes(30)),
+            new PlaylistItemDetail("episode-3", "show-1", "Finished Episode", null, DateTimeOffset.UtcNow, "o", TimeSpan.FromMinutes(40)));
+        var settings = DefaultSettings with { PlaybackSpeed = 2.0f };
+        ConfigureApi(new TestHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+
+            if (path == "/api/playlists/playlist-1" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(detail) };
+            }
+
+            if (path == "/api/episodes/states" && request.Method == HttpMethod.Post)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new Dictionary<string, EpisodeState>
+                    {
+                        ["episode-2"] = new("episode-2", "user-1", "episode-2", "show-1", 600, false, DateTimeOffset.UtcNow, "web"),
+                        ["episode-3"] = new("episode-3", "user-1", "episode-3", "show-1", 2400, true, DateTimeOffset.UtcNow, "web"),
+                    }),
+                };
+            }
+
+            if (path == "/api/settings" && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(settings) };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }));
+
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+
+        cut.WaitForAssertion(() => Assert.Contains("32m left at 2x", cut.Markup));
+    }
+
+    [Fact]
     public void ShowsAllEpisodes_WhenOnlyUnplayedToggleDisabled()
     {
         var detail = MakeDetail(

@@ -71,4 +71,5 @@ public record PlaylistItemDetail(
     string? Title,
     string? ArtworkUrl,
     DateTimeOffset AddedAt,
-    string Order);
+    string Order,
+    TimeSpan? Duration = null);
