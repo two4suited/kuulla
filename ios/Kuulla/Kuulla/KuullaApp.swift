@@ -52,6 +52,10 @@ struct KuullaApp: App {
         // since the queue starts follow-on episodes from AudioPlayer's finish callback.
         PlaybackQueue.modelContainer = container
         PlaybackQueue.episodeSyncEngine = episodeEngine
+        // AppDelegate's didReceiveRemoteNotification needs a way to trigger a targeted refresh —
+        // same out-of-SwiftUI wiring as CarPlay/PlaybackQueue above.
+        AppDelegate.modelContainer = container
+        AppDelegate.catalogRefreshService = catalogRefreshService
     }
 
     var body: some Scene {
@@ -138,6 +142,9 @@ struct KuullaApp: App {
 // App protocol has no hook for this delegate callback, so a UIApplicationDelegate adaptor is the
 // only way to receive it.
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    static var modelContainer: ModelContainer?
+    static var catalogRefreshService: CatalogRefreshService?
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -170,6 +177,41 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // Best-effort — nothing actionable to do beyond not registering a device token.
+    }
+
+    // Fires for a silent (content-available: 1) push, whether the app is foregrounded,
+    // backgrounded, or launched from suspended — the OS grants a short background execution
+    // window to run the completion handler in. Requires the "remote-notification" background
+    // mode (Info.plist), same as the willPresent/didReceive hooks below need their delegate set
+    // in didFinishLaunching (#749). Refreshes only the pushed show (not a full sync) to stay
+    // inside that window.
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any]
+    ) async -> UIBackgroundFetchResult {
+        guard let route = PushNotificationRouting.route(from: userInfo) else { return .noData }
+        guard let container = Self.modelContainer, let catalogRefreshService = Self.catalogRefreshService else {
+            return .failed
+        }
+        // Mirrors the isSignedIn gate on every other refresh trigger in this file (cold-launch
+        // .task, .background scenePhase) — a push can still arrive after sign-out if the device
+        // unregister (best-effort, see PushNotificationManager.unregisterCurrentDevice) hasn't
+        // landed server-side yet, and refreshShow's catalog requests would just fail
+        // unauthenticated at that point.
+        guard AuthManager.shared.isSignedIn else { return .noData }
+        // PushNotificationRouting only ever produces .show or .episode (see its doc comment).
+        let showId: String
+        switch route {
+        case .show(let id):
+            showId = id
+        case .episode(let id, _, _, _):
+            showId = id
+        default:
+            return .noData
+        }
+        await catalogRefreshService.refreshShow(showId: showId)
+        await AppIconBadge.refresh(in: container.mainContext)
+        return .newData
     }
 
     // Routes the CarPlay template scene to CarPlaySceneDelegate; the default (phone/pad) scene
