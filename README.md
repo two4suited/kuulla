@@ -214,4 +214,4 @@ deploys the tagged commit.
 
 ## License
 
-TBD
+[MIT](LICENSE)
