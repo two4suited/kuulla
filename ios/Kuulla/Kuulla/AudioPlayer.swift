@@ -225,6 +225,10 @@ final class AudioPlayer {
     // playing — the system's .shouldResume option reflects the session's state, not whether the
     // user had already tapped pause before or during the interruption.
     private var wasPlayingBeforeInterruption = false
+    // How far to rewind when auto-resuming after an interruption ends (#710, AntennaPod
+    // "rewind on resume") — a call or nav prompt is likely to swallow part of a sentence, so
+    // resuming exactly where playback stopped tends to lose the last few words of context.
+    private static let interruptionRewindSeconds: TimeInterval = 3
 
     init(pathObserver: NetworkPathObserving = NWPathMonitorAdapter()) {
         self.pathObserver = pathObserver
@@ -290,6 +294,7 @@ final class AudioPlayer {
             // (looks identical to "locking pauses playback"). Blocking main briefly here is safe:
             // this fires once per interruption, not per frame.
             try? AVAudioSession.sharedInstance().setActive(true)
+            seek(to: max(0, currentTime - Self.interruptionRewindSeconds))
             resume()
         @unknown default:
             break

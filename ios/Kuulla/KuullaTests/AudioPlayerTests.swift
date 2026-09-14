@@ -270,6 +270,36 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertFalse(player.isPlaying)
     }
 
+    // #710: auto-resuming after an interruption rewinds a few seconds so the sentence
+    // interrupted by the call/nav prompt isn't lost (AntennaPod "rewind on resume").
+    func testInterruptionEndRewindsPlaybackByAFewSeconds() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+        _ = player.handleSkipForwardCommand(interval: 30)
+        XCTAssertEqual(player.currentTime, 30)
+
+        player.handleInterruption(type: .began)
+        player.handleInterruption(type: .ended)
+
+        XCTAssertEqual(player.currentTime, 27)
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    // The rewind must not push currentTime negative for an interruption that lands moments
+    // into the episode.
+    func testInterruptionEndRewindClampsToZeroNearTheStart() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!)
+        _ = player.handleSkipForwardCommand(interval: 1)
+        XCTAssertEqual(player.currentTime, 1)
+
+        player.handleInterruption(type: .began)
+        player.handleInterruption(type: .ended)
+
+        XCTAssertEqual(player.currentTime, 0)
+        XCTAssertTrue(player.isPlaying)
+    }
+
     // Control Center remains reachable during some interruption types, so a manual pause can land
     // between .began and .ended. That pause must stick — without clearing
     // wasPlayingBeforeInterruption, .ended would still see it as true (from before the
