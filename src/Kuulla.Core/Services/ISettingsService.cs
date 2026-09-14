@@ -95,6 +95,15 @@ public interface ISettingsService
     Task<(int EpisodeLimit, bool ChargingOnly)> GetEffectiveAutoDownloadRulesAsync(
         string userId, string showId, CancellationToken cancellationToken);
 
+    Task<UserSettings> UpdateVolumeOffsetAsync(
+        string userId, float volumeOffsetDb, CancellationToken cancellationToken);
+
+    Task<ShowSettings> UpdateShowVolumeOffsetAsync(
+        string userId, string showId, float? volumeOffsetDb, CancellationToken cancellationToken);
+
+    Task<float> GetEffectiveVolumeOffsetAsync(
+        string userId, string showId, CancellationToken cancellationToken);
+
     Task<UserSettings> UpdateAutoAddNewEpisodesToUpNextAsync(
         string userId, bool autoAddNewEpisodesToUpNext, CancellationToken cancellationToken);
 

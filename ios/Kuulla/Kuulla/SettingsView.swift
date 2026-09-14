@@ -37,6 +37,7 @@ struct SettingsView: View {
     @State private var trailingSwipeActionsSaveError: String?
     @State private var smartSpeedSaveError: String?
     @State private var voiceBoostSaveError: String?
+    @State private var volumeOffsetSaveError: String?
     @State private var trimSilenceSaveError: String?
     @State private var notificationsEnabledSaveError: String?
     // Loaded from the local PlaylistRecord store (PlaylistsView's own pattern) rather than a
@@ -58,6 +59,7 @@ struct SettingsView: View {
     @State private var trailingSwipeActionsSaveTask: Task<Void, Never>?
     @State private var smartSpeedSaveTask: Task<Void, Never>?
     @State private var voiceBoostSaveTask: Task<Void, Never>?
+    @State private var volumeOffsetSaveTask: Task<Void, Never>?
     @State private var trimSilenceSaveTask: Task<Void, Never>?
     @State private var notificationsEnabledSaveTask: Task<Void, Never>?
     // Read fresh whenever the view loads/refreshes settings (loadFromRemote/refreshFromRemote) —
@@ -164,6 +166,20 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 } else {
                     Text("Normalizes loudness so quiet and loud episodes play at a consistent volume, independent of playback speed.")
+                }
+            }
+
+            Section {
+                Picker("Volume offset", selection: volumeOffsetBinding) {
+                    volumeOffsetPickerOptions(for: settings?.volumeOffsetDb)
+                }
+                .disabled(settings == nil)
+            } footer: {
+                if let volumeOffsetSaveError {
+                    Text(volumeOffsetSaveError)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("A fixed gain adjustment for every show, on top of Voice Boost — a simpler, predictable alternative when a show is consistently too quiet or too loud.")
                 }
             }
 
@@ -625,6 +641,29 @@ struct SettingsView: View {
                 voiceBoostSaveTask = Task { await updateVoiceBoost(newValue) }
             }
         )
+    }
+
+    private var volumeOffsetBinding: Binding<Float> {
+        Binding(
+            get: { settings?.volumeOffsetDb ?? 0 },
+            set: { newValue in
+                volumeOffsetSaveTask?.cancel()
+                volumeOffsetSaveTask = Task { await updateVolumeOffset(newValue) }
+            }
+        )
+    }
+
+    // Same rationale as ShowSettingsSheet.volumeOffsetPickerOptions — the presets don't cover
+    // every value the API accepts (-12...12), so a value saved from elsewhere that doesn't match
+    // one of them gets a synthesized "Custom" row rather than silently snapping to the nearest one.
+    @ViewBuilder
+    private func volumeOffsetPickerOptions(for currentValue: Float?) -> some View {
+        ForEach(VolumeOffsetOption.allCases) { option in
+            Text(option.label).tag(option.rawValue)
+        }
+        if let currentValue, VolumeOffsetOption(rawValue: currentValue) == nil {
+            Text("Custom (\(currentValue.formatted(.number.precision(.fractionLength(0...1)))) dB)").tag(currentValue)
+        }
     }
 
     private var trimSilenceBinding: Binding<Bool> {
@@ -1172,6 +1211,28 @@ struct SettingsView: View {
             if !Task.isCancelled {
                 settings = previous
                 voiceBoostSaveError = "Something went wrong while saving. Please try again."
+            }
+        }
+    }
+
+    private func updateVolumeOffset(_ value: Float) async {
+        guard let previous = settings else { return }
+        pendingSaveCount += 1
+        defer { pendingSaveCount -= 1 }
+
+        volumeOffsetSaveError = nil
+        settings = previous.with(volumeOffsetDb: value)
+
+        do {
+            let updated = try await settingsClient.updateVolumeOffset(value)
+            if !Task.isCancelled {
+                settings = updated
+                await mirrorAcceptedWrite(updated)
+            }
+        } catch {
+            if !Task.isCancelled {
+                settings = previous
+                volumeOffsetSaveError = "Something went wrong while saving. Please try again."
             }
         }
     }

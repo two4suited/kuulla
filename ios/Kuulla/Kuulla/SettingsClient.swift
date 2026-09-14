@@ -123,6 +123,16 @@ struct SettingsClient {
             body: UpdateShowAutoDownloadRulesRequest(autoDownloadEpisodeLimit: episodeLimit, autoDownloadChargingOnly: chargingOnly))
     }
 
+    func updateVolumeOffset(_ value: Float) async throws -> UserSettings {
+        try await apiClient.put(["api", "settings", "volume-offset"], body: UpdateVolumeOffsetRequest(volumeOffsetDb: value))
+    }
+
+    func updateShowVolumeOffset(showId: String, value: Float?) async throws -> ShowSettings {
+        try await apiClient.put(
+            ["api", "settings", "shows", showId, "volume-offset"],
+            body: UpdateShowVolumeOffsetRequest(volumeOffsetDb: value))
+    }
+
     func updateAutoAddNewEpisodesToUpNext(_ value: Bool) async throws -> UserSettings {
         try await apiClient.put(
             ["api", "settings", "auto-add-up-next"],
@@ -288,6 +298,14 @@ private struct UpdateAutoDownloadRulesRequest: Encodable {
 private struct UpdateShowAutoDownloadRulesRequest: Encodable {
     let autoDownloadEpisodeLimit: Int?
     let autoDownloadChargingOnly: Bool?
+}
+
+private struct UpdateVolumeOffsetRequest: Encodable {
+    let volumeOffsetDb: Float
+}
+
+private struct UpdateShowVolumeOffsetRequest: Encodable {
+    let volumeOffsetDb: Float?
 }
 
 private struct UpdateAutoAddNewEpisodesToUpNextRequest: Encodable {

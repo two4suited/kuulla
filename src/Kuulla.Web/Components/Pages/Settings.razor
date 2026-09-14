@@ -145,6 +145,26 @@
             </div>
 
             <div class="mb-3" style="max-width: 24rem;">
+                <label class="form-label" for="volume-offset">Volume offset</label>
+                <select id="volume-offset" class="form-select" disabled="@isVolumeOffsetSaving"
+                        value="@selectedVolumeOffsetDb.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="OnVolumeOffsetChangedAsync">
+                    @foreach (var option in VolumeOffsetUi.OptionsIncluding(selectedVolumeOffsetDb))
+                    {
+                        <option value="@option.ToString(System.Globalization.CultureInfo.InvariantCulture)">@VolumeOffsetUi.Format(option)</option>
+                    }
+                </select>
+                <div class="form-text">A fixed gain adjustment for every show, on top of Voice Boost — a simpler, predictable alternative when a show is consistently too quiet or too loud.</div>
+                @if (volumeOffsetSaveError is not null)
+                {
+                    <p class="text-danger mt-1 mb-0">@volumeOffsetSaveError</p>
+                }
+                else if (volumeOffsetSaveSavedConfirmation)
+                {
+                    <p class="text-success mt-1 mb-0">Saved.</p>
+                }
+            </div>
+
+            <div class="mb-3" style="max-width: 24rem;">
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" role="switch" id="trim-silence"
                            disabled="@isTrimSilenceSaving" checked="@selectedTrimSilence"
@@ -360,6 +380,10 @@
     private bool isVoiceBoostSaving;
     private string? voiceBoostSaveError;
     private bool voiceBoostSaveSavedConfirmation;
+    private float selectedVolumeOffsetDb;
+    private bool isVolumeOffsetSaving;
+    private string? volumeOffsetSaveError;
+    private bool volumeOffsetSaveSavedConfirmation;
     private bool selectedTrimSilence;
     private bool isTrimSilenceSaving;
     private string? trimSilenceSaveError;
@@ -452,6 +476,7 @@
             selectedPlaybackSpeed = settings.PlaybackSpeed;
             selectedSmartSpeed = settings.SmartSpeed;
             selectedVoiceBoost = settings.VoiceBoost;
+            selectedVolumeOffsetDb = settings.VolumeOffsetDb;
             selectedTrimSilence = settings.TrimSilence;
             selectedPlayNextBehavior = settings.PlayNextBehavior;
             selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
@@ -506,6 +531,7 @@
         selectedPlaybackSpeed = settings.PlaybackSpeed;
         selectedSmartSpeed = settings.SmartSpeed;
         selectedVoiceBoost = settings.VoiceBoost;
+        selectedVolumeOffsetDb = settings.VolumeOffsetDb;
         selectedTrimSilence = settings.TrimSilence;
         selectedPlayNextBehavior = settings.PlayNextBehavior;
         selectedSleepTimerDefaultDurationMinutes = settings.SleepTimerDefaultDurationMinutes;
@@ -748,6 +774,42 @@
         finally
         {
             isVoiceBoostSaving = false;
+        }
+
+        await SyncOwnWriteBestEffortAsync();
+    }
+
+    private async Task OnVolumeOffsetChangedAsync(ChangeEventArgs args)
+    {
+        if (!float.TryParse(
+                args.Value?.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var value) ||
+            !float.IsFinite(value))
+        {
+            // Same rationale as OnPlaybackSpeedChangedAsync — the <select>'s own values never
+            // are NaN/Infinity, but a tampered DOM value could still submit one.
+            return;
+        }
+
+        var previous = selectedVolumeOffsetDb;
+        selectedVolumeOffsetDb = value;
+        isVolumeOffsetSaving = true;
+        volumeOffsetSaveError = null;
+        volumeOffsetSaveSavedConfirmation = false;
+
+        try
+        {
+            await SettingsClient.UpdateVolumeOffsetAsync(value);
+            volumeOffsetSaveSavedConfirmation = true;
+        }
+        catch (HttpRequestException)
+        {
+            selectedVolumeOffsetDb = previous;
+            volumeOffsetSaveError = "Something went wrong while saving. Please try again.";
+        }
+        finally
+        {
+            isVolumeOffsetSaving = false;
         }
 
         await SyncOwnWriteBestEffortAsync();

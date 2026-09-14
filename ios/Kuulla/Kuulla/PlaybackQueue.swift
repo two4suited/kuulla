@@ -447,6 +447,7 @@ final class PlaybackQueue {
         let smartSpeed: Bool
         let voiceBoost: Bool
         let trimSilence: Bool
+        let volumeOffsetDb: Float
     }
 
     // The episode/show/settings/download-record resolution chain shared by playItem() and
@@ -472,6 +473,7 @@ final class PlaybackQueue {
         let smartSpeed = showResolved?.smartSpeed ?? user?.smartSpeed ?? false
         let voiceBoost = showResolved?.voiceBoost ?? user?.voiceBoost ?? false
         let trimSilence = showResolved?.trimSilence ?? user?.trimSilence ?? false
+        let volumeOffsetDb = showResolved?.volumeOffsetDb ?? user?.volumeOffsetDb ?? 0
 
         var startPosition: TimeInterval = 0
         var downloadRecord: DownloadedEpisodeRecord?
@@ -496,7 +498,8 @@ final class PlaybackQueue {
         return ResolvedPlayableEpisode(
             audioUrl: audioUrl, episode: episode, show: show, startPosition: startPosition,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
+            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
+            volumeOffsetDb: volumeOffsetDb)
     }
 
     // Starts an episode from outside the detail screen — an auto-advance, or a direct quickPlay()
@@ -529,6 +532,7 @@ final class PlaybackQueue {
             autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
             playbackSpeed: resolved.playbackSpeed, smartSpeed: resolved.smartSpeed,
             voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
+            volumeOffsetDb: resolved.volumeOffsetDb,
             context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: NowPlayingMetadata(
                 title: resolved.episode.title, showTitle: resolved.show?.title,
@@ -576,6 +580,7 @@ final class PlaybackQueue {
             autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, playbackSpeed: resolved.playbackSpeed,
             autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
             smartSpeed: resolved.smartSpeed, voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
+            volumeOffsetDb: resolved.volumeOffsetDb,
             context: NowPlayingContext(showId: next.showId, episodeId: next.episodeId, playlistId: playlistId),
             metadata: NowPlayingMetadata(
                 title: resolved.episode.title, showTitle: resolved.show?.title,

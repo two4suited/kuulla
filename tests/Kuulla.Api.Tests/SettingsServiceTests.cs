@@ -927,6 +927,77 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public async Task UpdateVolumeOffsetAsync_IncrementsVersionOfExistingDocument()
+    {
+        var existing = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 3);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<UserSettings>(), It.IsAny<PartitionKey?>(), It.IsAny<ItemRequestOptions>(), default))
+            .ReturnsAsync((UserSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateVolumeOffsetAsync(UserId, 4.5f, CancellationToken.None);
+
+        Assert.Equal(4.5f, result.VolumeOffsetDb);
+        Assert.Equal(4, result.Version);
+    }
+
+    [Fact]
+    public async Task UpdateShowVolumeOffsetAsync_ClearsOverrideWhenValueIsNull()
+    {
+        const string showId = "show-1";
+        var id = ShowSettings.BuildId(UserId, showId);
+        var existing = new ShowSettings(id, UserId, showId, null, Version: 2, VolumeOffsetDb: 6.0f);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(id, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(existing));
+        _settingsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<ShowSettings>(), It.IsAny<PartitionKey?>(), null, default))
+            .ReturnsAsync((ShowSettings s, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(s));
+
+        var result = await _sut.UpdateShowVolumeOffsetAsync(UserId, showId, null, CancellationToken.None);
+
+        Assert.Null(result.VolumeOffsetDb);
+        Assert.Equal(3, result.Version);
+    }
+
+    [Fact]
+    public async Task GetEffectiveVolumeOffsetAsync_ReturnsShowOverrideWhenSet()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        var showSettings = new ShowSettings(showSettingsId, UserId, showId, null, Version: 2, VolumeOffsetDb: -3.5f);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(showSettings));
+
+        var result = await _sut.GetEffectiveVolumeOffsetAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(-3.5f, result);
+        _settingsContainer.Verify(
+            c => c.ReadItemAsync<UserSettings>(It.IsAny<string>(), It.IsAny<PartitionKey>(), null, default), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetEffectiveVolumeOffsetAsync_FallsBackToUserSettingsWhenNoOverride()
+    {
+        const string showId = "show-1";
+        var showSettingsId = ShowSettings.BuildId(UserId, showId);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<ShowSettings>(showSettingsId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        var userSettings = new UserSettings(UserId, UnlistenedEpisodeCount.Five, Version: 1, VolumeOffsetDb: 2.0f);
+        _settingsContainer
+            .Setup(c => c.ReadItemAsync<UserSettings>(UserId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(userSettings));
+
+        var result = await _sut.GetEffectiveVolumeOffsetAsync(UserId, showId, CancellationToken.None);
+
+        Assert.Equal(2.0f, result);
+    }
+
+    [Fact]
     public async Task UpdateAutoDeleteRuleAsync_IncrementsVersionOfExistingDocument()
     {
         var existing = new UserSettings(
@@ -1576,12 +1647,13 @@ public class SettingsServiceTests
         IReadOnlyList<EpisodeSwipeAction>? trailingSwipeActions = null,
         PlayNextBehavior? playNextBehavior = PlayNextBehavior.NextInList,
         int? autoDownloadEpisodeLimit = 0,
-        bool? autoDownloadChargingOnly = false) =>
+        bool? autoDownloadChargingOnly = false,
+        float? volumeOffsetDb = 0f) =>
         new(
             UnlistenedEpisodeCount.Five, AutoArchiveRule.Never, 0, 0, playbackSpeed, AutoDeleteRule.Never, 7, false, false,
             voiceBoost, trimSilence, notificationsEnabled, sleepTimerDefaultDurationMinutes, subscriptionSortOrder, subscriptionManualOrder,
             hideCaughtUpShows, autoAddNewEpisodesToUpNext, upNextInsertPosition, leadingSwipeActions, trailingSwipeActions,
-            playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly, updatedAt);
+            playNextBehavior, autoDownloadEpisodeLimit, autoDownloadChargingOnly, volumeOffsetDb, updatedAt);
 
     [Fact]
     public async Task UpdatePlayNextBehaviorAsync_UpdatesValueAndIncrementsVersion()

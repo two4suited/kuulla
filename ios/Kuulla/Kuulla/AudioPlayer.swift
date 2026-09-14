@@ -300,6 +300,7 @@ final class AudioPlayer {
         url: URL, startPosition: TimeInterval = 0,
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
         playbackSpeed: Float = 1.0, smartSpeed: Bool = false, voiceBoost: Bool = false, trimSilence: Bool = false,
+        volumeOffsetDb: Float = 0,
         context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
     ) {
         streamBlockedMessage = nil
@@ -329,7 +330,7 @@ final class AudioPlayer {
 
         let item = AVPlayerItem(url: url)
         smartSpeedProcessor = makeSmartSpeedProcessorIfNeeded(
-            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
+            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb)
 
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
@@ -366,10 +367,11 @@ final class AudioPlayer {
     // Builds a SmartSpeedProcessor and wires its silence-detection callbacks + async audioMix
     // assignment for `item`, exactly as play() has always done — pulled out so preloadNext() can
     // build the same wiring for a pending item without duplicating this block. Returns nil (and
-    // leaves `item` untouched) when smartSpeed/voiceBoost/trimSilence are all off, matching
-    // play()'s own "only pay the tap-processing cost when actually in use" contract.
+    // leaves `item` untouched) when smartSpeed/voiceBoost/trimSilence are all off and
+    // volumeOffsetDb is 0, matching play()'s own "only pay the tap-processing cost when actually
+    // in use" contract.
     private func makeSmartSpeedProcessorIfNeeded(
-        for item: AVPlayerItem, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool
+        for item: AVPlayerItem, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0
     ) -> SmartSpeedProcessor? {
         // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
         // without the chipmunk effect a naive rate change would produce. Applied unconditionally
@@ -377,9 +379,10 @@ final class AudioPlayer {
         // or not, can have its rate changed via setPlaybackSpeed().
         item.audioTimePitchAlgorithm = .timeDomain
 
-        guard smartSpeed || voiceBoost || trimSilence else { return nil }
+        guard smartSpeed || voiceBoost || trimSilence || volumeOffsetDb != 0 else { return nil }
 
-        let processor = SmartSpeedProcessor(smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
+        let processor = SmartSpeedProcessor(
+            smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb)
         // Captures item weakly so a later play()/swapToPendingPreload() that replaces self.player
         // (and drops this item) can't have this stale session's detector adjust the new player's
         // rate out from under it — the identity check below is the real guard, this just avoids
@@ -762,13 +765,14 @@ final class AudioPlayer {
         url: URL, startPosition: TimeInterval = 0, autoSkipIntroSeconds: TimeInterval = 0,
         playbackSpeed: Float = 1.0, autoSkipOutroSeconds: TimeInterval = 0,
         smartSpeed: Bool = false, voiceBoost: Bool = false, trimSilence: Bool = false,
+        volumeOffsetDb: Float = 0,
         context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
     ) {
         discardPendingPreload()
 
         let item = AVPlayerItem(url: url)
         let processor = makeSmartSpeedProcessorIfNeeded(
-            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence)
+            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb)
 
         let newPlayer = AVPlayer(playerItem: item)
         // Deliberately left at rate 0 — preloading only buffers the item toward readyToPlay, it

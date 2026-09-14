@@ -72,6 +72,7 @@ struct EpisodeDetailView: View {
     @State private var playbackSpeed: Float = 1.0
     @State private var smartSpeed = false
     @State private var voiceBoost = false
+    @State private var volumeOffsetDb: Float = 0
     @State private var trimSilence = false
     // Global-only (no per-show override), per docs/downloads-storage-settings.md.
     @State private var autoDeleteRule: AutoDeleteRule = .never
@@ -653,6 +654,7 @@ struct EpisodeDetailView: View {
         // either — accepted, not something this diff introduces.
         smartSpeed = show?.smartSpeed ?? user?.smartSpeed ?? false
         voiceBoost = show?.voiceBoost ?? user?.voiceBoost ?? false
+        volumeOffsetDb = show?.volumeOffsetDb ?? user?.volumeOffsetDb ?? 0
         trimSilence = show?.trimSilence ?? user?.trimSilence ?? false
         autoDeleteRule = Self.resolvedAutoDeleteRule(show: show, user: user)
 
@@ -757,6 +759,7 @@ struct EpisodeDetailView: View {
             url: url, startPosition: startPosition,
             autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
             playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
+            volumeOffsetDb: volumeOffsetDb,
             context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: episode.map { episode in
                 NowPlayingMetadata(

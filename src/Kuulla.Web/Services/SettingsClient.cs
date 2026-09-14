@@ -311,6 +311,27 @@ public class SettingsClient(KuullaApiClient apiClient)
         return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
     }
 
+    public async Task<UserSettings> UpdateVolumeOffsetAsync(
+        float volumeOffsetDb, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            "api/settings/volume-offset", new { VolumeOffsetDb = volumeOffsetDb }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UserSettings>(JsonOptions, cancellationToken))!;
+    }
+
+    public async Task<ShowSettings> UpdateShowVolumeOffsetAsync(
+        string showId, float? volumeOffsetDb, CancellationToken cancellationToken = default)
+    {
+        var client = await apiClient.CreateClientAsync();
+        var response = await client.PutAsJsonAsync(
+            $"api/settings/shows/{Uri.EscapeDataString(showId)}/volume-offset",
+            new { VolumeOffsetDb = volumeOffsetDb }, JsonOptions, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ShowSettings>(JsonOptions, cancellationToken))!;
+    }
+
     public async Task<UserSettings> UpdateTrimSilenceAsync(
         bool trimSilence, CancellationToken cancellationToken = default)
     {

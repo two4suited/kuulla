@@ -54,6 +54,7 @@ struct SettingsSyncAdapter: SyncAdapter {
                 playNextBehavior: $0.playNextBehavior,
                 autoDownloadEpisodeLimit: $0.autoDownloadEpisodeLimit,
                 autoDownloadChargingOnly: $0.autoDownloadChargingOnly,
+                volumeOffsetDb: $0.volumeOffsetDb,
                 updatedAt: $0.updatedAt)
         }
         let request = SyncSettingsRequestDTO(
@@ -127,6 +128,9 @@ private struct UserSettingsChangeDTO: Encodable {
     // for older clients that omit them.
     let autoDownloadEpisodeLimit: Int
     let autoDownloadChargingOnly: Bool
+    // Non-optional — this client always knows the field and always sends it (#708); the API's
+    // nullable UserSettingsChange.VolumeOffsetDb only exists for older clients that omit it.
+    let volumeOffsetDb: Float
     let updatedAt: Date
 }
 
@@ -179,6 +183,8 @@ private struct UserSettingsDTO: Decodable {
     // Optional so a response from an API that predates #689 still decodes; asRecord falls back.
     let autoDownloadEpisodeLimit: Int?
     let autoDownloadChargingOnly: Bool?
+    // Optional so a response from an API that predates #708 still decodes; asRecord falls back.
+    let volumeOffsetDb: Float?
     let updatedAt: Date
 
     var asRecord: UserSettingsRecord {
@@ -198,6 +204,7 @@ private struct UserSettingsDTO: Decodable {
             playNextBehavior: playNextBehavior ?? .nextInList,
             autoDownloadEpisodeLimit: autoDownloadEpisodeLimit ?? 0,
             autoDownloadChargingOnly: autoDownloadChargingOnly ?? false,
+            volumeOffsetDb: volumeOffsetDb ?? 0,
             version: version, updatedAt: updatedAt)
     }
 }

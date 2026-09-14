@@ -125,6 +125,11 @@ public record UserSettings(
     // False is the safe default — same "opt-in, not on-by-default" convention as
     // AutoDownloadNewEpisodes above. Only meaningful when AutoDownloadNewEpisodes is on.
     bool AutoDownloadChargingOnly = false,
+    // 0 = unmodified, matching PlaybackSpeed: 1.0f's "no-op until the user opts in" convention
+    // (#708). A fixed dB gain adjustment applied on top of any dynamic VoiceBoost — a simpler,
+    // predictable alternative/complement to full loudness normalization (per-feed, per AntennaPod;
+    // see #678). Per-show overrides live on ShowSettings.VolumeOffsetDb.
+    float VolumeOffsetDb = 0f,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default,
     [property: JsonProperty("deviceId")] string? DeviceId = null) : ISyncableRecord
 {

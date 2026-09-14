@@ -63,13 +63,19 @@ final class SmartSpeedProcessor {
     // SmartSpeed. Trim Silence (#680) and Voice Boost (#679) each let one half run standalone.
     private let silenceTrimEnabled: Bool
     private let voiceBoostEnabled: Bool
+    // A fixed linear gain applied to every buffer regardless of voiceBoostEnabled — the per-show/
+    // global VolumeOffsetDb setting (#708), a simpler, predictable complement to voiceBoostEnabled's
+    // dynamic per-buffer boost. 1.0 (dB 0) is a true no-op: process() skips the multiply entirely
+    // in that case, same as it always skipped voice-boost's gain stage when smoothedGain was ~1.
+    private let volumeOffsetGain: Float
 
     private var silenceDetector = SilenceRunDetector()
     private var smoothedGain: Float = 1.0
 
-    init(smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool) {
+    init(smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0) {
         self.silenceTrimEnabled = smartSpeed || trimSilence
         self.voiceBoostEnabled = smartSpeed || voiceBoost
+        self.volumeOffsetGain = Self.linearGain(forDb: volumeOffsetDb)
     }
 
     // Builds an AVMutableAudioMix with this processor installed as the tap on `item`'s first
@@ -165,20 +171,31 @@ final class SmartSpeedProcessor {
         }
         let level = sampleCount > 0 ? (sumOfSquares / Float(sampleCount)).squareRoot() : 0
 
+        // Only ever boosts, never attenuates on its own — smoothedGain can ramp down below 1.0
+        // (e.g. easing off a previous boost, or boostGain(forLevel:) itself dipping under 1 for an
+        // already-loud passage), and pre-#708 that was always a no-op (the original gate was
+        // `smoothedGain > 1.001`). Clamping here preserves that exact behavior for voiceBoost-only
+        // sessions regardless of what volumeOffsetGain contributes below.
+        var dynamicGain: Float = 1.0
         if voiceBoostEnabled {
             let targetGain = Self.boostGain(forLevel: level)
             smoothedGain += (targetGain - smoothedGain) * Self.gainSmoothingFactor
-            if smoothedGain > 1.001 {
-                for buffer in bufferList {
-                    guard let raw = buffer.mData else { continue }
-                    let samples = raw.assumingMemoryBound(to: Float.self)
-                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
-                    for i in 0..<count {
-                        // A soft (tanh) limiter rather than a hard clamp — smoothedGain's ramp keeps
-                        // most samples well inside ±1 already, so this only softens the rare outlier
-                        // instead of hard-clipping it into audible distortion.
-                        samples[i] = tanhf(samples[i] * smoothedGain)
-                    }
+            dynamicGain = max(smoothedGain, 1.0)
+        }
+
+        let combinedGain = dynamicGain * volumeOffsetGain
+        if abs(combinedGain - 1.0) > 0.001 {
+            // A soft (tanh) limiter only when the combined gain could push samples outside ±1 —
+            // an attenuation-only combinedGain (< 1, e.g. a negative volumeOffsetDb with no active
+            // boost) can never clip, and tanh subtly distorts even well-inside-range samples, so a
+            // plain multiply preserves quality for that common case.
+            let needsLimiter = combinedGain > 1.0
+            for buffer in bufferList {
+                guard let raw = buffer.mData else { continue }
+                let samples = raw.assumingMemoryBound(to: Float.self)
+                let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                for i in 0..<count {
+                    samples[i] = needsLimiter ? tanhf(samples[i] * combinedGain) : samples[i] * combinedGain
                 }
             }
         }
@@ -199,6 +216,13 @@ final class SmartSpeedProcessor {
     static func boostGain(forLevel level: Float) -> Float {
         guard level > 0.0001 else { return 1 }
         return min(maxBoostGain, boostTargetLevel / level)
+    }
+
+    // dB-to-linear-amplitude conversion for VolumeOffsetDb (#708). Exactly 0 dB returns exactly
+    // 1.0 rather than pow(10, 0/20) (which is also 1.0, but this keeps the "no offset" case a
+    // literal constant rather than relying on floating-point pow to land exactly on it).
+    static func linearGain(forDb db: Float) -> Float {
+        db == 0 ? 1 : pow(10, db / 20)
     }
 }
 
