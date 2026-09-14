@@ -44,6 +44,9 @@ public class ApnsNotificationService(
             .AddToken(token.ApnsToken)
             .AddAlert(showTitle, body)
             .AddSound("default")
+            // content-available lets iOS wake the app in the background to sync the named
+            // episode/show, alongside the visible alert — a valid combined alert+background push.
+            .AddContentAvailable()
             // showId (and, when there's exactly one new episode, its id) is custom payload data
             // outside the reserved "aps" dictionary — #218's deep-link handler reads this to route
             // a tap straight to the episode/show instead of just opening the app.
