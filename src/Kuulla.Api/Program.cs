@@ -1109,6 +1109,7 @@ sync.MapPost("/episodes", async (
     ClaimsPrincipal user,
     IEpisodeStateService episodeStateService,
     IEpisodeService episodeService,
+    IPlaylistService playlistService,
     CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.DeviceId))
@@ -1147,6 +1148,22 @@ sync.MapPost("/episodes", async (
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             app.Logger.LogError(ex, "Failed to enforce auto-archive rule for user {UserId} on show {ShowId} after an episode sync", userId, showId);
+        }
+    }
+
+    // Best-effort (#724), mirrors the PUT /api/episodes/{id}/state hook above: newly-played
+    // episodes pushed through this sync endpoint (iOS's normal path) shouldn't linger in manual
+    // playlists either. Self-heals next sync.
+    var completedEpisodeIds = changes.Where(c => c.Completed).Select(c => c.EpisodeId).Distinct().ToArray();
+    if (completedEpisodeIds.Length > 0)
+    {
+        try
+        {
+            await playlistService.RemoveEpisodesFromManualPlaylistsAsync(userId, completedEpisodeIds, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            app.Logger.LogError(ex, "Failed to prune manual playlists for user {UserId} after an episode sync marked episodes played", userId);
         }
     }
 
