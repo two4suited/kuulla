@@ -73,6 +73,7 @@
 		D1000020 /* DeviceTokenClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000020 /* DeviceTokenClientTests.swift */; };
 		D1000021 /* PushNotificationManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000021 /* PushNotificationManagerTests.swift */; };
 		D1000050 /* PushNotificationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000050 /* PushNotificationRoutingTests.swift */; };
+		D1000051 /* CatalogRefreshServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000051 /* CatalogRefreshServiceTests.swift */; };
 		D23FFA6FE69E2AD89901D753 /* WatchNowPlayingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FDB46966384266B417BAE7B /* WatchNowPlayingState.swift */; };
 		E1000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001 /* UITestSupport.swift */; };
 		E1000002 /* SearchAndSubscribeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000002 /* SearchAndSubscribeUITests.swift */; };
@@ -275,6 +276,7 @@
 		D2000020 /* DeviceTokenClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenClientTests.swift; sourceTree = "<group>"; };
 		D2000021 /* PushNotificationManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManagerTests.swift; sourceTree = "<group>"; };
 		D2000050 /* PushNotificationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationRoutingTests.swift; sourceTree = "<group>"; };
+		D2000051 /* CatalogRefreshServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshServiceTests.swift; sourceTree = "<group>"; };
 		D3000000 /* KuullaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KuullaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2000001 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
 		E2000002 /* SearchAndSubscribeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchAndSubscribeUITests.swift; sourceTree = "<group>"; };
@@ -589,6 +591,7 @@
 				D2000020 /* DeviceTokenClientTests.swift */,
 				D2000021 /* PushNotificationManagerTests.swift */,
 				D2000050 /* PushNotificationRoutingTests.swift */,
+				D2000051 /* CatalogRefreshServiceTests.swift */,
 				D2000005 /* EpisodeDurationParsingTests.swift */,
 				D2000006 /* EpisodeDecodingTests.swift */,
 				D2000007 /* EpisodeFormattingTests.swift */,
@@ -900,6 +903,7 @@
 				D1000020 /* DeviceTokenClientTests.swift in Sources */,
 				D1000021 /* PushNotificationManagerTests.swift in Sources */,
 				D1000050 /* PushNotificationRoutingTests.swift in Sources */,
+				D1000051 /* CatalogRefreshServiceTests.swift in Sources */,
 				D1000005 /* EpisodeDurationParsingTests.swift in Sources */,
 				D1000006 /* EpisodeDecodingTests.swift in Sources */,
 				D1000007 /* EpisodeFormattingTests.swift in Sources */,
