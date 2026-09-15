@@ -187,11 +187,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     // in didFinishLaunching (#749). Refreshes only the pushed show (not a full sync) to stay
     // inside that window.
     //
-    // nonisolated: the protocol requirement's caller isn't actor-isolated, so a main-actor
-    // implementation can't accept the non-Sendable userInfo dictionary under Swift 6 strict
-    // concurrency. Nothing here actually needs MainActor — the async calls below hop to their
-    // own isolation as needed.
-    nonisolated func application(
+    // Implicitly MainActor-isolated (like the rest of this class, via the UIApplicationDelegate
+    // conformance) — needed to touch the MainActor-isolated `modelContainer`/`catalogRefreshService`
+    // statics and ModelContext below without hopping.
+    func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any]
     ) async -> UIBackgroundFetchResult {
