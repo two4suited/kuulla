@@ -176,6 +176,49 @@ final class DownloadManagerTests: XCTestCase {
         }
     }
 
+    // A 200 whose body is an HTML page (expired signed URL, geo-block, sign-in interstitial) is a
+    // failed download, not a completed one — the page must not be saved as <episodeId>.mp3 to
+    // then fail at play time with no explanation.
+    func testHtmlResponseMarksDownloadFailedInsteadOfSavingIt() async throws {
+        let container = try makeContainer()
+        let manager = await makeManager(container: container)
+        MockURLProtocol.stubHandler = { _ in
+            .success(.init(
+                statusCode: 200,
+                data: Data("<!DOCTYPE html><html><body>This link has expired.</body></html>".utf8),
+                headers: ["Content-Type": "text/html; charset=utf-8"]))
+        }
+
+        manager.startDownload(episode: makeEpisode())
+
+        let context = ModelContext(container)
+        let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+        XCTAssertEqual(status, .failed)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        let record = try XCTUnwrap(try context.fetch(descriptor).first)
+        XCTAssertTrue(record.localFilePath.isEmpty)
+        XCTAssertNil(manager.progress["ep1"])
+    }
+
+    // A download task also "completes" for a 4xx/5xx — the error body is delivered as the file.
+    func testNonSuccessStatusMarksDownloadFailed() async throws {
+        let container = try makeContainer()
+        let manager = await makeManager(container: container)
+        MockURLProtocol.stubHandler = { _ in
+            .success(.init(
+                statusCode: 403,
+                data: Data(#"{"error":"signed URL expired"}"#.utf8),
+                headers: ["Content-Type": "application/json"]))
+        }
+
+        manager.startDownload(episode: makeEpisode())
+
+        let context = ModelContext(container)
+        let status = try await waitForStatus("ep1", notEqualTo: .downloading, in: context)
+        XCTAssertEqual(status, .failed)
+        XCTAssertNil(manager.progress["ep1"])
+    }
+
     // Regression: re-downloading a previously-completed episode used to leave the old
     // localFilePath/fileSizeBytes in place on the reused record while status flipped back to
     // .downloading, so a cancel of the new attempt would delete the *old* file.
@@ -378,5 +421,112 @@ final class DownloadManagerTests: XCTestCase {
         manager.enforceEpisodeLimit(showId: "show1", limit: 1, in: context)
 
         XCTAssertEqual(try context.fetch(FetchDescriptor<DownloadedEpisodeRecord>()).count, 1)
+    }
+}
+
+// The extension a finished download is saved under decides whether AVFoundation can open it at
+// all (it identifies local files by extension) — pure-function coverage of the trust order:
+// declared audio Content-Type, then a known audio URL extension, then magic bytes, then "mp3".
+final class DownloadFileTypeDetectionTests: XCTestCase {
+    private let id3Header = Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00])
+    private let mp4Header = Data([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, 0x4D, 0x34, 0x41, 0x20])
+
+    // The bytes are the container; a host's blanket "audio/mpeg" on an M4A enclosure is the
+    // mislabelling the whole change exists to survive.
+    func testContainerSignatureWinsOverDeclaredMimeType() {
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: "audio/mpeg", suggestedFilename: "episode.mp3", headerBytes: mp4Header),
+            "m4a")
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: "audio/mp4", suggestedFilename: "episode.m4a", headerBytes: id3Header),
+            "mp3")
+    }
+
+    // Unlike a real signature, the two-byte MPEG frame sync is too weak to override a declared
+    // type or a known URL extension.
+    func testFrameSyncRanksBelowDeclaredTypeAndUrlExtension() {
+        let bareSync = Data([0xFF, 0xFB, 0x90, 0x64])
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: "audio/mp4", suggestedFilename: nil, headerBytes: bareSync), "m4a")
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: nil, suggestedFilename: "episode.m4a", headerBytes: bareSync), "m4a")
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: nil, suggestedFilename: "download", headerBytes: bareSync), "mp3")
+    }
+
+    func testDeclaredMimeTypeWinsOverMisleadingUrlExtension() {
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: "audio/mp4", suggestedFilename: "episode.mp3", headerBytes: Data()),
+            "m4a")
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(
+                mimeType: "audio/mpeg; charset=binary", suggestedFilename: "episode.m4a", headerBytes: Data()),
+            "mp3")
+    }
+
+    func testKnownUrlExtensionIsUsedWhenMimeTypeIsUnhelpful() {
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(
+                mimeType: "application/octet-stream", suggestedFilename: "Episode 12.M4A", headerBytes: Data()),
+            "m4a")
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: nil, suggestedFilename: "episode.mp3", headerBytes: Data()),
+            "mp3")
+    }
+
+    // A script-style download endpoint's extension must never be copied onto the file.
+    func testNonAudioUrlExtensionFallsThroughToMagicBytes() {
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: nil, suggestedFilename: "play.php", headerBytes: mp4Header),
+            "m4a")
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(
+                mimeType: "application/octet-stream", suggestedFilename: "download", headerBytes: id3Header),
+            "mp3")
+    }
+
+    func testMagicBytesRecognizeCommonContainers() {
+        XCTAssertEqual(DownloadManager.sniffedAudioExtension(headerBytes: id3Header), "mp3")
+        XCTAssertEqual(DownloadManager.sniffedAudioExtension(headerBytes: mp4Header), "m4a")
+        XCTAssertEqual(DownloadManager.sniffedAudioExtension(headerBytes: Data("RIFF....WAVE".utf8)), "wav")
+        XCTAssertEqual(DownloadManager.sniffedAudioExtension(headerBytes: Data("fLaC....".utf8)), "flac")
+        XCTAssertEqual(DownloadManager.sniffedAudioExtension(headerBytes: Data("OggS....".utf8)), "ogg")
+        // Bare MPEG frame sync (no ID3 tag) vs. an ADTS AAC frame sync.
+        XCTAssertEqual(DownloadManager.sniffedAudioExtension(headerBytes: Data([0xFF, 0xFB, 0x90, 0x64])), "mp3")
+        XCTAssertEqual(DownloadManager.sniffedAudioExtension(headerBytes: Data([0xFF, 0xF1, 0x50, 0x80])), "aac")
+        XCTAssertNil(DownloadManager.sniffedAudioExtension(headerBytes: Data("<html>".utf8)))
+        XCTAssertNil(DownloadManager.sniffedAudioExtension(headerBytes: Data()))
+    }
+
+    func testUnrecognizedPayloadDefaultsToMp3() {
+        XCTAssertEqual(
+            DownloadManager.audioFileExtension(mimeType: nil, suggestedFilename: "download", headerBytes: Data("audio".utf8)),
+            "mp3")
+    }
+
+    func testHtmlPayloadIsNotAudio() {
+        XCTAssertFalse(DownloadManager.looksLikeAudioContent(mimeType: "text/html", headerBytes: Data("<html>".utf8), byteCount: 2_000))
+        // Markup with a lying (or absent) Content-Type is still a web page, whatever its size.
+        XCTAssertFalse(DownloadManager.looksLikeAudioContent(
+            mimeType: "audio/mpeg", headerBytes: Data("\u{FEFF}<!DOCTYPE html>".utf8), byteCount: 50_000_000))
+        XCTAssertFalse(DownloadManager.looksLikeAudioContent(mimeType: nil, headerBytes: Data("  <html lang=\"en\">".utf8), byteCount: 2_000))
+        // Declared text/html with no visible markup in the leading bytes: only an error-page-sized
+        // body is refused.
+        XCTAssertFalse(DownloadManager.looksLikeAudioContent(mimeType: "text/html", headerBytes: Data(count: 512), byteCount: 4_096))
+    }
+
+    func testAudioPayloadIsAudioEvenWithHtmlContentType() {
+        XCTAssertTrue(DownloadManager.looksLikeAudioContent(mimeType: "text/html", headerBytes: id3Header, byteCount: 100))
+        XCTAssertTrue(DownloadManager.looksLikeAudioContent(mimeType: "audio/mpeg", headerBytes: Data(), byteCount: 0))
+        XCTAssertTrue(DownloadManager.looksLikeAudioContent(mimeType: nil, headerBytes: Data("audio".utf8), byteCount: 5))
+        // An MP3 with junk before its first frame, behind a host that labels everything text/html
+        // (PHP's default): episode-sized, so it's kept rather than refused forever.
+        XCTAssertTrue(DownloadManager.looksLikeAudioContent(mimeType: "text/html", headerBytes: Data(count: 512), byteCount: 40_000_000))
+    }
+
+    func testPayloadAcceptanceRequiresSuccessStatus() {
+        XCTAssertFalse(DownloadManager.isAcceptablePayload(statusCode: 404, mimeType: "audio/mpeg", headerBytes: id3Header, byteCount: 100))
+        XCTAssertTrue(DownloadManager.isAcceptablePayload(statusCode: 200, mimeType: "audio/mpeg", headerBytes: id3Header, byteCount: 100))
+        XCTAssertTrue(DownloadManager.isAcceptablePayload(statusCode: nil, mimeType: nil, headerBytes: Data("audio".utf8), byteCount: 5))
     }
 }

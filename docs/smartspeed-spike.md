@@ -6,7 +6,8 @@ name for the combined silence-trim + volume-boost toggle, per
 [#200](https://github.com/sheridan-apps/kuulla/issues/200)). `AudioPlayer` today
 (`ios/Kuulla/Kuulla/AudioPlayer.swift`) is a thin wrapper around `AVPlayer`, and
 playback speed (#194-198) already ships as `AVPlayer.rate` + `.timeDomain` pitch
-correction — neither silence detection nor gain processing has any equivalent on
+correction (since switched to `.spectral` — see
+[audio-engine-research.md](./audio-engine-research.md)) — neither silence detection nor gain processing has any equivalent on
 `AVPlayer` today, so both options below start from the same gap.
 
 ## Option A: `MTAudioProcessingTap` on the current `AVPlayer`
