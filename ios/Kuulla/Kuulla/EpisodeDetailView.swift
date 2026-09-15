@@ -754,7 +754,6 @@ struct EpisodeDetailView: View {
                 await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: self.episodeId)
             }
         }
-        let episodeId = self.episodeId
         DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: modelContext.container, on: audioPlayer)
         audioPlayer.play(
             url: url, startPosition: startPosition,
