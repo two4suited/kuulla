@@ -105,7 +105,17 @@ struct PlaylistsView: View {
         defer { isSyncing = false }
         await playlistSyncEngine?.syncNow()
         guard !Task.isCancelled else { return }
-        readLocalPlaylists()
+        guard let playlistSyncEngine else {
+            readLocalPlaylists()
+            return
+        }
+        // Read back through the engine's own ModelContext, not this view's — the same instance
+        // syncNow() just saved into. See SyncEngine.read's doc comment.
+        let synced = await playlistSyncEngine.read { context in
+            PlaylistSummary.local(in: context)
+        }
+        playlists = synced
+        hasLoadedLocal = true
     }
 
     private func readLocalPlaylists() {
