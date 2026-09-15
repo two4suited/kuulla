@@ -128,6 +128,11 @@ struct SubscriptionsView: View {
             // is already on-screen.
             readLocalSubscriptions()
         }
+        .onChange(of: CatalogCacheSignal.shared.version) { _, _ in
+            // A point patch (natural finish, CarPlay, the completed toggle elsewhere) landed
+            // while this screen is already on-screen (#772) — nothing else would repaint it.
+            readLocalSubscriptions()
+        }
     }
 
     private var hideCaughtUpBinding: Binding<Bool> {

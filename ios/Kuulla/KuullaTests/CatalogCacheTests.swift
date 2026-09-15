@@ -210,6 +210,36 @@ final class CatalogCacheTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<CatalogCacheState>()), 0)
     }
 
+    // Regression coverage for #772: Subscriptions/Library re-read the cache off this signal, so
+    // every snapshot mutator that patches unplayedCounts/inProgressShowIds must bump it. Asserts
+    // deltas rather than absolute values — CatalogCacheSignal.shared is a process-wide singleton
+    // shared with every other test in this bundle, so its value at test start isn't 0.
+    func testSnapshotMutatorsBumpCatalogCacheSignalOnlyWhenSomethingChanged() throws {
+        let context = try makeContext()
+        CatalogCache.storeSnapshot(
+            unplayedCounts: ["show1": .init(unplayed: 3, hitCap: false)],
+            inProgressShowIds: [], refreshedAt: Date(timeIntervalSince1970: 1_700_500_000), in: context)
+
+        var before = CatalogCacheSignal.shared.version
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: false, positionSeconds: 0, in: context)
+        XCTAssertEqual(CatalogCacheSignal.shared.version, before, "a no-op change shouldn't bump")
+
+        before = CatalogCacheSignal.shared.version
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: "e1", showId: "show1", completed: false, positionSeconds: 45, in: context)
+        XCTAssertEqual(CatalogCacheSignal.shared.version, before + 1, "an actual patch should bump")
+
+        before = CatalogCacheSignal.shared.version
+        CatalogCache.removeShowFromSnapshot(showId: "show1", in: context)
+        XCTAssertEqual(CatalogCacheSignal.shared.version, before + 1)
+
+        before = CatalogCacheSignal.shared.version
+        CatalogCache.recordNewSubscription(
+            showId: "show2", episodes: [episode(id: "e2", showId: "show2")], in: context)
+        XCTAssertEqual(CatalogCacheSignal.shared.version, before + 1)
+    }
+
     func testEpisodeStalenessHelpers() throws {
         let context = try makeContext()
         XCTAssertFalse(CatalogCache.hasEpisodes(showId: "show1", in: context))

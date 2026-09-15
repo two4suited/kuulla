@@ -59,6 +59,7 @@
 		CA100007 /* CatalogRefreshEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200007 /* CatalogRefreshEnvironment.swift */; };
 		CA100008 /* CatalogCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200008 /* CatalogCacheTests.swift */; };
 		CA100009 /* CachedNewEpisodeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA200009 /* CachedNewEpisodeRecord.swift */; };
+		CA10000A /* CatalogCacheSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA20000A /* CatalogCacheSignal.swift */; };
 		D1000001 /* MockURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000001 /* MockURLProtocol.swift */; };
 		D1000002 /* ApiClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000002 /* ApiClientTests.swift */; };
 		D1000003 /* PodcastCatalogClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000003 /* PodcastCatalogClientTests.swift */; };
@@ -260,6 +261,7 @@
 		CA200005 /* CatalogCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCache.swift; sourceTree = "<group>"; };
 		CA200006 /* CatalogRefreshService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshService.swift; sourceTree = "<group>"; };
 		CA200007 /* CatalogRefreshEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRefreshEnvironment.swift; sourceTree = "<group>"; };
+		CA20000A /* CatalogCacheSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheSignal.swift; sourceTree = "<group>"; };
 		CA200008 /* CatalogCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogCacheTests.swift; sourceTree = "<group>"; };
 		CA200009 /* CachedNewEpisodeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedNewEpisodeRecord.swift; sourceTree = "<group>"; };
 		D2000001 /* MockURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockURLProtocol.swift; sourceTree = "<group>"; };
@@ -561,6 +563,7 @@
 				CA200005 /* CatalogCache.swift */,
 				CA200006 /* CatalogRefreshService.swift */,
 				CA200007 /* CatalogRefreshEnvironment.swift */,
+				CA20000A /* CatalogCacheSignal.swift */,
 				NB200001 /* NowPlayingBar.swift */,
 				NP200001 /* NowPlayingView.swift */,
 			);
@@ -883,6 +886,7 @@
 				CA100005 /* CatalogCache.swift in Sources */,
 				CA100006 /* CatalogRefreshService.swift in Sources */,
 				CA100007 /* CatalogRefreshEnvironment.swift in Sources */,
+				CA10000A /* CatalogCacheSignal.swift in Sources */,
 				NB100001 /* NowPlayingBar.swift in Sources */,
 				NP100001 /* NowPlayingView.swift in Sources */,
 				EBCEE3867AB787693CDFB3DB /* WatchConnectivitySession.swift in Sources */,

@@ -345,6 +345,8 @@ enum CatalogCache {
             // plain 20s position tick (completed: false, nothing actually toggled) doesn't pay for
             // a badge recompute it can't have affected.
             Task { await AppIconBadge.refresh(in: context) }
+            // Wakes Subscriptions/Library if either is already on screen (#772) — same gating.
+            CatalogCacheSignal.shared.bump()
         }
     }
 
@@ -381,6 +383,9 @@ enum CatalogCache {
         byShow[showId] = unplayed
         row.unplayedCountsData = try? JSONEncoder().encode(byShow)
         try? context.save()
+        // Mirrors recordEpisodeStateChange/removeShowFromSnapshot's own signal (#772) — a new
+        // subscription's badge should reach an already-visible Subscriptions/Library too.
+        CatalogCacheSignal.shared.bump()
     }
 
     // Drop a single show from the snapshot blobs so a just-unsubscribed show stops showing a
@@ -406,6 +411,7 @@ enum CatalogCache {
         // "mark all played" can drop a show's whole unplayed count in one shot.
         if didChange {
             Task { await AppIconBadge.refresh(in: context) }
+            CatalogCacheSignal.shared.bump()
         }
     }
 }
