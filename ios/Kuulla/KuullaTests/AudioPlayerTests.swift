@@ -190,15 +190,34 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.currentPlayerRate, 1.5)
     }
 
-    // Guards against the pitch-correction wiring silently regressing — a plain rate change
-    // without .timeDomain would distort pitch (the "chipmunk effect") instead of staying
-    // spoken-word-optimized.
-    func testPlaySetsTimeDomainPitchAlgorithm() {
+    // Guards against the pitch-correction wiring silently regressing — a plain rate change with
+    // no pitch algorithm would chipmunk, and .timeDomain (the original choice) warbles at 2x+
+    // (docs/audio-engine-research.md); .spectral is the one that holds up across the presets.
+    func testPlaySetsSpectralPitchAlgorithm() {
         let player = AudioPlayer()
 
         player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 1.5)
 
-        XCTAssertEqual(player.currentPitchAlgorithm, .timeDomain)
+        XCTAssertEqual(player.currentPitchAlgorithm, .spectral)
+    }
+
+    // The rewind after a silence skip only fires when the output has genuinely run past the
+    // point sound resumed at — a few tens of ms isn't worth the seek, and a non-finite player
+    // time (no item yet) or an unknown resume time must never seek.
+    func testShouldRewindAfterSilenceOnlyWhenOutputRanPastResumePoint() {
+        XCTAssertTrue(AudioPlayer.shouldRewindAfterSilence(playerTime: 100.8, resumeItemTime: 100.0))
+        XCTAssertFalse(AudioPlayer.shouldRewindAfterSilence(playerTime: 100.02, resumeItemTime: 100.0))
+        XCTAssertFalse(AudioPlayer.shouldRewindAfterSilence(playerTime: 99.5, resumeItemTime: 100.0))
+        XCTAssertFalse(AudioPlayer.shouldRewindAfterSilence(playerTime: .nan, resumeItemTime: 100.0))
+        XCTAssertFalse(AudioPlayer.shouldRewindAfterSilence(playerTime: 5, resumeItemTime: 0))
+    }
+
+    // The #680 time-saved accounting must follow the capped skip rate, not the bare multiplier:
+    // at 1x a 6 s run skipped at 4x saves 4.5 s, but at 3x the same run skips at 6x (not 12x), so
+    // it saves 1 s rather than the 1.5 s the uncapped math would claim.
+    func testSilenceTimeSavedUsesCappedSkipRate() {
+        XCTAssertEqual(AudioPlayer.silenceTimeSaved(runItemDuration: 6, playbackSpeed: 1.0), 4.5, accuracy: 0.0001)
+        XCTAssertEqual(AudioPlayer.silenceTimeSaved(runItemDuration: 6, playbackSpeed: 3.0), 1.0, accuracy: 0.0001)
     }
 
     func testSetPlaybackSpeedUpdatesSpeedWhilePlaying() {
