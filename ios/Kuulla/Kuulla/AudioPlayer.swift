@@ -108,8 +108,27 @@ final class AudioPlayer {
     // stays the caller's responsibility.
     var onSpliceApplied: ((_ realSecondsSaved: TimeInterval) -> Void)?
 
+    // Fires once, on the main queue, when the *currently playing* item's AVPlayerItem.status
+    // reaches .failed and the URL it was playing was a local file:// download (#781). AudioPlayer
+    // has no SwiftData access, so it can't mark the DownloadedEpisodeRecord itself — this hands
+    // the failed URL and the position playback had reached back to the caller, which is expected
+    // to mark the download failed and re-issue play() with the stream URL at the same position so
+    // the episode still plays. Single-slot, assigned-at-play() contract mirrors onDidFinishPlaying.
+    var onLocalFileFailed: ((_ failedLocalURL: URL, _ startPosition: TimeInterval) -> Void)?
+
+    // Set when the *currently playing* item's AVPlayerItem.status reaches .failed for a remote
+    // stream (not a local file, which instead falls back via onLocalFileFailed above) — there's
+    // nothing to fall back to, so this surfaces the failure instead of leaving playback silently
+    // stopped with no message. Cleared at the start of every play() call, mirroring
+    // streamBlockedMessage/streamBlockedURL's own per-URL guard.
+    private(set) var playbackErrorMessage: String?
+    private(set) var playbackErrorURL: URL?
+
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
+    // Observes the *currently playing* item's status for .failed — distinct from
+    // pendingNextStatusObserver, which watches a not-yet-playing preload's readiness instead.
+    private var itemStatusObserver: NSKeyValueObservation?
 
     // The current session's SmartSpeed processor, purely so play()/removeObservers() have
     // something to reference — its actual memory lifetime is owned by the tap itself (see
@@ -330,6 +349,8 @@ final class AudioPlayer {
     ) {
         streamBlockedMessage = nil
         streamBlockedURL = nil
+        playbackErrorMessage = nil
+        playbackErrorURL = nil
 
         // Only gates a genuine remote stream — a downloaded local file (#177) plays fine over
         // cellular, or with no connection at all; it isn't "streaming".
@@ -544,6 +565,17 @@ final class AudioPlayer {
     // exactly the same bookkeeping a fresh play() call would, rather than a hand-duplicated subset
     // of it that could silently drift out of sync.
     private func wireUpFreshlyStartedPlayer(item: AVPlayerItem, player: AVPlayer, url: URL) {
+        // AVPlayerItem.status isn't guaranteed to update on main (mirroring
+        // pendingNextStatusObserver's own dispatch below) — hop explicitly. Compares against
+        // self.player?.currentItem (not the captured `item`) so a stale observer from a session
+        // already replaced by a later play()/swap can't act on this one's behalf.
+        itemStatusObserver = item.observe(\.status, options: [.new]) { [weak self] observedItem, _ in
+            DispatchQueue.main.async {
+                guard let self, self.player?.currentItem === observedItem, observedItem.status == .failed else { return }
+                self.handlePlaybackFailure(url: url)
+            }
+        }
+
         timeObserverToken = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
@@ -573,6 +605,28 @@ final class AudioPlayer {
             self.isPlaying = false
             self.updateNowPlayingInfo()
             self.fireOnDidFinishPlayingUnlessSleepTimerStopsHere(url: url)
+        }
+    }
+
+    // Handles the currently-playing item reaching AVPlayerItem.status == .failed (#781) — a
+    // download saved under the wrong extension by the pre-#776 rule, a format AVFoundation can't
+    // decode at all (Ogg Vorbis), a truncated file, or (for a stream) a genuine network/format
+    // error. A local file:// failure hands off to the caller via onLocalFileFailed so it can mark
+    // the download failed and retry with the stream URL at the same position; a stream failure has
+    // nowhere to fall back to, so it just surfaces the error instead of leaving playback silently
+    // stopped.
+    //
+    // Internal (not private) so tests can drive it directly instead of needing a real AVPlayerItem
+    // to reach .failed — mirrors completeGoverningSeek/tickSleepTimer's own test seams above.
+    func handlePlaybackFailure(url: URL) {
+        let position = currentTime
+        isPlaying = false
+        updateNowPlayingInfo()
+        if url.isFileURL {
+            onLocalFileFailed?(url, position)
+        } else {
+            playbackErrorMessage = "This episode couldn't be played. Please try again later."
+            playbackErrorURL = url
         }
     }
 
@@ -1040,6 +1094,7 @@ final class AudioPlayer {
             NotificationCenter.default.removeObserver(endObserver)
             self.endObserver = nil
         }
+        itemStatusObserver = nil
     }
 
     private func configureAudioSession() {

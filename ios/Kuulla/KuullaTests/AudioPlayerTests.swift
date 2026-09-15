@@ -966,6 +966,68 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.currentWatchNowPlayingState()?.position, 75)
     }
 
+    // MARK: - Local file playback failure fallback (#781)
+
+    func testHandlePlaybackFailureForLocalFileFiresOnLocalFileFailedWithCurrentPosition() {
+        let player = AudioPlayer()
+        let localURL = URL(fileURLWithPath: "/tmp/episode.mp3")
+        player.play(url: localURL, startPosition: 42)
+
+        var failedURL: URL?
+        var failedPosition: TimeInterval?
+        player.onLocalFileFailed = { url, position in
+            failedURL = url
+            failedPosition = position
+        }
+        player.seek(to: 42)
+
+        player.handlePlaybackFailure(url: localURL)
+
+        XCTAssertEqual(failedURL, localURL)
+        XCTAssertEqual(failedPosition, 42)
+    }
+
+    func testHandlePlaybackFailureForLocalFileStopsPlaybackAndDoesNotSetPlaybackErrorMessage() {
+        let player = AudioPlayer()
+        let localURL = URL(fileURLWithPath: "/tmp/episode.mp3")
+        player.play(url: localURL)
+        player.onLocalFileFailed = { _, _ in }
+
+        player.handlePlaybackFailure(url: localURL)
+
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertNil(player.playbackErrorMessage)
+    }
+
+    func testHandlePlaybackFailureForStreamSetsPlaybackErrorMessageInsteadOfFallingBack() {
+        let player = AudioPlayer()
+        let streamURL = URL(string: "https://example.com/audio.mp3")!
+        player.play(url: streamURL)
+
+        var localFileFailedCalled = false
+        player.onLocalFileFailed = { _, _ in localFileFailedCalled = true }
+
+        player.handlePlaybackFailure(url: streamURL)
+
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertFalse(localFileFailedCalled)
+        XCTAssertNotNil(player.playbackErrorMessage)
+        XCTAssertEqual(player.playbackErrorURL, streamURL)
+    }
+
+    func testPlayClearsAStalePlaybackErrorMessageOnANewSession() {
+        let player = AudioPlayer()
+        let streamURL = URL(string: "https://example.com/audio.mp3")!
+        player.play(url: streamURL)
+        player.handlePlaybackFailure(url: streamURL)
+        XCTAssertNotNil(player.playbackErrorMessage)
+
+        player.play(url: URL(string: "https://example.com/other.mp3")!)
+
+        XCTAssertNil(player.playbackErrorMessage)
+        XCTAssertNil(player.playbackErrorURL)
+    }
+
     func testDownsampledArtworkThumbnailProducesSmallerJPEGData() {
         let size = CGSize(width: 600, height: 600)
         let renderer = UIGraphicsImageRenderer(size: size)

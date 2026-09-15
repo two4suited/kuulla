@@ -51,4 +51,69 @@ final class DownloadedEpisodeRecordTests: XCTestCase {
 
         XCTAssertTrue(map.isEmpty)
     }
+
+    // MARK: - Local file playback failure fallback (#781)
+
+    func testMarkFailedSetsStatusToFailed() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(DownloadedEpisodeRecord(
+            id: "ep1", showId: "show1", localFilePath: "a.mp3", fileSizeBytes: 10, downloadedAt: Date(), status: .complete))
+        try context.save()
+
+        DownloadedEpisodeRecord.markFailed(episodeId: "ep1", modelContainer: container)
+
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<DownloadedEpisodeRecord>()).first)
+        XCTAssertEqual(stored.status, .failed)
+    }
+
+    func testMarkFailedForUnknownEpisodeIsANoOp() throws {
+        let container = try makeContainer()
+
+        DownloadedEpisodeRecord.markFailed(episodeId: "missing", modelContainer: container)
+
+        let context = ModelContext(container)
+        XCTAssertTrue(try context.fetch(FetchDescriptor<DownloadedEpisodeRecord>()).isEmpty)
+    }
+
+    func testWireLocalFileFailureFallbackMarksDownloadFailedAndReplaysWithStreamURL() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(DownloadedEpisodeRecord(
+            id: "ep1", showId: "show1", localFilePath: "a.mp3", fileSizeBytes: 10, downloadedAt: Date(), status: .complete))
+        try context.save()
+
+        let player = AudioPlayer()
+        var replayedURL: URL?
+        var replayedPosition: TimeInterval?
+        DownloadedEpisodeRecord.wireLocalFileFailureFallback(
+            episodeId: "ep1", streamURLString: "https://example.com/audio.mp3", modelContainer: container, on: player
+        ) { url, position in
+            replayedURL = url
+            replayedPosition = position
+        }
+
+        let localURL = URL(fileURLWithPath: "/tmp/a.mp3")
+        player.onLocalFileFailed?(localURL, 30)
+
+        XCTAssertEqual(replayedURL, URL(string: "https://example.com/audio.mp3"))
+        XCTAssertEqual(replayedPosition, 30)
+        let verifyContext = ModelContext(container)
+        let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<DownloadedEpisodeRecord>()).first)
+        XCTAssertEqual(stored.status, .failed)
+    }
+
+    func testWireLocalFileFailureFallbackWithNoModelContainerLeavesCallbackUntouched() {
+        let player = AudioPlayer()
+        var originalCalled = false
+        player.onLocalFileFailed = { _, _ in originalCalled = true }
+
+        DownloadedEpisodeRecord.wireLocalFileFailureFallback(
+            episodeId: "ep1", streamURLString: "https://example.com/audio.mp3", modelContainer: nil, on: player
+        ) { _, _ in XCTFail("replay should not be reachable when modelContainer is nil") }
+
+        player.onLocalFileFailed?(URL(fileURLWithPath: "/tmp/a.mp3"), 0)
+        XCTAssertTrue(originalCalled)
+    }
 }

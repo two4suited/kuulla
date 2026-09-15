@@ -223,6 +223,17 @@ struct EpisodeDetailView: View {
                     .foregroundStyle(KuullaColor.textMuted)
             }
 
+            // A remote stream's AVPlayerItem reached .failed (#781) — a local file failure instead
+            // falls back to the stream automatically (see startPlayback's onLocalFileFailed
+            // wiring) and never sets this, so reaching here always means there's nothing left to
+            // fall back to. Matched against this screen's own audioURL for the same reason as
+            // streamBlockedMessage above.
+            if let playbackErrorMessage = audioPlayer.playbackErrorMessage, audioPlayer.playbackErrorURL == audioURL {
+                Text(playbackErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(KuullaColor.danger)
+            }
+
             // A newer position came in from another device while this one keeps playing (#242):
             // offer the jump rather than yanking playback. Gated on this screen's episode being
             // the one actively playing — it's a *playback* handoff, so it shouldn't linger once
@@ -739,34 +750,60 @@ struct EpisodeDetailView: View {
             PlaybackQueue.shared.clear()
         }
 
-        // Assigned only when actually starting playback for this URL (not merely on screen
-        // appearance) — AudioPlayer has one completion-callback slot shared across the app, and
-        // starting playback here always fully replaces whatever was playing before, so tying
-        // the callback to this exact moment keeps it pointed at whichever episode is actually
-        // playing rather than being silently stolen by a screen that never pressed play.
-        audioPlayer.onDidFinishPlaying = { finishedURL in
-            guard finishedURL == url else { return }
-            self.stopProgressTracking()
-            Task {
-                await self.persistProgress(completed: true)
-                // No-op unless this session was started from a manual playlist — then it removes
-                // the finished episode and starts the next one (#532).
-                await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: self.episodeId)
+        // Pulled out so a local-file playback failure (#781) can re-run exactly this same wiring/
+        // play() call against the episode's stream URL instead of a hand-duplicated copy of it.
+        func startPlayback(url: URL, startPosition: TimeInterval) {
+            // Keeps resolvedAudioURL in sync with whatever AudioPlayer is actually playing —
+            // critical for the fallback-replay case: without this, isPlaying(audioURL)/
+            // togglePlayback(url:) elsewhere in this view would keep comparing against the
+            // original (now-failed) local URL after AudioPlayer.currentURL has already moved to
+            // the stream URL, showing "Play" instead of "Pause" and, on tap, restarting playback
+            // from that same broken local file all over again.
+            resolvedAudioURL = url
+            // Assigned only when actually starting playback for this URL (not merely on screen
+            // appearance) — AudioPlayer has one completion-callback slot shared across the app,
+            // and starting playback here always fully replaces whatever was playing before, so
+            // tying the callback to this exact moment keeps it pointed at whichever episode is
+            // actually playing rather than being silently stolen by a screen that never pressed
+            // play.
+            audioPlayer.onDidFinishPlaying = { finishedURL in
+                guard finishedURL == url else { return }
+                self.stopProgressTracking()
+                Task {
+                    await self.persistProgress(completed: true)
+                    // No-op unless this session was started from a manual playlist — then it
+                    // removes the finished episode and starts the next one (#532).
+                    await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: self.episodeId)
+                }
             }
+            DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: modelContext.container, on: audioPlayer)
+            audioPlayer.play(
+                url: url, startPosition: startPosition,
+                autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
+                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
+                volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord(for: episodeId)),
+                context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
+                metadata: episode.map { episode in
+                    NowPlayingMetadata(
+                        title: episode.title, showTitle: show?.title,
+                        artworkURL: show?.artworkUrl.flatMap(URL.init(string:)))
+                })
+            startProgressTracking()
         }
-        DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: modelContext.container, on: audioPlayer)
-        audioPlayer.play(
-            url: url, startPosition: startPosition,
-            autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
-            playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
-            volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord(for: episodeId)),
-            context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
-            metadata: episode.map { episode in
-                NowPlayingMetadata(
-                    title: episode.title, showTitle: show?.title,
-                    artworkURL: show?.artworkUrl.flatMap(URL.init(string:)))
-            })
-        startProgressTracking()
+
+        // Reassigned unconditionally, mirroring onDidFinishPlaying's own single-slot contract
+        // above — AudioPlayer.shared is a singleton, so leaving a nil-episode session's play()
+        // call without this (e.g. episode not yet loaded) would let a *previous* session's
+        // onLocalFileFailed (a different episode, stream URL, and replay closure) stay armed and
+        // fire against this one's local-file failure.
+        if let episode {
+            DownloadedEpisodeRecord.wireLocalFileFailureFallback(
+                episodeId: episodeId, streamURLString: episode.audioUrl, modelContainer: modelContext.container,
+                on: audioPlayer, replay: startPlayback)
+        } else {
+            audioPlayer.onLocalFileFailed = nil
+        }
+        startPlayback(url: url, startPosition: startPosition)
     }
 
     // Small shared fetch so startPlayback doesn't repeat resolvedPlaybackURL(for:)'s own
