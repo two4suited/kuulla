@@ -356,8 +356,8 @@ final class AudioPlayer {
         let (item, timeMap, sourceDuration) = makePlayerItem(url: url, trimSilence: trimSilence, excludedRanges: excludedRanges)
         activeTimeMap = timeMap
         smartSpeedProcessor = makeSmartSpeedProcessorIfNeeded(
-            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb,
-            silenceAlreadySpliced: timeMap != nil)
+            for: item, playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost,
+            trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb, silenceAlreadySpliced: timeMap != nil)
 
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
@@ -435,19 +435,15 @@ final class AudioPlayer {
     // volumeOffsetDb is 0, matching play()'s own "only pay the tap-processing cost when actually
     // in use" contract.
     private func makeSmartSpeedProcessorIfNeeded(
-        for item: AVPlayerItem, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0,
-        silenceAlreadySpliced: Bool = false
+        for item: AVPlayerItem, playbackSpeed: Float, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool,
+        volumeOffsetDb: Float = 0, silenceAlreadySpliced: Bool = false
     ) -> SmartSpeedProcessor? {
         // Pitch correction so spoken-word content speeds up without the chipmunk effect a naive
-        // rate change would produce. .spectral (a phase vocoder) rather than .timeDomain: the
-        // time-domain stretcher overlaps ever-shorter waveform grains as the rate climbs and
-        // audibly warbles/stutters from ~2x up — the "sounds funny at 3x" symptom in
-        // docs/audio-engine-research.md — while spectral stays smooth across the whole 0.5x-3x
-        // preset range (and the faster silence-skip rate on top of it) for a CPU cost that's
-        // negligible on any iOS 17 device. Applied unconditionally (not just when SmartSpeed/
-        // VoiceBoost/TrimSilence are on) since every session, preloaded or not, can have its
-        // rate changed via setPlaybackSpeed().
-        item.audioTimePitchAlgorithm = .spectral
+        // rate change would produce. See pitchAlgorithm(forSpeed:) for why the algorithm depends
+        // on the speed. Applied unconditionally (not just when SmartSpeed/VoiceBoost/TrimSilence
+        // are on) since every session, preloaded or not, can have its rate changed via
+        // setPlaybackSpeed(), which re-derives the algorithm the same way.
+        item.audioTimePitchAlgorithm = Self.pitchAlgorithm(forSpeed: playbackSpeed)
 
         // A splice-only session (trimSilence the sole reason this would otherwise fire) needs no
         // tap at all once the composition has already removed the silence.
@@ -527,6 +523,17 @@ final class AudioPlayer {
     // current item, indefinite time) or an unknown resume time never rewinds.
     static func shouldRewindAfterSilence(playerTime: TimeInterval, resumeItemTime: TimeInterval) -> Bool {
         playerTime.isFinite && resumeItemTime > 0 && playerTime - resumeItemTime > silenceRewindThreshold
+    }
+
+    // Pitch algorithm to use at a given playback speed (#783). docs/audio-engine-research.md and
+    // #776 expected .spectral (a phase vocoder) to hold up better than .timeDomain from ~2x up —
+    // the time-domain stretcher overlaps ever-shorter waveform grains as the rate climbs and was
+    // expected to warble/stutter there. An on-device listen test found the opposite through 2x:
+    // .spectral has a noticeable robotic/metallic quality on spoken word at 1.2x-2x that
+    // .timeDomain doesn't, so .timeDomain is kept through 2x and only .spectral above it. Pure so
+    // the threshold is unit-testable.
+    static func pitchAlgorithm(forSpeed speed: Float) -> AVAudioTimePitchAlgorithm {
+        speed <= 2.0 ? .timeDomain : .spectral
     }
 
     // Real-world seconds a confirmed silent run of `runItemDuration` item-seconds saved (#680):
@@ -699,6 +706,10 @@ final class AudioPlayer {
     // seek's own completion handler applies this playbackSpeed once it fires.
     func setPlaybackSpeed(_ speed: Float) {
         playbackSpeed = speed
+        // audioTimePitchAlgorithm is settable on a live item and takes effect immediately, unlike
+        // .rate this isn't gated on isPlaying/pendingSeekPlayer — a paused or mid-seek item still
+        // benefits from having the right algorithm already set before playback resumes.
+        player?.currentItem?.audioTimePitchAlgorithm = Self.pitchAlgorithm(forSpeed: speed)
         if isPlaying && pendingSeekPlayer == nil {
             player?.rate = speed
         }
@@ -884,8 +895,8 @@ final class AudioPlayer {
 
         let (item, timeMap, sourceDuration) = makePlayerItem(url: url, trimSilence: trimSilence, excludedRanges: excludedRanges)
         let processor = makeSmartSpeedProcessorIfNeeded(
-            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb,
-            silenceAlreadySpliced: timeMap != nil)
+            for: item, playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost,
+            trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb, silenceAlreadySpliced: timeMap != nil)
 
         let newPlayer = AVPlayer(playerItem: item)
         // Deliberately left at rate 0 — preloading only buffers the item toward readyToPlay, it

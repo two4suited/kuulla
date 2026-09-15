@@ -356,7 +356,8 @@ Recommendation, in order:
    formats AVFoundation cannot decode at all.
 6. **Store the enclosure MIME type** in `Episode` and warn on Ogg/Opus enclosures
    before downloading (finding 4).
-7. **Listen test the spectral switch on real episodes** at 1.2x–1.5x, where
-   `.timeDomain` was fine and spectral's transient softening is the only trade-off;
-   if it is noticeable, the fallback is `.timeDomain` ≤ 1.5x and `.spectral` above
-   (it also saves some CPU over a long session).
+7. **Listen test the spectral switch on real episodes** (#783) — **Done**: on-device,
+   `.spectral` had a noticeably robotic/metallic quality on spoken word through 2x, not
+   just the "slight transient softening" expected. `.timeDomain` was clean at 1.2x, 1.5x,
+   and 2x, contrary to finding 1's assumption that `.timeDomain` starts warbling at ~2x.
+   Shipped: `.timeDomain` ≤ 2x, `.spectral` above (`AudioPlayer.pitchAlgorithm(forSpeed:)`).
