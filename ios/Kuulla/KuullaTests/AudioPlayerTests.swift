@@ -191,14 +191,23 @@ final class AudioPlayerTests: XCTestCase {
     }
 
     // Guards against the pitch-correction wiring silently regressing — a plain rate change with
-    // no pitch algorithm would chipmunk, and .timeDomain (the original choice) warbles at 2x+
-    // (docs/audio-engine-research.md); .spectral is the one that holds up across the presets.
-    func testPlaySetsSpectralPitchAlgorithm() {
+    // no pitch algorithm would chipmunk. Below/at 2x .timeDomain is used (#783: an on-device
+    // listen test found .spectral has a noticeable robotic quality through 2x, contrary to
+    // docs/audio-engine-research.md's expectation that .timeDomain would be the one to warble
+    // there); above 2x .spectral takes over.
+    func testPlaySetsPitchAlgorithmBySpeed() {
+        XCTAssertEqual(AudioPlayer.pitchAlgorithm(forSpeed: 1.0), .timeDomain)
+        XCTAssertEqual(AudioPlayer.pitchAlgorithm(forSpeed: 2.0), .timeDomain)
+        XCTAssertEqual(AudioPlayer.pitchAlgorithm(forSpeed: 2.1), .spectral)
+        XCTAssertEqual(AudioPlayer.pitchAlgorithm(forSpeed: 3.0), .spectral)
+
         let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 2.0)
+        XCTAssertEqual(player.currentPitchAlgorithm, .timeDomain)
 
-        player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 1.5)
-
-        XCTAssertEqual(player.currentPitchAlgorithm, .spectral)
+        let fastPlayer = AudioPlayer()
+        fastPlayer.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 2.5)
+        XCTAssertEqual(fastPlayer.currentPitchAlgorithm, .spectral)
     }
 
     // The rewind after a silence skip only fires when the output has genuinely run past the
@@ -229,6 +238,18 @@ final class AudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.playbackSpeed, 2.0)
         XCTAssertEqual(player.currentPlayerRate, 2.0)
         XCTAssertTrue(player.isPlaying)
+    }
+
+    func testSetPlaybackSpeedSwitchesPitchAlgorithmAcrossTheThreshold() {
+        let player = AudioPlayer()
+        player.play(url: URL(string: "https://example.com/audio.mp3")!, playbackSpeed: 1.0)
+        XCTAssertEqual(player.currentPitchAlgorithm, .timeDomain)
+
+        player.setPlaybackSpeed(2.5)
+        XCTAssertEqual(player.currentPitchAlgorithm, .spectral)
+
+        player.setPlaybackSpeed(1.2)
+        XCTAssertEqual(player.currentPitchAlgorithm, .timeDomain)
     }
 
     func testSetPlaybackSpeedDoesNotResumePlaybackWhilePaused() {
