@@ -25,6 +25,7 @@ struct EpisodeDetailView: View {
     var autoPlayOnAppear = false
 
     @Environment(\.episodeSyncEngine) private var syncEngine
+    @Environment(\.playlistSyncEngine) private var playlistSyncEngine
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
@@ -922,7 +923,8 @@ struct EpisodeDetailView: View {
         // only path that needs it, and putting it in persist() would double the network work on
         // every natural finish for no benefit.
         await PlaylistCleanup.removeFromManualPlaylists(
-            episodeId: episodeId, completed: newCompleted, playlistClient: playlistClient)
+            episodeId: episodeId, completed: newCompleted,
+            playlistSyncEngine: playlistSyncEngine, playlistClient: playlistClient)
     }
 
     private func persistProgress(completed: Bool) async {

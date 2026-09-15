@@ -105,6 +105,11 @@ struct LibraryView: View {
             // reach this already-visible screen — re-read the cache when isRefreshing flips.
             readLocalShows()
         }
+        .onChange(of: CatalogCacheSignal.shared.version) { _, _ in
+            // A point patch (natural finish, CarPlay, the completed toggle elsewhere) landed
+            // while this screen is already on-screen (#772) — nothing else would repaint it.
+            readLocalShows()
+        }
     }
 
     private var hideCaughtUpBinding: Binding<Bool> {

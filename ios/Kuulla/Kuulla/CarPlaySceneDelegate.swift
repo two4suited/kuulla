@@ -881,14 +881,22 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
         // Gated on the write actually committing — see Self.persist's own doc comment.
         guard persisted else { return }
-        await PlaylistCleanup.removeFromManualPlaylists(episodeId: episodeId, completed: true, playlistClient: playlistClient)
+        await PlaylistCleanup.removeFromManualPlaylists(
+            episodeId: episodeId, completed: true,
+            playlistSyncEngine: Self.playlistSyncEngine, playlistClient: playlistClient)
         await Self.cleanupDownloadIfEligible(episodeId: episodeId)
         // #724: this path never patched the Shows/Subscriptions badge cache the way the phone UI's
         // mark-played toggles do, so an episode marked played from CarPlay's Now Playing screen
         // kept showing as unplayed there until the next full sync.
-        if let context {
+        // Patches through mainContext, not the throwaway `context` above (#772) — the
+        // Shows/Library grids read via `@Environment(\.modelContext)`, which is exactly
+        // `modelContainer.mainContext`; a fresh sibling context isn't guaranteed to make this
+        // show up there promptly (#763), and CatalogCacheSignal only tells those grids *when* to
+        // re-read, not that the read will see the write.
+        if let modelContainer = Self.modelContainer {
             CatalogCache.recordEpisodeStateChange(
-                episodeId: episodeId, showId: showId, completed: true, positionSeconds: 0, in: context)
+                episodeId: episodeId, showId: showId, completed: true, positionSeconds: 0,
+                in: modelContainer.mainContext)
         }
     }
 

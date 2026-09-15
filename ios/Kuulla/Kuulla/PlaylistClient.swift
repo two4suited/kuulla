@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 // Direct CRUD against /api/playlists, coexisting with PlaylistSyncAdapter (sync push) exactly as
 // SubscriptionClient (direct CRUD) coexists with EpisodeSyncAdapter (sync) for episodes.
@@ -174,30 +175,80 @@ private struct ReorderPlaylistItemRequest: Encodable {
 // server-computed from rules with no editable membership, so they're skipped exactly like
 // PlaybackQueue does.
 enum PlaylistCleanup {
-    // Best-effort, like PlaybackQueue.handleNaturalFinish's removal — a failed fetch/removal
-    // shouldn't block the mark-played action itself. The next sync (or opening the playlist)
-    // still shows the episode; the user can remove it by hand.
+    // Local-first (#771): edits every containing manual PlaylistRecord through
+    // playlistSyncEngine.write *before* touching the network, mirroring
+    // PlaylistsView.deleteLocalRecord's reasoning — every local reader (Playlists tab counts, the
+    // PlaylistDetailView placeholder, CarPlay's cache-first lists, PlaybackQueue) reads that store
+    // directly and would otherwise stay stale until the next sync pull. The local edit always marks
+    // the record dirty (not just on a failed DELETE below) — every other local mutation in this
+    // codebase does the same (see ShowDetailView.toggleCompleted) because PlaylistSyncAdapter.apply
+    // only accepts an incoming server record when its updatedAt is newer than what's stored
+    // locally; leaving updatedAt untouched here would let a sync pull that races the DELETE below
+    // silently overwrite this removal with stale (pre-removal) server state. The DELETE is then
+    // just the fast path to reflect the removal on the server quickly instead of waiting for the
+    // next debounced push.
     static func removeFromManualPlaylists(
-        episodeId: String, completed: Bool, playlistClient: PlaylistClient = PlaylistClient()
+        episodeId: String, completed: Bool,
+        playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?,
+        playlistClient: PlaylistClient = PlaylistClient()
     ) async {
-        guard completed, let playlists = try? await playlistClient.getPlaylists() else { return }
-        for playlist in playlists
-        where playlist.type == .manual && playlist.items.contains(where: { $0.episodeId == episodeId }) {
-            try? await playlistClient.removeItem(playlistId: playlist.id, episodeId: episodeId)
-        }
+        guard completed, let playlistSyncEngine else { return }
+        let removed = await removeItemsLocally(playlistSyncEngine: playlistSyncEngine) { $0.episodeId == episodeId }
+        await pushRemovals(removed, playlistClient: playlistClient)
     }
 
-    // Bulk counterpart for "mark all played" (#490/#569): a single fetch of every playlist, then
-    // remove every item belonging to the show — scoped the same way DownloadCleanup.deleteAllEligible
-    // is, since mark-all-played reaches the show's whole back catalogue server-side regardless of
-    // how much of it is paged into the caller's own episode list.
+    // Bulk counterpart for "mark all played" (#490/#569): scoped the same way
+    // DownloadCleanup.deleteAllEligible is, since mark-all-played reaches the show's whole back
+    // catalogue server-side regardless of how much of it is paged into the caller's own episode
+    // list. Same local-first shape as removeFromManualPlaylists above.
     static func removeAllFromManualPlaylists(
-        forShowId showId: String, playlistClient: PlaylistClient = PlaylistClient()
+        forShowId showId: String,
+        playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?,
+        playlistClient: PlaylistClient = PlaylistClient()
     ) async {
-        guard let playlists = try? await playlistClient.getPlaylists() else { return }
-        for playlist in playlists where playlist.type == .manual {
-            for item in playlist.items where item.showId == showId {
-                try? await playlistClient.removeItem(playlistId: playlist.id, episodeId: item.episodeId)
+        guard let playlistSyncEngine else { return }
+        let removed = await removeItemsLocally(playlistSyncEngine: playlistSyncEngine) { $0.showId == showId }
+        await pushRemovals(removed, playlistClient: playlistClient)
+    }
+
+    // Removes every item matching `matches` from every local manual PlaylistRecord in one
+    // SyncEngine write, and returns the (playlistId, episodeId) pairs actually removed so the
+    // caller can also try the server-side DELETE for each. Dynamic playlists are skipped — they're
+    // server-computed from rules with no editable membership, matching PlaybackQueue's own
+    // automatic-removal carve-out.
+    private static func removeItemsLocally(
+        playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>,
+        matching matches: @escaping (PlaylistItemRecord) -> Bool
+    ) async -> [(playlistId: String, episodeId: String)] {
+        var removed: [(playlistId: String, episodeId: String)] = []
+        try? await playlistSyncEngine.write { context in
+            let records = try context.fetch(FetchDescriptor<PlaylistRecord>())
+            for record in records where record.type == .manual && !record.deleted {
+                let matchedIds = record.items.filter(matches).map(\.episodeId)
+                guard !matchedIds.isEmpty else { continue }
+                record.items.removeAll(where: matches)
+                record.updatedAt = Date()
+                record.isDirty = true
+                removed.append(contentsOf: matchedIds.map { (record.id, $0) })
+            }
+        }
+        return removed
+    }
+
+    // Best-effort, like the old implementation — a failed DELETE shouldn't block the mark-played
+    // action itself. The local records above are already marked dirty regardless of these calls'
+    // outcome, so a failure here just means that removal waits for the sync engine's own debounced
+    // push instead of reaching the server immediately. Fanned out concurrently since each pair is
+    // an independent DELETE to a (possibly) different playlist — "mark all played" can touch
+    // several playlists at once, and there's no reason to serialize those round trips.
+    private static func pushRemovals(
+        _ pairs: [(playlistId: String, episodeId: String)], playlistClient: PlaylistClient
+    ) async {
+        await withTaskGroup(of: Void.self) { group in
+            for pair in pairs {
+                group.addTask {
+                    try? await playlistClient.removeItem(playlistId: pair.playlistId, episodeId: pair.episodeId)
+                }
             }
         }
     }

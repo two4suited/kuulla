@@ -52,6 +52,7 @@ final class PlaybackQueue {
     // container / sync engine from.
     static var modelContainer: ModelContainer?
     static var episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>?
+    static var playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?
 
     // The list the current session belongs to, plus the ordered snapshot of its items taken when
     // the session began. nil / [] whenever playback didn't start from a list (a deep link, a
@@ -267,7 +268,8 @@ final class PlaybackQueue {
         // New Episodes lists aren't editable, so PlaylistCleanup already skips those and only
         // touches manual playlists.
         await PlaylistCleanup.removeFromManualPlaylists(
-            episodeId: finishedEpisodeId, completed: true, playlistClient: playlistClient)
+            episodeId: finishedEpisodeId, completed: true,
+            playlistSyncEngine: Self.playlistSyncEngine, playlistClient: playlistClient)
 
         // #724: this path (natural finish / auto-advance) never patched the Shows/Subscriptions
         // badge cache the way the manual "mark played" toggles do, so an episode finished by
@@ -280,9 +282,14 @@ final class PlaybackQueue {
             let descriptor = FetchDescriptor<EpisodeStateRecord>(
                 predicate: #Predicate { $0.id == finishedEpisodeId })
             if let showId = (try? context.fetch(descriptor).first)?.showId ?? finishedShowId {
+                // Patches through mainContext, not the throwaway `context` above (#772) — the
+                // Shows/Library grids read via `@Environment(\.modelContext)`, which is exactly
+                // `modelContainer.mainContext`; a fresh sibling context isn't guaranteed to make
+                // this show up there promptly (#763), and CatalogCacheSignal only tells those
+                // grids *when* to re-read, not that the read will see the write.
                 CatalogCache.recordEpisodeStateChange(
                     episodeId: finishedEpisodeId, showId: showId, completed: true,
-                    positionSeconds: 0, in: context)
+                    positionSeconds: 0, in: modelContainer.mainContext)
             }
         }
 
