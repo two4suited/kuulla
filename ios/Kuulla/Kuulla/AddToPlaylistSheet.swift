@@ -7,6 +7,7 @@ struct AddToPlaylistSheet: View {
     let showId: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.playlistSyncEngine) private var playlistSyncEngine
     @State private var playlists: [Playlist] = []
     @State private var isLoading = false
     @State private var loadError: String?
@@ -98,6 +99,10 @@ struct AddToPlaylistSheet: View {
         do {
             try await playlistClient.addItem(playlistId: playlist.id, episodeId: episodeId, showId: showId)
             addedPlaylistIds.insert(playlist.id)
+            // The add went straight to the server via REST, bypassing the playlist SyncEngine —
+            // pull it back down now so the local store (and anything reading through it, like
+            // PlaylistsView/LibraryView) doesn't wait for the next unrelated sync (#745).
+            await playlistSyncEngine?.syncNow()
         } catch {
             actionError = "Something went wrong. Please try again."
         }
@@ -117,6 +122,9 @@ struct AddToPlaylistSheet: View {
             playlists.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             addedPlaylistIds.insert(created.id)
             newPlaylistName = ""
+            // Same reasoning as addToExisting: pull the new playlist + item back into the local
+            // store immediately rather than waiting for the next unrelated sync (#745).
+            await playlistSyncEngine?.syncNow()
         } catch {
             actionError = "Something went wrong. Please try again."
         }
