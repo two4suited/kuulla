@@ -188,23 +188,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     // in didFinishLaunching (#749). Refreshes only the pushed show (not a full sync) to stay
     // inside that window.
     //
-    // Implicitly MainActor-isolated (like the rest of this class, via the UIApplicationDelegate
-    // conformance) — needed to touch the MainActor-isolated `modelContainer`/`catalogRefreshService`
-    // statics and ModelContext below without hopping.
-    func application(
+    // `nonisolated` so the non-Sendable `userInfo` dictionary never has to cross an actor
+    // boundary — the protocol requirement's caller is non-isolated, so an (implicitly, via
+    // UIApplicationDelegate) MainActor-isolated method here would need `userInfo` to cross into
+    // it (#753/#764/#766/#770). `route(from:)` extracts the Sendable-safe pieces synchronously
+    // right here, before any hop; everything after that hops to MainActor explicitly to touch
+    // the MainActor-isolated `modelContainer`/`catalogRefreshService` statics and ModelContext.
+    nonisolated func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any]
     ) async -> UIBackgroundFetchResult {
         guard let route = PushNotificationRouting.route(from: userInfo) else { return .noData }
-        guard let container = Self.modelContainer, let catalogRefreshService = Self.catalogRefreshService else {
-            return .failed
-        }
-        // Mirrors the isSignedIn gate on every other refresh trigger in this file (cold-launch
-        // .task, .background scenePhase) — a push can still arrive after sign-out if the device
-        // unregister (best-effort, see PushNotificationManager.unregisterCurrentDevice) hasn't
-        // landed server-side yet, and refreshShow's catalog requests would just fail
-        // unauthenticated at that point.
-        guard AuthManager.shared.isSignedIn else { return .noData }
         // PushNotificationRouting only ever produces .show or .episode (see its doc comment).
         let showId: String
         switch route {
@@ -215,6 +209,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         default:
             return .noData
         }
+        return await refreshOnMainActor(showId: showId)
+    }
+
+    @MainActor
+    private func refreshOnMainActor(showId: String) async -> UIBackgroundFetchResult {
+        guard let container = Self.modelContainer, let catalogRefreshService = Self.catalogRefreshService else {
+            return .failed
+        }
+        // Mirrors the isSignedIn gate on every other refresh trigger in this file (cold-launch
+        // .task, .background scenePhase) — a push can still arrive after sign-out if the device
+        // unregister (best-effort, see PushNotificationManager.unregisterCurrentDevice) hasn't
+        // landed server-side yet, and refreshShow's catalog requests would just fail
+        // unauthenticated at that point.
+        guard AuthManager.shared.isSignedIn else { return .noData }
         await catalogRefreshService.refreshShow(showId: showId)
         await AppIconBadge.refresh(in: container.mainContext)
         return .newData
