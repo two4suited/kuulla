@@ -68,6 +68,35 @@ extension DownloadedEpisodeRecord {
         try? context.save()
     }
 
+    // Marks a download .failed from a fresh context, mirroring DownloadManager.markFailed's own
+    // "fresh context, fetch by id, mutate, save" shape — used by AudioPlayer.onLocalFileFailed
+    // wiring (#781), which fires well after whatever context originally resolved this episode's
+    // playback URL and only has the episode id available, not a live record reference.
+    static func markFailed(episodeId: String, modelContainer: ModelContainer) {
+        let context = ModelContext(modelContainer)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
+        guard let record = try? context.fetch(descriptor).first else { return }
+        record.status = .failed
+        try? context.save()
+    }
+
+    // Wires `player.onLocalFileFailed` (#781) to mark this episode's download .failed the moment
+    // AVFoundation can't open the local file it's playing, then re-invoke `replay` with the
+    // episode's stream URL at the position playback had reached, so the episode keeps playing
+    // instead of just stopping. A nil modelContainer leaves whatever was previously assigned
+    // untouched, mirroring wireSpliceCredit's own guard.
+    static func wireLocalFileFailureFallback(
+        episodeId: String, streamURLString: String, modelContainer: ModelContainer?, on player: AudioPlayer,
+        replay: @escaping (_ streamURL: URL, _ startPosition: TimeInterval) -> Void
+    ) {
+        guard let modelContainer else { return }
+        player.onLocalFileFailed = { failedURL, startPosition in
+            markFailed(episodeId: episodeId, modelContainer: modelContainer)
+            guard let streamURL = URL(string: streamURLString), streamURL != failedURL else { return }
+            replay(streamURL, startPosition)
+        }
+    }
+
     // Wires `player.onSpliceApplied` to credit this episode's download the moment a splice
     // session fires — shared by every play()/preloadNext() call site (EpisodeDetailView,
     // PlaybackQueue, CarPlaySceneDelegate) so the closure's shape lives in exactly one place. A

@@ -676,7 +676,6 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // Re-selecting the episode already playing just brings up Now Playing rather than
         // restarting the AVPlayerItem from scratch (which a quick double-tap would otherwise do).
         if AudioPlayer.shared.currentURL != audioUrl {
-            progressTrackingTask?.cancel()
             // Arms PlaybackQueue with this browse page's snapshot so finishing the episode honors
             // the resolved PlayNextBehavior, same as the phone UI (#629) — replacing whatever a
             // previous session (phone or CarPlay) had armed.
@@ -684,58 +683,81 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
             let episodeId = episode.id
             let duration = episode.duration
-            DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
-            AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
-                guard finishedURL == audioUrl else { return }
-                self?.progressTrackingTask?.cancel()
-                self?.progressTrackingTask = nil
-                Task {
-                    let persisted = await Self.persist(
-                        episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
-                    // Mirrors EpisodeDetailView.persist()'s auto-delete hook (#179/#532) — CarPlay's
-                    // own persist() has no equivalent, so a natural finish here would otherwise
-                    // never honor "delete after played" the way the phone UI does. Gated on the
-                    // write actually committing — deleting a download or stripping a playlist entry
-                    // for an episode the sync record never actually recorded as played would be
-                    // wrong, and the download deletion can't be undone short of a re-download.
-                    if persisted {
-                        await Self.cleanupDownloadIfEligible(episodeId: episodeId)
+
+            // Pulled out (weak self, mirroring onDidFinishPlaying below — this closure ends up
+            // retained by AudioPlayer.shared, a singleton, so without it a CarPlaySceneDelegate
+            // whose scene has gone away would never deallocate) so a local-file playback failure
+            // (#781) can re-run exactly this same wiring/play() call against the stream URL
+            // instead of a hand-duplicated copy of it.
+            let startPlayback: (URL, TimeInterval) -> Void = { [weak self] url, startPosition in
+                guard let self else { return }
+                // Cancelled here (not just once before the first call) so a local-file failure's
+                // replay through this same closure doesn't leave the previous session's polling
+                // loop (still checking AudioPlayer.shared.currentURL against the now-abandoned
+                // local URL) running alongside the new one until it eventually notices and exits
+                // on its own.
+                self.progressTrackingTask?.cancel()
+                DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
+                AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
+                    guard finishedURL == url else { return }
+                    self?.progressTrackingTask?.cancel()
+                    self?.progressTrackingTask = nil
+                    Task {
+                        let persisted = await Self.persist(
+                            episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
+                        // Mirrors EpisodeDetailView.persist()'s auto-delete hook (#179/#532) —
+                        // CarPlay's own persist() has no equivalent, so a natural finish here would
+                        // otherwise never honor "delete after played" the way the phone UI does.
+                        // Gated on the write actually committing — deleting a download or
+                        // stripping a playlist entry for an episode the sync record never actually
+                        // recorded as played would be wrong, and the download deletion can't be
+                        // undone short of a re-download.
+                        if persisted {
+                            await Self.cleanupDownloadIfEligible(episodeId: episodeId)
+                        }
+                        await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: episodeId)
                     }
-                    await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: episodeId)
+                }
+
+                AudioPlayer.shared.play(
+                    url: url, startPosition: startPosition,
+                    autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
+                    playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
+                    volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord),
+                    context: NowPlayingContext(showId: showId, episodeId: episode.id, playlistId: playlistId),
+                    metadata: NowPlayingMetadata(
+                        title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))))
+
+                // Refreshes the speed button's rendered label for this episode's resolved speed
+                // (show override, or the global default) — otherwise it would keep showing
+                // whatever the previously playing episode's speed was.
+                self.updateNowPlayingActionButtons()
+
+                // Mirrors EpisodeDetailView.startProgressTracking()'s periodic save so an episode
+                // started from CarPlay resumes where it left off, and gets marked played on
+                // finish, the same as one started from the phone.
+                self.progressTrackingTask = Task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(20))
+                        guard !Task.isCancelled, AudioPlayer.shared.currentURL == url else { return }
+                        guard AudioPlayer.shared.isPlaying else { continue }
+                        let positionSeconds = Int(AudioPlayer.shared.currentTime)
+                        // Promotes this tick to completed once playback is within the near-end
+                        // threshold of the episode's duration (#704) rather than always reporting
+                        // false.
+                        let completed = EpisodeProgress.isNearEnd(
+                            positionSeconds: positionSeconds, duration: AudioPlayer.shared.duration,
+                            thresholdSeconds: EpisodeProgress.nearEndThresholdSeconds)
+                        await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed)
+                    }
                 }
             }
 
-            AudioPlayer.shared.play(
-                url: audioUrl, startPosition: startPosition,
-                autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
-                playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
-                volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord),
-                context: NowPlayingContext(showId: showId, episodeId: episode.id, playlistId: playlistId),
-                metadata: NowPlayingMetadata(
-                    title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))))
+            DownloadedEpisodeRecord.wireLocalFileFailureFallback(
+                episodeId: episodeId, streamURLString: episode.audioUrl, modelContainer: Self.modelContainer,
+                on: AudioPlayer.shared, replay: startPlayback)
 
-            // Refreshes the speed button's rendered label for this episode's resolved speed
-            // (show override, or the global default) — otherwise it would keep showing whatever
-            // the previously playing episode's speed was.
-            updateNowPlayingActionButtons()
-
-            // Mirrors EpisodeDetailView.startProgressTracking()'s periodic save so an episode
-            // started from CarPlay resumes where it left off, and gets marked played on finish,
-            // the same as one started from the phone.
-            progressTrackingTask = Task {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(20))
-                    guard !Task.isCancelled, AudioPlayer.shared.currentURL == audioUrl else { return }
-                    guard AudioPlayer.shared.isPlaying else { continue }
-                    let positionSeconds = Int(AudioPlayer.shared.currentTime)
-                    // Promotes this tick to completed once playback is within the near-end
-                    // threshold of the episode's duration (#704) rather than always reporting false.
-                    let completed = EpisodeProgress.isNearEnd(
-                        positionSeconds: positionSeconds, duration: AudioPlayer.shared.duration,
-                        thresholdSeconds: EpisodeProgress.nearEndThresholdSeconds)
-                    await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed)
-                }
-            }
+            startPlayback(audioUrl, startPosition)
         }
 
         // Most of CPNowPlayingTemplate's content (title, artwork, elapsed time, transport state)

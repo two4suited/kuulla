@@ -341,6 +341,16 @@ final class PlaybackQueue {
                 await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
             }
         }
+        // The preloaded item was built against whatever settings/params resolvePlayableEpisode
+        // saw when preloading started — not recomputed here — so a local-file failure (#781) just
+        // re-runs the full slow path (which re-resolves those, and will now fall through to the
+        // stream URL since the download was just marked .failed) rather than trying to replay
+        // with a hand-reconstructed play() call.
+        AudioPlayer.shared.onLocalFileFailed = { [weak self] failedURL, startPosition in
+            guard failedURL == audioUrl, let modelContainer = Self.modelContainer else { return }
+            DownloadedEpisodeRecord.markFailed(episodeId: episodeId, modelContainer: modelContainer)
+            Task { await self?.playItem(preloaded.item, playlistId: playlistId, startPositionOverride: startPosition) }
+        }
         DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
 
         // Falls back to the full slow path if AudioPlayer's own state changed out from under us
@@ -465,7 +475,7 @@ final class PlaybackQueue {
         let audioUrl: URL
         let episode: Episode
         let show: Show?
-        let startPosition: TimeInterval
+        var startPosition: TimeInterval
         let autoSkipIntroSeconds: TimeInterval
         let autoSkipOutroSeconds: TimeInterval
         let playbackSpeed: Float
@@ -534,39 +544,59 @@ final class PlaybackQueue {
     // outside the detail screen" paths, and the app already keeps that resolution logic
     // duplicated per surface (resolvedPlaybackURL, the show-override-else-global settings fetch,
     // the periodic progress save).
-    private func playItem(_ item: QueueItem, playlistId: String?) async {
-        guard let resolved = await resolvePlayableEpisode(item) else {
+    private func playItem(_ item: QueueItem, playlistId: String?, startPositionOverride: TimeInterval? = nil) async {
+        guard var resolved = await resolvePlayableEpisode(item) else {
             clear()
             return
+        }
+        // A local-file failure (#781) hands back the exact position playback had reached — that's
+        // more accurate than resolvePlayableEpisode's own EpisodeStateRecord lookup, which only
+        // reflects the last position actually *persisted* (the periodic save runs every 20s, see
+        // startProgressTracking below), so replaying with the resolved position instead would
+        // silently drop however many seconds played since the last save.
+        if let startPositionOverride {
+            resolved.startPosition = startPositionOverride
         }
 
         let episodeId = item.episodeId
         let showId = item.showId
         let duration = resolved.episode.duration
-        let audioUrl = resolved.audioUrl
 
-        AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
-            guard finishedURL == audioUrl else { return }
-            Task {
-                await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
-                await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
+        // Pulled out so a local-file playback failure (#781) can re-run exactly this same
+        // wiring/play() call against the stream URL instead of a hand-duplicated copy of it —
+        // onDidFinishPlaying and progress tracking are re-pointed at whichever URL actually ends
+        // up playing, since AudioPlayer.currentURL (and every check against it) reflects that URL,
+        // not the one playItem() originally resolved.
+        func startPlayback(url: URL, startPosition: TimeInterval) {
+            AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
+                guard finishedURL == url else { return }
+                Task {
+                    await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
+                    await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
+                }
             }
+            DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
+
+            AudioPlayer.shared.play(
+                url: url, startPosition: startPosition,
+                autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
+                playbackSpeed: resolved.playbackSpeed, smartSpeed: resolved.smartSpeed,
+                voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
+                volumeOffsetDb: resolved.volumeOffsetDb, excludedRanges: resolved.excludedRanges,
+                context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
+                metadata: NowPlayingMetadata(
+                    title: resolved.episode.title, showTitle: resolved.show?.title,
+                    artworkURL: resolved.show?.artworkUrl.flatMap(URL.init(string:))))
+
+            armApproachingEndPreload(sessionEpisodeId: episodeId)
+            startProgressTracking(audioUrl: url, episodeId: episodeId, showId: showId)
         }
-        DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
 
-        AudioPlayer.shared.play(
-            url: audioUrl, startPosition: resolved.startPosition,
-            autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
-            playbackSpeed: resolved.playbackSpeed, smartSpeed: resolved.smartSpeed,
-            voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
-            volumeOffsetDb: resolved.volumeOffsetDb, excludedRanges: resolved.excludedRanges,
-            context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
-            metadata: NowPlayingMetadata(
-                title: resolved.episode.title, showTitle: resolved.show?.title,
-                artworkURL: resolved.show?.artworkUrl.flatMap(URL.init(string:))))
+        DownloadedEpisodeRecord.wireLocalFileFailureFallback(
+            episodeId: episodeId, streamURLString: resolved.episode.audioUrl, modelContainer: Self.modelContainer,
+            on: AudioPlayer.shared, replay: startPlayback)
 
-        armApproachingEndPreload(sessionEpisodeId: episodeId)
-        startProgressTracking(audioUrl: audioUrl, episodeId: episodeId, showId: showId)
+        startPlayback(url: resolved.audioUrl, startPosition: resolved.startPosition)
     }
 
     // MARK: - Gapless preload (#683)
