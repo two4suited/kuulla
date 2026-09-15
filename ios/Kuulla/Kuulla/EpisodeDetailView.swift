@@ -79,7 +79,7 @@ struct EpisodeDetailView: View {
     @State private var autoDeleteRule: AutoDeleteRule = .never
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveError: String?
-    // Bumped on every cyclePlaybackSpeed() call; lets a save task tell whether it's still the
+    // Bumped on every playback speed selection; lets a save task tell whether it's still the
     // latest one after waiting on its predecessor, so superseded intermediate values are
     // coalesced away instead of being sent at all.
     @State private var playbackSpeedSaveVersion = 0
@@ -296,8 +296,18 @@ struct EpisodeDetailView: View {
     @ViewBuilder
     private func episodeControlRow(_ episode: Episode) -> some View {
         HStack(spacing: Space.sm) {
-            Button {
-                cyclePlaybackSpeed()
+            Menu {
+                ForEach(Self.sortedPlaybackSpeedOptions) { option in
+                    Button {
+                        selectPlaybackSpeed(option)
+                    } label: {
+                        if option.rawValue == playbackSpeed {
+                            Label(option.label, systemImage: "checkmark")
+                        } else {
+                            Text(option.label)
+                        }
+                    }
+                }
             } label: {
                 Text(playbackSpeedLabel)
                     .font(.kuullaMono(13))
@@ -305,14 +315,12 @@ struct EpisodeDetailView: View {
                     .minimumScaleFactor(0.7)
                     .foregroundStyle(playbackSpeed == 1.0 ? KuullaColor.textMuted : KuullaColor.signalInk)
             }
-            .buttonStyle(.plain)
             // While loadPlaybackSettings() is still in flight, playbackSpeed hasn't been
-            // resolved from settings yet — cycling from an unresolved value would itself get
-            // overwritten the moment that fetch lands.
+            // resolved from settings yet — picking a speed from an unresolved value would itself
+            // get overwritten the moment that fetch lands.
             .disabled(isLoading)
             .modifier(EpisodeControlChrome(isActive: playbackSpeed != 1.0))
             .accessibilityLabel("Playback speed, \(playbackSpeedLabel)")
-            .accessibilityHint("Cycles to the next speed")
 
             DownloadButton(episode: episode, status: downloadStatus, onDidFinish: loadLocalState, fillsContainer: true)
                 .modifier(EpisodeControlChrome())
@@ -823,25 +831,21 @@ struct EpisodeDetailView: View {
         }
     }
 
-    // Cycles through the common speed presets (wrapping back to the first after the last),
-    // applying the change live to whatever's currently playing and saving it as the new global
-    // default. A value outside the presets (e.g. a synced override from elsewhere) starts the
-    // cycle from the slowest preset rather than crashing on a missing match.
-    private func cyclePlaybackSpeed() {
-        let options = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
-        let currentIndex = options.firstIndex { $0.rawValue == playbackSpeed } ?? -1
-        let next = options[(currentIndex + 1) % options.count]
+    private static let sortedPlaybackSpeedOptions = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
 
-        playbackSpeed = next.rawValue
+    // Applies the picked speed live to whatever's currently playing and saves it as the new
+    // global default.
+    private func selectPlaybackSpeed(_ option: PlaybackSpeedOption) {
+        playbackSpeed = option.rawValue
         // AudioPlayer is shared across detail screens — only push the live rate change when
-        // this screen's episode is the one actually playing, otherwise a tap here would change
-        // the speed of whatever different episode happens to be playing in the background. Reads
-        // the cached resolvedAudioURL, same reason as in load() above.
+        // this screen's episode is the one actually playing, otherwise picking a speed here would
+        // change the speed of whatever different episode happens to be playing in the background.
+        // Reads the cached resolvedAudioURL, same reason as in load() above.
         if let audioURL = resolvedAudioURL, audioPlayer.currentURL == audioURL {
-            audioPlayer.setPlaybackSpeed(next.rawValue)
+            audioPlayer.setPlaybackSpeed(option.rawValue)
         }
 
-        savePlaybackSpeed(next.rawValue)
+        savePlaybackSpeed(option.rawValue)
     }
 
     // Cancelling the previous Task only stops waiting on its result locally — it doesn't retract
