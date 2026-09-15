@@ -13,6 +13,8 @@ struct PlaylistDetailView: View {
     @State private var mutationError: String?
     @State private var isShowingEditSheet = false
     @State private var isShowingRulesSheet = false
+    @State private var downloadAllMessage: String?
+    @State private var downloadManager = DownloadManager.shared
 
     private let playlistClient = PlaylistClient()
 
@@ -49,6 +51,11 @@ struct PlaylistDetailView: View {
                 Text(mutationError)
                     .foregroundStyle(.red)
             }
+
+            if let downloadAllMessage {
+                Text(downloadAllMessage)
+                    .foregroundStyle(.secondary)
+            }
         }
         .navigationTitle(playlist?.name ?? "Playlist")
         .navigationBarTitleDisplayMode(.inline)
@@ -78,6 +85,16 @@ struct PlaylistDetailView: View {
                         Image(systemName: "slider.horizontal.3")
                     }
                     .accessibilityLabel("Edit playlist rules")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if let playlist, !playlist.items.isEmpty {
+                    Button {
+                        downloadAllEpisodes()
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                    }
+                    .accessibilityLabel("Download all episodes")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -195,46 +212,9 @@ struct PlaylistDetailView: View {
         isLoading = false
     }
 
-    // Builds a PlaylistDetail-shaped snapshot from the local sync store, resolving each item's
-    // title/artwork against CatalogCache when available (best-effort — a show the cache hasn't
-    // seen yet just shows the existing "(episode unavailable)" placeholder text until the network
-    // fetch above lands).
+    // Shared with CarPlaySceneDelegate (#758) — see PlaylistDetail.local's doc comment.
     private func localPlaceholder() -> PlaylistDetail? {
-        let id = playlistId
-        guard let record = try? modelContext.fetch(
-            FetchDescriptor<PlaylistRecord>(predicate: #Predicate { $0.id == id })
-        ).first, !record.deleted else { return nil }
-
-        // Resolve each distinct show once (not once per item), mirroring
-        // PlaylistService.GetPlaylistDetailAsync's server-side comment for the same reason — a
-        // playlist with many episodes from the same show shouldn't re-fetch that show's cached
-        // episode list per item.
-        let showIds = Set(record.items.map(\.showId))
-        let episodesByShow = Dictionary(uniqueKeysWithValues: showIds.map {
-            ($0, CatalogCache.episodes(showId: $0, in: modelContext))
-        })
-        let showsById = Dictionary(uniqueKeysWithValues: showIds.map {
-            ($0, CatalogCache.show(id: $0, in: modelContext))
-        })
-
-        let items = record.items
-            .sorted { $0.order < $1.order }
-            .map { item -> PlaylistItemDetail in
-                let episode = episodesByShow[item.showId]?.first { $0.id == item.episodeId }
-                let show = showsById[item.showId] ?? nil
-                return PlaylistItemDetail(
-                    episodeId: item.episodeId, showId: item.showId,
-                    title: episode?.title, artworkUrl: show?.artworkUrl,
-                    addedAt: item.addedAt, order: item.order)
-            }
-
-        return PlaylistDetail(
-            id: record.id, name: record.name, type: record.type, items: items,
-            createdAt: record.createdAt, updatedAt: record.updatedAt,
-            dynamicConfig: record.dynamicConfig.map {
-                DynamicPlaylistConfig(showIds: $0.showIds, maxEpisodes: $0.maxEpisodes, priorityList: $0.priorityList)
-            },
-            icon: record.icon, accentColor: record.accentColor)
+        PlaylistDetail.local(id: playlistId, in: modelContext)
     }
 
     private func removeItems(at offsets: IndexSet) async {
@@ -283,6 +263,54 @@ struct PlaylistDetailView: View {
             // our local guess about the "before" state may itself be wrong.
             await load()
             mutationError = "Something went wrong while reordering. Please try again."
+        }
+    }
+
+    // Queues a download for every item not already downloaded/downloading. Episodes resolve
+    // against CatalogCache (same lookup as localPlaceholder()) rather than a network fetch — an
+    // episode the cache hasn't seen yet (never opened from a show/episode page on this device)
+    // has no known audioUrl to download and is silently skipped, same as the row's own
+    // "(episode unavailable)" placeholder for that case.
+    private func downloadAllEpisodes() {
+        guard let items = playlist?.items, !items.isEmpty else { return }
+        downloadAllMessage = nil
+
+        let episodeIds = Set(items.map(\.episodeId))
+        let statuses = DownloadStatus.statusMap(for: episodeIds, in: modelContext)
+        let showIds = Set(items.map(\.showId))
+        let episodesByShow = Dictionary(uniqueKeysWithValues: showIds.map {
+            ($0, CatalogCache.episodes(showId: $0, in: modelContext))
+        })
+
+        var queued = 0
+        var unavailable = 0
+        var alreadyInProgress = 0
+        for item in items {
+            let status = statuses[item.episodeId]
+            if status == .downloading || downloadManager.progress[item.episodeId] != nil {
+                alreadyInProgress += 1
+                continue
+            }
+            guard status != .complete else { continue }
+            guard let episode = episodesByShow[item.showId]?.first(where: { $0.id == item.episodeId }) else {
+                unavailable += 1
+                continue
+            }
+            downloadManager.startDownload(episode: episode)
+            queued += 1
+        }
+
+        switch (queued, unavailable) {
+        case (0, 0) where alreadyInProgress > 0:
+            downloadAllMessage = "The rest of this playlist is already downloaded or downloading."
+        case (0, 0):
+            downloadAllMessage = "All episodes are already downloaded."
+        case (0, _):
+            downloadAllMessage = "Couldn't find \(unavailable) episode\(unavailable == 1 ? "" : "s") to download. Open them once, then try again."
+        case (_, 0):
+            downloadAllMessage = "Downloading \(queued) episode\(queued == 1 ? "" : "s")."
+        default:
+            downloadAllMessage = "Downloading \(queued) episode\(queued == 1 ? "" : "s"). \(unavailable) couldn't be found — open them once, then try again."
         }
     }
 }

@@ -48,6 +48,7 @@ struct KuullaApp: App {
         CarPlaySceneDelegate.modelContainer = container
         CarPlaySceneDelegate.episodeSyncEngine = episodeEngine
         CarPlaySceneDelegate.settingsSyncEngine = settingsEngine
+        CarPlaySceneDelegate.playlistSyncEngine = playlistEngine
         // Overcast-style playlist auto-advance (#532) — same out-of-SwiftUI wiring as CarPlay,
         // since the queue starts follow-on episodes from AudioPlayer's finish callback.
         PlaybackQueue.modelContainer = container
@@ -185,7 +186,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     // mode (Info.plist), same as the willPresent/didReceive hooks below need their delegate set
     // in didFinishLaunching (#749). Refreshes only the pushed show (not a full sync) to stay
     // inside that window.
-    func application(
+    //
+    // nonisolated: the protocol requirement's caller isn't actor-isolated, so a main-actor
+    // implementation can't accept the non-Sendable userInfo dictionary under Swift 6 strict
+    // concurrency. Nothing here actually needs MainActor — the async calls below hop to their
+    // own isolation as needed.
+    nonisolated func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any]
     ) async -> UIBackgroundFetchResult {
