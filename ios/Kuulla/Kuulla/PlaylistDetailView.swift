@@ -6,6 +6,7 @@ struct PlaylistDetailView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.playlistSyncEngine) private var playlistSyncEngine
 
     @State private var playlist: PlaylistDetail?
     @State private var isLoading = false
@@ -166,6 +167,29 @@ struct PlaylistDetailView: View {
             // device's own pending local writes — no need to duplicate that call here.
             guard newPhase == .active, playlist != nil else { return }
             Task { await load() }
+        }
+        .onAppear {
+            // Cheap local-only re-read (no network), mirroring ShowDetailView.refreshStatuses():
+            // PlaylistCleanup's mark-played cleanup (#771) now edits PlaylistRecord locally, so an
+            // episode removed from this playlist on another screen (episode detail, show swipe
+            // action, natural finish, CarPlay) since this view last loaded is picked up on return
+            // here instead of waiting for pull-to-refresh, leaving the screen, or a foreground
+            // resume. Guarded on `playlist != nil` so it doesn't race the first `.task(id:)` load,
+            // which already seeds the same placeholder. Reads back through playlistSyncEngine's own
+            // ModelContext rather than this view's `modelContext` — the same instance
+            // PlaylistCleanup's `playlistSyncEngine.write` just saved through, avoiding the
+            // cross-context staleness hazard SyncEngine.read's doc comment warns about (two
+            // ModelContext instances over the same store aren't guaranteed to see each other's
+            // saves immediately).
+            guard playlist != nil, let playlistSyncEngine else { return }
+            Task {
+                let local = await playlistSyncEngine.read { context in
+                    PlaylistDetail.local(id: playlistId, in: context)
+                }
+                if let local {
+                    playlist = local
+                }
+            }
         }
     }
 

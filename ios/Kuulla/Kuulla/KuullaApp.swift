@@ -53,6 +53,7 @@ struct KuullaApp: App {
         // since the queue starts follow-on episodes from AudioPlayer's finish callback.
         PlaybackQueue.modelContainer = container
         PlaybackQueue.episodeSyncEngine = episodeEngine
+        PlaybackQueue.playlistSyncEngine = playlistEngine
         // AppDelegate's didReceiveRemoteNotification needs a way to trigger a targeted refresh —
         // same out-of-SwiftUI wiring as CarPlay/PlaybackQueue above.
         AppDelegate.modelContainer = container

@@ -881,7 +881,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
         // Gated on the write actually committing — see Self.persist's own doc comment.
         guard persisted else { return }
-        await PlaylistCleanup.removeFromManualPlaylists(episodeId: episodeId, completed: true, playlistClient: playlistClient)
+        await PlaylistCleanup.removeFromManualPlaylists(
+            episodeId: episodeId, completed: true,
+            playlistSyncEngine: Self.playlistSyncEngine, playlistClient: playlistClient)
         await Self.cleanupDownloadIfEligible(episodeId: episodeId)
         // #724: this path never patched the Shows/Subscriptions badge cache the way the phone UI's
         // mark-played toggles do, so an episode marked played from CarPlay's Now Playing screen
