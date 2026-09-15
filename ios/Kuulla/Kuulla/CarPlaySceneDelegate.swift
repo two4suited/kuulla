@@ -305,9 +305,17 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // through the way a show's episode list or a playlist has, so unlike pushEpisodesList/
     // pushPlaylistDetail this list is never armed as PlaybackQueue's own snapshot.
     private func resumeContinueListening(_ entry: ContinueListeningEntry) async {
-        async let userSettings = try? settingsClient.getSettings()
+        // Cache-first (#761): the synced UserSettingsRecord answers the global fallback without a
+        // network call. Awaits settingsSyncTask first (already in flight since didConnect, same as
+        // loadSubscriptionsList's settled pass) so a fast tap right after connecting reads settled
+        // settings rather than racing an empty/stale local store. There's no local mirror of
+        // per-show ShowSettings (the phone app itself resolves those live too — see
+        // playPlaylistItem's comment), so that one stays a network call, run concurrently with the
+        // sync wait rather than after it.
         async let showSettings = try? settingsClient.getShowSettings(showId: entry.episode.showId)
-        let (user, show) = await (userSettings, showSettings)
+        await settingsSyncTask?.value
+        let user = Self.modelContainer.map(ModelContext.init).flatMap(Self.localUserSettings)
+        let show = await showSettings
         let autoSkipIntroSeconds = TimeInterval(show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0)
         let autoSkipOutroSeconds = TimeInterval(show?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
         let playbackSpeed = show?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
@@ -480,14 +488,34 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // each item's episode/show/settings are resolved individually on tap rather than prefetched
     // for the whole list — mirrors PlaybackQueue.playItem's per-episode resolution.
     private func playPlaylistItem(_ playlistItem: PlaylistItemDetail, playlistId: String, list: PlaybackList) async {
-        async let episodeResult = try? catalogClient.getEpisode(showId: playlistItem.showId, episodeId: playlistItem.episodeId)
-        async let showResult = try? catalogClient.getShow(id: playlistItem.showId)
-        async let userSettings = try? settingsClient.getSettings()
-        async let showSettings = try? settingsClient.getShowSettings(showId: playlistItem.showId)
+        let context = Self.modelContainer.map(ModelContext.init)
 
-        guard let episode = await episodeResult else { return }
-        let show = await showResult
-        let (user, showSettingsResolved) = await (userSettings, showSettings)
+        // Cache-first (#761): CatalogCache may already have this episode/show from browsing the
+        // same show elsewhere in the app — only what's actually missing hits the network,
+        // concurrently, mirroring continueListeningSection's resolution. There's no local mirror
+        // of per-show ShowSettings anywhere in the app (EpisodeDetailView/ShowDetailView fetch it
+        // live too), so that call stays live, but it's kicked off up front rather than after the
+        // episode/show lookups.
+        async let showSettings = try? settingsClient.getShowSettings(showId: playlistItem.showId)
+        var episode = context.flatMap { CatalogCache.episode(showId: playlistItem.showId, episodeId: playlistItem.episodeId, in: $0) }
+        var show = context.flatMap { CatalogCache.show(id: playlistItem.showId, in: $0) }
+        if episode == nil || show == nil {
+            let needsEpisode = episode == nil
+            let needsShow = show == nil
+            async let episodeResult = needsEpisode
+                ? try? await catalogClient.getEpisode(showId: playlistItem.showId, episodeId: playlistItem.episodeId) : nil
+            async let showResult = needsShow ? try? await catalogClient.getShow(id: playlistItem.showId) : nil
+            let (fetchedEpisode, fetchedShow) = await (episodeResult, showResult)
+            if let fetchedEpisode { episode = fetchedEpisode }
+            if let fetchedShow { show = fetchedShow }
+        }
+        guard let episode else { return }
+
+        // Same settingsSyncTask wait as resumeContinueListening, so a fast tap on a just-connected
+        // session reads settled local settings rather than whatever was there before this session.
+        await settingsSyncTask?.value
+        let user = context.flatMap(Self.localUserSettings)
+        let showSettingsResolved = await showSettings
         let autoSkipIntroSeconds = TimeInterval(showSettingsResolved?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0)
         let autoSkipOutroSeconds = TimeInterval(showSettingsResolved?.autoSkipOutroSeconds ?? user?.autoSkipOutroSeconds ?? 0)
         let playbackSpeed = showSettingsResolved?.playbackSpeed ?? user?.playbackSpeed ?? 1.0
@@ -498,7 +526,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
         var startPosition: TimeInterval = 0
         var downloadRecord: DownloadedEpisodeRecord?
-        if let context = Self.modelContainer.map(ModelContext.init) {
+        if let context {
             let episodeId = playlistItem.episodeId
             if let state = try? context.fetch(
                 FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
@@ -844,7 +872,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // cleanup calls (#569/#532) — without these, an episode marked played from CarPlay's Now
     // Playing screen would strand itself in manual playlists and skip auto-delete-after-played.
     private func markEpisodePlayed(showId: String, episodeId: String) async {
-        let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
+        // Cache-first (#761): only the duration is needed here, and CatalogCache already has it
+        // for any episode CarPlay could be marking played (that's how it got playing in the first
+        // place) — the network fallback covers the rare case CatalogCache never saw it.
+        let context = Self.modelContainer.map(ModelContext.init)
+        let episode = await resolveEpisode(showId: showId, episodeId: episodeId, context: context)
         let persisted = await Self.persist(
             episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
         // Gated on the write actually committing — see Self.persist's own doc comment.
@@ -854,7 +886,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // #724: this path never patched the Shows/Subscriptions badge cache the way the phone UI's
         // mark-played toggles do, so an episode marked played from CarPlay's Now Playing screen
         // kept showing as unplayed there until the next full sync.
-        if let context = Self.modelContainer.map(ModelContext.init) {
+        if let context {
             CatalogCache.recordEpisodeStateChange(
                 episodeId: episodeId, showId: showId, completed: true, positionSeconds: 0, in: context)
         }
@@ -869,9 +901,23 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // store with the phone UI, so a download kicked off here is picked up there (and vice versa)
     // automatically; see #642's own note on why consuming it needs no further work.
     private func downloadEpisode(showId: String, episodeId: String) async {
-        if let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId) {
+        // Cache-first (#761): same rationale as markEpisodePlayed — the episode CarPlay is
+        // currently playing is already in CatalogCache from however it got there.
+        let context = Self.modelContainer.map(ModelContext.init)
+        if let episode = await resolveEpisode(showId: showId, episodeId: episodeId, context: context) {
             DownloadManager.shared.startDownload(episode: episode)
         }
+    }
+
+    // Shared cache-first lookup for markEpisodePlayed/downloadEpisode — both act on whatever
+    // episode CarPlay currently reports as playing, which CatalogCache already has from however
+    // playback got started; the network fallback only covers the rare episode CatalogCache never
+    // saw (e.g. a natural-finish-triggered call after the app was reinstalled mid-session).
+    private func resolveEpisode(showId: String, episodeId: String, context: ModelContext?) async -> Episode? {
+        if let cached = context.flatMap({ CatalogCache.episode(showId: showId, episodeId: episodeId, in: $0) }) {
+            return cached
+        }
+        return try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
     }
 
     private func addCurrentEpisodeToPlaylist() async {
@@ -882,19 +928,24 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // Mirrors AddToPlaylistSheet's phone reference implementation, simplified for a CPListTemplate
     // (#642) — same unfiltered playlist list (including dynamic playlists; the server is the
     // authority on whether adding to one is allowed), no inline "create new playlist" flow.
+    // Cache-first (#761): sourced entirely from the locally-synced PlaylistRecord store — the same
+    // one loadPlaylistsList paints the Playlists tab from, kept current by playlistSyncEngine —
+    // rather than a live GET /api/playlists on every "Add to Playlist" tap, which could otherwise
+    // leave this picker slow or blank on a fresh connect the same way the old Playlists tab was.
+    // Awaits playlistSyncTask first (already in flight since didConnect, mirroring
+    // loadPlaylistsList's own wait) so a fast tap right after connecting — e.g. straight from a
+    // Continue Listening row, which paints before any sync is awaited — doesn't race an
+    // empty/stale local store into a false "no playlists" screen.
     private func pushPlaylistPicker(showId: String, episodeId: String) async {
-        let playlists: [Playlist]
-        do {
-            playlists = try await playlistClient.getPlaylists().sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
-        } catch {
+        await playlistSyncTask?.value
+        guard let context = Self.modelContainer.map(ModelContext.init) else {
             let template = CPListTemplate(
                 title: "Add to Playlist",
                 sections: [CPListSection(items: [CPListItem(text: "Couldn't load your playlists.", detailText: nil)])])
             interfaceController?.pushTemplate(template, animated: true, completion: nil)
             return
         }
+        let playlists = PlaylistSummary.local(in: context)
 
         guard !playlists.isEmpty else {
             let template = CPListTemplate(
