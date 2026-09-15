@@ -341,6 +341,7 @@ final class PlaybackQueue {
                 await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
             }
         }
+        DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
 
         // Falls back to the full slow path if AudioPlayer's own state changed out from under us
         // between the hasPendingPreload() check above and this call (e.g. it somehow lost
@@ -472,6 +473,7 @@ final class PlaybackQueue {
         let voiceBoost: Bool
         let trimSilence: Bool
         let volumeOffsetDb: Float
+        let excludedRanges: [SilenceRange]
     }
 
     // The episode/show/settings/download-record resolution chain shared by playItem() and
@@ -523,7 +525,7 @@ final class PlaybackQueue {
             audioUrl: audioUrl, episode: episode, show: show, startPosition: startPosition,
             autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
             playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
-            volumeOffsetDb: volumeOffsetDb)
+            volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord))
     }
 
     // Starts an episode from outside the detail screen — an auto-advance, or a direct quickPlay()
@@ -550,13 +552,14 @@ final class PlaybackQueue {
                 await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
             }
         }
+        DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
 
         AudioPlayer.shared.play(
             url: audioUrl, startPosition: resolved.startPosition,
             autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
             playbackSpeed: resolved.playbackSpeed, smartSpeed: resolved.smartSpeed,
             voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
-            volumeOffsetDb: resolved.volumeOffsetDb,
+            volumeOffsetDb: resolved.volumeOffsetDb, excludedRanges: resolved.excludedRanges,
             context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: NowPlayingMetadata(
                 title: resolved.episode.title, showTitle: resolved.show?.title,
@@ -604,7 +607,7 @@ final class PlaybackQueue {
             autoSkipIntroSeconds: resolved.autoSkipIntroSeconds, playbackSpeed: resolved.playbackSpeed,
             autoSkipOutroSeconds: resolved.autoSkipOutroSeconds,
             smartSpeed: resolved.smartSpeed, voiceBoost: resolved.voiceBoost, trimSilence: resolved.trimSilence,
-            volumeOffsetDb: resolved.volumeOffsetDb,
+            volumeOffsetDb: resolved.volumeOffsetDb, excludedRanges: resolved.excludedRanges,
             context: NowPlayingContext(showId: next.showId, episodeId: next.episodeId, playlistId: playlistId),
             metadata: NowPlayingMetadata(
                 title: resolved.episode.title, showTitle: resolved.show?.title,

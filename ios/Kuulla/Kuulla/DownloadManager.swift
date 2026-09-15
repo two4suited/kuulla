@@ -406,6 +406,17 @@ extension DownloadManager: URLSessionDownloadDelegate {
             record.downloadedAt = Date()
             record.status = .complete
             try? context.save()
+
+            // Fire-and-forget, mirroring makeSmartSpeedProcessorIfNeeded's own async audioMix
+            // assignment (#657) — analysis decodes the whole file (fast, but not instant) and
+            // must not block this completion callback. Silence trimming simply stays in its
+            // degraded, rate-based mode (SmartSpeedProcessor's real-time tap) until this finishes
+            // and writes a silence map, whether that's seconds or (for an unusually large file)
+            // longer than this session stays open.
+            Task.detached {
+                await SilenceMapAnalyzer.analyzeAndStore(
+                    episodeId: episodeId, fileURL: destination, expectedLocalFilePath: filename, modelContainer: modelContainer)
+            }
         }
     }
 

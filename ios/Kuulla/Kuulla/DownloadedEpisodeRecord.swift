@@ -14,6 +14,20 @@ final class DownloadedEpisodeRecord {
     var downloadedAt: Date
     var status: DownloadStatus
 
+    // JSON-encoded [SilenceRange] from SilenceMapAnalyzer (#777) — nil until analysis completes.
+    // Stored as a plain field rather than a new @Model/relationship: it's small (a few dozen
+    // ranges at most), always read/written as a whole, and this app has no VersionedSchema
+    // migration plan yet, so an optional field (defaulting to nil) is the lightest-weight change
+    // SwiftData's automatic lightweight migration can absorb.
+    var silenceMapData: Data?
+    var silenceMapComputedAt: Date?
+    // Set when analysis errors out, so DownloadManager/AudioPlayer don't keep retrying a file
+    // that will never decode (corrupt download, unsupported codec).
+    var silenceMapFailed: Bool = false
+    // Guards LocalSettings.addSilenceTimeSaved so a spliced episode's trimmed seconds are only
+    // credited to the lifetime counter (#680) once per download, not once per playback session.
+    var silenceTimeSavedCounted: Bool = false
+
     init(
         id: String,
         showId: String,
@@ -28,6 +42,42 @@ final class DownloadedEpisodeRecord {
         self.fileSizeBytes = fileSizeBytes
         self.downloadedAt = downloadedAt
         self.status = status
+    }
+}
+
+extension DownloadedEpisodeRecord {
+    // Decodes silenceMapData into the ranges SpliceCompositionBuilder needs, or [] when there's
+    // no computed map yet (or the record itself doesn't exist) — callers treat an empty result as
+    // "play this file unedited", exactly the same degraded mode as an unanalyzed stream.
+    static func silenceMapRanges(from record: DownloadedEpisodeRecord?) -> [SilenceRange] {
+        guard let data = record?.silenceMapData else { return [] }
+        return (try? JSONDecoder().decode([SilenceRange].self, from: data)) ?? []
+    }
+
+    // Credits a spliced playback session's real-world time saved into the on-device lifetime
+    // counter (#680), the first time it happens for this download — mirrors
+    // DownloadManager.markFailed's own "fresh context, fetch by id, mutate, save" shape, since
+    // AudioPlayer.onSpliceApplied can fire well after whatever context originally resolved this
+    // episode's playback URL.
+    static func creditSilenceTimeSavedIfNeeded(episodeId: String, seconds: TimeInterval, modelContainer: ModelContainer) {
+        let context = ModelContext(modelContainer)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
+        guard let record = try? context.fetch(descriptor).first, !record.silenceTimeSavedCounted else { return }
+        record.silenceTimeSavedCounted = true
+        LocalSettings.addSilenceTimeSaved(seconds)
+        try? context.save()
+    }
+
+    // Wires `player.onSpliceApplied` to credit this episode's download the moment a splice
+    // session fires — shared by every play()/preloadNext() call site (EpisodeDetailView,
+    // PlaybackQueue, CarPlaySceneDelegate) so the closure's shape lives in exactly one place. A
+    // nil modelContainer (no DI wiring yet) leaves whatever was previously assigned untouched,
+    // mirroring how none of those call sites can resolve a silence map without one either.
+    static func wireSpliceCredit(episodeId: String, modelContainer: ModelContainer?, on player: AudioPlayer) {
+        guard let modelContainer else { return }
+        player.onSpliceApplied = { seconds in
+            creditSilenceTimeSavedIfNeeded(episodeId: episodeId, seconds: seconds, modelContainer: modelContainer)
+        }
     }
 }
 
