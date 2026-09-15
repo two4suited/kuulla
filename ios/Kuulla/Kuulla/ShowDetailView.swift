@@ -5,6 +5,7 @@ struct ShowDetailView: View {
     let showId: String
 
     @Environment(\.episodeSyncEngine) private var syncEngine
+    @Environment(\.playlistSyncEngine) private var playlistSyncEngine
     @Environment(\.settingsSyncEngine) private var settingsSyncEngine
     @Environment(\.catalogRefresh) private var catalogRefresh
     @Environment(\.modelContext) private var modelContext
@@ -563,7 +564,8 @@ struct ShowDetailView: View {
             }
             // #569: same rule as the per-episode toggle above, scoped to the whole show for this
             // bulk action.
-            await PlaylistCleanup.removeAllFromManualPlaylists(forShowId: showId, playlistClient: playlistClient)
+            await PlaylistCleanup.removeAllFromManualPlaylists(
+                forShowId: showId, playlistSyncEngine: playlistSyncEngine, playlistClient: playlistClient)
             await syncEngine?.syncNow()
         } catch {
             if !Task.isCancelled {
@@ -638,7 +640,8 @@ struct ShowDetailView: View {
             // #569: swipe-to-mark-played bypassed EpisodeDetailView.persist()'s playlist-removal
             // rule too — shares the same PlaylistCleanup entry point so both paths stay in sync.
             await PlaylistCleanup.removeFromManualPlaylists(
-                episodeId: episodeId, completed: shouldComplete, playlistClient: playlistClient)
+                episodeId: episodeId, completed: shouldComplete,
+                playlistSyncEngine: playlistSyncEngine, playlistClient: playlistClient)
         } catch {
             assertionFailure("Failed to toggle episode completion: \(episodeId): \(error)")
         }
