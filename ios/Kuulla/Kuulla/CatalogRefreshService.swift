@@ -79,12 +79,11 @@ final class CatalogRefreshService {
             let unplayed = newEpisodes.map(UnplayedCounts.compute(from:))
             let inProgress = await inProgressTask
 
-            // Re-pull a subscribed show when we've never cached its metadata (ShowRecord) or its
-            // episodes, or when its subscription says a newer episode exists than the newest one
-            // we hold. Caching the show itself — not just the episode list — is what lets
-            // ShowDetailView paint (and stay usable offline) for a subscribed show the user
-            // hasn't opened since the cache was seeded. A routine "Sync Now" with nothing new
-            // still makes zero requests once every subscribed show is fully cached.
+            // Re-pull a subscribed show's episodes when we've never cached its episodes, or when
+            // its subscription says a newer episode exists than the newest one we hold. Caching
+            // the show itself — not just the episode list — is what lets ShowDetailView paint
+            // (and stay usable offline) for a subscribed show the user hasn't opened since the
+            // cache was seeded.
             let showIdsToRefresh = subscriptions.filter { subscription in
                 guard CatalogCache.show(id: subscription.showId, in: context) != nil else { return true }
                 guard CatalogCache.hasEpisodes(showId: subscription.showId, in: context) else { return true }
@@ -93,6 +92,16 @@ final class CatalogRefreshService {
                 else { return true }
                 return latest > cached
             }.map(\.showId)
+            let showIdsToRefreshSet = Set(showIdsToRefresh)
+
+            // Show metadata (title/artwork/description) can change on the server with no new
+            // episode, so the episode-recency check above never catches it. Refresh metadata for
+            // every already-cached subscribed show on every sync — cheap relative to the episode
+            // page fetch below, and it's what keeps title/artwork current (#746). Shows in
+            // showIdsToRefresh already get fresh metadata as part of that fetch below.
+            let metadataOnlyShowIds = subscriptions
+                .map(\.showId)
+                .filter { !showIdsToRefreshSet.contains($0) }
 
             // At most `maxConcurrent` requests in flight so a first sync of a large library
             // doesn't fire dozens of parallel requests. Deeper pages reload lazily on scroll.
@@ -129,6 +138,25 @@ final class CatalogRefreshService {
                         CatalogCache.replaceEpisodes(
                             showId: showId, page.items, continuationToken: page.continuationToken,
                             in: context)
+                    }
+                }
+            }
+
+            index = 0
+            while index < metadataOnlyShowIds.count {
+                let batch = Array(
+                    metadataOnlyShowIds[index..<min(index + maxConcurrent, metadataOnlyShowIds.count)])
+                index += maxConcurrent
+                await withTaskGroup(of: Show?.self) { group in
+                    for showId in batch {
+                        group.addTask { [catalogClient] in
+                            try? await catalogClient.getShow(id: showId)
+                        }
+                    }
+                    for await show in group {
+                        if let show {
+                            CatalogCache.upsertShow(show, in: context)
+                        }
                     }
                 }
             }
