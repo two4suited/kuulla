@@ -32,7 +32,7 @@ struct NowPlayingView: View {
     @State private var isShowingSleepTimer = false
     @State private var playbackSpeedSaveTask: Task<Void, Never>?
     @State private var playbackSpeedSaveError: String?
-    // Bumped on every cyclePlaybackSpeed() call — same coalescing pattern as
+    // Bumped on every playback speed selection — same coalescing pattern as
     // EpisodeDetailView.savePlaybackSpeed, so only the latest value a user settles on is sent.
     @State private var playbackSpeedSaveVersion = 0
 
@@ -248,8 +248,18 @@ struct NowPlayingView: View {
     private var quickControls: some View {
         VStack(spacing: Space.xs) {
             HStack(spacing: Space.sm) {
-                Button {
-                    cyclePlaybackSpeed()
+                Menu {
+                    ForEach(Self.sortedPlaybackSpeedOptions) { option in
+                        Button {
+                            selectPlaybackSpeed(option)
+                        } label: {
+                            if option.rawValue == audioPlayer.playbackSpeed {
+                                Label(option.label, systemImage: "checkmark")
+                            } else {
+                                Text(option.label)
+                            }
+                        }
+                    }
                 } label: {
                     Text(playbackSpeedLabel)
                         .font(.kuullaMono(13))
@@ -257,10 +267,8 @@ struct NowPlayingView: View {
                         .minimumScaleFactor(0.7)
                         .foregroundStyle(audioPlayer.playbackSpeed == 1.0 ? KuullaColor.textMuted : KuullaColor.signalInk)
                 }
-                .buttonStyle(.plain)
                 .modifier(EpisodeControlChrome(isActive: audioPlayer.playbackSpeed != 1.0))
                 .accessibilityLabel("Playback speed, \(playbackSpeedLabel)")
-                .accessibilityHint("Cycles to the next speed")
 
                 Button {
                     isShowingSleepTimer = true
@@ -315,16 +323,12 @@ struct NowPlayingView: View {
         return "Sleep Timer"
     }
 
-    // Cycles through the common speed presets and applies the change live, mirroring
-    // EpisodeDetailView.cyclePlaybackSpeed. A value outside the presets (e.g. a synced override)
-    // starts the cycle from the slowest preset rather than crashing on a missing match.
-    private func cyclePlaybackSpeed() {
-        let options = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
-        let currentIndex = options.firstIndex { $0.rawValue == audioPlayer.playbackSpeed } ?? -1
-        let next = options[(currentIndex + 1) % options.count]
+    private static let sortedPlaybackSpeedOptions = PlaybackSpeedOption.allCases.sorted { $0.rawValue < $1.rawValue }
 
-        audioPlayer.setPlaybackSpeed(next.rawValue)
-        savePlaybackSpeed(next.rawValue)
+    // Applies the picked speed live and persists it, mirroring EpisodeDetailView.selectPlaybackSpeed.
+    private func selectPlaybackSpeed(_ option: PlaybackSpeedOption) {
+        audioPlayer.setPlaybackSpeed(option.rawValue)
+        savePlaybackSpeed(option.rawValue)
     }
 
     // Chains each save behind the previous one, same rationale as
