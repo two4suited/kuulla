@@ -280,9 +280,14 @@ final class PlaybackQueue {
             let descriptor = FetchDescriptor<EpisodeStateRecord>(
                 predicate: #Predicate { $0.id == finishedEpisodeId })
             if let showId = (try? context.fetch(descriptor).first)?.showId ?? finishedShowId {
+                // Patches through mainContext, not the throwaway `context` above (#772) — the
+                // Shows/Library grids read via `@Environment(\.modelContext)`, which is exactly
+                // `modelContainer.mainContext`; a fresh sibling context isn't guaranteed to make
+                // this show up there promptly (#763), and CatalogCacheSignal only tells those
+                // grids *when* to re-read, not that the read will see the write.
                 CatalogCache.recordEpisodeStateChange(
                     episodeId: finishedEpisodeId, showId: showId, completed: true,
-                    positionSeconds: 0, in: context)
+                    positionSeconds: 0, in: modelContainer.mainContext)
             }
         }
 
