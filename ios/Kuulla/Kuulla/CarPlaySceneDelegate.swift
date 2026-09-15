@@ -684,6 +684,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
             let episodeId = episode.id
             let duration = episode.duration
+            DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
             AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
                 guard finishedURL == audioUrl else { return }
                 self?.progressTrackingTask?.cancel()
@@ -708,7 +709,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 url: audioUrl, startPosition: startPosition,
                 autoSkipIntroSeconds: autoSkipIntroSeconds, autoSkipOutroSeconds: autoSkipOutroSeconds,
                 playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
-                volumeOffsetDb: volumeOffsetDb,
+                volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord),
                 context: NowPlayingContext(showId: showId, episodeId: episode.id, playlistId: playlistId),
                 metadata: NowPlayingMetadata(
                     title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))))

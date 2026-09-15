@@ -157,6 +157,10 @@
 		T1000003 /* SleepTimerSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003 /* SleepTimerSheetTests.swift */; };
 		U1000001 /* EpisodeSwipeActionsPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = U2000001 /* EpisodeSwipeActionsPicker.swift */; };
 		V1000001 /* SafariView.swift in Sources */ = {isa = PBXBuildFile; fileRef = V2000001 /* SafariView.swift */; };
+		V1000002 /* SpliceCompositionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = V2000002 /* SpliceCompositionBuilder.swift */; };
+		V1000003 /* SilenceMapAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = V2000003 /* SilenceMapAnalyzer.swift */; };
+		V1000004 /* SpliceCompositionBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = V2000004 /* SpliceCompositionBuilderTests.swift */; };
+		V1000005 /* SilenceMapAnalyzerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = V2000005 /* SilenceMapAnalyzerTests.swift */; };
 		W1000001 /* SubscriptionSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000001 /* SubscriptionSortOrder.swift */; };
 		W1000002 /* SubscriptionSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000002 /* SubscriptionSort.swift */; };
 		W1000003 /* SubscriptionSortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = W2000003 /* SubscriptionSortTests.swift */; };
@@ -360,6 +364,10 @@
 		T2000003 /* SleepTimerSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepTimerSheetTests.swift; sourceTree = "<group>"; };
 		U2000001 /* EpisodeSwipeActionsPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpisodeSwipeActionsPicker.swift; sourceTree = "<group>"; };
 		V2000001 /* SafariView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariView.swift; sourceTree = "<group>"; };
+		V2000002 /* SpliceCompositionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpliceCompositionBuilder.swift; sourceTree = "<group>"; };
+		V2000003 /* SilenceMapAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilenceMapAnalyzer.swift; sourceTree = "<group>"; };
+		V2000004 /* SpliceCompositionBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpliceCompositionBuilderTests.swift; sourceTree = "<group>"; };
+		V2000005 /* SilenceMapAnalyzerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilenceMapAnalyzerTests.swift; sourceTree = "<group>"; };
 		W2000001 /* SubscriptionSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortOrder.swift; sourceTree = "<group>"; };
 		W2000002 /* SubscriptionSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSort.swift; sourceTree = "<group>"; };
 		W2000003 /* SubscriptionSortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionSortTests.swift; sourceTree = "<group>"; };
@@ -545,6 +553,8 @@
 				Z2000003 /* Transcript.swift */,
 				Z2000004 /* TranscriptView.swift */,
 				V2000001 /* SafariView.swift */,
+				V2000002 /* SpliceCompositionBuilder.swift */,
+				V2000003 /* SilenceMapAnalyzer.swift */,
 				A2000050 /* Theme.swift */,
 				A2000051 /* Typography.swift */,
 				A2000060 /* Manrope.ttf */,
@@ -622,6 +632,8 @@
 				P2000013 /* ShowSettingsTests.swift */,
 				P2000014 /* FeedViewTests.swift */,
 				R2000002 /* SmartSpeedProcessorTests.swift */,
+				V2000004 /* SpliceCompositionBuilderTests.swift */,
+				V2000005 /* SilenceMapAnalyzerTests.swift */,
 				T2000003 /* SleepTimerSheetTests.swift */,
 				Z2000002 /* ChapterScrubberTests.swift */,
 				Z2000005 /* TranscriptTests.swift */,
@@ -878,6 +890,8 @@
 				Z1000003 /* Transcript.swift in Sources */,
 				Z1000004 /* TranscriptView.swift in Sources */,
 				V1000001 /* SafariView.swift in Sources */,
+				V1000002 /* SpliceCompositionBuilder.swift in Sources */,
+				V1000003 /* SilenceMapAnalyzer.swift in Sources */,
 				CA100001 /* SubscriptionRecord.swift in Sources */,
 				CA100002 /* ShowRecord.swift in Sources */,
 				CA100003 /* CachedEpisodeRecord.swift in Sources */,
@@ -936,6 +950,8 @@
 				P1000013 /* ShowSettingsTests.swift in Sources */,
 				P1000014 /* FeedViewTests.swift in Sources */,
 				R1000002 /* SmartSpeedProcessorTests.swift in Sources */,
+				V1000004 /* SpliceCompositionBuilderTests.swift in Sources */,
+				V1000005 /* SilenceMapAnalyzerTests.swift in Sources */,
 				T1000003 /* SleepTimerSheetTests.swift in Sources */,
 				Z1000002 /* ChapterScrubberTests.swift in Sources */,
 				Z1000005 /* TranscriptTests.swift in Sources */,

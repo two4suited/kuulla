@@ -676,9 +676,7 @@ struct EpisodeDetailView: View {
     // local URL into play() while some other call site still compared against the remote one
     // would make isPlaying/currentURL checks silently stop matching.
     private func resolvedPlaybackURL(for episode: Episode) -> URL? {
-        let episodeId = episode.id
-        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
-        let record = try? modelContext.fetch(descriptor).first
+        let record = downloadRecord(for: episode.id)
         return Self.resolvedPlaybackURL(audioUrlString: episode.audioUrl, downloadRecord: record, downloadsDirectory: DownloadManager.downloadsDirectory())
     }
 
@@ -756,11 +754,12 @@ struct EpisodeDetailView: View {
                 await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: self.episodeId)
             }
         }
+        DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: modelContext.container, on: audioPlayer)
         audioPlayer.play(
             url: url, startPosition: startPosition,
             autoSkipIntroSeconds: TimeInterval(autoSkipIntroSeconds), autoSkipOutroSeconds: TimeInterval(autoSkipOutroSeconds),
             playbackSpeed: playbackSpeed, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence,
-            volumeOffsetDb: volumeOffsetDb,
+            volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord(for: episodeId)),
             context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
             metadata: episode.map { episode in
                 NowPlayingMetadata(
@@ -768,6 +767,13 @@ struct EpisodeDetailView: View {
                     artworkURL: show?.artworkUrl.flatMap(URL.init(string:)))
             })
         startProgressTracking()
+    }
+
+    // Small shared fetch so startPlayback doesn't repeat resolvedPlaybackURL(for:)'s own
+    // FetchDescriptor construction just to also get at the silence map.
+    private func downloadRecord(for episodeId: String) -> DownloadedEpisodeRecord? {
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == episodeId })
+        return try? modelContext.fetch(descriptor).first
     }
 
     // A transcript segment tap: seek if this episode is already loaded, otherwise start it at

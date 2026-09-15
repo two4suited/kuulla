@@ -102,8 +102,13 @@ final class SmartSpeedProcessor {
     private var silenceDetector = SilenceRunDetector()
     private var smoothedGain: Float = 1.0
 
-    init(smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0) {
-        self.silenceTrimEnabled = smartSpeed || trimSilence
+    // silenceAlreadySpliced (#777): true when AudioPlayer is playing an AVMutableComposition with
+    // the silence already cut out (SpliceCompositionBuilder), so the real-time detector would
+    // have nothing left to find — forces silenceTrimEnabled off regardless of smartSpeed/
+    // trimSilence, independent of voiceBoostEnabled, which still runs normally on top of a
+    // spliced composition.
+    init(smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0, silenceAlreadySpliced: Bool = false) {
+        self.silenceTrimEnabled = (smartSpeed || trimSilence) && !silenceAlreadySpliced
         self.voiceBoostEnabled = smartSpeed || voiceBoost
         self.volumeOffsetGain = Self.linearGain(forDb: volumeOffsetDb)
     }

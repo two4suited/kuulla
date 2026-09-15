@@ -55,6 +55,13 @@ final class AudioPlayer {
     private(set) var duration: TimeInterval = 0
     private(set) var currentURL: URL?
 
+    // Non-nil exactly while `player` is playing an AVMutableComposition built by
+    // SpliceCompositionBuilder (#777) rather than the source file directly — translates
+    // AVPlayer's own (composition) time to/from source time at every boundary below
+    // (currentTime, duration, seek), so chapters, outro-skip, transcript highlighting, and
+    // progress sync all keep operating in source time without knowing a splice is involved.
+    private var activeTimeMap: CompositionTimeMap?
+
     // Set when play() refuses to start a remote stream because Wi-Fi-only streaming (#271) is on
     // and the device isn't currently on Wi-Fi — cleared at the start of every play() call
     // (successful or not) so a stale message doesn't linger after the user reconnects or retries.
@@ -91,6 +98,15 @@ final class AudioPlayer {
     // onDidFinishPlaying exactly, for the same reason (a screen that never presses play can't
     // steal the callback from whichever episode is actually playing).
     var onApproachingEnd: (() -> Void)?
+
+    // Fires once, synchronously from play()/swapToPendingPreload(), whenever the session that
+    // just started is playing a spliced composition with a nonzero amount trimmed — carries the
+    // real-world seconds saved (source seconds trimmed, adjusted for playback speed) for the
+    // caller to credit into DownloadedEpisodeRecord.creditSilenceTimeSavedIfNeeded (#680/#777).
+    // Single-slot, assigned-at-play() contract mirrors onDidFinishPlaying/onApproachingEnd:
+    // AudioPlayer itself has no SwiftData access to guard "already counted" bookkeeping, so that
+    // stays the caller's responsibility.
+    var onSpliceApplied: ((_ realSecondsSaved: TimeInterval) -> Void)?
 
     private var timeObserverToken: Any?
     private var endObserver: NSObjectProtocol?
@@ -140,6 +156,10 @@ final class AudioPlayer {
     private var pendingNextPlaybackSpeed: Float = 1.0
     private var pendingNextSmartSpeedProcessor: SmartSpeedProcessor?
     private var pendingNextStatusObserver: NSKeyValueObservation?
+    // Mirrors activeTimeMap/duration for the pending preload — applied to the real properties
+    // only once swapToPendingPreload() actually takes over.
+    private var pendingNextTimeMap: CompositionTimeMap?
+    private var pendingNextSourceDuration: TimeInterval?
 
     // True once pendingNextItem's KVO status has reached .readyToPlay. Tracked explicitly (rather
     // than read straight off pendingNextItem.status at swap time) so it can also be driven
@@ -305,7 +325,7 @@ final class AudioPlayer {
         url: URL, startPosition: TimeInterval = 0,
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
         playbackSpeed: Float = 1.0, smartSpeed: Bool = false, voiceBoost: Bool = false, trimSilence: Bool = false,
-        volumeOffsetDb: Float = 0,
+        volumeOffsetDb: Float = 0, excludedRanges: [SilenceRange] = [],
         context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
     ) {
         streamBlockedMessage = nil
@@ -333,14 +353,16 @@ final class AudioPlayer {
         // episode than whatever nextItem() had in mind when the preload was started.
         discardPendingPreload()
 
-        let item = AVPlayerItem(url: url)
+        let (item, timeMap, sourceDuration) = makePlayerItem(url: url, trimSilence: trimSilence, excludedRanges: excludedRanges)
+        activeTimeMap = timeMap
         smartSpeedProcessor = makeSmartSpeedProcessorIfNeeded(
-            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb)
+            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb,
+            silenceAlreadySpliced: timeMap != nil)
 
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
         currentURL = url
-        duration = 0
+        duration = sourceDuration ?? 0
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
         self.playbackSpeed = playbackSpeed
         hasTriggeredOutroSkip = false
@@ -351,22 +373,59 @@ final class AudioPlayer {
         // every resume.
         let effectiveStartPosition = startPosition > 0 ? startPosition : autoSkipIntroSeconds
         currentTime = effectiveStartPosition
+        // Composition time, not source time, is what the player itself needs to seek/start at.
+        let playerStartPosition = timeMap?.compositionTime(fromSource: effectiveStartPosition) ?? effectiveStartPosition
 
         // AVPlayer.seek(to:) is asynchronous — calling play() immediately after would let playback
         // start audibly at 0s and then jump once the seek lands. Deferring the rate-apply to the
         // seek's completion handler makes resume-from-position actually start at that position.
         // Setting .rate rather than calling .play() starts playback at the configured speed
         // directly, instead of starting at 1.0 and then jumping.
-        if effectiveStartPosition > 0 {
-            issueGoverningSeek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600))
+        if playerStartPosition > 0 {
+            issueGoverningSeek(to: CMTime(seconds: playerStartPosition, preferredTimescale: 600))
         } else {
             newPlayer.rate = playbackSpeed
         }
         isPlaying = true
         nowPlayingContext = context
         applyMetadata(metadata)
+        if let timeMap, timeMap.totalTrimmed > 0 {
+            onSpliceApplied?(timeMap.totalTrimmed / TimeInterval(playbackSpeed))
+        }
 
         wireUpFreshlyStartedPlayer(item: item, player: newPlayer, url: url)
+    }
+
+    // Builds the AVPlayerItem for a play()/preloadNext() session — an AVMutableComposition with
+    // the silence spliced out (#777) when trimSilence is on, the file is a local download, and a
+    // silence map has already been computed for it; the plain source URL in every other case
+    // (streams, unanalyzed downloads, trimSilence off), which keeps SmartSpeedProcessor's
+    // real-time rate-based trim as the degraded mode exactly as before this feature existed.
+    //
+    // Resolves the asset's track/duration synchronously (the deprecated, non-async AVAsset APIs)
+    // rather than awaiting loadTracks the way makeSmartSpeedProcessorIfNeeded does for the audio
+    // mix: this path only ever runs against an already-downloaded local file, where that read
+    // resolves effectively instantly, unlike the general (possibly-remote) asset the audio mix
+    // has to handle — the case that motivated going async there (#657). Falls back to the plain
+    // URL item on any failure (missing track, non-finite duration, composition build error)
+    // rather than failing playback outright, mirroring SmartSpeedProcessor.makeAudioMix's own
+    // no-op-on-failure philosophy.
+    private func makePlayerItem(
+        url: URL, trimSilence: Bool, excludedRanges: [SilenceRange]
+    ) -> (item: AVPlayerItem, timeMap: CompositionTimeMap?, sourceDuration: TimeInterval?) {
+        guard url.isFileURL, trimSilence, !excludedRanges.isEmpty else {
+            return (AVPlayerItem(url: url), nil, nil)
+        }
+        let asset = AVURLAsset(url: url)
+        let sourceDuration = asset.duration.seconds
+        guard sourceDuration.isFinite, sourceDuration > 0,
+              let track = asset.tracks(withMediaType: .audio).first,
+              let (composition, timeMap) = try? SpliceCompositionBuilder.build(
+                track: track, sourceDuration: sourceDuration, excludedRanges: excludedRanges)
+        else {
+            return (AVPlayerItem(url: url), nil, nil)
+        }
+        return (AVPlayerItem(asset: composition), timeMap, sourceDuration)
     }
 
     // Builds a SmartSpeedProcessor and wires its silence-detection callbacks + async audioMix
@@ -376,7 +435,8 @@ final class AudioPlayer {
     // volumeOffsetDb is 0, matching play()'s own "only pay the tap-processing cost when actually
     // in use" contract.
     private func makeSmartSpeedProcessorIfNeeded(
-        for item: AVPlayerItem, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0
+        for item: AVPlayerItem, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0,
+        silenceAlreadySpliced: Bool = false
     ) -> SmartSpeedProcessor? {
         // Pitch correction so spoken-word content speeds up without the chipmunk effect a naive
         // rate change would produce. .spectral (a phase vocoder) rather than .timeDomain: the
@@ -389,10 +449,13 @@ final class AudioPlayer {
         // rate changed via setPlaybackSpeed().
         item.audioTimePitchAlgorithm = .spectral
 
-        guard smartSpeed || voiceBoost || trimSilence || volumeOffsetDb != 0 else { return nil }
+        // A splice-only session (trimSilence the sole reason this would otherwise fire) needs no
+        // tap at all once the composition has already removed the silence.
+        guard smartSpeed || voiceBoost || (trimSilence && !silenceAlreadySpliced) || volumeOffsetDb != 0 else { return nil }
 
         let processor = SmartSpeedProcessor(
-            smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb)
+            smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb,
+            silenceAlreadySpliced: silenceAlreadySpliced)
         // Captures item weakly so a later play()/swapToPendingPreload() that replaces self.player
         // (and drops this item) can't have this stale session's detector adjust the new player's
         // rate out from under it — the identity check below is the real guard, this just avoids
@@ -485,8 +548,12 @@ final class AudioPlayer {
             forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
             guard let self else { return }
-            self.currentTime = time.seconds
-            if let itemDuration = player.currentItem?.duration.seconds, itemDuration.isFinite {
+            self.currentTime = self.activeTimeMap?.sourceTime(fromComposition: time.seconds) ?? time.seconds
+            // A composition's own duration is the shortened, spliced one — duration was already
+            // set to the source file's real duration in play()/swapToPendingPreload() and must
+            // stay there for every consumer (progress bar, outro-skip threshold) that assumes
+            // source time.
+            if self.activeTimeMap == nil, let itemDuration = player.currentItem?.duration.seconds, itemDuration.isFinite {
                 self.duration = itemDuration
             }
             self.checkAutoSkipOutro(url: url)
@@ -556,8 +623,12 @@ final class AudioPlayer {
     }
 
     func seek(to time: TimeInterval) {
-        let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         currentTime = time
+        // `time` is always source time (every caller — scrub, chapter tap, transcript tap,
+        // interruption rewind — reasons about the episode's own timeline); translate to
+        // composition time only for the actual AVPlayer call when a splice is in effect.
+        let playerTarget = activeTimeMap?.compositionTime(fromSource: time) ?? time
+        let cmTime = CMTime(seconds: playerTarget, preferredTimescale: 600)
         // A manual seek can move well away from (or back into) the approaching-end window, and any
         // outstanding preload was resolved for "whatever plays after wherever the user was" — no
         // longer trustworthy once they've jumped around. Discarding here (rather than only on the
@@ -806,14 +877,15 @@ final class AudioPlayer {
         url: URL, startPosition: TimeInterval = 0, autoSkipIntroSeconds: TimeInterval = 0,
         playbackSpeed: Float = 1.0, autoSkipOutroSeconds: TimeInterval = 0,
         smartSpeed: Bool = false, voiceBoost: Bool = false, trimSilence: Bool = false,
-        volumeOffsetDb: Float = 0,
+        volumeOffsetDb: Float = 0, excludedRanges: [SilenceRange] = [],
         context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
     ) {
         discardPendingPreload()
 
-        let item = AVPlayerItem(url: url)
+        let (item, timeMap, sourceDuration) = makePlayerItem(url: url, trimSilence: trimSilence, excludedRanges: excludedRanges)
         let processor = makeSmartSpeedProcessorIfNeeded(
-            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb)
+            for: item, smartSpeed: smartSpeed, voiceBoost: voiceBoost, trimSilence: trimSilence, volumeOffsetDb: volumeOffsetDb,
+            silenceAlreadySpliced: timeMap != nil)
 
         let newPlayer = AVPlayer(playerItem: item)
         // Deliberately left at rate 0 — preloading only buffers the item toward readyToPlay, it
@@ -826,6 +898,7 @@ final class AudioPlayer {
         // stopped partway through this same episode from a different session) always wins when
         // present.
         let effectiveStartPosition = startPosition > 0 ? startPosition : autoSkipIntroSeconds
+        let playerStartPosition = timeMap?.compositionTime(fromSource: effectiveStartPosition) ?? effectiveStartPosition
 
         pendingNextPlayer = newPlayer
         pendingNextItem = item
@@ -836,6 +909,8 @@ final class AudioPlayer {
         pendingNextAutoSkipOutroSeconds = autoSkipOutroSeconds
         pendingNextPlaybackSpeed = playbackSpeed
         pendingNextSmartSpeedProcessor = processor
+        pendingNextTimeMap = timeMap
+        pendingNextSourceDuration = sourceDuration
         pendingNextIsReady = false
 
         // Issued immediately (unlike play()'s deferred-until-seek-completes rate apply) rather
@@ -843,8 +918,8 @@ final class AudioPlayer {
         // milliseconds, to land before swapToPendingPreload() actually applies a nonzero rate to
         // it, so the audible "start at 0 then jump" race play()'s own comment describes doesn't
         // apply here in practice.
-        if effectiveStartPosition > 0 {
-            newPlayer.seek(to: CMTime(seconds: effectiveStartPosition, preferredTimescale: 600))
+        if playerStartPosition > 0 {
+            newPlayer.seek(to: CMTime(seconds: playerStartPosition, preferredTimescale: 600))
         }
 
         // AVPlayerItem.status isn't guaranteed to update on main, and every pending* property is
@@ -893,6 +968,8 @@ final class AudioPlayer {
         let autoSkipOutroSeconds = pendingNextAutoSkipOutroSeconds
         let playbackSpeed = pendingNextPlaybackSpeed
         let processor = pendingNextSmartSpeedProcessor
+        let timeMap = pendingNextTimeMap
+        let sourceDuration = pendingNextSourceDuration
         // Clears the pending-preload slot before this session's own state is applied below —
         // wireUpFreshlyStartedPlayer's periodic observer can in principle tick synchronously
         // enough to want a clean slate, and there is nothing left in the pending slot worth
@@ -907,12 +984,13 @@ final class AudioPlayer {
 
         player = newPlayer
         currentURL = url
+        activeTimeMap = timeMap
         // Set optimistically, mirroring play()'s own currentTime = effectiveStartPosition — the
         // preload's seek (issued back in preloadNext(), with a multi-second head start) has
         // almost always already landed by the time a swap happens, so unlike play() there's no
         // need to defer this behind a governing-seek completion.
         currentTime = startPosition
-        duration = 0
+        duration = sourceDuration ?? 0
         self.autoSkipOutroSeconds = autoSkipOutroSeconds
         self.playbackSpeed = playbackSpeed
         self.smartSpeedProcessor = processor
@@ -921,6 +999,9 @@ final class AudioPlayer {
         isPlaying = true
         nowPlayingContext = context
         applyMetadata(metadata)
+        if let timeMap, timeMap.totalTrimmed > 0 {
+            onSpliceApplied?(timeMap.totalTrimmed / TimeInterval(playbackSpeed))
+        }
 
         newPlayer.rate = playbackSpeed
 
@@ -945,6 +1026,8 @@ final class AudioPlayer {
         pendingNextAutoSkipOutroSeconds = 0
         pendingNextPlaybackSpeed = 1.0
         pendingNextSmartSpeedProcessor = nil
+        pendingNextTimeMap = nil
+        pendingNextSourceDuration = nil
         pendingNextIsReady = false
     }
 
