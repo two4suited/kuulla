@@ -35,21 +35,51 @@ final class SmartSpeedProcessor {
     // natural speech cadence (breaths, sentence pauses), not dead air.
     static let minimumSilenceDuration: TimeInterval = 0.8
     // The gain stage aims for this RMS level on each buffer (a soft ceiling, not a hard target)
-    // and never applies more than maxBoostGain — bounds the boost so a quiet passage gets louder
-    // without a stray loud sample in the same buffer clipping after being boosted.
-    static let boostTargetLevel: Float = 0.35
+    // and never applies more than maxBoostGain. 0.2 linear is about -14 dBFS RMS — roughly where
+    // a broadcast-normalized spoken-word podcast already sits (Apple's -16 LUFS guidance) — so a
+    // quiet passage gets lifted to "normal", not driven into constant limiting. The original 0.35
+    // (-9 dBFS) target was hotter than ordinary speech peaks allow: every buffer of normal-level
+    // dialogue was gained past full scale and soft-clipped (docs/audio-engine-research.md).
+    static let boostTargetLevel: Float = 0.2
     static let maxBoostGain: Float = 4.0
+    // The gain stage never lifts a buffer's peak sample past this, whatever the RMS target asks
+    // for — see peakLimitedGain(_:peak:).
+    static let peakCeiling: Float = 0.95
+    // Below this magnitude the limiter is a pure passthrough; above it the remaining headroom to
+    // full scale is squeezed with tanh, so the curve is continuous in level and slope at the knee
+    // and can never exceed ±1. An unconditional tanh(x) — the original limiter — compresses
+    // everything above ~0.3 and adds audible harmonic distortion to ordinary-level speech.
+    static let limiterKnee: Float = 0.8
     // Fraction of the distance to the newly computed target gain closed per buffer, rather than
     // jumping straight to it — an instant gain change at a buffer boundary (tens of milliseconds)
-    // is audible as pumping/zipper noise; ramping smooths the transition across buffers instead.
-    static let gainSmoothingFactor: Float = 0.15
-    // Multiplies the configured session rate while a silent run is confirmed ongoing.
+    // is audible as pumping/zipper noise. Asymmetric, like any compressor: gain comes *down* fast
+    // (attack) so a sudden loud passage after a quiet one isn't shoved through the limiter for
+    // several buffers, and goes back *up* slowly (release) so the level doesn't breathe between
+    // words.
+    static let gainAttackFactor: Float = 0.5
+    static let gainReleaseFactor: Float = 0.1
+    // Multiplies the configured session rate while a silent run is confirmed ongoing, capped at
+    // maxSilenceSkipRate — see silenceSkipRate(forPlaybackSpeed:).
     static let silenceSkipRateMultiplier: Float = 4.0
+    static let maxSilenceSkipRate: Float = 6.0
 
     // Invoked off the main thread from the tap's real-time callback exactly on each transition:
     // true the instant a silent run first crosses minimumSilenceDuration, false the instant sound
-    // resumes after a confirmed run. Never fired redundantly for the same state.
-    var onSilenceStateChanged: ((_ isSilent: Bool) -> Void)?
+    // resumes after a confirmed run. Never fired redundantly for the same state. `itemTime` is
+    // the start of the buffer that caused the transition — for the false case, where sound came
+    // back, which AudioPlayer uses to rewind whatever the rate-restore latency ran past.
+    var onSilenceStateChanged: ((_ isSilent: Bool, _ itemTime: TimeInterval) -> Void)?
+
+    // The AVPlayer rate to run at while a confirmed silent run is ongoing. A bare multiplier
+    // compounds with the session speed — 4x on a 1x session, but 12x on top of 3x — and the rate
+    // change round-trips through the main thread and AVPlayer's own pipeline, so the first
+    // ~100-300 ms after sound resumes still plays at the skip rate. At 12x that window swallows
+    // one to four seconds of the next sentence as an unintelligible chirp (the "really funny at
+    // 3x" symptom); capping the absolute rate bounds that bleed to something a listener can still
+    // follow. Never below the session speed itself, so the skip can't slow playback down.
+    static func silenceSkipRate(forPlaybackSpeed speed: Float) -> Float {
+        max(speed, min(speed * silenceSkipRateMultiplier, maxSilenceSkipRate))
+    }
 
     // Invoked off the main thread from the tap's real-time callback whenever a confirmed silent
     // run ends (the same instant onSilenceStateChanged fires false), carrying that run's
@@ -159,49 +189,62 @@ final class SmartSpeedProcessor {
 
     func process(bufferList: UnsafeMutableAudioBufferListPointer, itemTime: TimeInterval) {
         var sumOfSquares: Float = 0
+        var peak: Float = 0
         var sampleCount = 0
         for buffer in bufferList {
             guard let raw = buffer.mData else { continue }
             let samples = raw.assumingMemoryBound(to: Float.self)
             let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
             for i in 0..<count {
-                sumOfSquares += samples[i] * samples[i]
+                let sample = samples[i]
+                sumOfSquares += sample * sample
+                peak = max(peak, abs(sample))
             }
             sampleCount += count
         }
         let level = sampleCount > 0 ? (sumOfSquares / Float(sampleCount)).squareRoot() : 0
 
         // Only ever boosts, never attenuates on its own — smoothedGain can ramp down below 1.0
-        // (e.g. easing off a previous boost, or boostGain(forLevel:) itself dipping under 1 for an
-        // already-loud passage), and pre-#708 that was always a no-op (the original gate was
-        // `smoothedGain > 1.001`). Clamping here preserves that exact behavior for voiceBoost-only
-        // sessions regardless of what volumeOffsetGain contributes below.
+        // (e.g. easing off a previous boost, or boostGain(forLevel:peak:) itself dipping under 1
+        // for an already-loud passage), and pre-#708 that was always a no-op (the original gate
+        // was `smoothedGain > 1.001`). Clamping here preserves that exact behavior for
+        // voiceBoost-only sessions regardless of what volumeOffsetGain contributes below.
         var dynamicGain: Float = 1.0
         if voiceBoostEnabled {
-            let targetGain = Self.boostGain(forLevel: level)
-            smoothedGain += (targetGain - smoothedGain) * Self.gainSmoothingFactor
-            dynamicGain = max(smoothedGain, 1.0)
+            // Held (not re-targeted) through a silent buffer: the room tone / codec floor sits
+            // between boostGain's own near-silence guard and the silence threshold, so chasing a
+            // target there would swell the noise floor through every pause and then have to
+            // release back down once speech returns. Holding keeps the level steady across the
+            // pause and the next word starts at the gain the previous one ended on.
+            if level >= Self.silenceThresholdLinear {
+                let targetGain = Self.boostGain(forLevel: level)
+                let factor = targetGain < smoothedGain ? Self.gainAttackFactor : Self.gainReleaseFactor
+                // Floored at unity so a loud passage can't drive the state below 1 and leave a
+                // dead zone the release then has to climb through before the next quiet passage
+                // gets any boost at all.
+                smoothedGain = max(1.0, smoothedGain + (targetGain - smoothedGain) * factor)
+            }
+            dynamicGain = Self.peakLimitedGain(smoothedGain, peak: peak)
         }
 
         let combinedGain = dynamicGain * volumeOffsetGain
         if abs(combinedGain - 1.0) > 0.001 {
-            // A soft (tanh) limiter only when the combined gain could push samples outside ±1 —
+            // The soft-knee limiter only when the combined gain could push samples outside ±1 —
             // an attenuation-only combinedGain (< 1, e.g. a negative volumeOffsetDb with no active
-            // boost) can never clip, and tanh subtly distorts even well-inside-range samples, so a
-            // plain multiply preserves quality for that common case.
+            // boost) can never clip, so a plain multiply preserves it exactly.
             let needsLimiter = combinedGain > 1.0
             for buffer in bufferList {
                 guard let raw = buffer.mData else { continue }
                 let samples = raw.assumingMemoryBound(to: Float.self)
                 let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
                 for i in 0..<count {
-                    samples[i] = needsLimiter ? tanhf(samples[i] * combinedGain) : samples[i] * combinedGain
+                    samples[i] = needsLimiter ? Self.softLimit(samples[i] * combinedGain) : samples[i] * combinedGain
                 }
             }
         }
 
         if silenceTrimEnabled, let isSilent = silenceDetector.observe(level: level, itemTime: itemTime) {
-            onSilenceStateChanged?(isSilent)
+            onSilenceStateChanged?(isSilent, itemTime)
             if !isSilent, let runDuration = silenceDetector.lastCompletedRunDuration {
                 onSilenceRunCompleted?(runDuration)
             }
@@ -216,6 +259,29 @@ final class SmartSpeedProcessor {
     static func boostGain(forLevel level: Float) -> Float {
         guard level > 0.0001 else { return 1 }
         return min(maxBoostGain, boostTargetLevel / level)
+    }
+
+    // The gain actually applied to a buffer: the smoothed boost, clamped so this buffer's peak
+    // sample stays under peakCeiling. Applied after smoothing, per buffer, and never fed back
+    // into the smoothed state — so a single plosive or click clamps only its own buffer (a step
+    // down that the transient itself masks) instead of driving the attack and ducking the whole
+    // passage for the release time. This is also what keeps the voice-boost path out of the
+    // limiter entirely: only the fixed volume offset can still push samples past the knee.
+    static func peakLimitedGain(_ gain: Float, peak: Float) -> Float {
+        guard peak > 0.0001 else { return gain }
+        return min(gain, peakCeiling / peak)
+    }
+
+    // Soft-knee limiter: identity up to ±limiterKnee, then the remaining headroom to full scale
+    // is compressed with tanh so the output approaches but never exceeds ±1. tanh(0) = 0 with
+    // slope 1, so both the level and the slope are continuous at the knee — no audible step
+    // where the limiter engages. Pure so the transfer curve is unit-testable.
+    static func softLimit(_ sample: Float) -> Float {
+        let magnitude = abs(sample)
+        guard magnitude > limiterKnee else { return sample }
+        let headroom = 1 - limiterKnee
+        let limited = limiterKnee + headroom * tanhf((magnitude - limiterKnee) / headroom)
+        return sample < 0 ? -limited : limited
     }
 
     // dB-to-linear-amplitude conversion for VolumeOffsetDb (#708). Exactly 0 dB returns exactly

@@ -42,6 +42,12 @@ final class DownloadManager: NSObject {
     // the main queue — plain Dictionary access across those two queues would be a data race.
     private let taskMapLock = NSLock()
     private var episodeIdsByTaskIdentifier: [Int: String] = [:]
+    // Also guarded by taskMapLock. Tasks whose finished payload didFinishDownloadingTo refused
+    // (non-2xx status, a web page instead of audio, or a file move that failed): the record is
+    // marked .failed from didCompleteWithError, in the same main-queue block that clears the
+    // task's bookkeeping — never from didFinishDownloadingTo's own dispatch, which would let the
+    // UI show "tap to retry" a beat before startDownload's in-flight guard would accept the tap.
+    private var rejectedTaskIdentifiers: Set<Int> = []
     private var tasksByEpisodeId: [String: URLSessionDownloadTask] = [:]
     // Set by AppDelegate.application(_:handleEventsForBackgroundURLSession:completionHandler:)
     // when the system relaunches the app to deliver background session events; called once this
@@ -351,10 +357,23 @@ extension DownloadManager: URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let directory = Self.downloadsDirectory() else { return }
         let episodeId = taskMapLock.withLock { episodeIdsByTaskIdentifier[downloadTask.taskIdentifier] }
-        // suggestedFilename's extension is empty (not just absent) whenever the response has no
-        // extractable extension, which would otherwise leave a trailing "." with nothing after it.
-        let rawExtension = downloadTask.response?.suggestedFilename.map { ($0 as NSString).pathExtension } ?? ""
-        let fileExtension = rawExtension.isEmpty ? "mp3" : rawExtension
+        let statusCode = (downloadTask.response as? HTTPURLResponse)?.statusCode
+        let mimeType = downloadTask.response?.mimeType
+        let headerBytes = Self.readHeaderBytes(of: location)
+        let byteCount = (try? FileManager.default.attributesOfItem(atPath: location.path)[.size] as? Int) ?? 0
+
+        // A download task "succeeds" for any response the server finished sending, including a
+        // 403/404/410 with a JSON or HTML body (expired signed link, geo-block, sign-in
+        // interstitial). Saving that as <episodeId>.mp3 yields a download that completes and then
+        // fails to play with no explanation — so refuse it here and let didCompleteWithError mark
+        // the same tap-to-retry state a broken connection would.
+        guard Self.isAcceptablePayload(statusCode: statusCode, mimeType: mimeType, headerBytes: headerBytes, byteCount: byteCount) else {
+            reject(downloadTask)
+            return
+        }
+
+        let fileExtension = Self.audioFileExtension(
+            mimeType: mimeType, suggestedFilename: downloadTask.response?.suggestedFilename, headerBytes: headerBytes)
         let filename = "\(episodeId ?? UUID().uuidString).\(fileExtension)"
         var destination = directory.appendingPathComponent(filename)
 
@@ -368,10 +387,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
             let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path)
             fileSizeBytes = (attributes?[.size] as? Int) ?? 0
         } catch {
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let episodeId, let modelContainer = self.modelContainer else { return }
-                self.markFailed(episodeId: episodeId, modelContainer: modelContainer)
-            }
+            reject(downloadTask)
             return
         }
 
@@ -393,8 +409,16 @@ extension DownloadManager: URLSessionDownloadDelegate {
         }
     }
 
+    private func reject(_ task: URLSessionDownloadTask) {
+        taskMapLock.withLock { _ = rejectedTaskIdentifiers.insert(task.taskIdentifier) }
+    }
+
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let episodeId = taskMapLock.withLock({ episodeIdsByTaskIdentifier.removeValue(forKey: task.taskIdentifier) }) else { return }
+        let (episodeId, wasRejected) = taskMapLock.withLock {
+            (episodeIdsByTaskIdentifier.removeValue(forKey: task.taskIdentifier),
+             rejectedTaskIdentifiers.remove(task.taskIdentifier) != nil)
+        }
+        guard let episodeId else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             // Only act if this episode's tracking is still pointing at *this* task — a cancel
@@ -407,8 +431,10 @@ extension DownloadManager: URLSessionDownloadDelegate {
             self.progress[episodeId] = nil
 
             // A cancelled download (cancelDownload already deleted the record) isn't a failure to
-            // record — only mark .failed when the transfer itself broke.
-            guard let error, (error as NSError).code != NSURLErrorCancelled, let modelContainer = self.modelContainer else { return }
+            // record — only mark .failed when the transfer itself broke, or when it completed but
+            // didFinishDownloadingTo refused what arrived.
+            if let error, (error as NSError).code == NSURLErrorCancelled { return }
+            guard error != nil || wasRejected, let modelContainer = self.modelContainer else { return }
             self.markFailed(episodeId: episodeId, modelContainer: modelContainer)
         }
     }
@@ -426,5 +452,135 @@ extension DownloadManager: URLSessionDownloadDelegate {
         guard let record = try? context.fetch(descriptor).first else { return }
         record.status = .failed
         try? context.save()
+    }
+}
+
+// MARK: - Downloaded file type detection
+
+// AVFoundation identifies a *local* file's container by its path extension — it doesn't sniff a
+// file:// URL the way it honors an HTTP response's Content-Type — so the extension a download is
+// saved under decides whether it plays at all. The original rule copied URLResponse.suggestedFilename's
+// extension verbatim (falling back to "mp3"), which broke two common enclosure shapes: an
+// extension-less or script-style download endpoint ("/download/12345", "/play.php?id=1") serving
+// AAC/M4A that got saved as ".mp3" or ".php", and a ".mp3" URL that is actually an MP4 container
+// (hosts that transcode behind a stable URL). Trust order: the file's own unambiguous signature
+// (the ground truth — the container is exactly what the leading bytes say), then the declared
+// audio Content-Type, then a known audio extension from the URL/Content-Disposition, then the
+// weak MPEG/ADTS frame-sync pattern, then "mp3" as the overwhelmingly most common podcast format.
+extension DownloadManager {
+    // Enough of the file to find a container signature (first 16 bytes) or the opening tag of a
+    // web page after any BOM/whitespace/comment.
+    static let headerSniffLength = 512
+    // A finished transfer declared text/html that neither sniffs as audio nor opens with markup
+    // is given the benefit of the doubt only if it's at least this large — a genuine episode
+    // behind a misconfigured host is many megabytes, an error page never is.
+    static let minimumPlausibleEpisodeBytes = 256 * 1024
+
+    // Container extensions AVFoundation opens by name from a file:// URL. ogg/opus are included so
+    // a feed serving them at least keeps an honest extension (AVPlayer can't decode Ogg Vorbis, and
+    // only plays Opus in CAF/MP4 — a known gap, not something an extension can fix).
+    private static let knownAudioExtensions: Set<String> = [
+        "mp3", "m4a", "m4b", "mp4", "aac", "wav", "aif", "aiff", "aifc", "caf", "flac", "ogg", "oga", "opus",
+    ]
+
+    private static let extensionsByMimeType: [String: String] = [
+        "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/mpeg3": "mp3", "audio/x-mpeg-3": "mp3", "audio/x-mp3": "mp3",
+        "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/m4a": "m4a", "audio/mp4a-latm": "m4a", "audio/x-m4b": "m4b",
+        "audio/aac": "aac", "audio/aacp": "aac", "audio/x-aac": "aac",
+        "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/vnd.wave": "wav",
+        "audio/aiff": "aiff", "audio/x-aiff": "aiff",
+        "audio/flac": "flac", "audio/x-flac": "flac",
+        "audio/ogg": "ogg", "audio/vorbis": "ogg", "audio/opus": "opus",
+        "audio/x-caf": "caf",
+    ]
+
+    static func audioFileExtension(mimeType: String?, suggestedFilename: String?, headerBytes: Data) -> String {
+        if let signature = containerFromSignature(headerBytes: headerBytes) {
+            return signature
+        }
+        if let mimeType, let mapped = extensionsByMimeType[Self.normalizedMimeType(mimeType)] {
+            return mapped
+        }
+        if let suggestedFilename {
+            let urlExtension = (suggestedFilename as NSString).pathExtension.lowercased()
+            if knownAudioExtensions.contains(urlExtension) {
+                return urlExtension
+            }
+        }
+        return containerFromFrameSync(headerBytes: headerBytes) ?? "mp3"
+    }
+
+    // The container implied by a file's leading bytes, or nil when they match no audio format
+    // this recognizes.
+    static func sniffedAudioExtension(headerBytes: Data) -> String? {
+        containerFromSignature(headerBytes: headerBytes) ?? containerFromFrameSync(headerBytes: headerBytes)
+    }
+
+    // Tagged/boxed formats with a real multi-byte signature — unambiguous, so these outrank any
+    // header or URL hint.
+    private static func containerFromSignature(headerBytes: Data) -> String? {
+        func matches(_ ascii: String, at offset: Int = 0) -> Bool {
+            headerBytes.dropFirst(offset).starts(with: ascii.utf8)
+        }
+        if matches("ID3") { return "mp3" }
+        if matches("ftyp", at: 4) { return "m4a" }
+        if matches("RIFF") { return "wav" }
+        if matches("FORM") { return "aiff" }
+        if matches("fLaC") { return "flac" }
+        if matches("OggS") { return "ogg" }
+        if matches("caff") { return "caf" }
+        return nil
+    }
+
+    // The bare MPEG frame-sync pattern — only 11-12 bits, so the weakest signal here and ranked
+    // below the declared type and URL. 0xFFF sync with layer bits 00 is an ADTS AAC frame; any
+    // other layer under an 0xFFE sync is an MPEG audio (MP3) frame.
+    private static func containerFromFrameSync(headerBytes: Data) -> String? {
+        guard headerBytes.count >= 2 else { return nil }
+        let first = headerBytes[headerBytes.startIndex]
+        let second = headerBytes[headerBytes.startIndex + 1]
+        guard first == 0xFF else { return nil }
+        if second & 0xF6 == 0xF0 { return "aac" }
+        if second & 0xE0 == 0xE0 { return "mp3" }
+        return nil
+    }
+
+    // Whether a finished transfer is worth keeping as an episode file at all.
+    static func isAcceptablePayload(statusCode: Int?, mimeType: String?, headerBytes: Data, byteCount: Int) -> Bool {
+        if let statusCode, !(200...299).contains(statusCode) { return false }
+        return looksLikeAudioContent(mimeType: mimeType, headerBytes: headerBytes, byteCount: byteCount)
+    }
+
+    // False only when the payload is recognizably a web page rather than audio: markup in the
+    // leading bytes, or a declared text/html type on something too small to be an episode.
+    // Anything that sniffs as audio passes regardless of what the (often misconfigured)
+    // Content-Type claims, and a large unrecognized octet stream — an MP3 with junk before its
+    // first frame behind a host that labels everything text/html — is given the benefit of the
+    // doubt rather than refused forever.
+    static func looksLikeAudioContent(mimeType: String?, headerBytes: Data, byteCount: Int) -> Bool {
+        if sniffedAudioExtension(headerBytes: headerBytes) != nil { return true }
+        let leadingText = String(decoding: headerBytes.prefix(headerSniffLength), as: UTF8.self)
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(["\u{FEFF}"]))
+        if leadingText.hasPrefix("<!doctype") || leadingText.hasPrefix("<html") || leadingText.hasPrefix("<?xml") {
+            return false
+        }
+        if let mimeType, Self.normalizedMimeType(mimeType) == "text/html", byteCount < minimumPlausibleEpisodeBytes {
+            return false
+        }
+        return true
+    }
+
+    private static func normalizedMimeType(_ mimeType: String) -> String {
+        // "audio/mpeg; charset=binary" → "audio/mpeg"
+        mimeType.split(separator: ";", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
+    }
+
+    // The leading bytes of the finished download, read before didFinishDownloadingTo's temporary
+    // file is moved (or, for a rejected payload, discarded by the system on return).
+    private static func readHeaderBytes(of location: URL) -> Data {
+        guard let handle = try? FileHandle(forReadingFrom: location) else { return Data() }
+        defer { try? handle.close() }
+        return (try? handle.read(upToCount: headerSniffLength)) ?? Data()
     }
 }

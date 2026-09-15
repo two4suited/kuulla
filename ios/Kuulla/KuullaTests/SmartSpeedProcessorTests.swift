@@ -10,9 +10,16 @@ import XCTest
 private func runProcess(
     _ processor: SmartSpeedProcessor, amplitude: Float, sampleCount: Int = 8, itemTime: TimeInterval = 0
 ) -> (samples: [Float], silenceState: Bool?) {
-    var samples = [Float](repeating: amplitude, count: sampleCount)
+    runProcess(processor, samples: [Float](repeating: amplitude, count: sampleCount), itemTime: itemTime)
+}
+
+private func runProcess(
+    _ processor: SmartSpeedProcessor, samples: [Float], itemTime: TimeInterval = 0
+) -> (samples: [Float], silenceState: Bool?) {
+    var samples = samples
+    let sampleCount = samples.count
     var reported: Bool?
-    processor.onSilenceStateChanged = { reported = $0 }
+    processor.onSilenceStateChanged = { isSilent, _ in reported = isSilent }
 
     let result: [Float] = samples.withUnsafeMutableBufferPointer { pointer -> [Float] in
         let audioBuffer = AudioBuffer(
@@ -35,9 +42,18 @@ final class SmartSpeedProcessorTests: XCTestCase {
     }
 
     func testBoostGainLiftsQuietLevelTowardTarget() {
-        // Below the point where maxBoostGain would cap it: 0.35 / 0.2 = 1.75.
-        let gain = SmartSpeedProcessor.boostGain(forLevel: 0.2)
-        XCTAssertEqual(gain, 0.35 / 0.2, accuracy: 0.001)
+        // Below the point where maxBoostGain would cap it: 0.2 / 0.1 = 2.
+        let gain = SmartSpeedProcessor.boostGain(forLevel: 0.1)
+        XCTAssertEqual(gain, SmartSpeedProcessor.boostTargetLevel / 0.1, accuracy: 0.001)
+    }
+
+    // Speech is peaky, so the RMS target routinely asks for more gain than the waveform has
+    // headroom for — the applied gain is clamped to what keeps this buffer's peak under
+    // peakCeiling instead of handing the excess to the limiter as distortion.
+    func testPeakLimitedGainRespectsHeadroom() {
+        XCTAssertEqual(SmartSpeedProcessor.peakLimitedGain(4, peak: 0.5), SmartSpeedProcessor.peakCeiling / 0.5, accuracy: 0.001)
+        XCTAssertEqual(SmartSpeedProcessor.peakLimitedGain(1.5, peak: 0.5), 1.5)
+        XCTAssertEqual(SmartSpeedProcessor.peakLimitedGain(4, peak: 0), 4)
     }
 
     func testBoostGainNeverExceedsMaximum() {
@@ -50,6 +66,47 @@ final class SmartSpeedProcessorTests: XCTestCase {
         // Already louder than the target level, so the "gain" comes back under 1 — the caller
         // (SmartSpeedProcessor.process) treats anything <= 1 as a no-op rather than attenuating.
         XCTAssertLessThan(SmartSpeedProcessor.boostGain(forLevel: 0.9), 1)
+    }
+
+    // MARK: softLimit(_:)
+
+    func testSoftLimitIsIdentityBelowKnee() {
+        XCTAssertEqual(SmartSpeedProcessor.softLimit(0.5), 0.5)
+        XCTAssertEqual(SmartSpeedProcessor.softLimit(-0.3), -0.3)
+        XCTAssertEqual(SmartSpeedProcessor.softLimit(SmartSpeedProcessor.limiterKnee), SmartSpeedProcessor.limiterKnee)
+    }
+
+    // No step in level or slope where the limiter engages — the transfer curve is continuous
+    // through the knee, so the limiter engaging mid-buffer can't itself be heard as a click.
+    func testSoftLimitIsContinuousAtKnee() {
+        let knee = SmartSpeedProcessor.limiterKnee
+        let justAbove = SmartSpeedProcessor.softLimit(knee + 0.001)
+        XCTAssertEqual(justAbove, knee + 0.001, accuracy: 0.0001)
+        XCTAssertGreaterThan(justAbove, knee)
+    }
+
+    // tanhf saturates to exactly 1 in Float for a large enough input, so full scale itself is
+    // reachable — what matters is that nothing ever lands past it.
+    func testSoftLimitNeverExceedsFullScale() {
+        XCTAssertLessThanOrEqual(SmartSpeedProcessor.softLimit(10), 1)
+        XCTAssertGreaterThan(SmartSpeedProcessor.softLimit(10), 0.99)
+        XCTAssertGreaterThanOrEqual(SmartSpeedProcessor.softLimit(-10), -1)
+        XCTAssertLessThan(SmartSpeedProcessor.softLimit(-10), -0.99)
+        XCTAssertLessThan(SmartSpeedProcessor.softLimit(1.2), 1)
+        XCTAssertGreaterThan(SmartSpeedProcessor.softLimit(-1.2), -1)
+    }
+
+    // MARK: silenceSkipRate(forPlaybackSpeed:)
+
+    // The bare multiplier applies at ordinary speeds (4x on a 1x session) but the absolute skip
+    // rate is capped, so a 3x session skips at 6x — not the 12x that turned the first second
+    // after every pause into a chirp — and it can never come out below the session speed itself.
+    func testSilenceSkipRateMultipliesAtLowSpeedsAndCapsAtHighSpeeds() {
+        XCTAssertEqual(SmartSpeedProcessor.silenceSkipRate(forPlaybackSpeed: 1.0), 4.0)
+        XCTAssertEqual(SmartSpeedProcessor.silenceSkipRate(forPlaybackSpeed: 1.5), 6.0)
+        XCTAssertEqual(SmartSpeedProcessor.silenceSkipRate(forPlaybackSpeed: 2.0), SmartSpeedProcessor.maxSilenceSkipRate)
+        XCTAssertEqual(SmartSpeedProcessor.silenceSkipRate(forPlaybackSpeed: 3.0), SmartSpeedProcessor.maxSilenceSkipRate)
+        XCTAssertEqual(SmartSpeedProcessor.silenceSkipRate(forPlaybackSpeed: 8.0), 8.0)
     }
 
     // MARK: linearGain(forDb:) (#708)
@@ -129,7 +186,7 @@ final class SmartSpeedProcessorDecouplingTests: XCTestCase {
         processor.prepare()
 
         // A quiet-but-present level below boostTargetLevel should ramp gain upward over repeated
-        // buffers (smoothedGain approaches boostGain(forLevel:) via gainSmoothingFactor).
+        // buffers (smoothedGain approaches boostGain(forLevel:) via gainReleaseFactor).
         var lastSamples: [Float] = []
         for tick in 0..<20 {
             let (samples, silenceState) = runProcess(processor, amplitude: 0.05, itemTime: TimeInterval(tick) * 0.9)
@@ -205,9 +262,10 @@ final class SmartSpeedProcessorVolumeOffsetTests: XCTestCase {
         processor.prepare()
 
         let (samples, _) = runProcess(processor, amplitude: 0.1)
-        // tanh-limited boost, so compare against the raw gain applied before limiting.
+        // 0.1 * ~2 lands well under the limiter's knee, so the boost is an exact linear multiply —
+        // the previous unconditional tanh limiter would have shaved this to tanh(0.2) ≈ 0.197.
         let expectedGain = SmartSpeedProcessor.linearGain(forDb: 6)
-        XCTAssertEqual(samples[0], tanhf(0.1 * expectedGain), accuracy: 0.0001)
+        XCTAssertEqual(samples[0], 0.1 * expectedGain, accuracy: 0.0001)
         XCTAssertGreaterThan(samples[0], 0.1)
     }
 
@@ -234,5 +292,122 @@ final class SmartSpeedProcessorVolumeOffsetTests: XCTestCase {
             (lastSamples, _) = runProcess(processor, amplitude: 0.05, itemTime: TimeInterval(tick) * 0.05)
         }
         XCTAssertGreaterThan(lastSamples[0], SmartSpeedProcessor.boostGain(forLevel: 0.05) * 0.05 * 0.9)
+    }
+}
+
+// The gain stage's behavior on program-level material — the audible half of Voice Boost that the
+// pure-function tests above can't cover: ordinary speech must pass through untouched, and the
+// smoothed gain must fall faster than it rises.
+final class SmartSpeedProcessorGainStageTests: XCTestCase {
+    // A buffer already at a normal speech level asks for a gain under 1, which the stage clamps
+    // to a no-op — samples come out bit-identical, with no limiter involvement at all.
+    func testNormalLevelSpeechPassesThroughUnchanged() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true, trimSilence: false)
+        processor.prepare()
+
+        for tick in 0..<10 {
+            let (samples, _) = runProcess(processor, amplitude: 0.5, itemTime: TimeInterval(tick) * 0.05)
+            XCTAssertEqual(samples[0], 0.5)
+        }
+    }
+
+    // A loud buffer following a boosted quiet passage pulls the gain down by more in one buffer
+    // (attack) than the very first quiet buffer pushed it up (release) — the asymmetry that keeps
+    // a sudden louder passage from being shoved through the limiter for several buffers.
+    func testGainAttacksFasterThanItReleases() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true, trimSilence: false)
+        processor.prepare()
+
+        let (firstQuiet, _) = runProcess(processor, amplitude: 0.05, itemTime: 0)
+        let firstRise = firstQuiet[0] / 0.05 - 1
+        XCTAssertGreaterThan(firstRise, 0)
+
+        var rampedGain: Float = 1
+        for tick in 1..<10 {
+            let (samples, _) = runProcess(processor, amplitude: 0.05, itemTime: TimeInterval(tick) * 0.05)
+            rampedGain = samples[0] / 0.05
+        }
+        XCTAssertGreaterThan(rampedGain, 2)
+
+        // 0.3 is loud enough to demand gain < 1 but, after one attack step, still lands under the
+        // limiter's knee — so the output is a plain multiply the gain can be read back from.
+        let (loud, _) = runProcess(processor, amplitude: 0.3, itemTime: 0.5)
+        let gainAfterLoud = loud[0] / 0.3
+        XCTAssertLessThan(gainAfterLoud, rampedGain)
+        XCTAssertGreaterThan(rampedGain - gainAfterLoud, firstRise)
+    }
+
+    // A single transient in an otherwise quiet buffer clamps only that buffer's gain — the
+    // smoothed state is untouched, so the next quiet buffer is back at full boost instead of
+    // ducked for the whole release time (the pumping a peak-driven attack would cause).
+    func testTransientClampsOnlyItsOwnBuffer() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true, trimSilence: false)
+        processor.prepare()
+
+        var rampedGain: Float = 1
+        for tick in 0..<20 {
+            let (samples, _) = runProcess(processor, amplitude: 0.05, itemTime: TimeInterval(tick) * 0.05)
+            rampedGain = samples[0] / 0.05
+        }
+        XCTAssertGreaterThan(rampedGain, 3)
+
+        // A realistic-length buffer that's quiet apart from one 0.9 spike: the RMS barely moves
+        // (target stays ~3.5x) but the peak forbids more than ~1.05x for this buffer.
+        var spiky = [Float](repeating: 0.05, count: 1024)
+        spiky[3] = 0.9
+        let (clamped, _) = runProcess(processor, samples: spiky, itemTime: 1.0)
+        XCTAssertLessThanOrEqual(clamped[3], SmartSpeedProcessor.peakCeiling + 0.0001)
+        XCTAssertLessThan(clamped[0] / 0.05, 1.2)
+
+        let (next, _) = runProcess(processor, amplitude: 0.05, itemTime: 1.05)
+        XCTAssertGreaterThan(next[0] / 0.05, rampedGain * 0.95, "gain should not have been ducked by the transient")
+    }
+
+    // Gain holds steady through silent buffers instead of chasing a target computed from room
+    // tone — no noise-floor swell during pauses, and the first word after one starts at the
+    // gain the previous word ended on.
+    func testGainHoldsThroughSilence() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true, trimSilence: false)
+        processor.prepare()
+
+        var rampedGain: Float = 1
+        for tick in 0..<10 {
+            let (samples, _) = runProcess(processor, amplitude: 0.05, itemTime: TimeInterval(tick) * 0.05)
+            rampedGain = samples[0] / 0.05
+        }
+        // Room tone: below the silence threshold but above boostGain's near-silence guard.
+        for tick in 0..<10 {
+            let (samples, _) = runProcess(processor, amplitude: 0.002, itemTime: 1 + TimeInterval(tick) * 0.05)
+            XCTAssertEqual(samples[0] / 0.002, rampedGain, accuracy: 0.001, "gain must hold, not swell, through silence")
+        }
+        let (resumed, _) = runProcess(processor, amplitude: 0.05, itemTime: 2)
+        XCTAssertGreaterThanOrEqual(resumed[0] / 0.05, rampedGain)
+    }
+
+    // After a loud passage pulls the target under unity, the state floors at 1 — the next quiet
+    // buffer starts boosting immediately rather than climbing out of a sub-unity dead zone.
+    func testGainFloorsAtUnityAfterLoudPassage() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: true, trimSilence: false)
+        processor.prepare()
+
+        for tick in 0..<10 {
+            _ = runProcess(processor, amplitude: 0.5, itemTime: TimeInterval(tick) * 0.05)
+        }
+        let (firstQuiet, _) = runProcess(processor, amplitude: 0.05, itemTime: 1)
+        XCTAssertGreaterThan(firstQuiet[0] / 0.05, 1.2, "boost should begin on the very first quiet buffer")
+    }
+
+    // Boosting a peaky buffer never pushes any sample past full scale, and the limiter leaves the
+    // in-range samples of that same buffer alone.
+    func testBoostedPeaksStayWithinFullScale() {
+        let processor = SmartSpeedProcessor(smartSpeed: false, voiceBoost: false, trimSilence: false, volumeOffsetDb: 12)
+        processor.prepare()
+
+        let (samples, _) = runProcess(processor, samples: [0.1, 0.9, -0.9, 0.05])
+        let gain = SmartSpeedProcessor.linearGain(forDb: 12)
+        XCTAssertEqual(samples[0], 0.1 * gain, accuracy: 0.0001)
+        XCTAssertLessThanOrEqual(samples[1], 1)
+        XCTAssertGreaterThanOrEqual(samples[2], -1)
+        XCTAssertEqual(samples[3], 0.05 * gain, accuracy: 0.0001)
     }
 }

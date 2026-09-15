@@ -73,7 +73,7 @@ final class AudioPlayer {
 
     // Exposes the underlying AVPlayer's actual rate/pitch-algorithm for tests to assert against
     // directly — the bookkeeping playbackSpeed property below would still read correctly even if
-    // the .rate assignment or .timeDomain wiring in play()/setPlaybackSpeed() were broken.
+    // the .rate assignment or .spectral pitch wiring in play()/setPlaybackSpeed() were broken.
     var currentPlayerRate: Float? { player?.rate }
     var currentPitchAlgorithm: AVAudioTimePitchAlgorithm? { player?.currentItem?.audioTimePitchAlgorithm }
 
@@ -378,11 +378,16 @@ final class AudioPlayer {
     private func makeSmartSpeedProcessorIfNeeded(
         for item: AVPlayerItem, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0
     ) -> SmartSpeedProcessor? {
-        // .timeDomain keeps pitch unchanged as rate varies — spoken-word content should speed up
-        // without the chipmunk effect a naive rate change would produce. Applied unconditionally
-        // (not just when SmartSpeed/VoiceBoost/TrimSilence are on) since every session, preloaded
-        // or not, can have its rate changed via setPlaybackSpeed().
-        item.audioTimePitchAlgorithm = .timeDomain
+        // Pitch correction so spoken-word content speeds up without the chipmunk effect a naive
+        // rate change would produce. .spectral (a phase vocoder) rather than .timeDomain: the
+        // time-domain stretcher overlaps ever-shorter waveform grains as the rate climbs and
+        // audibly warbles/stutters from ~2x up — the "sounds funny at 3x" symptom in
+        // docs/audio-engine-research.md — while spectral stays smooth across the whole 0.5x-3x
+        // preset range (and the faster silence-skip rate on top of it) for a CPU cost that's
+        // negligible on any iOS 17 device. Applied unconditionally (not just when SmartSpeed/
+        // VoiceBoost/TrimSilence are on) since every session, preloaded or not, can have its
+        // rate changed via setPlaybackSpeed().
+        item.audioTimePitchAlgorithm = .spectral
 
         guard smartSpeed || voiceBoost || trimSilence || volumeOffsetDb != 0 else { return nil }
 
@@ -392,35 +397,43 @@ final class AudioPlayer {
         // (and drops this item) can't have this stale session's detector adjust the new player's
         // rate out from under it — the identity check below is the real guard, this just avoids
         // retaining a dead item purely to compare against.
-        processor.onSilenceStateChanged = { [weak self, weak item] isSilent in
+        processor.onSilenceStateChanged = { [weak self, weak item] isSilent, itemTime in
             DispatchQueue.main.async {
                 // isPlaying/pendingSeekPlayer guards mirror setPlaybackSpeed's own: a paused
                 // session must not have this resume it by setting a nonzero rate, and a
                 // saved-position seek still in flight must not have its deferred-start-until-
                 // seeked behavior defeated by a rate change landing early.
-                guard let self, let item, self.player?.currentItem === item,
+                guard let self, let item, let player = self.player, player.currentItem === item,
                       self.isPlaying, self.pendingSeekPlayer == nil
                 else { return }
-                self.player?.rate = isSilent
-                    ? self.playbackSpeed * SmartSpeedProcessor.silenceSkipRateMultiplier
-                    : self.playbackSpeed
+                guard !isSilent else {
+                    player.rate = SmartSpeedProcessor.silenceSkipRate(forPlaybackSpeed: self.playbackSpeed)
+                    return
+                }
+                player.rate = self.playbackSpeed
+                // The tap reports "sound resumed" ahead of the speaker, but this rate restore
+                // lands ~100-300 ms later (main-thread hop plus AVPlayer re-timing its pipeline),
+                // and everything rendered in between played at the skip rate — the first word or
+                // two after every pause, at up to 6x. `itemTime` is the exact position sound
+                // resumed at, so if the output has already run past it, jump back there and
+                // replay those words at the normal rate. A rewind of a few tens of ms isn't
+                // worth the seek's own tiny discontinuity, hence the threshold.
+                if Self.shouldRewindAfterSilence(playerTime: player.currentTime().seconds, resumeItemTime: itemTime) {
+                    player.seek(
+                        to: CMTime(seconds: itemTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                }
             }
         }
         // Accumulates real-world time saved by silence-trimming (#680) into the lifetime,
         // on-device counter — see LocalSettings.lifetimeSilenceTimeSavedSeconds's own doc
-        // comment for why this is device-local rather than synced. Real time actually spent
-        // listening through the run was runItemDuration / (playbackSpeed *
-        // silenceSkipRateMultiplier); without the skip it would have taken runItemDuration /
-        // playbackSpeed — the difference between those two is what was saved. Dispatched to
-        // main (mirroring onSilenceStateChanged above) since this reads self.playbackSpeed,
-        // which is otherwise only ever touched on main.
+        // comment for why this is device-local rather than synced. Dispatched to main (mirroring
+        // onSilenceStateChanged above) since this reads self.playbackSpeed, which is otherwise
+        // only ever touched on main.
         processor.onSilenceRunCompleted = { [weak self] runItemDuration in
             DispatchQueue.main.async {
                 guard let self else { return }
-                let speed = TimeInterval(self.playbackSpeed)
-                let skipMultiplier = TimeInterval(SmartSpeedProcessor.silenceSkipRateMultiplier)
-                let timeSaved: TimeInterval = runItemDuration / speed * (1 - 1 / skipMultiplier)
-                LocalSettings.addSilenceTimeSaved(timeSaved)
+                LocalSettings.addSilenceTimeSaved(
+                    Self.silenceTimeSaved(runItemDuration: runItemDuration, playbackSpeed: self.playbackSpeed))
             }
         }
         // Setting audioMix asynchronously (rather than blocking play() on it, #657) races the
@@ -438,6 +451,29 @@ final class AudioPlayer {
             item.audioMix = await processor.makeAudioMix(for: item)
         }
         return processor
+    }
+
+    // How far past the resume point the output must have run before it's worth seeking back —
+    // below this the lost audio is a fraction of a syllable and the seek's discontinuity would
+    // be the more audible of the two.
+    static let silenceRewindThreshold: TimeInterval = 0.05
+
+    // Whether the rate-restore latency after a silence skip cost enough audio to replay. Pure so
+    // the decision is unit-testable; `playerTime` is the output position when the restore lands,
+    // `resumeItemTime` the tap's position when sound came back. A non-finite player time (no
+    // current item, indefinite time) or an unknown resume time never rewinds.
+    static func shouldRewindAfterSilence(playerTime: TimeInterval, resumeItemTime: TimeInterval) -> Bool {
+        playerTime.isFinite && resumeItemTime > 0 && playerTime - resumeItemTime > silenceRewindThreshold
+    }
+
+    // Real-world seconds a confirmed silent run of `runItemDuration` item-seconds saved (#680):
+    // listening through it took runItemDuration / silenceSkipRate(forPlaybackSpeed:), where
+    // without the skip it would have taken runItemDuration / playbackSpeed — the difference is
+    // what was saved. Pure so the accounting is unit-testable against the capped skip rate.
+    static func silenceTimeSaved(runItemDuration: TimeInterval, playbackSpeed: Float) -> TimeInterval {
+        let speed = TimeInterval(playbackSpeed)
+        let skipRate = TimeInterval(SmartSpeedProcessor.silenceSkipRate(forPlaybackSpeed: playbackSpeed))
+        return runItemDuration / speed - runItemDuration / skipRate
     }
 
     // Attaches the periodic time observer and end-of-item observer that every freshly-started
@@ -761,7 +797,7 @@ final class AudioPlayer {
     // toward .readyToPlay, without touching `player`/`currentURL` or publishing any @Observable
     // change — the currently-playing session is completely unaffected until (and unless)
     // swapToPendingPreload() is actually called. Mirrors play()'s own item/player construction
-    // (including the .timeDomain pitch algorithm and SmartSpeedProcessor tap wiring) so the
+    // (including the .spectral pitch algorithm and SmartSpeedProcessor tap wiring) so the
     // eventual swap needs no further setup beyond what wireUpFreshlyStartedPlayer already does.
     // Discards any previous pending preload first — callers (PlaybackQueue) are expected to
     // request at most one at a time per session, but this makes that a guarantee rather than an
