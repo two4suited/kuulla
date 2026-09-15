@@ -133,4 +133,57 @@ struct PlaylistSummary: Identifiable, Equatable {
             .map(PlaylistSummary.init(record:))
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
+
+    // Reads the local sync store directly and summarizes it — the fetch half of
+    // PlaylistsView.readLocalPlaylists, shared with CarPlaySceneDelegate (#758) so both surfaces
+    // derive "all playlists, Up Next included" from the same query instead of each re-issuing it.
+    static func local(in context: ModelContext, excludingUpNext: Bool = false) -> [PlaylistSummary] {
+        let records = (try? context.fetch(FetchDescriptor<PlaylistRecord>())) ?? []
+        return list(from: records, excludingUpNext: excludingUpNext)
+    }
+}
+
+extension PlaylistDetail {
+    // Builds a PlaylistDetail-shaped snapshot from the local sync store, resolving each item's
+    // title/artwork against CatalogCache when available (best-effort — a show the cache hasn't
+    // seen yet just shows the existing "(episode unavailable)" placeholder text until a network
+    // fetch lands). Shared by PlaylistDetailView (phone) and CarPlaySceneDelegate (car, #758) so
+    // both paint instantly from the same locally-synced PlaylistRecord before their own
+    // network/sync refresh, rather than each hand-rolling this resolution separately.
+    static func local(id: String, in context: ModelContext) -> PlaylistDetail? {
+        guard let record = try? context.fetch(
+            FetchDescriptor<PlaylistRecord>(predicate: #Predicate { $0.id == id })
+        ).first, !record.deleted else { return nil }
+
+        // Resolve each distinct show once (not once per item), mirroring
+        // PlaylistService.GetPlaylistDetailAsync's server-side comment for the same reason — a
+        // playlist with many episodes from the same show shouldn't re-fetch that show's cached
+        // episode list per item.
+        let showIds = Set(record.items.map(\.showId))
+        let episodesByShow = Dictionary(uniqueKeysWithValues: showIds.map {
+            ($0, CatalogCache.episodes(showId: $0, in: context))
+        })
+        let showsById = Dictionary(uniqueKeysWithValues: showIds.map {
+            ($0, CatalogCache.show(id: $0, in: context))
+        })
+
+        let items = record.items
+            .sorted { $0.order < $1.order }
+            .map { item -> PlaylistItemDetail in
+                let episode = episodesByShow[item.showId]?.first { $0.id == item.episodeId }
+                let show = showsById[item.showId] ?? nil
+                return PlaylistItemDetail(
+                    episodeId: item.episodeId, showId: item.showId,
+                    title: episode?.title, artworkUrl: show?.artworkUrl,
+                    addedAt: item.addedAt, order: item.order)
+            }
+
+        return PlaylistDetail(
+            id: record.id, name: record.name, type: record.type, items: items,
+            createdAt: record.createdAt, updatedAt: record.updatedAt,
+            dynamicConfig: record.dynamicConfig.map {
+                DynamicPlaylistConfig(showIds: $0.showIds, maxEpisodes: $0.maxEpisodes, priorityList: $0.priorityList)
+            },
+            icon: record.icon, accentColor: record.accentColor)
+    }
 }

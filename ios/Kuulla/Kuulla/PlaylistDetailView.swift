@@ -195,46 +195,9 @@ struct PlaylistDetailView: View {
         isLoading = false
     }
 
-    // Builds a PlaylistDetail-shaped snapshot from the local sync store, resolving each item's
-    // title/artwork against CatalogCache when available (best-effort — a show the cache hasn't
-    // seen yet just shows the existing "(episode unavailable)" placeholder text until the network
-    // fetch above lands).
+    // Shared with CarPlaySceneDelegate (#758) — see PlaylistDetail.local's doc comment.
     private func localPlaceholder() -> PlaylistDetail? {
-        let id = playlistId
-        guard let record = try? modelContext.fetch(
-            FetchDescriptor<PlaylistRecord>(predicate: #Predicate { $0.id == id })
-        ).first, !record.deleted else { return nil }
-
-        // Resolve each distinct show once (not once per item), mirroring
-        // PlaylistService.GetPlaylistDetailAsync's server-side comment for the same reason — a
-        // playlist with many episodes from the same show shouldn't re-fetch that show's cached
-        // episode list per item.
-        let showIds = Set(record.items.map(\.showId))
-        let episodesByShow = Dictionary(uniqueKeysWithValues: showIds.map {
-            ($0, CatalogCache.episodes(showId: $0, in: modelContext))
-        })
-        let showsById = Dictionary(uniqueKeysWithValues: showIds.map {
-            ($0, CatalogCache.show(id: $0, in: modelContext))
-        })
-
-        let items = record.items
-            .sorted { $0.order < $1.order }
-            .map { item -> PlaylistItemDetail in
-                let episode = episodesByShow[item.showId]?.first { $0.id == item.episodeId }
-                let show = showsById[item.showId] ?? nil
-                return PlaylistItemDetail(
-                    episodeId: item.episodeId, showId: item.showId,
-                    title: episode?.title, artworkUrl: show?.artworkUrl,
-                    addedAt: item.addedAt, order: item.order)
-            }
-
-        return PlaylistDetail(
-            id: record.id, name: record.name, type: record.type, items: items,
-            createdAt: record.createdAt, updatedAt: record.updatedAt,
-            dynamicConfig: record.dynamicConfig.map {
-                DynamicPlaylistConfig(showIds: $0.showIds, maxEpisodes: $0.maxEpisodes, priorityList: $0.priorityList)
-            },
-            icon: record.icon, accentColor: record.accentColor)
+        PlaylistDetail.local(id: playlistId, in: modelContext)
     }
 
     private func removeItems(at offsets: IndexSet) async {

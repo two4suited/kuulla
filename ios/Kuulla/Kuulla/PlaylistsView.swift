@@ -109,8 +109,7 @@ struct PlaylistsView: View {
     }
 
     private func readLocalPlaylists() {
-        let records = (try? modelContext.fetch(FetchDescriptor<PlaylistRecord>())) ?? []
-        playlists = PlaylistSummary.list(from: records, excludingUpNext: false)
+        playlists = PlaylistSummary.local(in: modelContext)
         hasLoadedLocal = true
     }
 
