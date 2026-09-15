@@ -1,6 +1,9 @@
 import AVFoundation
 import MediaPlayer
 import UIKit
+#if DEBUG
+import os
+#endif
 
 // Metadata for the lock screen / Control Center / CarPlay Now Playing surfaces, all of which read
 // from MPNowPlayingInfoCenter rather than anything AudioPlayer exposes directly. Episode.swift has
@@ -477,7 +480,18 @@ final class AudioPlayer {
                 // resumed at, so if the output has already run past it, jump back there and
                 // replay those words at the normal rate. A rewind of a few tens of ms isn't
                 // worth the seek's own tiny discontinuity, hence the threshold.
-                if Self.shouldRewindAfterSilence(playerTime: player.currentTime().seconds, resumeItemTime: itemTime) {
+                let playerTime = player.currentTime().seconds
+                let shouldRewind = Self.shouldRewindAfterSilence(playerTime: playerTime, resumeItemTime: itemTime)
+#if DEBUG
+                // #780: the 100-300 ms figure above is a reasoned estimate, not a measurement —
+                // this logs the actual gap so maxSilenceSkipRate/silenceRewindThreshold can be
+                // tuned from real on-device numbers instead. DEBUG-only; no production log spam.
+                let isLocalFile = (item.asset as? AVURLAsset)?.url.isFileURL ?? false
+                Self.silenceRestoreLogger.debug(
+                    "gap=\(playerTime - itemTime, format: .fixed(precision: 3))s speed=\(self.playbackSpeed)x isLocalFile=\(isLocalFile) rewinding=\(shouldRewind)"
+                )
+#endif
+                if shouldRewind {
                     player.seek(
                         to: CMTime(seconds: itemTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                 }
@@ -516,6 +530,13 @@ final class AudioPlayer {
     // below this the lost audio is a fraction of a syllable and the seek's discontinuity would
     // be the more audible of the two.
     static let silenceRewindThreshold: TimeInterval = 0.05
+
+#if DEBUG
+    // #780: on-device instrumentation only — view with Console.app filtered to subsystem
+    // "com.kuulla.app", category "SmartSpeed", or `xcrun devicectl device process launch
+    // --console` / the Xcode debug console while playing a silence-trimmed episode.
+    static let silenceRestoreLogger = Logger(subsystem: "com.kuulla.app", category: "SmartSpeed")
+#endif
 
     // Whether the rate-restore latency after a silence skip cost enough audio to replay. Pure so
     // the decision is unit-testable; `playerTime` is the output position when the restore lands,
