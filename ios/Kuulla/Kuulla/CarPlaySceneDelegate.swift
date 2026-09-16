@@ -305,15 +305,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // through the way a show's episode list or a playlist has, so unlike pushEpisodesList/
     // pushPlaylistDetail this list is never armed as PlaybackQueue's own snapshot.
     private func resumeContinueListening(_ entry: ContinueListeningEntry) async {
-        // Cache-first (#761): the synced UserSettingsRecord answers the global fallback without a
-        // network call. Awaits settingsSyncTask first (already in flight since didConnect, same as
-        // loadSubscriptionsList's settled pass) so a fast tap right after connecting reads settled
-        // settings rather than racing an empty/stale local store. There's no local mirror of
-        // per-show ShowSettings (the phone app itself resolves those live too — see
-        // playPlaylistItem's comment), so that one stays a network call, run concurrently with the
-        // sync wait rather than after it.
+        // Cache-first (#761) for the global fallback, reading whatever's already on disk from an
+        // earlier sync rather than gating this tap on a fresh settingsSyncTask round trip (#791:
+        // that full SyncEngine.syncNow() was stalling playback start even for an already-
+        // downloaded episode that needs no network at all). The per-show override still resolves
+        // live (no local mirror of ShowSettings exists anywhere in the app), concurrently with the
+        // local read rather than serialized after a sync wait.
         async let showSettings = try? settingsClient.getShowSettings(showId: entry.episode.showId)
-        await settingsSyncTask?.value
         let user = Self.modelContainer.map(ModelContext.init).flatMap(Self.localUserSettings)
         let show = await showSettings
         let autoSkipIntroSeconds = TimeInterval(show?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0)
@@ -415,8 +413,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     private func pushPlaylistDetail(playlistId: String, playlistName: String) async {
         let context = Self.modelContainer.map(ModelContext.init)
 
+        var cacheDetail: PlaylistDetail?
         var pushedTemplate: CPListTemplate?
         if let context, let local = PlaylistDetail.local(id: playlistId, in: context) {
+            cacheDetail = local
             let template = playlistDetailTemplate(detail: local)
             interfaceController?.pushTemplate(template, animated: true, completion: nil)
             pushedTemplate = template
@@ -444,8 +444,16 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 interfaceController?.pushTemplate(freshTemplate, animated: true, completion: nil)
             }
         } catch {
-            // The cache already painted something useful — leave it up rather than clobbering it
-            // with an error, same tolerance loadSubscriptionsList gives a stale-but-present cache.
+            // (#791): the network refresh itself failed — often a timeout on CarPlay's just-
+            // connected, still-flaky network. Rather than leaving the cache-painted pass's
+            // "(episode unavailable)" placeholders on screen for the rest of the session (the
+            // cache only has each show's first page — see PlaylistDetail.local's comment), resolve
+            // just those items individually against the catalog, same fallback
+            // continueListeningSection uses for an entry CatalogCache hasn't seen.
+            if let pushedTemplate, let cacheDetail {
+                await resolveAndRepaintMissingTitles(cacheDetail, into: pushedTemplate)
+                return
+            }
             guard pushedTemplate == nil else { return }
             interfaceController?.pushTemplate(
                 CPListTemplate(
@@ -453,6 +461,43 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                     sections: [CPListSection(items: [CPListItem(text: "Couldn't load this playlist.", detailText: nil)])]),
                 animated: true, completion: nil)
         }
+    }
+
+    // Resolves only the items the cache-first pass couldn't title (episode not in CatalogCache's
+    // first-page-only cache for that show), concurrently, and repaints the already-pushed
+    // template in place — see pushPlaylistDetail's catch block for why this runs.
+    private func resolveAndRepaintMissingTitles(_ detail: PlaylistDetail, into template: CPListTemplate) async {
+        let missing = detail.items.enumerated().filter { $0.element.title == nil }
+        guard !missing.isEmpty else { return }
+
+        var resolvedItems = detail.items
+        await withTaskGroup(of: (Int, Episode?, Show?).self) { group in
+            for (index, item) in missing {
+                let showId = item.showId
+                let episodeId = item.episodeId
+                // Only fetches the show when this item still has no artwork to fall back on —
+                // most items already carry an artworkUrl from the cache-first pass, so fetching
+                // the show for those too would double this repaint's network calls for nothing.
+                let needsShow = item.artworkUrl == nil
+                group.addTask { [catalogClient] in
+                    async let episode = try? await catalogClient.getEpisode(showId: showId, episodeId: episodeId)
+                    async let show = needsShow ? try? await catalogClient.getShow(id: showId) : nil
+                    return (index, await episode, await show)
+                }
+            }
+            for await (index, episode, show) in group {
+                guard let episode else { continue }
+                let original = resolvedItems[index]
+                resolvedItems[index] = PlaylistItemDetail(
+                    episodeId: original.episodeId, showId: original.showId,
+                    title: episode.title, artworkUrl: original.artworkUrl ?? show?.artworkUrl,
+                    addedAt: original.addedAt, order: original.order)
+            }
+        }
+
+        var updated = detail
+        updated.items = resolvedItems
+        template.updateSections(playlistDetailTemplate(detail: updated).sections)
     }
 
     private func playlistDetailTemplate(detail: PlaylistDetail) -> CPListTemplate {
@@ -511,9 +556,10 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         }
         guard let episode else { return }
 
-        // Same settingsSyncTask wait as resumeContinueListening, so a fast tap on a just-connected
-        // session reads settled local settings rather than whatever was there before this session.
-        await settingsSyncTask?.value
+        // Cache-first (#761) for the global fallback (#791: reads whatever's already on disk from
+        // an earlier sync instead of gating this tap on a fresh settingsSyncTask round trip — that
+        // full SyncEngine.syncNow() was stalling playback start even for an already-downloaded
+        // episode that needs no network at all).
         let user = context.flatMap(Self.localUserSettings)
         let showSettingsResolved = await showSettings
         let autoSkipIntroSeconds = TimeInterval(showSettingsResolved?.autoSkipIntroSeconds ?? user?.autoSkipIntroSeconds ?? 0)
