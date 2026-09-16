@@ -441,15 +441,26 @@ final class AudioPlayer {
             return (AVPlayerItem(url: url), nil, nil)
         }
         let asset = AVURLAsset(url: url)
-        let sourceDuration = asset.duration.seconds
-        guard sourceDuration.isFinite, sourceDuration > 0,
-              let track = asset.tracks(withMediaType: .audio).first,
+        guard let (track, sourceDuration) = Self.loadTrackAndDurationSynchronously(from: asset),
               let (composition, timeMap) = try? SpliceCompositionBuilder.build(
                 track: track, sourceDuration: sourceDuration, excludedRanges: excludedRanges)
         else {
             return (AVPlayerItem(url: url), nil, nil)
         }
         return (AVPlayerItem(asset: composition), timeMap, sourceDuration)
+    }
+
+    // Isolates the deliberately-synchronous (deprecated, non-async) AVAsset reads makePlayerItem
+    // needs — see its own doc comment for why this stays sync instead of awaiting loadTracks.
+    // Marking this shim itself deprecated suppresses the warning at its one call site without
+    // silencing genuinely-unintentional uses of these APIs elsewhere in the file.
+    @available(iOS, deprecated: 16.0, message: "Intentionally synchronous for already-downloaded local files; see makePlayerItem")
+    private static func loadTrackAndDurationSynchronously(from asset: AVURLAsset) -> (track: AVAssetTrack, duration: TimeInterval)? {
+        let duration = asset.duration.seconds
+        guard duration.isFinite, duration > 0, let track = asset.tracks(withMediaType: .audio).first else {
+            return nil
+        }
+        return (track, duration)
     }
 
     // Builds a SmartSpeedProcessor and wires its silence-detection callbacks + async audioMix
