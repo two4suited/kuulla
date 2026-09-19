@@ -176,6 +176,15 @@ else
             </select>
             <div class="form-text">Overrides your global setting — and any per-podcast one — while you're listening to this playlist.</div>
 
+            <div class="form-check form-switch mt-3">
+                <input id="playlist-auto-download" class="form-check-input" type="checkbox"
+                       disabled="@isSavingEdit" @bind="editAutoDownload" />
+                <label class="form-check-label" for="playlist-auto-download">
+                    Automatically download new episodes
+                </label>
+            </div>
+            <div class="form-text">Episodes added after this setting is enabled are queued for download on your devices.</div>
+
             @if (isUpNext)
             {
                 @* The Up Next queue's behaviour settings live here rather than on the global
@@ -289,6 +298,7 @@ else
     private string? editIcon;
     private string? editAccentColor;
     private PlayNextBehavior? editPlayNextBehavior;
+    private bool editAutoDownload;
     private bool isSavingEdit;
     private string? editError;
 
@@ -684,6 +694,7 @@ else
         editIcon = playlist.Icon;
         editAccentColor = playlist.AccentColor;
         editPlayNextBehavior = playlist.PlayNextBehavior;
+        editAutoDownload = playlist.AutoDownload;
         editError = null;
         // Clear any stale save feedback from a previous edit session on this same page instance
         // (the routed component is reused across navigations — see OnParametersSetAsync).
@@ -712,7 +723,8 @@ else
 
         try
         {
-            var updated = await PlaylistClient.RenamePlaylistAsync(Id, name, editIcon, editAccentColor, editPlayNextBehavior);
+            var updated = await PlaylistClient.RenamePlaylistAsync(
+                Id, name, editIcon, editAccentColor, editPlayNextBehavior, editAutoDownload);
             if (updated is null)
             {
                 editError = "This playlist no longer exists.";
@@ -723,6 +735,7 @@ else
             {
                 Name = updated.Name, Icon = updated.Icon, AccentColor = updated.AccentColor,
                 PlayNextBehavior = updated.PlayNextBehavior,
+                AutoDownload = updated.AutoDownload,
             };
             editing = false;
             await SyncOwnWriteBestEffortAsync();

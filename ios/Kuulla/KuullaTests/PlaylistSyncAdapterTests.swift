@@ -5,7 +5,9 @@ import XCTest
 final class PlaylistSyncAdapterTests: MockedApiTestCase {
     private func makeContainer() throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(for: SyncCursor.self, PlaylistRecord.self, configurations: configuration)
+        return try ModelContainer(
+            for: SyncCursor.self, PlaylistRecord.self, PendingPlaylistDownloadRecord.self,
+            DownloadedEpisodeRecord.self, configurations: configuration)
     }
 
     private func stubSync(serverChanges: String = "[]", syncedAt: String = "2026-08-19T10:00:00Z", hash: String = "h1") {
@@ -45,6 +47,7 @@ final class PlaylistSyncAdapterTests: MockedApiTestCase {
         XCTAssertEqual(changes.count, 1)
         XCTAssertEqual(changes.first?["name"] as? String, "Commute")
         XCTAssertEqual(changes.first?["type"] as? Int, 0)
+        XCTAssertEqual(changes.first?["autoDownload"] as? Bool, false)
         let items = try XCTUnwrap(changes.first?["items"] as? [[String: Any]])
         XCTAssertEqual(items.first?["episodeId"] as? String, "ep1")
         XCTAssertEqual(items.first?["order"] as? String, "m")
@@ -52,6 +55,133 @@ final class PlaylistSyncAdapterTests: MockedApiTestCase {
         let verifyContext = ModelContext(container)
         let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<PlaylistRecord>()).first)
         XCTAssertFalse(stored.isDirty)
+    }
+
+    func testApplyQueuesOnlyNewItemsWhenAutoDownloadIsEnabled() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let originalItem = PlaylistItemRecord(
+            episodeId: "ep1", showId: "show1", addedAt: Date(timeIntervalSince1970: 1_600_000_000), order: "m")
+        context.insert(PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual, items: [originalItem],
+            createdAt: Date(timeIntervalSince1970: 1_600_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_600_000_000),
+            autoDownload: true))
+        try context.save()
+
+        var queuedEpisodeIds: [String] = []
+        let adapter = PlaylistSyncAdapter(apiClient: apiClient) { items, _ in
+            queuedEpisodeIds = items.map(\.episodeId)
+        }
+        let updated = PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual,
+            items: [
+                originalItem,
+                PlaylistItemRecord(
+                    episodeId: "ep2", showId: "show1",
+                    addedAt: Date(timeIntervalSince1970: 1_700_000_000), order: "n"),
+            ],
+            createdAt: Date(timeIntervalSince1970: 1_600_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            autoDownload: true)
+
+        try adapter.apply(updated, in: context)
+
+        XCTAssertEqual(queuedEpisodeIds, ["ep2"])
+    }
+
+    func testApplyDoesNotQueueNewItemsWhenAutoDownloadIsDisabled() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual, items: [],
+            createdAt: Date(timeIntervalSince1970: 1_600_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_600_000_000)))
+        try context.save()
+
+        var didQueue = false
+        let adapter = PlaylistSyncAdapter(apiClient: apiClient) { _, _ in didQueue = true }
+        let updated = PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual,
+            items: [PlaylistItemRecord(
+                episodeId: "ep2", showId: "show1",
+                addedAt: Date(timeIntervalSince1970: 1_700_000_000), order: "n")],
+            createdAt: Date(timeIntervalSince1970: 1_600_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
+
+        try adapter.apply(updated, in: context)
+
+        XCTAssertFalse(didQueue)
+    }
+
+    func testApplyDoesNotQueueExistingItemsWhenPlaylistFirstSyncs() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        var didQueue = false
+        let adapter = PlaylistSyncAdapter(apiClient: apiClient) { _, _ in didQueue = true }
+        let incoming = PlaylistRecord(
+            id: "playlist1", name: "Commute", type: .manual,
+            items: [PlaylistItemRecord(
+                episodeId: "ep1", showId: "show1",
+                addedAt: Date(timeIntervalSince1970: 1_600_000_000), order: "m")],
+            createdAt: Date(timeIntervalSince1970: 1_600_000_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            autoDownload: true)
+
+        try adapter.apply(incoming, in: context)
+
+        XCTAssertFalse(didQueue)
+    }
+
+    func testAutoDownloadPersistsUnresolvedItemForLaterSyncRetry() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        MockURLProtocol.stubHandler = { _ in
+            .success(.init(statusCode: 404, data: Data(), headers: [:]))
+        }
+
+        PlaylistAutoDownload.enqueue(
+            [PlaylistItemRecord(
+                episodeId: "ep1", showId: "show1",
+                addedAt: Date(timeIntervalSince1970: 1_700_000_000), order: "m")],
+            in: context)
+        try context.save()
+
+        let pending = try context.fetch(FetchDescriptor<PendingPlaylistDownloadRecord>())
+        XCTAssertEqual(pending.map(\.id), ["ep1"])
+        XCTAssertEqual(pending.first?.showId, "show1")
+    }
+
+    func testAutoDownloadClearsPendingItemThatIsAlreadyDownloaded() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(PendingPlaylistDownloadRecord(id: "ep1", showId: "show1"))
+        context.insert(DownloadedEpisodeRecord(
+            id: "ep1", showId: "show1", localFilePath: "ep1.mp3", fileSizeBytes: 100,
+            downloadedAt: .now, status: .complete))
+        try context.save()
+
+        PlaylistAutoDownload.retryPending(in: context)
+        try context.save()
+
+        XCTAssertTrue(try context.fetch(FetchDescriptor<PendingPlaylistDownloadRecord>()).isEmpty)
+    }
+
+    func testAutoDownloadKeepsPendingItemWhileDownloadIsNotYetDurable() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(PendingPlaylistDownloadRecord(id: "ep1", showId: "show1"))
+        context.insert(DownloadedEpisodeRecord(
+            id: "ep1", showId: "show1", localFilePath: "", fileSizeBytes: 0,
+            downloadedAt: .now, status: .downloading))
+        try context.save()
+
+        PlaylistAutoDownload.retryPending(in: context)
+        try context.save()
+
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<PendingPlaylistDownloadRecord>()).map(\.id),
+            ["ep1"])
     }
 
     func testSyncNowAppliesServerChangesIntoLocalStore() async throws {

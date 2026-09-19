@@ -8,9 +8,15 @@ struct PlaylistSyncAdapter: SyncAdapter {
     let domain = "playlists"
 
     private let apiClient: ApiClient
+    private let autoDownloadHandler: PlaylistAutoDownloadHandler
 
-    init(apiClient: ApiClient = .shared) {
+    init(
+        apiClient: ApiClient = .shared,
+        enqueueAutoDownloads: @escaping ([PlaylistItemRecord], ModelContext) -> Void =
+            PlaylistAutoDownload.enqueue
+    ) {
         self.apiClient = apiClient
+        self.autoDownloadHandler = PlaylistAutoDownloadHandler(enqueueAutoDownloads)
     }
 
     func push(
@@ -30,7 +36,8 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 dynamicConfig: $0.dynamicConfig,
                 icon: $0.icon,
                 accentColor: $0.accentColor,
-                playNextBehavior: $0.playNextBehavior)
+                playNextBehavior: $0.playNextBehavior,
+                autoDownload: $0.autoDownload)
         }
         let request = SyncPlaylistsRequestDTO(
             deviceId: deviceId, lastSyncedAt: lastSyncedAt, localHash: localHash, changes: changes)
@@ -49,6 +56,7 @@ struct PlaylistSyncAdapter: SyncAdapter {
                 icon: $0.icon,
                 accentColor: $0.accentColor,
                 playNextBehavior: $0.playNextBehavior,
+                autoDownload: $0.autoDownload ?? false,
                 deleted: $0.deleted ?? false)
         }
         return SyncPushResult(serverChanges: serverChanges, syncedAt: result.syncedAt, hash: result.hash)
@@ -76,6 +84,10 @@ struct PlaylistSyncAdapter: SyncAdapter {
             // Last-write-wins, matching EpisodeSyncAdapter.apply — only overwrite (and only clear
             // isDirty) when the incoming record is actually newer than what's stored locally.
             guard record.updatedAt > existing.updatedAt else { return }
+            let existingEpisodeIds = Set(existing.items.map(\.episodeId))
+            let newItems = record.autoDownload
+                ? record.items.filter { !existingEpisodeIds.contains($0.episodeId) }
+                : []
             existing.name = record.name
             existing.type = record.type
             existing.items = record.items
@@ -84,9 +96,92 @@ struct PlaylistSyncAdapter: SyncAdapter {
             existing.icon = record.icon
             existing.accentColor = record.accentColor
             existing.playNextBehavior = record.playNextBehavior
+            existing.autoDownload = record.autoDownload
             existing.isDirty = false
+            if !newItems.isEmpty {
+                autoDownloadHandler.enqueue(newItems, in: context)
+            }
         } else {
             context.insert(record)
+        }
+    }
+
+    func didCompleteSync(in context: ModelContext) throws {
+        PlaylistAutoDownload.retryPending(in: context)
+    }
+}
+
+private final class PlaylistAutoDownloadHandler: @unchecked Sendable {
+    private let action: ([PlaylistItemRecord], ModelContext) -> Void
+
+    init(_ action: @escaping ([PlaylistItemRecord], ModelContext) -> Void) {
+        self.action = action
+    }
+
+    func enqueue(_ items: [PlaylistItemRecord], in context: ModelContext) {
+        action(items, context)
+    }
+}
+
+enum PlaylistAutoDownload {
+    static func enqueue(_ items: [PlaylistItemRecord], in context: ModelContext) {
+        let statuses = DownloadStatus.statusMap(for: Set(items.map(\.episodeId)), in: context)
+        let pendingRecords = (try? context.fetch(FetchDescriptor<PendingPlaylistDownloadRecord>())) ?? []
+        var pendingByEpisodeId = Dictionary(uniqueKeysWithValues: pendingRecords.map { ($0.id, $0) })
+
+        for item in items {
+            if statuses[item.episodeId] == .complete {
+                if let pending = pendingByEpisodeId.removeValue(forKey: item.episodeId) {
+                    context.delete(pending)
+                }
+                continue
+            }
+            if statuses[item.episodeId] == .downloading {
+                continue
+            }
+
+            if pendingByEpisodeId[item.episodeId] == nil {
+                let pending = PendingPlaylistDownloadRecord(id: item.episodeId, showId: item.showId)
+                context.insert(pending)
+                pendingByEpisodeId[item.episodeId] = pending
+            }
+
+            if let episode = CatalogCache.episode(showId: item.showId, episodeId: item.episodeId, in: context) {
+                start(episode, pendingEpisodeId: item.episodeId, container: context.container)
+                continue
+            }
+
+            let container = context.container
+            Task {
+                guard let episode = try? await PodcastCatalogClient().getEpisode(
+                    showId: item.showId, episodeId: item.episodeId)
+                else { return }
+                start(episode, pendingEpisodeId: item.episodeId, container: container)
+            }
+        }
+    }
+
+    static func retryPending(in context: ModelContext) {
+        let pending = (try? context.fetch(FetchDescriptor<PendingPlaylistDownloadRecord>())) ?? []
+        enqueue(
+            pending.map {
+                PlaylistItemRecord(episodeId: $0.id, showId: $0.showId, addedAt: $0.createdAt, order: "")
+            },
+            in: context)
+    }
+
+    private static func start(
+        _ episode: Episode, pendingEpisodeId: String, container: ModelContainer
+    ) {
+        DispatchQueue.main.async {
+            guard DownloadManager.shared.startDownload(episode: episode) else { return }
+
+            let context = ModelContext(container)
+            guard let pending = try? context.fetch(FetchDescriptor<PendingPlaylistDownloadRecord>(
+                predicate: #Predicate { $0.id == pendingEpisodeId }
+            )).first else { return }
+            context.delete(pending)
+            try? context.save()
         }
     }
 }
@@ -102,6 +197,7 @@ private struct PlaylistChangeDTO: Encodable {
     let icon: String?
     let accentColor: String?
     let playNextBehavior: PlayNextBehavior?
+    let autoDownload: Bool
 }
 
 private struct SyncPlaylistsRequestDTO: Encodable {
@@ -131,6 +227,7 @@ private struct PlaylistSyncDTO: Decodable {
     let icon: String?
     let accentColor: String?
     let playNextBehavior: PlayNextBehavior?
+    let autoDownload: Bool?
     // #400 — present and true when this entry is a tombstone for a playlist deleted elsewhere.
     // Optional for forward/backward compatibility with a server that omits it.
     let deleted: Bool?

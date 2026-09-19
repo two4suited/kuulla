@@ -273,11 +273,13 @@ public class PlaylistService(
 
         return new PlaylistDetail(
             playlist.Id, playlist.Name, playlist.Type, items, playlist.CreatedAt, playlist.UpdatedAt,
-            playlist.DynamicConfig, playlist.Icon, playlist.AccentColor, playlist.PlayNextBehavior);
+            playlist.DynamicConfig, playlist.Icon, playlist.AccentColor, playlist.PlayNextBehavior,
+            playlist.AutoDownload);
     }
 
     public async Task<Playlist?> RenamePlaylistAsync(
         string userId, string id, string name, string? icon, string? accentColor, PlayNextBehavior? playNextBehavior,
+        bool? autoDownload,
         CancellationToken cancellationToken)
     {
         var playlist = await ReadAsync(userId, id, cancellationToken);
@@ -292,6 +294,7 @@ public class PlaylistService(
             Icon = icon,
             AccentColor = accentColor,
             PlayNextBehavior = playNextBehavior,
+            AutoDownload = autoDownload ?? playlist.AutoDownload,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
         await UpsertAsync(updated, cancellationToken);
@@ -519,7 +522,7 @@ public class PlaylistService(
             changes,
             getChangeId: change => change.Id,
             getChangeUpdatedAt: change => change.UpdatedAt,
-            buildAcceptedState: (change, _) => new Playlist(
+            buildAcceptedState: (change, stored) => new Playlist(
                 change.Id,
                 userId,
                 change.Name,
@@ -531,7 +534,8 @@ public class PlaylistService(
                 change.DynamicConfig,
                 change.Icon,
                 change.AccentColor,
-                change.PlayNextBehavior),
+                change.PlayNextBehavior,
+                change.AutoDownload ?? stored?.AutoDownload ?? false),
             readStoredAsync: (id, ct) => ReadAsync(userId, id, ct),
             upsertAsync: UpsertAsync,
             queryAllAsync: ct => QueryAllForSyncAsync(userId, ct),

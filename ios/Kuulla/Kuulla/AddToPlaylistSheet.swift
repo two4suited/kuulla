@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 // Ports Kuulla.Web's AddToPlaylistButton.razor UX to a sheet: existing playlists to tap-add into,
@@ -84,11 +85,36 @@ struct AddToPlaylistSheet: View {
     private func loadPlaylists() async {
         isLoading = true
         loadError = nil
+        if let playlistSyncEngine {
+            playlists = await playlistSyncEngine.read { context in
+                let records = (try? context.fetch(FetchDescriptor<PlaylistRecord>())) ?? []
+                return records
+                    .filter { !$0.deleted }
+                    .map {
+                        Playlist(
+                            id: $0.id, userId: "", name: $0.name, type: $0.type, items: $0.items,
+                            createdAt: $0.createdAt, updatedAt: $0.updatedAt,
+                            dynamicConfig: $0.dynamicConfig.map {
+                                DynamicPlaylistConfig(
+                                    showIds: $0.showIds, maxEpisodes: $0.maxEpisodes,
+                                    priorityList: $0.priorityList)
+                            },
+                            icon: $0.icon, accentColor: $0.accentColor,
+                            playNextBehavior: $0.playNextBehavior, autoDownload: $0.autoDownload)
+                    }
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            }
+            if !playlists.isEmpty {
+                isLoading = false
+            }
+        }
         do {
             playlists = try await playlistClient.getPlaylists()
                 .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         } catch {
-            loadError = "Couldn't load your playlists."
+            if playlists.isEmpty {
+                loadError = "Couldn't load your playlists."
+            }
         }
         isLoading = false
     }
@@ -97,16 +123,66 @@ struct AddToPlaylistSheet: View {
         isBusy = true
         actionError = nil
         do {
-            try await playlistClient.addItem(playlistId: playlist.id, episodeId: episodeId, showId: showId)
+            if let playlistSyncEngine, await addLocally(to: playlist, using: playlistSyncEngine) {
+                await playlistSyncEngine.syncNow()
+            } else {
+                try await playlistClient.addItem(
+                    playlistId: playlist.id, episodeId: episodeId, showId: showId)
+                await playlistSyncEngine?.syncNow()
+            }
             addedPlaylistIds.insert(playlist.id)
-            // The add went straight to the server via REST, bypassing the playlist SyncEngine —
-            // pull it back down now so the local store (and anything reading through it, like
-            // PlaylistsView/LibraryView) doesn't wait for the next unrelated sync (#745).
-            await playlistSyncEngine?.syncNow()
         } catch {
             actionError = "Something went wrong. Please try again."
         }
         isBusy = false
+    }
+
+    private func addLocally(
+        to playlist: Playlist, using playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>
+    ) async -> Bool {
+        var found = false
+        var changed = false
+        await playlistSyncEngine.write { context in
+            guard let record = try? context.fetch(FetchDescriptor<PlaylistRecord>(
+                predicate: #Predicate { $0.id == playlist.id }
+            )).first else { return }
+            found = true
+            if playlist.updatedAt > record.updatedAt {
+                record.name = playlist.name
+                record.type = playlist.type
+                record.items = playlist.items
+                record.updatedAt = playlist.updatedAt
+                record.dynamicConfig = playlist.dynamicConfig.map {
+                    DynamicPlaylistConfigRecord(
+                        showIds: $0.showIds, maxEpisodes: $0.maxEpisodes,
+                        priorityList: $0.priorityList)
+                }
+                record.icon = playlist.icon
+                record.accentColor = playlist.accentColor
+                record.playNextBehavior = playlist.playNextBehavior
+                record.autoDownload = playlist.autoDownload ?? record.autoDownload
+            }
+            guard !record.items.contains(where: { $0.episodeId == episodeId }) else { return }
+
+            let maxOrder = record.items.map(\.order).max()
+            let item = PlaylistItemRecord(
+                episodeId: episodeId, showId: showId, addedAt: .now,
+                order: maxOrder.map { $0 + "i" } ?? "i")
+            record.items.append(item)
+            record.updatedAt = .now
+            record.isDirty = true
+            changed = true
+
+            if record.autoDownload {
+                PlaylistAutoDownload.enqueue([item], in: context)
+            }
+        }
+        if changed {
+            await MainActor.run {
+                PlaylistChangeSignal.shared.bump()
+            }
+        }
+        return found
     }
 
     private func addToNew() async {

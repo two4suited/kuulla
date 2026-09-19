@@ -18,6 +18,7 @@ struct KuullaApp: App {
     init() {
         let container = try! ModelContainer(
             for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self, DownloadedEpisodeRecord.self,
+            PendingPlaylistDownloadRecord.self,
             UserSettingsRecord.self,
             // Read-through catalog cache (not sync domains) — see CatalogCache.
             SubscriptionRecord.self, ShowRecord.self, CachedEpisodeRecord.self,

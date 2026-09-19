@@ -1057,7 +1057,8 @@ playlists.MapPut("/{id}", async (
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
     var playlist = await playlistService.RenamePlaylistAsync(
-        userId, id, request.Name, request.Icon, request.AccentColor, request.PlayNextBehavior, ct);
+        userId, id, request.Name, request.Icon, request.AccentColor, request.PlayNextBehavior,
+        request.AutoDownload, ct);
     return playlist is not null ? Results.Ok(playlist) : Results.NotFound();
 });
 

@@ -103,6 +103,20 @@ public class PlaylistDetailTests : WebTestContext
     }
 
     [Fact]
+    public void ShowsPersistedAutoDownloadSetting_InEditPanel()
+    {
+        ConfigureApi(TestHttpMessageHandler.Json(MakeDetail() with { AutoDownload = true }));
+        var cut = RenderComponent<PlaylistDetailPage>(parameters => parameters.Add(p => p.Id, "playlist-1"));
+        cut.WaitForAssertion(() => Assert.Contains("Commute", cut.Markup));
+
+        cut.FindAll("button").Single(button => button.TextContent.Contains("Edit playlist")).Click();
+
+        var toggle = cut.Find("#playlist-auto-download");
+        Assert.True(toggle.HasAttribute("checked"));
+        Assert.Contains("Automatically download new episodes", cut.Markup);
+    }
+
+    [Fact]
     public void RendersDynamicConfigEditor_InsteadOfManualControls_WhenPlaylistIsDynamic()
     {
         var config = new DynamicPlaylistConfig(["show-1"], 5, ["show-1"]);

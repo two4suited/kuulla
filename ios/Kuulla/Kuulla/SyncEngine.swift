@@ -31,6 +31,13 @@ protocol SyncAdapter: Sendable {
     // Upsert one server-returned record into `context`, matching on `id`. Always called from
     // inside the engine's own ModelContext.
     func apply(_ record: Record, in context: ModelContext) throws
+
+    // Runs after a successful server round trip, including a hash-matched no-op response.
+    func didCompleteSync(in context: ModelContext) throws
+}
+
+extension SyncAdapter {
+    func didCompleteSync(in context: ModelContext) throws {}
 }
 
 // Generic local-store reconciliation for one Syncable domain: collects dirty records, debounces
@@ -165,7 +172,8 @@ actor SyncEngine<Adapter: SyncAdapter> {
             // fresh cursor, or that insert is lost the moment the process exits before any other
             // sync writes something.
             if dirty.isEmpty, result.serverChanges.isEmpty, result.hash == cursor.localHash {
-                if cursorIsNew {
+                try adapter.didCompleteSync(in: context)
+                if cursorIsNew || context.hasChanges {
                     try context.save()
                 }
                 return
@@ -179,6 +187,7 @@ actor SyncEngine<Adapter: SyncAdapter> {
             for record in result.serverChanges {
                 try adapter.apply(record, in: context)
             }
+            try adapter.didCompleteSync(in: context)
 
             cursor.lastSyncedAt = result.syncedAt
             cursor.localHash = result.hash
