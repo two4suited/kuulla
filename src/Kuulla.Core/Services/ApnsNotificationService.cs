@@ -31,6 +31,39 @@ public class ApnsNotificationService(
             (token, ct) => new ValueTask(SendAsync(token, showId, showTitle, body, newEpisodes, ct)));
     }
 
+    public async Task<IReadOnlyList<TestPushResult>> SendTestNotificationAsync(
+        IReadOnlyList<DeviceToken> tokens, CancellationToken cancellationToken)
+    {
+        // A user has a handful of devices at most, so no fan-out limit needed. Dead tokens are
+        // deliberately not pruned here: a diagnostic shouldn't erase the evidence it's reporting.
+        var results = new List<TestPushResult>(tokens.Count);
+        foreach (var token in tokens)
+        {
+            var push = new ApplePush(ApplePushType.Alert)
+                .AddToken(token.ApnsToken)
+                .AddAlert("Kuulla", "Test notification. Push is working.")
+                .AddSound("default");
+            if (token.UseSandbox)
+            {
+                push.SendToDevelopmentServer();
+            }
+
+            try
+            {
+                var response = await apnsClient.SendAsync(push, cancellationToken);
+                results.Add(new TestPushResult(
+                    token.DeviceId, token.UseSandbox, response.IsSuccessful, response.IsSuccessful ? null : response.ReasonString));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Failed to send test push notification to device {DeviceId}", token.DeviceId);
+                results.Add(new TestPushResult(token.DeviceId, token.UseSandbox, false, ex.Message));
+            }
+        }
+
+        return results;
+    }
+
     private async Task SendAsync(
         DeviceToken token, string showId, string showTitle, string body, IReadOnlyList<Episode> newEpisodes, CancellationToken cancellationToken)
     {

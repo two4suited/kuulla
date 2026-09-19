@@ -776,6 +776,21 @@ notifications.MapPost("/device-token", async (
     return Results.Ok(token);
 });
 
+// Pushes a test alert to the caller's own registered devices and reports Apple's per-device
+// answer, so "why don't I get notifications" can be answered without waiting for a real episode.
+// Only ever targets the caller's own tokens, so it can't be used to push to anyone else.
+notifications.MapPost("/test", async (
+    ClaimsPrincipal user,
+    IDeviceTokenService deviceTokenService,
+    INotificationService notificationService,
+    CancellationToken ct) =>
+{
+    var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
+    var tokens = await deviceTokenService.GetTokensForUserAsync(userId, ct);
+    var results = await notificationService.SendTestNotificationAsync(tokens, ct);
+    return Results.Ok(new { devices = results });
+});
+
 notifications.MapDelete("/device-token/{deviceId}", async (
     string deviceId,
     ClaimsPrincipal user,

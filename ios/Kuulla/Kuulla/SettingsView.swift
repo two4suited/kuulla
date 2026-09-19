@@ -40,6 +40,8 @@ struct SettingsView: View {
     @State private var volumeOffsetSaveError: String?
     @State private var trimSilenceSaveError: String?
     @State private var notificationsEnabledSaveError: String?
+    @State private var testPushStatus: String?
+    @State private var isSendingTestPush = false
     // Loaded from the local PlaylistRecord store (PlaylistsView's own pattern) rather than a
     // network fetch — this picker only needs to list what's already synced to the device.
     @State private var badgePlaylists: [PlaylistSummary] = []
@@ -92,6 +94,7 @@ struct SettingsView: View {
     private let maxOpmlBytes = 5 * 1024 * 1024
 
     private let settingsClient = SettingsClient()
+    private let deviceTokenClient = DeviceTokenClient()
     private let subscriptionClient = SubscriptionClient()
 
     var body: some View {
@@ -352,6 +355,25 @@ struct SettingsView: View {
             Section {
                 Toggle("New episode notifications", isOn: notificationsEnabledBinding)
                     .disabled(settings == nil)
+
+                Button {
+                    Task { await sendTestPush() }
+                } label: {
+                    HStack {
+                        Text("Send Test Notification")
+                        if isSendingTestPush {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isSendingTestPush)
+
+                if let testPushStatus {
+                    Text(testPushStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Notifications")
             } footer: {
@@ -1256,6 +1278,19 @@ struct SettingsView: View {
                 settings = previous
                 trimSilenceSaveError = "Something went wrong while saving. Please try again."
             }
+        }
+    }
+
+    private func sendTestPush() async {
+        isSendingTestPush = true
+        testPushStatus = nil
+        defer { isSendingTestPush = false }
+
+        do {
+            let results = try await deviceTokenClient.sendTestPush()
+            testPushStatus = DeviceTokenClient.message(for: results, deviceId: DeviceIdentity.current)
+        } catch {
+            testPushStatus = "Couldn't reach the server to send a test. Please try again."
         }
     }
 
