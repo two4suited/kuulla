@@ -26,6 +26,7 @@ final class DeviceTokenClientTests: MockedApiTestCase {
         // Platform serializes as its raw Int (0 = ios), matching the API's DevicePlatform enum
         // (System.Text.Json default, no string-enum converter configured server-side).
         XCTAssertEqual(body["platform"] as? Int, 0)
+        XCTAssertEqual(body["useSandbox"] as? Bool, DeviceTokenClient.usesSandboxApns)
     }
 
     func testRegisterPropagatesFailure() async {

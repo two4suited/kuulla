@@ -12,7 +12,20 @@ struct DeviceTokenClient {
     func register(deviceId: String, apnsToken: String) async throws {
         let _: DeviceTokenResponse = try await apiClient.post(
             ["api", "notifications", "device-token"],
-            body: RegisterDeviceTokenRequest(deviceId: deviceId, apnsToken: apnsToken, platform: .ios))
+            body: RegisterDeviceTokenRequest(
+                deviceId: deviceId, apnsToken: apnsToken, platform: .ios, useSandbox: Self.usesSandboxApns))
+    }
+
+    // Debug builds are signed with aps-environment = development (APS_ENVIRONMENT in
+    // project.pbxproj), so their tokens only work against Apple's sandbox APNs even though they
+    // register with the production API. The server sends each push to the environment its token
+    // came from; without this a Debug build's token is rejected as BadDeviceToken and pruned.
+    static var usesSandboxApns: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
     }
 
     func unregister(deviceId: String) async throws {
@@ -24,6 +37,7 @@ private struct RegisterDeviceTokenRequest: Encodable {
     let deviceId: String
     let apnsToken: String
     let platform: DevicePlatform
+    let useSandbox: Bool
 }
 
 // Matches the API's DevicePlatform enum, which System.Text.Json serializes as its raw int value

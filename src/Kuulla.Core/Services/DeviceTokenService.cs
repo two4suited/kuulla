@@ -9,12 +9,12 @@ public class DeviceTokenService(
     [FromKeyedServices("devicetokens")] Container deviceTokensContainer) : IDeviceTokenService
 {
     public async Task<DeviceToken> RegisterAsync(
-        string userId, string deviceId, string apnsToken, DevicePlatform platform, CancellationToken cancellationToken)
+        string userId, string deviceId, string apnsToken, DevicePlatform platform, bool useSandbox, CancellationToken cancellationToken)
     {
         // Upsert on the composite id rather than Create-then-handle-Conflict (SubscriptionService's
         // pattern): a re-registration should overwrite the stored ApnsToken/UpdatedAt (Apple can
         // reissue a device's token), not preserve the original like Subscription's SubscribedAt does.
-        var token = DeviceToken.Create(userId, deviceId, apnsToken, platform);
+        var token = DeviceToken.Create(userId, deviceId, apnsToken, platform, useSandbox);
         var response = await deviceTokensContainer.UpsertItemAsync(
             token, new PartitionKey(userId), cancellationToken: cancellationToken);
         return response.Resource;

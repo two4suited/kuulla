@@ -19,13 +19,19 @@ public record DeviceToken(
     string DeviceId,
     string ApnsToken,
     DevicePlatform Platform,
+    // Which APNs environment issued ApnsToken: a development-signed build (Xcode install, Debug)
+    // gets a sandbox token that production APNs rejects with BadDeviceToken, and vice versa, so
+    // each push has to be sent to the environment its own token came from. Documents stored
+    // before this field existed deserialize to false (production), which is what every token
+    // from a TestFlight/App Store build is.
+    bool UseSandbox = false,
     [property: JsonProperty("updatedAt")] DateTimeOffset UpdatedAt = default)
 {
     public static string BuildId(string userId, string deviceId) =>
         $"{Uri.EscapeDataString(userId)}:{Uri.EscapeDataString(deviceId)}";
 
-    public static DeviceToken Create(string userId, string deviceId, string apnsToken, DevicePlatform platform) =>
-        new(BuildId(userId, deviceId), userId, deviceId, apnsToken, platform, DateTimeOffset.UtcNow);
+    public static DeviceToken Create(string userId, string deviceId, string apnsToken, DevicePlatform platform, bool useSandbox) =>
+        new(BuildId(userId, deviceId), userId, deviceId, apnsToken, platform, useSandbox, DateTimeOffset.UtcNow);
 }
 
 public enum DevicePlatform
