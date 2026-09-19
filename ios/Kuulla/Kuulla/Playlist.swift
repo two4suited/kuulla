@@ -184,6 +184,7 @@ extension PlaylistDetail {
             dynamicConfig: record.dynamicConfig.map {
                 DynamicPlaylistConfig(showIds: $0.showIds, maxEpisodes: $0.maxEpisodes, priorityList: $0.priorityList)
             },
-            icon: record.icon, accentColor: record.accentColor)
+            icon: record.icon, accentColor: record.accentColor,
+            playNextBehavior: record.playNextBehavior)
     }
 }

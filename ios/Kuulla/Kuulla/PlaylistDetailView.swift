@@ -182,14 +182,11 @@ struct PlaylistDetailView: View {
             // ModelContext instances over the same store aren't guaranteed to see each other's
             // saves immediately).
             guard playlist != nil, let playlistSyncEngine else { return }
-            Task {
-                let local = await playlistSyncEngine.read { context in
-                    PlaylistDetail.local(id: playlistId, in: context)
-                }
-                if let local {
-                    playlist = local
-                }
-            }
+            refreshFromLocalStore(using: playlistSyncEngine)
+        }
+        .onChange(of: PlaylistChangeSignal.shared.version) { _, _ in
+            guard playlist != nil, let playlistSyncEngine else { return }
+            refreshFromLocalStore(using: playlistSyncEngine)
         }
     }
 
@@ -239,6 +236,17 @@ struct PlaylistDetailView: View {
     // Shared with CarPlaySceneDelegate (#758) — see PlaylistDetail.local's doc comment.
     private func localPlaceholder() -> PlaylistDetail? {
         PlaylistDetail.local(id: playlistId, in: modelContext)
+    }
+
+    private func refreshFromLocalStore(using playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>) {
+        Task {
+            let local = await playlistSyncEngine.read { context in
+                PlaylistDetail.local(id: playlistId, in: context)
+            }
+            if let local {
+                playlist = local
+            }
+        }
     }
 
     private func removeItems(at offsets: IndexSet) async {

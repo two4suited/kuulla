@@ -158,6 +158,8 @@ Standalone SwiftUI app in `ios/Kuulla/`. Uses `@Observable` for state, actor-bas
 
 - If the work is tied to a GitHub issue, the PR description must reference it with a closing keyword (e.g. `Closes #57`) so the issue auto-closes on merge and stays linked in the milestone. Do not rely on matching titles or manual issue-closing — check before opening the PR.
 - Before opening a PR, run `dotnet test Kuulla.sln` (and any relevant iOS tests) locally and get an independent review of the diff from another model (e.g. `/code-review`) — address what both find. PR CI (`pr.yml`) only builds; it does not run the test suite, so this local run is the only test gate.
+- When implementation work is complete, open a PR against `main` with a concise summary and validation results; do not stop at a local commit.
+- After opening the PR, monitor its checks and review feedback, address any actionable failures, and wait for the required CI checks to pass before merging.
 - Once CI (build) passes, merge the PR and delete its branch.
 
 ## Aspire Skills
