@@ -15,10 +15,11 @@ public static class NotificationServiceCollectionExtensions
     // APNs credentials (milestone #32, issue #216) are optional: push is additive infrastructure,
     // not something local dev or CI needs configured. Falls back to a no-op sender (with a
     // one-time startup warning) when any of the four values is unset, rather than failing startup.
-    // useSandbox: a debug-signed build's device tokens are only ever valid on Apple's sandbox APNs
-    // environment, never production — pass builder.Environment.IsDevelopment().
+    // Sandbox vs. production APNs is chosen per device token (DeviceToken.UseSandbox), not per
+    // host: a debug-signed build's tokens are only valid on Apple's sandbox environment even when
+    // they're registered with the production API.
     public static IServiceCollection AddKuullaNotifications(
-        this IServiceCollection services, IConfiguration configuration, bool useSandbox)
+        this IServiceCollection services, IConfiguration configuration)
     {
         var apnsKeyId = configuration["Apns:KeyId"];
         var apnsTeamId = configuration["Apns:TeamId"];
@@ -47,9 +48,6 @@ public static class NotificationServiceCollectionExtensions
                 BundleId = apnsBundleId,
             });
         });
-        // Set per-push (ApplePush.SendToDevelopmentServer()) rather than on the client itself —
-        // ApnsClient.UseSandbox() is obsolete in this package version.
-        services.AddSingleton(new ApnsNotificationServiceOptions(UseSandbox: useSandbox));
         services.AddScoped<INotificationService, ApnsNotificationService>();
         return services;
     }

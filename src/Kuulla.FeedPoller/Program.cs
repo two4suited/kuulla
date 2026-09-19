@@ -19,8 +19,7 @@ builder.AddKeyedAzureCosmosContainer("devicetokens");
 builder.Services.AddKuullaCore(builder.Configuration);
 // The poller is the path that sends the new-episode push for subscribers who never open the app,
 // so it wires the same APNs (or no-op) sender the API does.
-builder.Services.AddKuullaNotifications(
-    builder.Configuration, useSandbox: builder.Environment.IsDevelopment());
+builder.Services.AddKuullaNotifications(builder.Configuration);
 
 builder.Services.AddHostedService<FeedPollingWorker>();
 

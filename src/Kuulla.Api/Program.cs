@@ -44,8 +44,7 @@ builder.Services.AddScoped<IOpmlExportService, OpmlExportService>();
 
 // Push-notification sender (APNs, or a no-op fallback when APNs isn't configured). Shared with
 // the Kuulla.FeedPoller worker, which sends the same new-episode push (milestone #32, issue #216).
-builder.Services.AddKuullaNotifications(
-    builder.Configuration, useSandbox: builder.Environment.IsDevelopment());
+builder.Services.AddKuullaNotifications(builder.Configuration);
 
 var googleClientId = builder.Configuration["Google:ClientId"];
 var googleIosClientId = builder.Configuration["Google:IosClientId"];
@@ -773,7 +772,7 @@ notifications.MapPost("/device-token", async (
     }
 
     var userId = user.FindFirstValue(JwtRegisteredClaimNames.Sub)!;
-    var token = await deviceTokenService.RegisterAsync(userId, request.DeviceId, request.ApnsToken, request.Platform, ct);
+    var token = await deviceTokenService.RegisterAsync(userId, request.DeviceId, request.ApnsToken, request.Platform, request.UseSandbox, ct);
     return Results.Ok(token);
 });
 

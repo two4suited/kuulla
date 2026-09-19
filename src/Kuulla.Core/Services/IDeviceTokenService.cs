@@ -5,7 +5,7 @@ namespace Kuulla.Core.Services;
 public interface IDeviceTokenService
 {
     Task<DeviceToken> RegisterAsync(
-        string userId, string deviceId, string apnsToken, DevicePlatform platform, CancellationToken cancellationToken);
+        string userId, string deviceId, string apnsToken, DevicePlatform platform, bool useSandbox, CancellationToken cancellationToken);
 
     Task UnregisterAsync(string userId, string deviceId, CancellationToken cancellationToken);
 

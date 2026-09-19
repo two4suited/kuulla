@@ -3,15 +3,9 @@ using Kuulla.Core.Models;
 
 namespace Kuulla.Core.Services;
 
-// UseSandbox flag: Apple's sandbox and production APNs environments are set per-push
-// (ApplePush.SendToDevelopmentServer()) in this package version rather than per-client, so this
-// travels alongside the client rather than being baked into IApnsClient's registration.
-public record ApnsNotificationServiceOptions(bool UseSandbox);
-
 public class ApnsNotificationService(
     IApnsClient apnsClient,
     IDeviceTokenService deviceTokenService,
-    ApnsNotificationServiceOptions options,
     ILogger<ApnsNotificationService> logger) : INotificationService
 {
     // Bounded rather than Task.WhenAll's unbounded fan-out — this runs once per subscriber, and
@@ -56,7 +50,10 @@ public class ApnsNotificationService(
             push.AddCustomProperty("episodeId", newEpisodes[0].Id, false);
         }
 
-        if (options.UseSandbox)
+        // Sandbox vs. production is per-push in this dotAPNS version, and per-token here: the host
+        // can't know which environment a given device's token came from (an Xcode-installed Debug
+        // build talks to the production API but holds a sandbox token).
+        if (token.UseSandbox)
         {
             push.SendToDevelopmentServer();
         }
@@ -74,11 +71,23 @@ public class ApnsNotificationService(
             return;
         }
 
-        if (!response.IsSuccessful && response.Reason is
-            ApnsResponseReason.BadDeviceToken or ApnsResponseReason.Unregistered or ApnsResponseReason.ExpiredToken)
+        if (response.IsSuccessful)
         {
-            // The device uninstalled the app, disabled notifications, or Apple otherwise
-            // invalidated this token — prune it so future sends don't keep retrying a dead token.
+            return;
+        }
+
+        // The device uninstalled the app, disabled notifications, or Apple otherwise invalidated
+        // this token — routine, so logged quietly and pruned so future sends don't keep retrying a
+        // dead token. Anything else (bad key, wrong topic, ...) is a config problem worth a warning.
+        var tokenIsDead = response.Reason is
+            ApnsResponseReason.BadDeviceToken or ApnsResponseReason.Unregistered or ApnsResponseReason.ExpiredToken;
+        logger.Log(
+            tokenIsDead ? LogLevel.Information : LogLevel.Warning,
+            "APNs rejected push to device {DeviceId} (sandbox: {UseSandbox}): {Reason}",
+            token.DeviceId, token.UseSandbox, response.ReasonString);
+
+        if (tokenIsDead)
+        {
             await deviceTokenService.UnregisterAsync(token.UserId, token.DeviceId, cancellationToken);
         }
     }

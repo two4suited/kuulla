@@ -1,3 +1,4 @@
+using System.Reflection;
 using dotAPNS;
 using Kuulla.Core.Models;
 using Kuulla.Core.Services;
@@ -18,12 +19,19 @@ public class ApnsNotificationServiceTests
     public ApnsNotificationServiceTests()
     {
         _sut = new ApnsNotificationService(
-            _apnsClient.Object, _deviceTokenService.Object, new ApnsNotificationServiceOptions(UseSandbox: false),
+            _apnsClient.Object, _deviceTokenService.Object,
             NullLogger<ApnsNotificationService>.Instance);
     }
 
-    private static DeviceToken MakeToken(string deviceId = "device-1") =>
-        new(DeviceToken.BuildId(UserId, deviceId), UserId, deviceId, $"apns-token-{deviceId}", DevicePlatform.Ios);
+    private static DeviceToken MakeToken(string deviceId = "device-1", bool useSandbox = false) =>
+        new(DeviceToken.BuildId(UserId, deviceId), UserId, deviceId, $"apns-token-{deviceId}", DevicePlatform.Ios, useSandbox);
+
+    // ApplePush exposes no public getter for which APNs environment it targets — the flag
+    // SendToDevelopmentServer() sets is internal to dotAPNS.
+    private static bool IsSandbox(ApplePush push) =>
+        (bool)typeof(ApplePush)
+            .GetProperty("IsSendToDevelopmentServer", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!
+            .GetValue(push)!;
 
     private static Episode MakeEpisode(string id) =>
         new(id, ShowId, $"Episode {id}", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), $"https://audio.example/{id}.mp3", null, null, null);
@@ -38,6 +46,20 @@ public class ApnsNotificationServiceTests
 
         _apnsClient.Verify(c => c.SendAsync(It.Is<ApplePush>(p => p.Token == "apns-token-device-1"), It.IsAny<CancellationToken>()), Times.Once);
         _apnsClient.Verify(c => c.SendAsync(It.Is<ApplePush>(p => p.Token == "apns-token-device-2"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task NotifyNewEpisodesAsync_SendsEachPushToTheEnvironmentItsTokenCameFrom()
+    {
+        var tokens = new[] { MakeToken("prod-device", useSandbox: false), MakeToken("debug-device", useSandbox: true) };
+        _apnsClient.Setup(c => c.SendAsync(It.IsAny<ApplePush>(), It.IsAny<CancellationToken>())).ReturnsAsync(ApnsResponse.Successful());
+
+        await _sut.NotifyNewEpisodesAsync(tokens, ShowId, "Show Title", [MakeEpisode("ep-1")], CancellationToken.None);
+
+        _apnsClient.Verify(c => c.SendAsync(
+            It.Is<ApplePush>(p => p.Token == "apns-token-prod-device" && !IsSandbox(p)), It.IsAny<CancellationToken>()), Times.Once);
+        _apnsClient.Verify(c => c.SendAsync(
+            It.Is<ApplePush>(p => p.Token == "apns-token-debug-device" && IsSandbox(p)), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

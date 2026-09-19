@@ -26,13 +26,14 @@ public class DeviceTokenServiceTests
             .Setup(c => c.UpsertItemAsync(It.IsAny<DeviceToken>(), It.IsAny<PartitionKey?>(), null, default))
             .ReturnsAsync((DeviceToken t, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(t));
 
-        var result = await _sut.RegisterAsync(UserId, DeviceId, ApnsToken, DevicePlatform.Ios, CancellationToken.None);
+        var result = await _sut.RegisterAsync(UserId, DeviceId, ApnsToken, DevicePlatform.Ios, useSandbox: true, CancellationToken.None);
 
         Assert.Equal(DeviceToken.BuildId(UserId, DeviceId), result.Id);
         Assert.Equal(UserId, result.UserId);
         Assert.Equal(DeviceId, result.DeviceId);
         Assert.Equal(ApnsToken, result.ApnsToken);
         Assert.Equal(DevicePlatform.Ios, result.Platform);
+        Assert.True(result.UseSandbox);
         _deviceTokensContainer.Verify(
             c => c.UpsertItemAsync(
                 It.Is<DeviceToken>(t => t.Id == DeviceToken.BuildId(UserId, DeviceId)),
@@ -51,7 +52,7 @@ public class DeviceTokenServiceTests
             .Setup(c => c.UpsertItemAsync(It.IsAny<DeviceToken>(), It.IsAny<PartitionKey?>(), null, default))
             .ReturnsAsync((DeviceToken t, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(t));
 
-        var result = await _sut.RegisterAsync(UserId, DeviceId, "new-token", DevicePlatform.Ios, CancellationToken.None);
+        var result = await _sut.RegisterAsync(UserId, DeviceId, "new-token", DevicePlatform.Ios, useSandbox: false, CancellationToken.None);
 
         Assert.Equal("new-token", result.ApnsToken);
         _deviceTokensContainer.Verify(c => c.CreateItemAsync(It.IsAny<DeviceToken>(), It.IsAny<PartitionKey?>(), null, default), Times.Never);
