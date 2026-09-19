@@ -16,4 +16,5 @@ public record PlaylistChange(
     DynamicPlaylistConfig? DynamicConfig = null,
     string? Icon = null,
     string? AccentColor = null,
-    PlayNextBehavior? PlayNextBehavior = null);
+    PlayNextBehavior? PlayNextBehavior = null,
+    bool? AutoDownload = null);

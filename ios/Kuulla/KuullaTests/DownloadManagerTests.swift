@@ -78,11 +78,12 @@ final class DownloadManagerTests: XCTestCase {
         let manager = await makeManager(container: container)
         MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
 
-        manager.startDownload(episode: makeEpisode())
+        let durablyQueued = manager.startDownload(episode: makeEpisode())
 
         let context = ModelContext(container)
         let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
         let record = try XCTUnwrap(try context.fetch(descriptor).first)
+        XCTAssertTrue(durablyQueued)
         XCTAssertEqual(record.status, .downloading)
     }
 
@@ -276,10 +277,11 @@ final class DownloadManagerTests: XCTestCase {
             await pathObserver.simulate(isOnWifi: false)
 
             MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 200, data: Data("audio".utf8), headers: [:])) }
-            manager.startDownload(episode: makeEpisode())
+            let durablyQueued = manager.startDownload(episode: makeEpisode())
 
             // Queued, not started: no live progress entry, and the record shows .downloading
             // without ever having reached .complete.
+            XCTAssertFalse(durablyQueued)
             XCTAssertNil(manager.progress["ep1"])
             let context = ModelContext(container)
             let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })

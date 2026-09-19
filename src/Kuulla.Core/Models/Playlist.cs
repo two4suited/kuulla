@@ -29,6 +29,9 @@ public record Playlist(
     // override, else the global setting). Applies to manual and dynamic playlists alike; edited
     // through PUT /api/playlists/{id} and reconciled last-write-wins like Name/Icon.
     PlayNextBehavior? PlayNextBehavior = null,
+    // When enabled, clients automatically queue episodes added after the playlist is already
+    // present locally. Applies to manual and dynamic playlists and syncs with the document.
+    [property: JsonProperty("autoDownload")] bool AutoDownload = false,
     // Tombstone flag (#400, ISyncableRecord.Deleted). DeletePlaylistAsync flips this instead of
     // hard-deleting the Cosmos item so the deletion reaches other devices through
     // POST /api/sync/playlists; GetPlaylistsAsync/GetPlaylistDetailAsync and every mutation path

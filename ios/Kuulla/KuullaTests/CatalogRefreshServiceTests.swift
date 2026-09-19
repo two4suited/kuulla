@@ -8,6 +8,7 @@ final class CatalogRefreshServiceTests: MockedApiTestCase {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(
             for: SyncCursor.self, EpisodeStateRecord.self, PlaylistRecord.self, DownloadedEpisodeRecord.self,
+            PendingPlaylistDownloadRecord.self,
             UserSettingsRecord.self,
             SubscriptionRecord.self, ShowRecord.self, CachedEpisodeRecord.self,
             CachedNewEpisodeRecord.self, ShowEpisodePageRecord.self, CatalogCacheState.self,

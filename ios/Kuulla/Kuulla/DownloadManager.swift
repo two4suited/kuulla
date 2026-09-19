@@ -165,9 +165,10 @@ final class DownloadManager: NSObject {
         backgroundCompletionHandler = handler
     }
 
-    func startDownload(episode: Episode) {
-        guard let modelContainer, URL(string: episode.audioUrl) != nil else { return }
-        guard tasksByEpisodeId[episode.id] == nil, pendingEpisodes[episode.id] == nil else { return }
+    @discardableResult
+    func startDownload(episode: Episode) -> Bool {
+        guard let modelContainer, URL(string: episode.audioUrl) != nil else { return false }
+        guard tasksByEpisodeId[episode.id] == nil, pendingEpisodes[episode.id] == nil else { return false }
 
         let context = ModelContext(modelContainer)
         upsertRecord(episodeId: episode.id, showId: episode.showId, status: .downloading, in: context)
@@ -178,10 +179,13 @@ final class DownloadManager: NSObject {
         // matching #180's "queued (rather than silently drops)" requirement.
         if LocalSettings.wifiOnlyDownloads && !isOnWifi {
             pendingEpisodes[episode.id] = episode
-            return
+            // No durable URLSession task exists yet. Callers that persist their own retry intent
+            // must keep it until Wi-Fi returns and a later attempt can create one.
+            return false
         }
 
         beginTransfer(for: episode)
+        return true
     }
 
     private func beginTransfer(for episode: Episode) {

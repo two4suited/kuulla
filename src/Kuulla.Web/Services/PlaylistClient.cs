@@ -76,13 +76,21 @@ public class PlaylistClient(KuullaApiClient apiClient)
     }
 
     // PUT /api/playlists/{id} sets the playlist's full editable state — pass the current
-    // icon/accent/play-next override when only the name changes, or they'll be cleared.
+    // icon/accent/play-next/auto-download state when only the name changes, or they'll be cleared.
     public async Task<Playlist?> RenamePlaylistAsync(
         string id, string name, string? icon = null, string? accentColor = null,
-        PlayNextBehavior? playNextBehavior = null, CancellationToken cancellationToken = default)
+        PlayNextBehavior? playNextBehavior = null, bool? autoDownload = null,
+        CancellationToken cancellationToken = default)
     {
         var client = await apiClient.CreateClientAsync();
-        var body = new { Name = name, Icon = icon, AccentColor = accentColor, PlayNextBehavior = playNextBehavior };
+        var body = new
+        {
+            Name = name,
+            Icon = icon,
+            AccentColor = accentColor,
+            PlayNextBehavior = playNextBehavior,
+            AutoDownload = autoDownload,
+        };
         var response = await client.PutAsJsonAsync(
             $"api/playlists/{Uri.EscapeDataString(id)}", body, JsonOptions, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)

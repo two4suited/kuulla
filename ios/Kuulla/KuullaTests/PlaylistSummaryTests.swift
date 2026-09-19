@@ -5,7 +5,9 @@ import XCTest
 final class PlaylistSummaryTests: XCTestCase {
     private func makeContext() throws -> ModelContext {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: SyncCursor.self, PlaylistRecord.self, configurations: configuration)
+        let container = try ModelContainer(
+            for: SyncCursor.self, PlaylistRecord.self, PendingPlaylistDownloadRecord.self,
+            configurations: configuration)
         return ModelContext(container)
     }
 

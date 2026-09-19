@@ -127,15 +127,18 @@ struct PlaylistDetailView: View {
                     name: playlist.name,
                     icon: playlist.icon,
                     accentColor: playlist.accentColor,
-                    playNextBehavior: playlist.playNextBehavior
-                ) { newName, newIcon, newAccent, newPlayNextBehavior in
+                    playNextBehavior: playlist.playNextBehavior,
+                    autoDownload: playlist.autoDownload ?? false
+                ) { newName, newIcon, newAccent, newPlayNextBehavior, autoDownload in
                     _ = try await playlistClient.renamePlaylist(
                         id: playlistId, name: newName, icon: newIcon, accentColor: newAccent,
-                        playNextBehavior: newPlayNextBehavior)
+                        playNextBehavior: newPlayNextBehavior, autoDownload: autoDownload)
+                    await playlistSyncEngine?.syncNow()
                     self.playlist?.name = newName
                     self.playlist?.icon = newIcon
                     self.playlist?.accentColor = newAccent
                     self.playlist?.playNextBehavior = newPlayNextBehavior
+                    self.playlist?.autoDownload = autoDownload
                 }
                 .presentationDetents([.medium, .large])
             }
@@ -509,22 +512,25 @@ private struct EditPlaylistSheet: View {
     @State private var icon: String?
     @State private var accentColor: String?
     @State private var playNextBehavior: PlayNextBehavior?
+    @State private var autoDownload: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    let onSave: (String, String?, String?, PlayNextBehavior?) async throws -> Void
+    let onSave: (String, String?, String?, PlayNextBehavior?, Bool) async throws -> Void
 
     init(
         name: String,
         icon: String?,
         accentColor: String?,
         playNextBehavior: PlayNextBehavior?,
-        onSave: @escaping (String, String?, String?, PlayNextBehavior?) async throws -> Void
+        autoDownload: Bool,
+        onSave: @escaping (String, String?, String?, PlayNextBehavior?, Bool) async throws -> Void
     ) {
         self._name = State(initialValue: name)
         self._icon = State(initialValue: icon)
         self._accentColor = State(initialValue: accentColor)
         self._playNextBehavior = State(initialValue: playNextBehavior)
+        self._autoDownload = State(initialValue: autoDownload)
         self.onSave = onSave
     }
 
@@ -544,6 +550,11 @@ private struct EditPlaylistSheet: View {
                     }
                 } footer: {
                     Text("What plays when an episode from this playlist finishes.")
+                }
+                Section {
+                    Toggle("Automatically download new episodes", isOn: $autoDownload)
+                } footer: {
+                    Text("Episodes added after this setting is enabled are queued for download.")
                 }
                 if let errorMessage {
                     Text(errorMessage)
@@ -577,7 +588,7 @@ private struct EditPlaylistSheet: View {
         isSaving = true
         errorMessage = nil
         do {
-            try await onSave(trimmed, icon, accentColor, playNextBehavior)
+            try await onSave(trimmed, icon, accentColor, playNextBehavior, autoDownload)
             dismiss()
         } catch {
             errorMessage = "Something went wrong while saving. Please try again."

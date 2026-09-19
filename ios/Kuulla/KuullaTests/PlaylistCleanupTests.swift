@@ -7,7 +7,9 @@ final class PlaylistCleanupTests: MockedApiTestCase {
 
     private func makeContainer() throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(for: SyncCursor.self, PlaylistRecord.self, configurations: configuration)
+        return try ModelContainer(
+            for: SyncCursor.self, PlaylistRecord.self, PendingPlaylistDownloadRecord.self,
+            configurations: configuration)
     }
 
     private func makeEngine(_ container: ModelContainer) -> SyncEngine<PlaylistSyncAdapter> {

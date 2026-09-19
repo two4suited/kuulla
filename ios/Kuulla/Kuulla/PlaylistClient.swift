@@ -50,13 +50,14 @@ struct PlaylistClient {
     // icon/accentColor/playNextBehavior when only the name changes, or they'll be cleared.
     func renamePlaylist(
         id: String, name: String, icon: String? = nil, accentColor: String? = nil,
-        playNextBehavior: PlayNextBehavior? = nil
+        playNextBehavior: PlayNextBehavior? = nil, autoDownload: Bool? = nil
     ) async throws -> Playlist? {
         do {
             return try await apiClient.put(
                 ["api", "playlists", id],
                 body: RenamePlaylistRequest(
-                    name: name, icon: icon, accentColor: accentColor, playNextBehavior: playNextBehavior))
+                    name: name, icon: icon, accentColor: accentColor,
+                    playNextBehavior: playNextBehavior, autoDownload: autoDownload))
         } catch ApiError.requestFailed(let statusCode) where statusCode == 404 {
             return nil
         }
@@ -99,6 +100,7 @@ struct Playlist: Codable, Identifiable {
     var icon: String?
     var accentColor: String?
     var playNextBehavior: PlayNextBehavior?
+    var autoDownload: Bool?
 }
 
 // GET /api/playlists/{id}'s response — items resolved against the episodes/shows containers for
@@ -118,6 +120,7 @@ struct PlaylistDetail: Decodable, Identifiable {
     // Per-playlist play-next override (#629); nil inherits. var so the edit sheet can reflect a
     // change in place, like `name`.
     var playNextBehavior: PlayNextBehavior?
+    var autoDownload: Bool?
 }
 
 struct DynamicPlaylistConfig: Codable, Equatable {
@@ -157,6 +160,7 @@ private struct RenamePlaylistRequest: Encodable {
     let icon: String?
     let accentColor: String?
     let playNextBehavior: PlayNextBehavior?
+    let autoDownload: Bool?
 }
 
 private struct AddPlaylistItemRequest: Encodable {

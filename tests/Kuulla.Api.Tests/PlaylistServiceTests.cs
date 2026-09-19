@@ -477,7 +477,8 @@ public class PlaylistServiceTests
             .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
             .ThrowsAsync(CosmosTestHelpers.NotFound());
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, null, CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(
+            UserId, PlaylistId, "New Name", null, null, null, false, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -491,7 +492,8 @@ public class PlaylistServiceTests
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
         SetUpEmptyQuery();
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", null, null, null, CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(
+            UserId, PlaylistId, "New Name", null, null, null, false, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("New Name", result!.Name);
@@ -523,7 +525,8 @@ public class PlaylistServiceTests
             .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
         SetUpEmptyQuery();
 
-        var result = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "New Name", "🔥", null, null, CancellationToken.None);
+        var result = await _sut.RenamePlaylistAsync(
+            UserId, PlaylistId, "New Name", "🔥", null, null, false, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("🔥", result!.Icon);
@@ -541,11 +544,12 @@ public class PlaylistServiceTests
         SetUpEmptyQuery();
 
         var set = await _sut.RenamePlaylistAsync(
-            UserId, PlaylistId, "Commute", null, null, PlayNextBehavior.Stop, CancellationToken.None);
+            UserId, PlaylistId, "Commute", null, null, PlayNextBehavior.Stop, false, CancellationToken.None);
         Assert.Equal(PlayNextBehavior.Stop, set!.PlayNextBehavior);
 
         // A null override clears it back to "inherit" — the edit request carries the full state.
-        var cleared = await _sut.RenamePlaylistAsync(UserId, PlaylistId, "Commute", null, null, null, CancellationToken.None);
+        var cleared = await _sut.RenamePlaylistAsync(
+            UserId, PlaylistId, "Commute", null, null, null, false, CancellationToken.None);
         Assert.Null(cleared!.PlayNextBehavior);
     }
 
@@ -560,6 +564,47 @@ public class PlaylistServiceTests
         var detail = await _sut.GetPlaylistDetailAsync(UserId, PlaylistId, CancellationToken.None);
 
         Assert.Equal(PlayNextBehavior.TopOfList, detail!.PlayNextBehavior);
+    }
+
+    [Fact]
+    public async Task RenamePlaylistAsync_UpdatesAutoDownload()
+    {
+        var playlist = MakePlaylist() with { AutoDownload = false };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+
+        var result = await _sut.RenamePlaylistAsync(
+            UserId, PlaylistId, playlist.Name, null, null, null, true, CancellationToken.None);
+
+        Assert.True(result!.AutoDownload);
+    }
+
+    [Fact]
+    public async Task RenamePlaylistAsync_PreservesAutoDownloadWhenOlderClientOmitsIt()
+    {
+        var playlist = MakePlaylist() with { AutoDownload = true };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+
+        var result = await _sut.RenamePlaylistAsync(
+            UserId, PlaylistId, "Renamed", null, null, null, null, CancellationToken.None);
+
+        Assert.True(result!.AutoDownload);
+    }
+
+    [Fact]
+    public async Task GetPlaylistDetailAsync_IncludesAutoDownload()
+    {
+        var playlist = MakePlaylist() with { AutoDownload = true };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(playlist));
+
+        var detail = await _sut.GetPlaylistDetailAsync(UserId, PlaylistId, CancellationToken.None);
+
+        Assert.True(detail!.AutoDownload);
     }
 
     [Fact]
@@ -582,6 +627,50 @@ public class PlaylistServiceTests
         await _sut.SyncAsync(UserId, "device-1", DateTimeOffset.MinValue, localHash: "", [change], CancellationToken.None);
 
         Assert.Equal(PlayNextBehavior.Stop, upserted!.PlayNextBehavior);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PersistsAutoDownloadFromAcceptedChange()
+    {
+        Playlist? upserted = null;
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ThrowsAsync(CosmosTestHelpers.NotFound());
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => upserted = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+        SetUpEmptyQuery();
+
+        var change = new PlaylistChange(
+            PlaylistId, "Synced Playlist", PlaylistType.Manual, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+            AutoDownload: true);
+
+        await _sut.SyncAsync(UserId, "device-1", DateTimeOffset.MinValue, localHash: "", [change], CancellationToken.None);
+
+        Assert.True(upserted!.AutoDownload);
+    }
+
+    [Fact]
+    public async Task SyncAsync_PreservesAutoDownloadWhenOlderClientOmitsIt()
+    {
+        Playlist? upserted = null;
+        var stored = MakePlaylist(updatedAt: DateTimeOffset.UtcNow.AddMinutes(-1)) with { AutoDownload = true };
+        _playlistsContainer
+            .Setup(c => c.ReadItemAsync<Playlist>(PlaylistId, It.IsAny<PartitionKey>(), null, default))
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(stored));
+        _playlistsContainer
+            .Setup(c => c.UpsertItemAsync(It.IsAny<Playlist>(), It.IsAny<PartitionKey?>(), null, default))
+            .Callback<Playlist, PartitionKey?, ItemRequestOptions?, CancellationToken>((p, _, _, _) => upserted = p)
+            .ReturnsAsync((Playlist p, PartitionKey? _, ItemRequestOptions? _, CancellationToken _) => CosmosTestHelpers.ItemResponse(p));
+        SetUpEmptyQuery();
+
+        var change = new PlaylistChange(
+            PlaylistId, "Renamed", PlaylistType.Manual, [], stored.CreatedAt, DateTimeOffset.UtcNow);
+
+        await _sut.SyncAsync(UserId, "old-device", DateTimeOffset.MinValue, localHash: "", [change], CancellationToken.None);
+
+        Assert.True(upserted!.AutoDownload);
     }
 
     [Fact]
