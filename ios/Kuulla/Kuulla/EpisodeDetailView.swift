@@ -779,8 +779,6 @@ struct EpisodeDetailView: View {
                 self.stopProgressTracking()
                 Task {
                     await self.persistProgress(completed: true)
-                    // No-op unless this session was started from a manual playlist — then it
-                    // removes the finished episode and starts the next one (#532).
                     await PlaybackQueue.shared.handleNaturalFinish(finishedEpisodeId: self.episodeId)
                 }
             }
@@ -964,17 +962,10 @@ struct EpisodeDetailView: View {
         }
         let position = newCompleted ? Int(episode?.duration ?? 0) : (stateRecord?.positionSeconds ?? 0)
         await persist(positionSeconds: position, completed: newCompleted)
-        // #569: persist() is shared with the natural-finish path (persistProgress(completed:
-        // true), called right before PlaybackQueue.handleNaturalFinish's own removal), so the
-        // playlist cleanup lives here rather than in persist() itself — this manual toggle is the
-        // only path that needs it, and putting it in persist() would double the network work on
-        // every natural finish for no benefit.
-        await PlaylistCleanup.removeFromManualPlaylists(
-            episodeId: episodeId, completed: newCompleted,
-            playlistSyncEngine: playlistSyncEngine, playlistClient: playlistClient)
     }
 
-    private func persistProgress(completed: Bool) async {
+    @discardableResult
+    private func persistProgress(completed: Bool) async -> Bool {
         let position = Int(audioPlayer.currentTime)
         // Promotes a tick/pause report to completed once playback is within the near-end
         // threshold of the episode's duration (#704), so an episode isn't left stuck
@@ -988,74 +979,60 @@ struct EpisodeDetailView: View {
         // was just marked completed (via natural finish or the manual toggle), since a tick can
         // still be in flight right after either of those events.
         if !isCompleted && stateRecord?.completed == true {
-            return
+            return false
         }
 
-        guard position > 0 || isCompleted else { return }
-        await persist(positionSeconds: position, completed: isCompleted)
+        guard position > 0 || isCompleted else { return false }
+        return await persist(
+            positionSeconds: position,
+            completed: isCompleted,
+            preventCompletedDowngrade: true)
     }
 
-    private func persist(positionSeconds: Int, completed: Bool) async {
-        guard let syncEngine else { return }
-        let updatedAt = Date()
+    @discardableResult
+    private func persist(
+        positionSeconds: Int,
+        completed: Bool,
+        preventCompletedDowngrade: Bool = false
+    ) async -> Bool {
+        guard let syncEngine else { return false }
         do {
-            try await syncEngine.write { context in
-                let descriptor = Self.stateDescriptor(for: episodeId)
-                if let existing = try context.fetch(descriptor).first {
-                    existing.showId = showId
-                    existing.positionSeconds = positionSeconds
-                    existing.completed = completed
-                    existing.updatedAt = updatedAt
-                    // Every call into persist() is a manual write path (playback progress, the
-                    // completed toggle) — restoreAutoPlayed() is the only path that clears the
-                    // flag on an auto-played episode, so any write reaching here always resets it.
-                    existing.autoPlayed = false
-                    // This device is the writer, so record where *it* played to — the cross-device
-                    // resume prompt (#241) compares against this to detect another device moving on.
-                    existing.lastLocalPositionSeconds = positionSeconds
-                    existing.lastLocalPlaybackAt = updatedAt
-                    existing.isDirty = true
-                } else {
-                    context.insert(EpisodeStateRecord(
-                        id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                        completed: completed, updatedAt: updatedAt, isDirty: true,
-                        lastLocalPositionSeconds: positionSeconds, lastLocalPlaybackAt: updatedAt))
-                }
-            }
-        } catch {
-            // The mutation closure's own fetch failed, so nothing was written — don't update
-            // stateRecord to reflect values that were never actually persisted.
-            assertionFailure("Failed to persist episode state: \(error)")
-            return
-        }
-        // Set directly from the values just written rather than re-reading through modelContext:
-        // that's a different ModelContext instance than the one syncEngine.write just saved
-        // through, and isn't guaranteed to observe the write synchronously.
-        stateRecord = EpisodeStateRecord(
-            id: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed, updatedAt: updatedAt,
-            deviceId: stateRecord?.deviceId,
-            lastLocalPositionSeconds: positionSeconds, lastLocalPlaybackAt: updatedAt)
-        // Keep Subscriptions/Library's cached badges in sync with this write rather than waiting
-        // for the next full refresh (#556).
-        CatalogCache.recordEpisodeStateChange(
-            episodeId: episodeId, showId: showId, completed: completed, positionSeconds: positionSeconds,
-            in: modelContext)
+            let result = try await EpisodeStateCoordinator.persist(
+                episodeId: episodeId,
+                showId: showId,
+                positionSeconds: positionSeconds,
+                completed: completed,
+                preventCompletedDowngrade: preventCompletedDowngrade,
+                catalogContext: modelContext,
+                episodeSyncEngine: syncEngine,
+                playlistSyncEngine: playlistSyncEngine,
+                playlistClient: playlistClient)
+            guard result.didPersist else { return false }
 
-        // persist() is only ever reached via a manual write path in *this view* (the completed
-        // toggle, or the onDidFinishPlaying callback for a natural finish) — it's never called
-        // from the sync-pull path that applies server changes (EpisodeSyncAdapter.apply, which
-        // does set autoPlayed = true when the enforcement job marks an episode played elsewhere).
-        // So every completion reaching here already satisfies #179's "exclude auto-played
-        // episodes" requirement by construction, without needing to check the flag directly —
-        // just not for the reason "autoPlayed is only ever set by restoreAutoPlayed()", which
-        // isn't true.
-        // #179: frees offline storage once an episode is finished, mirroring the auto-played
-        // enforcement job's completion hook. Shared with ShowDetailView's swipe-to-mark-played
-        // (#532) so both paths apply the same auto-delete-after-played rule.
-        if DownloadCleanup.deleteIfAutoDeleteEligible(
-            episodeId: episodeId, completed: completed, autoDeleteRule: autoDeleteRule, in: modelContext
-        ) {
-            downloadStatus = nil
+            // Set directly from the values just written rather than re-reading through
+            // modelContext, which is a different ModelContext from the sync engine's.
+            stateRecord = EpisodeStateRecord(
+                id: episodeId,
+                showId: showId,
+                positionSeconds: result.positionSeconds,
+                completed: result.completed,
+                updatedAt: result.updatedAt,
+                deviceId: result.deviceId,
+                lastLocalPositionSeconds: result.lastLocalPositionSeconds,
+                lastLocalPlaybackAt: result.lastLocalPlaybackAt)
+
+            if DownloadCleanup.deleteIfAutoDeleteEligible(
+                episodeId: episodeId,
+                completed: result.completed,
+                autoDeleteRule: autoDeleteRule,
+                in: modelContext
+            ) {
+                downloadStatus = nil
+            }
+            return true
+        } catch {
+            assertionFailure("Failed to persist episode state: \(error)")
+            return false
         }
     }
 

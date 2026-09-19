@@ -67,7 +67,7 @@ actor SyncEngine<Adapter: SyncAdapter> {
     // run (and any follow-up round it does for their newly-dirty state) completes — so `await
     // syncNow()` always returns after a real pull, not just after scheduling one. EpisodeDetailView's
     // foreground resume re-check (#241) relies on this to evaluate against freshly pulled state.
-    private var syncWaiters: [CheckedContinuation<Void, Never>] = []
+    private var syncWaiters: [CheckedContinuation<Bool, Never>] = []
     // Set when a sync is requested while one is already running, so the newly-dirty state isn't
     // lost — the in-flight sync's snapshot of dirty records may already be stale by then.
     private var syncPending = false
@@ -106,7 +106,7 @@ actor SyncEngine<Adapter: SyncAdapter> {
             // inside performSync), leaving the reference in place would have syncNow() cancel
             // the task it's currently running in, aborting its own push mid-flight.
             debounceTask = nil
-            await syncNow()
+            _ = await syncNow()
         }
     }
 
@@ -118,7 +118,8 @@ actor SyncEngine<Adapter: SyncAdapter> {
     // follow-up round so a caller that has just written dirty state still gets it pushed. Pass
     // false when the caller only needs local state to be *fresh* (e.g. a foreground read-back)
     // and shouldn't force a second POST just to wait.
-    func syncNow(requestFollowUpIfSyncing: Bool = true) async {
+    @discardableResult
+    func syncNow(requestFollowUpIfSyncing: Bool = true) async -> Bool {
         debounceTask?.cancel()
         debounceTask = nil
 
@@ -130,10 +131,10 @@ actor SyncEngine<Adapter: SyncAdapter> {
             if requestFollowUpIfSyncing {
                 syncPending = true
             }
-            await withCheckedContinuation { syncWaiters.append($0) }
-            return
+            return await withCheckedContinuation { syncWaiters.append($0) }
         }
         isSyncing = true
+        var didSucceed = false
         // Runs on the actor with no await between clearing isSyncing and draining — so any caller
         // that saw isSyncing == true is guaranteed to be parked in syncWaiters, not racing a
         // fresh run — and in a defer so a stray throw can't strand parked callers forever.
@@ -142,18 +143,19 @@ actor SyncEngine<Adapter: SyncAdapter> {
             let waiters = syncWaiters
             syncWaiters.removeAll()
             for waiter in waiters {
-                waiter.resume()
+                waiter.resume(returning: didSucceed)
             }
         }
 
         repeat {
             syncPending = false
             writeOccurredDuringSync = false
-            await performSync()
+            didSucceed = await performSync()
         } while syncPending
+        return didSucceed
     }
 
-    private func performSync() async {
+    private func performSync() async -> Bool {
         do {
             let (cursor, cursorIsNew) = try cursor()
             let dirty = try context.fetch(
@@ -176,7 +178,7 @@ actor SyncEngine<Adapter: SyncAdapter> {
                 if cursorIsNew || context.hasChanges {
                     try context.save()
                 }
-                return
+                return true
             }
 
             if !writeOccurredDuringSync {
@@ -193,8 +195,10 @@ actor SyncEngine<Adapter: SyncAdapter> {
             cursor.localHash = result.hash
 
             try context.save()
+            return true
         } catch {
             // Leave dirty records and the cursor untouched so the next trigger retries.
+            return false
         }
     }
 
@@ -211,6 +215,27 @@ actor SyncEngine<Adapter: SyncAdapter> {
 }
 
 extension SyncEngine {
+    // Variant for coordinated writes that need a value derived atomically from the pre-write
+    // record (for example whether completed changed false -> true). Unlike write(_:), save
+    // failures are propagated so callers never run irreversible follow-up effects for a mutation
+    // that did not commit.
+    func writeReturning<Result>(_ mutate: (ModelContext) throws -> Result) async throws -> Result {
+        do {
+            let result = try mutate(context)
+            guard context.hasChanges else { return result }
+
+            try context.save()
+            if isSyncing {
+                writeOccurredDuringSync = true
+            }
+            recordChanged()
+            return result
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
     // The entry point for local writes: callers (e.g. a playback view recording a scrub) run
     // `mutate` against the engine's own ModelContext — the only one that's ever fed to `adapter`
     // — rather than the app's environment-provided context, so a write here is guaranteed to be
@@ -278,8 +303,8 @@ extension SyncEngine {
 
         let syncTask = Task { await syncNow() }
         task.expirationHandler = { syncTask.cancel() }
-        await syncTask.value
-        task.setTaskCompleted(success: !syncTask.isCancelled)
+        let didSucceed = await syncTask.value
+        task.setTaskCompleted(success: !syncTask.isCancelled && didSucceed)
     }
 }
 

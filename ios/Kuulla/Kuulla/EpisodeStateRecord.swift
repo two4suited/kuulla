@@ -59,3 +59,151 @@ final class EpisodeStateRecord: Syncable {
         self.lastLocalPlaybackAt = lastLocalPlaybackAt
     }
 }
+
+struct EpisodeStateWriteResult: Sendable {
+    let positionSeconds: Int
+    let completed: Bool
+    let updatedAt: Date
+    let deviceId: String?
+    let lastLocalPositionSeconds: Int
+    let lastLocalPlaybackAt: Date
+    let didPersist: Bool
+    let transitionedToPlayed: Bool
+}
+
+// The one local episode-state write path for phone playback, queue auto-advance, and CarPlay.
+// It detects the played transition inside the sync engine's actor-isolated context, then publishes
+// every cross-surface effect only after the write has committed.
+@MainActor
+enum EpisodeStateCoordinator {
+    private static var playlistRefreshRetryTask: Task<Void, Never>?
+
+    static func persist(
+        episodeId: String,
+        showId: String,
+        positionSeconds: Int,
+        completed: Bool,
+        preventCompletedDowngrade: Bool,
+        catalogContext: ModelContext,
+        episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>,
+        playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?,
+        playlistClient: PlaylistClient = PlaylistClient()
+    ) async throws -> EpisodeStateWriteResult {
+        let updatedAt = Date()
+        let result = try await episodeSyncEngine.writeReturning { context in
+            let descriptor = FetchDescriptor<EpisodeStateRecord>(
+                predicate: #Predicate { $0.id == episodeId })
+            let existing = try context.fetch(descriptor).first
+
+            if preventCompletedDowngrade, completed == false, existing?.completed == true {
+                return EpisodeStateWriteResult(
+                    positionSeconds: existing?.positionSeconds ?? positionSeconds,
+                    completed: true,
+                    updatedAt: existing?.updatedAt ?? updatedAt,
+                    deviceId: existing?.deviceId,
+                    lastLocalPositionSeconds: existing?.lastLocalPositionSeconds ?? 0,
+                    lastLocalPlaybackAt: existing?.lastLocalPlaybackAt ?? .distantPast,
+                    didPersist: false,
+                    transitionedToPlayed: false)
+            }
+
+            let transitionedToPlayed = completed && existing?.completed != true
+            if let existing {
+                existing.showId = showId
+                existing.positionSeconds = positionSeconds
+                existing.completed = completed
+                existing.updatedAt = updatedAt
+                existing.autoPlayed = false
+                existing.lastLocalPositionSeconds = positionSeconds
+                existing.lastLocalPlaybackAt = updatedAt
+                existing.isDirty = true
+            } else {
+                context.insert(EpisodeStateRecord(
+                    id: episodeId,
+                    showId: showId,
+                    positionSeconds: positionSeconds,
+                    completed: completed,
+                    updatedAt: updatedAt,
+                    isDirty: true,
+                    lastLocalPositionSeconds: positionSeconds,
+                    lastLocalPlaybackAt: updatedAt))
+            }
+
+            return EpisodeStateWriteResult(
+                positionSeconds: positionSeconds,
+                completed: completed,
+                updatedAt: updatedAt,
+                deviceId: existing?.deviceId,
+                lastLocalPositionSeconds: positionSeconds,
+                lastLocalPlaybackAt: updatedAt,
+                didPersist: true,
+                transitionedToPlayed: transitionedToPlayed)
+        }
+
+        guard result.didPersist else { return result }
+
+        CatalogCache.recordEpisodeStateChange(
+            episodeId: episodeId,
+            showId: showId,
+            completed: result.completed,
+            positionSeconds: result.positionSeconds,
+            in: catalogContext)
+
+        guard result.transitionedToPlayed else { return result }
+
+        await PlaylistCleanup.removeFromManualPlaylists(
+            episodeId: episodeId,
+            completed: true,
+            playlistSyncEngine: playlistSyncEngine,
+            playlistClient: playlistClient)
+
+        // Dynamic playlists are server-computed. Push the episode transition first, then pull the
+        // authoritative playlist membership instead of making a server-owned record dirty here.
+        // If either domain is offline, keep one coalesced retry alive so a later successful
+        // episode push is always followed by the playlist pull it makes authoritative.
+        if await synchronizePlayedState(
+            episodeSyncEngine: episodeSyncEngine,
+            playlistSyncEngine: playlistSyncEngine
+        ) {
+            playlistRefreshRetryTask?.cancel()
+            playlistRefreshRetryTask = nil
+        } else {
+            schedulePlaylistRefreshRetry(
+                episodeSyncEngine: episodeSyncEngine,
+                playlistSyncEngine: playlistSyncEngine)
+        }
+
+        return result
+    }
+
+    private static func synchronizePlayedState(
+        episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>,
+        playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?
+    ) async -> Bool {
+        guard await episodeSyncEngine.syncNow() else { return false }
+        guard let playlistSyncEngine else { return true }
+        return await playlistSyncEngine.syncNow()
+    }
+
+    private static func schedulePlaylistRefreshRetry(
+        episodeSyncEngine: SyncEngine<EpisodeSyncAdapter>,
+        playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?
+    ) {
+        playlistRefreshRetryTask?.cancel()
+        playlistRefreshRetryTask = Task {
+            var delaySeconds = 5
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(delaySeconds))
+                guard !Task.isCancelled else { return }
+                if await synchronizePlayedState(
+                    episodeSyncEngine: episodeSyncEngine,
+                    playlistSyncEngine: playlistSyncEngine
+                ) {
+                    playlistRefreshRetryTask = nil
+                    return
+                }
+                delaySeconds = min(delaySeconds * 2, 300)
+            }
+        }
+    }
+}

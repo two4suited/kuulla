@@ -221,3 +221,165 @@ final class PlaylistCleanupTests: MockedApiTestCase {
         XCTAssertEqual(p3.items.count, 1, "dynamic playlists aren't editable locally")
     }
 }
+
+@MainActor
+final class EpisodeStateCoordinatorTests: MockedApiTestCase {
+    private func makeContainer() throws -> ModelContainer {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        return try ModelContainer(
+            for: SyncCursor.self,
+            EpisodeStateRecord.self,
+            PlaylistRecord.self,
+            PendingPlaylistDownloadRecord.self,
+            DownloadedEpisodeRecord.self,
+            CachedNewEpisodeRecord.self,
+            CatalogCacheState.self,
+            configurations: configuration)
+    }
+
+    func testPlayedTransitionConvergesCacheManualAndDynamicPlaylistsInSyncOrder() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        context.insert(EpisodeStateRecord(
+            id: "e1", showId: "s1", positionSeconds: 120, completed: false,
+            updatedAt: timestamp))
+        context.insert(PlaylistRecord(
+            id: "manual", name: "Manual", type: .manual,
+            items: [PlaylistItemRecord(
+                episodeId: "e1", showId: "s1", addedAt: timestamp, order: "a")],
+            createdAt: timestamp, updatedAt: timestamp))
+        context.insert(PlaylistRecord(
+            id: "dynamic", name: "Dynamic", type: .dynamic,
+            items: [PlaylistItemRecord(
+                episodeId: "e1", showId: "s1", addedAt: timestamp, order: "a")],
+            createdAt: timestamp, updatedAt: timestamp))
+        CatalogCache.replaceNewEpisodes(
+            [NewEpisode(
+                episode: Episode(
+                    id: "e1", showId: "s1", title: "Episode",
+                    publishedAt: timestamp, duration: 2_730,
+                    audioUrl: "https://example.com/e1.mp3", description: nil,
+                    bitrateKbps: nil, fileSizeBytes: nil, chapters: nil,
+                    transcriptUrl: nil, transcriptType: nil),
+                autoPlayed: false, showTitle: "Show", showArtworkUrl: nil)],
+            in: context)
+        CatalogCache.storeSnapshot(
+            unplayedCounts: ["s1": .init(unplayed: 1, hitCap: false)],
+            inProgressShowIds: ["s1"],
+            refreshedAt: timestamp,
+            in: context)
+        try context.save()
+
+        let episodeEngine = SyncEngine(
+            modelContainer: container,
+            adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1",
+            debounceInterval: .seconds(3_600))
+        let playlistEngine = SyncEngine(
+            modelContainer: container,
+            adapter: PlaylistSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1",
+            debounceInterval: .seconds(3_600))
+        let playlistClient = PlaylistClient(apiClient: apiClient)
+
+        MockURLProtocol.stubHandler = { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/api/playlists"):
+                return .success(.init(statusCode: 200, data: Data("[]".utf8), headers: [:]))
+            case ("DELETE", "/api/playlists/manual/items/e1"):
+                return .success(.init(statusCode: 204, data: Data(), headers: [:]))
+            case ("POST", "/api/sync/episodes"):
+                let data = Data("""
+                {"serverChanges":[],"syncedAt":"2026-09-19T20:00:00Z","hash":"episodes"}
+                """.utf8)
+                return .success(.init(statusCode: 200, data: data, headers: [:]))
+            case ("POST", "/api/sync/playlists"):
+                let data = Data("""
+                {"serverChanges":[{"id":"dynamic","name":"Dynamic","type":1,"items":[],"createdAt":"2023-11-14T22:13:20Z","updatedAt":"2026-09-19T20:00:01Z","dynamicConfig":null,"icon":null,"accentColor":null,"playNextBehavior":null,"autoDownload":false}],"syncedAt":"2026-09-19T20:00:01Z","hash":"playlists"}
+                """.utf8)
+                return .success(.init(statusCode: 200, data: data, headers: [:]))
+            default:
+                XCTFail("Unexpected request: \(request.httpMethod ?? "nil") \(request.url?.path ?? "nil")")
+                return .success(.init(statusCode: 500, data: Data(), headers: [:]))
+            }
+        }
+
+        let signalVersion = PlaylistChangeSignal.shared.version
+        let result = try await EpisodeStateCoordinator.persist(
+            episodeId: "e1",
+            showId: "s1",
+            positionSeconds: 2_730,
+            completed: true,
+            preventCompletedDowngrade: true,
+            catalogContext: context,
+            episodeSyncEngine: episodeEngine,
+            playlistSyncEngine: playlistEngine,
+            playlistClient: playlistClient)
+
+        XCTAssertTrue(result.transitionedToPlayed)
+        XCTAssertNil(CatalogCache.unplayedCounts(in: context)["s1"])
+        XCTAssertEqual(CatalogCache.inProgressShowIds(in: context), [])
+        XCTAssertEqual(PlaylistChangeSignal.shared.version, signalVersion + 1)
+
+        let playlistItems = try await playlistEngine.read { context in
+            Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<PlaylistRecord>())
+                .map { ($0.id, $0.items.map(\.episodeId)) })
+        }
+        XCTAssertEqual(playlistItems["manual"], [])
+        XCTAssertEqual(playlistItems["dynamic"], [])
+
+        let paths = MockURLProtocol.requestedURLs.map(\.path)
+        let episodeSyncIndex = try XCTUnwrap(paths.firstIndex(of: "/api/sync/episodes"))
+        let playlistSyncIndex = try XCTUnwrap(paths.firstIndex(of: "/api/sync/playlists"))
+        XCTAssertLessThan(episodeSyncIndex, playlistSyncIndex)
+
+        let requestCount = paths.count
+        let repeated = try await EpisodeStateCoordinator.persist(
+            episodeId: "e1",
+            showId: "s1",
+            positionSeconds: 2_730,
+            completed: true,
+            preventCompletedDowngrade: true,
+            catalogContext: context,
+            episodeSyncEngine: episodeEngine,
+            playlistSyncEngine: playlistEngine,
+            playlistClient: playlistClient)
+
+        XCTAssertFalse(repeated.transitionedToPlayed)
+        XCTAssertEqual(MockURLProtocol.requestedURLs.count, requestCount)
+    }
+
+    func testProgressWriteCannotDowngradeAnAlreadyPlayedEpisode() async throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        context.insert(EpisodeStateRecord(
+            id: "e1", showId: "s1", positionSeconds: 2_730, completed: true,
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000)))
+        try context.save()
+        let episodeEngine = SyncEngine(
+            modelContainer: container,
+            adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1",
+            debounceInterval: .seconds(3_600))
+
+        MockURLProtocol.stubHandler = { request in
+            XCTFail("A skipped progress write should not reach the network: \(request)")
+            return .success(.init(statusCode: 500, data: Data(), headers: [:]))
+        }
+
+        let result = try await EpisodeStateCoordinator.persist(
+            episodeId: "e1",
+            showId: "s1",
+            positionSeconds: 2_700,
+            completed: false,
+            preventCompletedDowngrade: true,
+            catalogContext: context,
+            episodeSyncEngine: episodeEngine,
+            playlistSyncEngine: nil)
+
+        XCTAssertFalse(result.didPersist)
+        XCTAssertTrue(result.completed)
+        XCTAssertTrue(MockURLProtocol.requestedURLs.isEmpty)
+    }
+}
