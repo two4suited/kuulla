@@ -83,6 +83,15 @@ struct PlaylistsView: View {
             // episode count) stays stale until a sync pulls the server's current state back in.
             Task { await reconcileWithServer() }
         }
+        .onChange(of: PlaylistChangeSignal.shared.version) { _, _ in
+            guard let playlistSyncEngine else { return }
+            Task {
+                playlists = await playlistSyncEngine.read { context in
+                    PlaylistSummary.local(in: context)
+                }
+                hasLoadedLocal = true
+            }
+        }
     }
 
     // Paint from the local sync store immediately, then let the playlist SyncEngine refresh from

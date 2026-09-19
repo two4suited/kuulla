@@ -110,6 +110,16 @@ struct LibraryView: View {
             // while this screen is already on-screen (#772) — nothing else would repaint it.
             readLocalShows()
         }
+        .onChange(of: PlaylistChangeSignal.shared.version) { _, _ in
+            guard let playlistSyncEngine else { return }
+            Task {
+                let records = await playlistSyncEngine.read { context in
+                    (try? context.fetch(FetchDescriptor<PlaylistRecord>())) ?? []
+                }
+                playlists = PlaylistSummary.list(from: records, excludingUpNext: true)
+                hasLoadedLocalPlaylists = true
+            }
+        }
     }
 
     private var hideCaughtUpBinding: Binding<Bool> {

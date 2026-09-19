@@ -64,6 +64,9 @@ final class PlaylistCleanupTests: MockedApiTestCase {
 
         var deletedURLs: [URL] = []
         MockURLProtocol.stubHandler = { request in
+            if request.httpMethod == "GET" {
+                return .success(.init(statusCode: 200, data: Data("[]".utf8), headers: [:]))
+            }
             XCTAssertEqual(request.httpMethod, "DELETE")
             deletedURLs.append(request.url!)
             return .success(.init(statusCode: 204, data: Data(), headers: [:]))
@@ -96,7 +99,12 @@ final class PlaylistCleanupTests: MockedApiTestCase {
         try context.save()
         let engine = makeEngine(container)
 
-        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 204, data: Data(), headers: [:])) }
+        MockURLProtocol.stubHandler = { request in
+            if request.httpMethod == "GET" {
+                return .success(.init(statusCode: 200, data: Data("[]".utf8), headers: [:]))
+            }
+            return .success(.init(statusCode: 204, data: Data(), headers: [:]))
+        }
 
         await PlaylistCleanup.removeFromManualPlaylists(
             episodeId: "e1", completed: true, playlistSyncEngine: engine, playlistClient: client)
@@ -113,7 +121,12 @@ final class PlaylistCleanupTests: MockedApiTestCase {
         try context.save()
         let engine = makeEngine(container)
 
-        MockURLProtocol.stubHandler = { _ in .success(.init(statusCode: 500, data: Data(), headers: [:])) }
+        MockURLProtocol.stubHandler = { request in
+            if request.httpMethod == "GET" {
+                return .success(.init(statusCode: 200, data: Data("[]".utf8), headers: [:]))
+            }
+            return .success(.init(statusCode: 500, data: Data(), headers: [:]))
+        }
 
         await PlaylistCleanup.removeFromManualPlaylists(
             episodeId: "e1", completed: true, playlistSyncEngine: engine, playlistClient: client)
@@ -121,6 +134,53 @@ final class PlaylistCleanupTests: MockedApiTestCase {
         let p1 = try fetchPlaylist("p1", in: container)
         XCTAssertTrue(p1.items.isEmpty, "local removal happens regardless of the DELETE's outcome")
         XCTAssertTrue(p1.isDirty, "a failed DELETE should mark the record dirty so the next sync pushes the removal")
+    }
+
+    func testRemoveFromManualPlaylistsFallsBackToServerWhenLocalPlaylistIsMissing() async throws {
+        let container = try makeContainer()
+        let engine = makeEngine(container)
+        let playlistJSON = """
+        [{"id":"p1","userId":"u1","name":"P","type":0,"items":[{"episodeId":"e1","showId":"s1","addedAt":"2026-08-19T10:00:00+00:00","order":"a"}],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00"}]
+        """.data(using: .utf8)!
+
+        MockURLProtocol.stubHandler = { request in
+            if request.httpMethod == "GET" {
+                return .success(.init(statusCode: 200, data: playlistJSON, headers: [:]))
+            }
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            return .success(.init(statusCode: 204, data: Data(), headers: [:]))
+        }
+
+        await PlaylistCleanup.removeFromManualPlaylists(
+            episodeId: "e1", completed: true, playlistSyncEngine: engine, playlistClient: client)
+
+        XCTAssertEqual(MockURLProtocol.requestedURLs.count, 2)
+        XCTAssertTrue(MockURLProtocol.requestedURLs.contains { $0.path.contains("/playlists/p1/items/e1") })
+    }
+
+    func testRemoveFromManualPlaylistsAlsoDeletesServerOnlyPlaylistWhenLocalStoreHasAnotherMatch() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        insertPlaylist("local", type: .manual, items: [(episodeId: "e1", showId: "s1")], in: context)
+        try context.save()
+        let engine = makeEngine(container)
+        let playlistJSON = """
+        [{"id":"server-only","userId":"u1","name":"P","type":0,"items":[{"episodeId":"e1","showId":"s1","addedAt":"2026-08-19T10:00:00+00:00","order":"a"}],"createdAt":"2026-08-19T10:00:00+00:00","updatedAt":"2026-08-19T10:00:00+00:00"}]
+        """.data(using: .utf8)!
+
+        MockURLProtocol.stubHandler = { request in
+            if request.httpMethod == "GET" {
+                return .success(.init(statusCode: 200, data: playlistJSON, headers: [:]))
+            }
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            return .success(.init(statusCode: 204, data: Data(), headers: [:]))
+        }
+
+        await PlaylistCleanup.removeFromManualPlaylists(
+            episodeId: "e1", completed: true, playlistSyncEngine: engine, playlistClient: client)
+
+        XCTAssertTrue(MockURLProtocol.requestedURLs.contains { $0.path.contains("/playlists/local/items/e1") })
+        XCTAssertTrue(MockURLProtocol.requestedURLs.contains { $0.path.contains("/playlists/server-only/items/e1") })
     }
 
     func testRemoveAllFromManualPlaylistsRemovesEveryItemForShow() async throws {
@@ -136,6 +196,9 @@ final class PlaylistCleanupTests: MockedApiTestCase {
 
         var deletedPaths: Set<String> = []
         MockURLProtocol.stubHandler = { request in
+            if request.httpMethod == "GET" {
+                return .success(.init(statusCode: 200, data: Data("[]".utf8), headers: [:]))
+            }
             deletedPaths.insert(request.url!.path)
             return .success(.init(statusCode: 204, data: Data(), headers: [:]))
         }

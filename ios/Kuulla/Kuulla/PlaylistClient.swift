@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftData
 
 // Direct CRUD against /api/playlists, coexisting with PlaylistSyncAdapter (sync push) exactly as
@@ -186,15 +187,24 @@ enum PlaylistCleanup {
     // locally; leaving updatedAt untouched here would let a sync pull that races the DELETE below
     // silently overwrite this removal with stale (pre-removal) server state. The DELETE is then
     // just the fast path to reflect the removal on the server quickly instead of waiting for the
-    // next debounced push.
+    // next debounced push. Server discovery is merged with local removals so a playlist that is
+    // present only on the server is still cleaned up when the local sync store is incomplete.
     static func removeFromManualPlaylists(
         episodeId: String, completed: Bool,
         playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?,
         playlistClient: PlaylistClient = PlaylistClient()
     ) async {
-        guard completed, let playlistSyncEngine else { return }
-        let removed = await removeItemsLocally(playlistSyncEngine: playlistSyncEngine) { $0.episodeId == episodeId }
-        await pushRemovals(removed, playlistClient: playlistClient)
+        guard completed else { return }
+        let localRemovals: [Removal] = if let playlistSyncEngine {
+            await removeItemsLocally(playlistSyncEngine: playlistSyncEngine) { $0.episodeId == episodeId }
+        } else {
+            []
+        }
+        let serverRemovals = await findServerRemovals(playlistClient: playlistClient) {
+            $0.episodeId == episodeId
+        }
+        await pushRemovals(
+            mergeRemovals(localRemovals, serverRemovals), playlistClient: playlistClient)
     }
 
     // Bulk counterpart for "mark all played" (#490/#569): scoped the same way
@@ -206,9 +216,21 @@ enum PlaylistCleanup {
         playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>?,
         playlistClient: PlaylistClient = PlaylistClient()
     ) async {
-        guard let playlistSyncEngine else { return }
-        let removed = await removeItemsLocally(playlistSyncEngine: playlistSyncEngine) { $0.showId == showId }
-        await pushRemovals(removed, playlistClient: playlistClient)
+        let localRemovals: [Removal] = if let playlistSyncEngine {
+            await removeItemsLocally(playlistSyncEngine: playlistSyncEngine) { $0.showId == showId }
+        } else {
+            []
+        }
+        let serverRemovals = await findServerRemovals(playlistClient: playlistClient) {
+            $0.showId == showId
+        }
+        await pushRemovals(
+            mergeRemovals(localRemovals, serverRemovals), playlistClient: playlistClient)
+    }
+
+    private struct Removal: Hashable {
+        let playlistId: String
+        let episodeId: String
     }
 
     // Removes every item matching `matches` from every local manual PlaylistRecord in one
@@ -219,8 +241,8 @@ enum PlaylistCleanup {
     private static func removeItemsLocally(
         playlistSyncEngine: SyncEngine<PlaylistSyncAdapter>,
         matching matches: @escaping (PlaylistItemRecord) -> Bool
-    ) async -> [(playlistId: String, episodeId: String)] {
-        var removed: [(playlistId: String, episodeId: String)] = []
+    ) async -> [Removal] {
+        var removed: [Removal] = []
         try? await playlistSyncEngine.write { context in
             let records = try context.fetch(FetchDescriptor<PlaylistRecord>())
             for record in records where record.type == .manual && !record.deleted {
@@ -229,10 +251,38 @@ enum PlaylistCleanup {
                 record.items.removeAll(where: matches)
                 record.updatedAt = Date()
                 record.isDirty = true
-                removed.append(contentsOf: matchedIds.map { (record.id, $0) })
+                removed.append(contentsOf: matchedIds.map { Removal(playlistId: record.id, episodeId: $0) })
+            }
+        }
+        if !removed.isEmpty {
+            await MainActor.run {
+                PlaylistChangeSignal.shared.bump()
             }
         }
         return removed
+    }
+
+    // A playlist can be visible from a direct REST fetch before its first sync pull has created a
+    // local PlaylistRecord (for example immediately after it was created on another device).
+    // Discover server-side matches on every cleanup so incomplete local state cannot leave an
+    // episode behind in a playlist that has not been synced to this device.
+    private static func findServerRemovals(
+        playlistClient: PlaylistClient,
+        matching matches: (PlaylistItemRecord) -> Bool
+    ) async -> [Removal] {
+        guard let playlists = try? await playlistClient.getPlaylists() else { return [] }
+        return playlists
+            .filter { $0.type == .manual }
+            .flatMap { playlist in
+                playlist.items
+                    .filter(matches)
+                    .map { Removal(playlistId: playlist.id, episodeId: $0.episodeId) }
+            }
+    }
+
+    private static func mergeRemovals(_ local: [Removal], _ server: [Removal]) -> [Removal] {
+        var seen = Set<Removal>()
+        return (local + server).filter { seen.insert($0).inserted }
     }
 
     // Best-effort, like the old implementation — a failed DELETE shouldn't block the mark-played
@@ -242,7 +292,7 @@ enum PlaylistCleanup {
     // an independent DELETE to a (possibly) different playlist — "mark all played" can touch
     // several playlists at once, and there's no reason to serialize those round trips.
     private static func pushRemovals(
-        _ pairs: [(playlistId: String, episodeId: String)], playlistClient: PlaylistClient
+        _ pairs: [Removal], playlistClient: PlaylistClient
     ) async {
         await withTaskGroup(of: Void.self) { group in
             for pair in pairs {
@@ -251,5 +301,21 @@ enum PlaylistCleanup {
                 }
             }
         }
+    }
+}
+
+// Notifies playlist views that a local cleanup changed an embedded PlaylistRecord. SwiftData
+// contexts owned by SwiftUI views do not reliably observe saves made through SyncEngine's context,
+// so the signal provides an explicit repaint hook for screens that are already visible.
+@MainActor
+@Observable
+final class PlaylistChangeSignal {
+    static let shared = PlaylistChangeSignal()
+    private init() {}
+
+    private(set) var version = 0
+
+    func bump() {
+        version += 1
     }
 }
