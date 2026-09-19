@@ -33,10 +33,9 @@ struct PlaybackList: Hashable {
 // notion of "what just finished" and "what plays next" — outlives the EpisodeDetailView that
 // started it, and CarPlay drives the very same AudioPlayer. Whoever starts playback of an episode
 // reached from a list arms the queue with one of the begin() overloads; the
-// AudioPlayer.onDidFinishPlaying handlers call handleNaturalFinish() once the finished episode's
-// completion is persisted, which resolves the user's PlayNextBehavior (playlist override → show
-// override → global), removes the episode from a manual playlist (#532), and starts whatever
-// that behaviour picks — or stops.
+// AudioPlayer.onDidFinishPlaying handlers persist completion through EpisodeStateCoordinator,
+// then call handleNaturalFinish(), which resolves the user's PlayNextBehavior (playlist override
+// → show override → global) and starts whatever that behaviour picks — or stops.
 //
 // Every list kind is armed the same way — a snapshot of ordered items taken when the session
 // began — so "what's next" needs no re-fetch and tolerates the server list shifting underneath
@@ -252,46 +251,12 @@ final class PlaybackQueue {
         AudioPlayer.shared.onApproachingEnd = nil
     }
 
-    // Called from an AudioPlayer.onDidFinishPlaying handler *after* the finished episode's
-    // completion has been persisted. Removes it from every manual playlist (#532, #569 — not just
-    // the one it was played from, since the same episode can be added to more than one), then
-    // starts whatever the resolved PlayNextBehavior picks, or clears the queue when there's
-    // nothing. The sleep timer's "stop at end of episode" never gets here — AudioPlayer consumes
-    // the finish before the handler runs (fireOnDidFinishPlayingUnlessSleepTimerStopsHere).
+    // Queue-only natural-finish handling. Global played-state effects are completed by
+    // EpisodeStateCoordinator before this is called, so an unarmed queue can safely return here
+    // without suppressing playlist cleanup or badge updates.
     func handleNaturalFinish(finishedEpisodeId: String) async {
         guard let source, finishedEpisodeId == currentEpisodeId else { return }
         let finishedShowId = orderedItems.first { $0.episodeId == finishedEpisodeId }?.showId
-
-        // Best-effort — a failed removal shouldn't block advancing playback. The next sync (or
-        // simply opening the playlist) still shows the episode; the user can delete it by hand.
-        // Dynamic playlists drop played episodes on their own server-side recompute, and show /
-        // New Episodes lists aren't editable, so PlaylistCleanup already skips those and only
-        // touches manual playlists.
-        await PlaylistCleanup.removeFromManualPlaylists(
-            episodeId: finishedEpisodeId, completed: true,
-            playlistSyncEngine: Self.playlistSyncEngine, playlistClient: playlistClient)
-
-        // #724: this path (natural finish / auto-advance) never patched the Shows/Subscriptions
-        // badge cache the way the manual "mark played" toggles do, so an episode finished by
-        // playback kept showing as unplayed there until the next full sync. Reads the show id back
-        // from the just-persisted EpisodeStateRecord rather than trusting finishedShowId (derived
-        // from orderedItems above) — an item played via begin(playlistId:)/playUpNextItem that's
-        // since been pruned from the in-memory snapshot would otherwise silently skip this.
-        if let modelContainer = Self.modelContainer {
-            let context = ModelContext(modelContainer)
-            let descriptor = FetchDescriptor<EpisodeStateRecord>(
-                predicate: #Predicate { $0.id == finishedEpisodeId })
-            if let showId = (try? context.fetch(descriptor).first)?.showId ?? finishedShowId {
-                // Patches through mainContext, not the throwaway `context` above (#772) — the
-                // Shows/Library grids read via `@Environment(\.modelContext)`, which is exactly
-                // `modelContainer.mainContext`; a fresh sibling context isn't guaranteed to make
-                // this show up there promptly (#763), and CatalogCacheSignal only tells those
-                // grids *when* to re-read, not that the read will see the write.
-                CatalogCache.recordEpisodeStateChange(
-                    episodeId: finishedEpisodeId, showId: showId, completed: true,
-                    positionSeconds: 0, in: modelContainer.mainContext)
-            }
-        }
 
         consumedEpisodeIds.insert(finishedEpisodeId)
         let behavior = await resolvePlayNextBehavior(source: source, showId: finishedShowId)
@@ -337,8 +302,13 @@ final class PlaybackQueue {
         AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
             guard finishedURL == audioUrl else { return }
             Task {
-                await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
-                await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
+                guard let self else { return }
+                await self.persist(
+                    episodeId: episodeId,
+                    showId: showId,
+                    positionSeconds: Int(duration ?? 0),
+                    completed: true)
+                await self.handleNaturalFinish(finishedEpisodeId: episodeId)
             }
         }
         // The preloaded item was built against whatever settings/params resolvePlayableEpisode
@@ -571,8 +541,13 @@ final class PlaybackQueue {
             AudioPlayer.shared.onDidFinishPlaying = { [weak self] finishedURL in
                 guard finishedURL == url else { return }
                 Task {
-                    await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
-                    await self?.handleNaturalFinish(finishedEpisodeId: episodeId)
+                    guard let self else { return }
+                    await self.persist(
+                        episodeId: episodeId,
+                        showId: showId,
+                        positionSeconds: Int(duration ?? 0),
+                        completed: true)
+                    await self.handleNaturalFinish(finishedEpisodeId: episodeId)
                 }
             }
             DownloadedEpisodeRecord.wireSpliceCredit(episodeId: episodeId, modelContainer: Self.modelContainer, on: AudioPlayer.shared)
@@ -659,40 +634,35 @@ final class PlaybackQueue {
                 let completed = EpisodeProgress.isNearEnd(
                     positionSeconds: positionSeconds, duration: AudioPlayer.shared.duration,
                     thresholdSeconds: EpisodeProgress.nearEndThresholdSeconds)
-                await Self.persist(
+                await self.persist(
                     episodeId: episodeId, showId: showId,
                     positionSeconds: positionSeconds, completed: completed)
             }
         }
     }
 
-    private static func persist(
+    @discardableResult
+    private func persist(
         episodeId: String, showId: String, positionSeconds: Int, completed: Bool
-    ) async {
-        guard let syncEngine = episodeSyncEngine else { return }
+    ) async -> Bool {
+        guard let syncEngine = Self.episodeSyncEngine,
+              let modelContainer = Self.modelContainer
+        else { return false }
         do {
-            try await syncEngine.write { context in
-                let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
-                if let existing = try context.fetch(descriptor).first {
-                    // A periodic (completed: false) tick must never downgrade a record already
-                    // marked completed — a tick can still be in flight right after a finish.
-                    if !completed && existing.completed { return }
-                    existing.showId = showId
-                    existing.positionSeconds = positionSeconds
-                    existing.completed = completed
-                    existing.updatedAt = Date()
-                    existing.autoPlayed = false
-                    existing.isDirty = true
-                } else {
-                    context.insert(EpisodeStateRecord(
-                        id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                        completed: completed, updatedAt: Date(), isDirty: true))
-                }
-            }
+            let result = try await EpisodeStateCoordinator.persist(
+                episodeId: episodeId,
+                showId: showId,
+                positionSeconds: positionSeconds,
+                completed: completed,
+                preventCompletedDowngrade: !completed,
+                catalogContext: modelContainer.mainContext,
+                episodeSyncEngine: syncEngine,
+                playlistSyncEngine: Self.playlistSyncEngine,
+                playlistClient: playlistClient)
+            return result.didPersist
         } catch {
-            // Mirrors EpisodeDetailView.persist() / CarPlay's own assertionFailure — a silent
-            // try? here would hide a lost playback position / completion write.
             assertionFailure("Failed to persist episode state from PlaybackQueue: \(episodeId): \(error)")
+            return false
         }
     }
 }

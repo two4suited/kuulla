@@ -567,6 +567,7 @@ struct ShowDetailView: View {
             await PlaylistCleanup.removeAllFromManualPlaylists(
                 forShowId: showId, playlistSyncEngine: playlistSyncEngine, playlistClient: playlistClient)
             await syncEngine?.syncNow()
+            await playlistSyncEngine?.syncNow()
         } catch {
             if !Task.isCancelled {
                 markAllPlayedError = "Something went wrong while marking episodes played. Please try again."
@@ -606,42 +607,32 @@ struct ShowDetailView: View {
         let positionSeconds = shouldComplete ? Int(episode.duration ?? 0) : (positionSecondsByEpisodeId[episodeId] ?? 0)
 
         do {
-            try await syncEngine.write { context in
-                let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
-                if let existing = try context.fetch(descriptor).first {
-                    existing.showId = showId
-                    existing.positionSeconds = positionSeconds
-                    existing.completed = shouldComplete
-                    existing.updatedAt = Date()
-                    existing.autoPlayed = false
-                    existing.isDirty = true
-                } else {
-                    context.insert(EpisodeStateRecord(
-                        id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                        completed: shouldComplete, updatedAt: Date(), isDirty: true))
-                }
-            }
+            let result = try await EpisodeStateCoordinator.persist(
+                episodeId: episodeId,
+                showId: showId,
+                positionSeconds: positionSeconds,
+                completed: shouldComplete,
+                preventCompletedDowngrade: false,
+                catalogContext: modelContext,
+                episodeSyncEngine: syncEngine,
+                playlistSyncEngine: playlistSyncEngine,
+                playlistClient: playlistClient)
             let updated = EpisodeStateRecord(
-                id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                completed: shouldComplete, updatedAt: Date())
+                id: episodeId, showId: showId, positionSeconds: result.positionSeconds,
+                completed: result.completed, updatedAt: result.updatedAt,
+                deviceId: result.deviceId,
+                lastLocalPositionSeconds: result.lastLocalPositionSeconds,
+                lastLocalPlaybackAt: result.lastLocalPlaybackAt)
             statusByEpisodeId[episodeId] = EpisodeStatus(record: updated)
             positionSecondsByEpisodeId[episodeId] = updated.positionSeconds
-            CatalogCache.recordEpisodeStateChange(
-                episodeId: episodeId, showId: showId, completed: shouldComplete,
-                positionSeconds: positionSeconds, in: modelContext)
             // #532: swipe-to-mark-played bypassed EpisodeDetailView.persist()'s auto-delete-
             // after-played check entirely, leaving downloads stranded. Shares the same rule
             // (DownloadCleanup.deleteIfAutoDeleteEligible) so both paths stay in sync.
             if DownloadCleanup.deleteIfAutoDeleteEligible(
-                episodeId: episodeId, completed: shouldComplete, autoDeleteRule: autoDeleteRule, in: modelContext
+                episodeId: episodeId, completed: result.completed, autoDeleteRule: autoDeleteRule, in: modelContext
             ) {
                 downloadStatusByEpisodeId[episodeId] = nil
             }
-            // #569: swipe-to-mark-played bypassed EpisodeDetailView.persist()'s playlist-removal
-            // rule too — shares the same PlaylistCleanup entry point so both paths stay in sync.
-            await PlaylistCleanup.removeFromManualPlaylists(
-                episodeId: episodeId, completed: shouldComplete,
-                playlistSyncEngine: playlistSyncEngine, playlistClient: playlistClient)
         } catch {
             assertionFailure("Failed to toggle episode completion: \(episodeId): \(error)")
         }

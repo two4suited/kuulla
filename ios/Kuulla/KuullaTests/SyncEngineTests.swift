@@ -3,6 +3,10 @@ import XCTest
 @testable import Kuulla
 
 final class SyncEngineTests: MockedApiTestCase {
+    private enum TestError: Error {
+        case mutationFailed
+    }
+
     private func makeContainer() throws -> ModelContainer {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(for: SyncCursor.self, EpisodeStateRecord.self, configurations: configuration)
@@ -121,6 +125,45 @@ final class SyncEngineTests: MockedApiTestCase {
         let verifyContext = ModelContext(container)
         let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
         XCTAssertEqual(stored.deviceId, "other-device")
+    }
+
+    func testSyncNowReportsFailure() async throws {
+        let container = try makeContainer()
+        MockURLProtocol.stubHandler = { _ in
+            .failure(URLError(.notConnectedToInternet))
+        }
+        let engine = SyncEngine(
+            modelContainer: container,
+            adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1")
+
+        let didSucceed = await engine.syncNow()
+
+        XCTAssertFalse(didSucceed)
+    }
+
+    func testWriteReturningRollsBackMutationWhenClosureThrows() async throws {
+        let container = try makeContainer()
+        let engine = SyncEngine(
+            modelContainer: container,
+            adapter: EpisodeSyncAdapter(apiClient: apiClient),
+            deviceId: "device-1")
+
+        do {
+            _ = try await engine.writeReturning { context in
+                context.insert(EpisodeStateRecord(
+                    id: "ep1", showId: "show1", positionSeconds: 42,
+                    completed: true, updatedAt: .now, isDirty: true))
+                throw TestError.mutationFailed
+            }
+            XCTFail("Expected the mutation to throw")
+        } catch TestError.mutationFailed {
+        }
+
+        let count = await engine.read { context in
+            (try? context.fetchCount(FetchDescriptor<EpisodeStateRecord>())) ?? -1
+        }
+        XCTAssertEqual(count, 0)
     }
 
     func testApplyingNewerServerChangePreservesLocalPlaybackMarker() async throws {
@@ -313,7 +356,7 @@ final class SyncEngineTests: MockedApiTestCase {
             record.isDirty = true
         }
         releaseResponse.signal()
-        await syncTask.value
+        _ = await syncTask.value
 
         let verifyContext = ModelContext(container)
         let stored = try XCTUnwrap(try verifyContext.fetch(FetchDescriptor<EpisodeStateRecord>()).first)
@@ -367,8 +410,8 @@ final class SyncEngineTests: MockedApiTestCase {
         XCTAssertFalse(secondFinished.value, "second syncNow() returned before the in-flight run completed")
 
         releaseResponse.signal()
-        await first.value
-        await second.value
+        _ = await first.value
+        _ = await second.value
         XCTAssertTrue(secondFinished.value)
 
         // And the pulled server change is visible once syncNow() has returned.
@@ -408,8 +451,8 @@ final class SyncEngineTests: MockedApiTestCase {
         let second = Task { await engine.syncNow(requestFollowUpIfSyncing: false) }
         try await Task.sleep(for: .milliseconds(50))
         releaseResponse.signal()
-        await first.value
-        await second.value
+        _ = await first.value
+        _ = await second.value
 
         // Just the one POST — the read-back caller didn't queue a redundant follow-up round.
         XCTAssertEqual(MockURLProtocol.requestedURLs.count, 1)

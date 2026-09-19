@@ -749,7 +749,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                     self?.progressTrackingTask?.cancel()
                     self?.progressTrackingTask = nil
                     Task {
-                        let persisted = await Self.persist(
+                        guard let self else { return }
+                        let persisted = await self.persist(
                             episodeId: episodeId, showId: showId, positionSeconds: Int(duration ?? 0), completed: true)
                         // Mirrors EpisodeDetailView.persist()'s auto-delete hook (#179/#532) —
                         // CarPlay's own persist() has no equivalent, so a natural finish here would
@@ -794,7 +795,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                         let completed = EpisodeProgress.isNearEnd(
                             positionSeconds: positionSeconds, duration: AudioPlayer.shared.duration,
                             thresholdSeconds: EpisodeProgress.nearEndThresholdSeconds)
-                        await Self.persist(episodeId: episodeId, showId: showId, positionSeconds: positionSeconds, completed: completed)
+                        await self.persist(
+                            episodeId: episodeId,
+                            showId: showId,
+                            positionSeconds: positionSeconds,
+                            completed: completed)
                     }
                 }
             }
@@ -946,27 +951,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // place) — the network fallback covers the rare case CatalogCache never saw it.
         let context = Self.modelContainer.map(ModelContext.init)
         let episode = await resolveEpisode(showId: showId, episodeId: episodeId, context: context)
-        let persisted = await Self.persist(
+        let persisted = await persist(
             episodeId: episodeId, showId: showId, positionSeconds: Int(episode?.duration ?? 0), completed: true)
-        // Gated on the write actually committing — see Self.persist's own doc comment.
+        // Gated on the write actually committing — see persist's own doc comment.
         guard persisted else { return }
-        await PlaylistCleanup.removeFromManualPlaylists(
-            episodeId: episodeId, completed: true,
-            playlistSyncEngine: Self.playlistSyncEngine, playlistClient: playlistClient)
         await Self.cleanupDownloadIfEligible(episodeId: episodeId)
-        // #724: this path never patched the Shows/Subscriptions badge cache the way the phone UI's
-        // mark-played toggles do, so an episode marked played from CarPlay's Now Playing screen
-        // kept showing as unplayed there until the next full sync.
-        // Patches through mainContext, not the throwaway `context` above (#772) — the
-        // Shows/Library grids read via `@Environment(\.modelContext)`, which is exactly
-        // `modelContainer.mainContext`; a fresh sibling context isn't guaranteed to make this
-        // show up there promptly (#763), and CatalogCacheSignal only tells those grids *when* to
-        // re-read, not that the read will see the write.
-        if let modelContainer = Self.modelContainer {
-            CatalogCache.recordEpisodeStateChange(
-                episodeId: episodeId, showId: showId, completed: true, positionSeconds: 0,
-                in: modelContainer.mainContext)
-        }
     }
 
     private func downloadCurrentEpisode() async {
@@ -1056,28 +1045,23 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     // the episode from playlists or delete its download on the strength of a write that never
     // landed, since DownloadCleanup's delete is irreversible without a re-download.
     @discardableResult
-    private static func persist(episodeId: String, showId: String, positionSeconds: Int, completed: Bool) async -> Bool {
-        guard let syncEngine = episodeSyncEngine else { return false }
+    private func persist(episodeId: String, showId: String, positionSeconds: Int, completed: Bool) async -> Bool {
+        guard let syncEngine = Self.episodeSyncEngine,
+              let modelContainer = Self.modelContainer
+        else { return false }
         do {
-            try await syncEngine.write { context in
-                let descriptor = FetchDescriptor<EpisodeStateRecord>(predicate: #Predicate { $0.id == episodeId })
-                if let existing = try context.fetch(descriptor).first {
-                    existing.showId = showId
-                    existing.positionSeconds = positionSeconds
-                    existing.completed = completed
-                    existing.updatedAt = Date()
-                    existing.autoPlayed = false
-                    existing.isDirty = true
-                } else {
-                    context.insert(EpisodeStateRecord(
-                        id: episodeId, showId: showId, positionSeconds: positionSeconds,
-                        completed: completed, updatedAt: Date(), isDirty: true))
-                }
-            }
-            return true
+            let result = try await EpisodeStateCoordinator.persist(
+                episodeId: episodeId,
+                showId: showId,
+                positionSeconds: positionSeconds,
+                completed: completed,
+                preventCompletedDowngrade: !completed,
+                catalogContext: modelContainer.mainContext,
+                episodeSyncEngine: syncEngine,
+                playlistSyncEngine: Self.playlistSyncEngine,
+                playlistClient: playlistClient)
+            return result.didPersist
         } catch {
-            // Mirrors EpisodeDetailView.persist()'s own assertionFailure — a silent try? here
-            // would hide a lost playback position/completion write with nothing to point at.
             assertionFailure("Failed to persist episode state from CarPlay: \(episodeId): \(error)")
             return false
         }

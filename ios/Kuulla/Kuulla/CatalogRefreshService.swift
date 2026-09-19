@@ -58,9 +58,9 @@ final class CatalogRefreshService {
         }
 
         // Sync engines run independently of the catalog fetches — kick them off up front.
-        async let episodeSync: Void = episodeSyncEngine.syncNow()
-        async let playlistSync: Void = playlistSyncEngine.syncNow()
-        async let settingsSync: Void = settingsSyncEngine.syncNow()
+        async let episodeSync = episodeSyncEngine.syncNow()
+        async let playlistSync = playlistSyncEngine.syncNow()
+        async let settingsSync = settingsSyncEngine.syncNow()
 
         var hadError = false
         do {
