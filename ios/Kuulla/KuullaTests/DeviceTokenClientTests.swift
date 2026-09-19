@@ -55,4 +55,32 @@ final class DeviceTokenClientTests: MockedApiTestCase {
         XCTAssertTrue(requestedURL.absoluteString.contains("/api/notifications/device-token/a%2Fb"))
         XCTAssertEqual(capturedMethod, "DELETE")
     }
+
+    func testSendTestPushPostsAndDecodesPerDeviceResults() async throws {
+        var capturedMethod: String?
+        MockURLProtocol.stubHandler = { request in
+            capturedMethod = request.httpMethod
+            let json = Data(#"{"devices":[{"deviceId":"d1","useSandbox":true,"delivered":false,"reason":"BadDeviceToken"}]}"#.utf8)
+            return .success(.init(statusCode: 200, data: json, headers: [:]))
+        }
+
+        let results = try await client.sendTestPush()
+
+        let requestedURL = try XCTUnwrap(MockURLProtocol.requestedURLs.first)
+        XCTAssertTrue(requestedURL.absoluteString.hasSuffix("/api/notifications/test"))
+        XCTAssertEqual(capturedMethod, "POST")
+        XCTAssertEqual(results, [TestPushResult(deviceId: "d1", useSandbox: true, delivered: false, reason: "BadDeviceToken")])
+    }
+
+    func testMessageReportsDeliveredRejectedAndUnregistered() {
+        let delivered = TestPushResult(deviceId: "me", useSandbox: false, delivered: true, reason: nil)
+        let rejected = TestPushResult(deviceId: "me", useSandbox: false, delivered: false, reason: "BadDeviceToken")
+        let notConfigured = TestPushResult(deviceId: "me", useSandbox: false, delivered: false, reason: "APNs is not configured on the server")
+        let other = TestPushResult(deviceId: "other", useSandbox: false, delivered: true, reason: nil)
+
+        XCTAssertTrue(DeviceTokenClient.message(for: [delivered], deviceId: "me").hasPrefix("Sent."))
+        XCTAssertTrue(DeviceTokenClient.message(for: [rejected], deviceId: "me").contains("BadDeviceToken"))
+        XCTAssertFalse(DeviceTokenClient.message(for: [notConfigured], deviceId: "me").contains("Apple rejected"))
+        XCTAssertTrue(DeviceTokenClient.message(for: [other], deviceId: "me").contains("isn't registered"))
+    }
 }

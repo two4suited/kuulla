@@ -14,4 +14,9 @@ public class NoOpNotificationService : INotificationService
         string showTitle,
         IReadOnlyList<Episode> newEpisodes,
         CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<IReadOnlyList<TestPushResult>> SendTestNotificationAsync(
+        IReadOnlyList<DeviceToken> tokens, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<TestPushResult>>(
+            tokens.Select(t => new TestPushResult(t.DeviceId, t.UseSandbox, false, "APNs is not configured on the server")).ToList());
 }

@@ -63,6 +63,42 @@ public class ApnsNotificationServiceTests
     }
 
     [Fact]
+    public async Task SendTestNotificationAsync_ReportsPerDeviceOutcomeAndTargetsTokenEnvironment()
+    {
+        var ok = MakeToken("ok-device", useSandbox: true);
+        var rejected = MakeToken("bad-device");
+        _apnsClient
+            .Setup(c => c.SendAsync(It.Is<ApplePush>(p => p.Token == ok.ApnsToken && IsSandbox(p)), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApnsResponse.Successful());
+        _apnsClient
+            .Setup(c => c.SendAsync(It.Is<ApplePush>(p => p.Token == rejected.ApnsToken), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ApnsResponse.Error(ApnsResponseReason.BadDeviceToken, "BadDeviceToken"));
+
+        var results = await _sut.SendTestNotificationAsync([ok, rejected], CancellationToken.None);
+
+        Assert.Equal(new TestPushResult("ok-device", true, true, null), results[0]);
+        Assert.Equal("bad-device", results[1].DeviceId);
+        Assert.False(results[1].Delivered);
+        Assert.Equal("BadDeviceToken", results[1].Reason);
+        // A diagnostic must not delete the token whose failure it's reporting.
+        _deviceTokenService.Verify(s => s.UnregisterAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SendTestNotificationAsync_ReportsExceptionAsFailedResultInsteadOfThrowing()
+    {
+        _apnsClient
+            .Setup(c => c.SendAsync(It.IsAny<ApplePush>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("network error"));
+
+        var results = await _sut.SendTestNotificationAsync([MakeToken()], CancellationToken.None);
+
+        var result = Assert.Single(results);
+        Assert.False(result.Delivered);
+        Assert.Equal("network error", result.Reason);
+    }
+
+    [Fact]
     public async Task NotifyNewEpisodesAsync_UnregistersDeviceOnBadDeviceTokenResponse()
     {
         var token = MakeToken();

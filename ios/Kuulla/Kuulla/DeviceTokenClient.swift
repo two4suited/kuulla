@@ -28,10 +28,43 @@ struct DeviceTokenClient {
         #endif
     }
 
+    // Asks the server to push a test alert to every device registered for this account and
+    // reports Apple's per-device answer — the way to tell "APNs rejected it" from "it was
+    // delivered but notifications are silenced on the phone".
+    func sendTestPush() async throws -> [TestPushResult] {
+        let response: TestPushResponse = try await apiClient.post(
+            ["api", "notifications", "test"], body: EmptyRequest())
+        return response.devices
+    }
+
+    // Plain-language outcome for this device, picked out of the per-device results.
+    static func message(for results: [TestPushResult], deviceId: String) -> String {
+        guard let mine = results.first(where: { $0.deviceId == deviceId }) else {
+            return "This device isn't registered for push yet. Allow notifications for Kuulla in Settings, then reopen the app."
+        }
+        if mine.delivered {
+            return "Sent. If it doesn't appear in a few seconds, check Focus and notification settings for Kuulla."
+        }
+        return "The test push wasn't delivered: \(mine.reason ?? "unknown reason")."
+    }
+
     func unregister(deviceId: String) async throws {
         try await apiClient.delete(["api", "notifications", "device-token", deviceId])
     }
 }
+
+struct TestPushResult: Decodable, Equatable {
+    let deviceId: String
+    let useSandbox: Bool
+    let delivered: Bool
+    let reason: String?
+}
+
+private struct TestPushResponse: Decodable {
+    let devices: [TestPushResult]
+}
+
+private struct EmptyRequest: Encodable {}
 
 private struct RegisterDeviceTokenRequest: Encodable {
     let deviceId: String

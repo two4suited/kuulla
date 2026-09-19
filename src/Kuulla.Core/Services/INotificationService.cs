@@ -13,4 +13,9 @@ public interface INotificationService
         string showTitle,
         IReadOnlyList<Episode> newEpisodes,
         CancellationToken cancellationToken);
+
+    // A fixed "test" alert to each of a user's own devices, for diagnosing why pushes aren't
+    // arriving. Reports per-device outcomes instead of swallowing failures like the fan-out above.
+    Task<IReadOnlyList<TestPushResult>> SendTestNotificationAsync(
+        IReadOnlyList<DeviceToken> tokens, CancellationToken cancellationToken);
 }
