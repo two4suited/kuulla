@@ -32,6 +32,7 @@ final class DownloadManager: NSObject {
     // episode has no entry here either — the same "no live progress" DownloadButton fallback
     // (#176) that covers a just-relaunched in-flight download covers "waiting for Wi-Fi" too.
     private(set) var progress: [String: Double] = [:]
+    private(set) var unsupportedAudioFormatMessage: String?
 
     private var modelContainer: ModelContainer?
     private var session: URLSession!
@@ -167,6 +168,11 @@ final class DownloadManager: NSObject {
 
     @discardableResult
     func startDownload(episode: Episode) -> Bool {
+        unsupportedAudioFormatMessage = nil
+        guard episode.isAudioFormatSupportedOnIOS else {
+            unsupportedAudioFormatMessage = Episode.unsupportedAudioFormatMessage
+            return false
+        }
         guard let modelContainer, URL(string: episode.audioUrl) != nil else { return false }
         guard tasksByEpisodeId[episode.id] == nil, pendingEpisodes[episode.id] == nil else { return false }
 
@@ -186,6 +192,10 @@ final class DownloadManager: NSObject {
 
         beginTransfer(for: episode)
         return true
+    }
+
+    func dismissUnsupportedAudioFormatMessage() {
+        unsupportedAudioFormatMessage = nil
     }
 
     private func beginTransfer(for episode: Episode) {

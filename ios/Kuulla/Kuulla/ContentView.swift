@@ -24,6 +24,8 @@ struct ContentView: View {
     @Environment(\.catalogRefresh) private var catalogRefresh
 #endif
     @State private var authManager = AuthManager.shared
+    @State private var audioPlayer = AudioPlayer.shared
+    @State private var downloadManager = DownloadManager.shared
     @State private var errorMessage: String?
     @State private var deepLinkRouter = DeepLinkRouter.shared
     @State private var selectedTab: AppTab = .library
@@ -40,6 +42,13 @@ struct ContentView: View {
 
     var body: some View {
         content
+            .alert("Unsupported audio format", isPresented: unsupportedAudioAlertPresented) {
+                Button("OK", role: .cancel) {
+                    dismissUnsupportedAudioAlert()
+                }
+            } message: {
+                Text(Episode.unsupportedAudioFormatMessage)
+            }
 #if DEBUG
             // Screenshot automation (docs/brand/appstore/): `-KuullaAutoTestSignIn` launches
             // straight into the signed-in app via the dev test-token endpoint, and
@@ -78,6 +87,24 @@ struct ContentView: View {
                 }
             }
 #endif
+    }
+
+    private var unsupportedAudioAlertPresented: Binding<Bool> {
+        Binding(
+            get: {
+                audioPlayer.unsupportedAudioFormatMessage != nil
+                    || downloadManager.unsupportedAudioFormatMessage != nil
+            },
+            set: { isPresented in
+                if !isPresented {
+                    dismissUnsupportedAudioAlert()
+                }
+            })
+    }
+
+    private func dismissUnsupportedAudioAlert() {
+        audioPlayer.dismissUnsupportedAudioFormatMessage()
+        downloadManager.dismissUnsupportedAudioFormatMessage()
     }
 
     @ViewBuilder

@@ -24,7 +24,8 @@ final class CatalogCacheTests: XCTestCase {
             id: id, showId: showId, title: "Episode \(id)",
             publishedAt: Date(timeIntervalSince1970: 1_700_000_000), duration: 2_730,
             audioUrl: "https://example.com/\(id).mp3", description: "desc", bitrateKbps: 128,
-            fileSizeBytes: 1_234, chapters: nil, transcriptUrl: nil, transcriptType: nil)
+            fileSizeBytes: 1_234, chapters: nil, transcriptUrl: nil, transcriptType: nil,
+            enclosureType: "audio/mpeg")
     }
 
     private func newEpisode(id: String, showId: String, autoPlayed: Bool = false) -> NewEpisode {
@@ -50,6 +51,7 @@ final class CatalogCacheTests: XCTestCase {
         XCTAssertEqual(cached[1].showTitle, "Show show2")
         XCTAssertEqual(cached[1].showArtworkUrl, "https://img/show2.jpg")
         XCTAssertEqual(cached[0].episode.duration, 2_730)
+        XCTAssertEqual(cached[0].episode.enclosureType, "audio/mpeg")
     }
 
     func testReplaceNewEpisodesDropsStaleRows() throws {
@@ -141,13 +143,14 @@ final class CatalogCacheTests: XCTestCase {
                 EpisodeChapter(startTime: 0, title: "Intro", imageUrl: nil, url: nil),
                 EpisodeChapter(startTime: 90, title: "Topic", imageUrl: "https://img", url: "https://u"),
             ],
-            transcriptUrl: "https://t", transcriptType: "text/vtt")
+            transcriptUrl: "https://t", transcriptType: "text/vtt", enclosureType: "audio/ogg")
 
         CatalogCache.replaceEpisodes(showId: "show1", [withChapters], continuationToken: nil, in: context)
         let restored = try XCTUnwrap(CatalogCache.episodes(showId: "show1", in: context).first)
 
         XCTAssertEqual(restored.duration, 3_661)
         XCTAssertEqual(restored.transcriptType, "text/vtt")
+        XCTAssertEqual(restored.enclosureType, "audio/ogg")
         XCTAssertEqual(restored.chapters?.map(\.title), ["Intro", "Topic"])
         XCTAssertEqual(restored.chapters?.last?.startTime, 90)
         XCTAssertEqual(restored.chapters?.last?.imageUrl, "https://img")

@@ -793,7 +793,8 @@ struct EpisodeDetailView: View {
                     NowPlayingMetadata(
                         title: episode.title, showTitle: show?.title,
                         artworkURL: show?.artworkUrl.flatMap(URL.init(string:)))
-                })
+                },
+                enclosureType: episode?.enclosureType)
             startProgressTracking()
         }
 

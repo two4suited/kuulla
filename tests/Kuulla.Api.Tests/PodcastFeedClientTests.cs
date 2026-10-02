@@ -41,6 +41,25 @@ public class PodcastFeedClientTests
         """;
 
     [Fact]
+    public async Task FetchAsync_PopulatesEnclosureType()
+    {
+        var itemXml = """
+            <item>
+              <title>Episode 1</title>
+              <enclosure url="https://audio.example/1.ogg" length="100" type="audio/ogg" />
+            </item>
+            """;
+        var sut = MakeSut(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(FeedXml(itemXml)),
+        });
+
+        var feed = await sut.FetchAsync(FeedUrl, CancellationToken.None);
+
+        Assert.Equal("audio/ogg", Assert.Single(feed!.Episodes).EnclosureType);
+    }
+
+    [Fact]
     public async Task FetchAsync_PopulatesChaptersFromPodcastChaptersTag()
     {
         var itemXml = $"""

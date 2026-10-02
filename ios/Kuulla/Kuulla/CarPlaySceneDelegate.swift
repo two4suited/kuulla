@@ -48,6 +48,9 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         didConnect interfaceController: CPInterfaceController
     ) {
         self.interfaceController = interfaceController
+        PlaybackQueue.shared.onUnsupportedAudioFormat = { [weak self] in
+            self?.showUnsupportedAudioFormatAlert()
+        }
 
         // Root is a tab bar (#641) rather than a bare subscriptions list, so playlists get their
         // own browse surface alongside shows instead of a section wedged into one or the other.
@@ -114,6 +117,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         didDisconnectInterfaceController interfaceController: CPInterfaceController
     ) {
         self.interfaceController = nil
+        PlaybackQueue.shared.onUnsupportedAudioFormat = nil
         CPNowPlayingTemplate.shared.remove(self)
         loadTask?.cancel()
         loadTask = nil
@@ -712,6 +716,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         playbackSpeed: Float, smartSpeed: Bool, voiceBoost: Bool, trimSilence: Bool, volumeOffsetDb: Float = 0,
         list: PlaybackList, playlistId: String? = nil
     ) {
+        guard episode.isAudioFormatSupportedOnIOS else {
+            showUnsupportedAudioFormatAlert()
+            return
+        }
+
         // Prefers a completed local download over the remote URL, same as EpisodeDetailView —
         // driving is exactly the poor-connectivity case offline downloads exist for.
         guard let audioUrl = EpisodeDetailView.resolvedPlaybackURL(
@@ -773,7 +782,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                     volumeOffsetDb: volumeOffsetDb, excludedRanges: DownloadedEpisodeRecord.silenceMapRanges(from: downloadRecord),
                     context: NowPlayingContext(showId: showId, episodeId: episode.id, playlistId: playlistId),
                     metadata: NowPlayingMetadata(
-                        title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))))
+                        title: episode.title, showTitle: showTitle, artworkURL: showArtworkUrl.flatMap(URL.init(string:))),
+                    enclosureType: episode.enclosureType)
 
                 // Refreshes the speed button's rendered label for this episode's resolved speed
                 // (show override, or the global default) — otherwise it would keep showing
@@ -852,7 +862,11 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             let item = CPListItem(text: episode?.title ?? "(episode unavailable)", detailText: nil)
             item.handler = { [weak self] _, completion in
                 Task {
-                    await PlaybackQueue.shared.playUpNextItem(queueItem)
+                    let started = await PlaybackQueue.shared.playUpNextItem(queueItem)
+                    guard started else {
+                        completion()
+                        return
+                    }
                     // Pops this list back to the Now Playing screen it was pushed from, rather
                     // than leaving the user looking at a now-stale queue for the episode that just
                     // started playing.
@@ -971,8 +985,22 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // currently playing is already in CatalogCache from however it got there.
         let context = Self.modelContainer.map(ModelContext.init)
         if let episode = await resolveEpisode(showId: showId, episodeId: episodeId, context: context) {
+            guard episode.isAudioFormatSupportedOnIOS else {
+                showUnsupportedAudioFormatAlert()
+                return
+            }
             DownloadManager.shared.startDownload(episode: episode)
         }
+    }
+
+    private func showUnsupportedAudioFormatAlert() {
+        let dismissAction = CPAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
+        }
+        let alert = CPAlertTemplate(
+            titleVariants: [Episode.unsupportedAudioFormatMessage],
+            actions: [dismissAction])
+        interfaceController?.presentTemplate(alert, animated: true, completion: nil)
     }
 
     // Shared cache-first lookup for markEpisodePlayed/downloadEpisode — both act on whatever

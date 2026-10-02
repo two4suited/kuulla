@@ -5,7 +5,7 @@ import XCTest
 // playback path; what's genuinely new here is the "what plays next" decision and the setting
 // resolution order, which are pure functions — that's what these exercise (mirroring
 // AudioPlayerTests' shouldTriggerOutroSkip cases).
-final class PlaybackQueueTests: XCTestCase {
+final class PlaybackQueueTests: MockedApiTestCase {
     private func items(_ ids: [String]) -> [PlaybackQueue.QueueItem] {
         ids.map { PlaybackQueue.QueueItem(showId: "show-\($0)", episodeId: $0) }
     }
@@ -175,6 +175,57 @@ final class PlaybackQueueTests: XCTestCase {
     func testUpNextItemsIsEmptyWhenNothingIsArmed() {
         let queue = PlaybackQueue()
         XCTAssertEqual(queue.upNextItems, [])
+    }
+
+    @MainActor
+    func testUnsupportedUpNextItemDoesNotReplaceCurrentQueueItem() async {
+        let episodeJson = """
+        {
+            "id": "b",
+            "showId": "show-b",
+            "title": "Unsupported",
+            "audioUrl": "https://example.com/b.ogg",
+            "enclosureType": "audio/ogg"
+        }
+        """.data(using: .utf8)!
+        let showJson = """
+        {
+            "id": "show-b",
+            "title": "Show B",
+            "author": "Author",
+            "feedUrl": "https://example.com/feed",
+            "artworkUrl": null,
+            "description": null,
+            "categories": []
+        }
+        """.data(using: .utf8)!
+        MockURLProtocol.stubHandler = { request in
+            switch request.url?.path {
+            case "/api/shows/show-b/episodes/b":
+                .success(.init(statusCode: 200, data: episodeJson, headers: [:]))
+            case "/api/shows/show-b":
+                .success(.init(statusCode: 200, data: showJson, headers: [:]))
+            default:
+                .success(.init(statusCode: 404, data: Data(), headers: [:]))
+            }
+        }
+        let queue = PlaybackQueue(
+            playlistClient: PlaylistClient(apiClient: apiClient),
+            catalogClient: PodcastCatalogClient(apiClient: apiClient),
+            settingsClient: SettingsClient(apiClient: apiClient))
+        queue.begin(
+            list: PlaybackList(source: .show(id: "show-a"), items: items(["a", "b"])),
+            currentEpisodeId: "a")
+        var didReportUnsupportedFormat = false
+        queue.onUnsupportedAudioFormat = { didReportUnsupportedFormat = true }
+
+        let started = await queue.playUpNextItem(.init(showId: "show-b", episodeId: "b"))
+
+        XCTAssertFalse(started)
+        XCTAssertEqual(queue.currentEpisodeId, "a")
+        XCTAssertTrue(didReportUnsupportedFormat)
+        XCTAssertEqual(AudioPlayer.shared.unsupportedAudioFormatMessage, Episode.unsupportedAudioFormatMessage)
+        AudioPlayer.shared.dismissUnsupportedAudioFormatMessage()
     }
 
     // MARK: - sessionItems / resolvedNextItem (#647)
