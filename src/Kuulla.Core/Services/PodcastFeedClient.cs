@@ -136,6 +136,7 @@ public class PodcastFeedClient(
     {
         var enclosure = item.Element("enclosure");
         var audioUrl = enclosure?.Attribute("url")?.Value ?? string.Empty;
+        var enclosureType = enclosure?.Attribute("type")?.Value;
         var fileSizeBytes = long.TryParse(enclosure?.Attribute("length")?.Value, out var length) && length > 0
             ? length
             : (long?)null;
@@ -171,7 +172,7 @@ public class PodcastFeedClient(
 
         return new Episode(
             id, ShowId: string.Empty, title, publishedAt, duration, audioUrl, description, bitrateKbps,
-            fileSizeBytes, chapters, transcriptUrl, transcriptType);
+            fileSizeBytes, chapters, transcriptUrl, transcriptType, enclosureType);
     }
 
     // Podcasting 2.0 allows multiple <podcast:transcript> tags per item (e.g. one JSON, one SRT).

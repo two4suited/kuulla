@@ -9,6 +9,7 @@ struct Episode: Decodable, Identifiable {
     let publishedAt: Date?
     let duration: TimeInterval?
     let audioUrl: String
+    let enclosureType: String?
     let description: String?
     let bitrateKbps: Int?
     let fileSizeBytes: Int?
@@ -20,7 +21,7 @@ struct Episode: Decodable, Identifiable {
     let transcriptType: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, showId, title, publishedAt, duration, audioUrl, description, bitrateKbps, fileSizeBytes, chapters
+        case id, showId, title, publishedAt, duration, audioUrl, enclosureType, description, bitrateKbps, fileSizeBytes, chapters
         case transcriptUrl, transcriptType
     }
 
@@ -39,7 +40,8 @@ struct Episode: Decodable, Identifiable {
         fileSizeBytes: Int?,
         chapters: [EpisodeChapter]?,
         transcriptUrl: String?,
-        transcriptType: String?
+        transcriptType: String?,
+        enclosureType: String? = nil
     ) {
         self.id = id
         self.showId = showId
@@ -47,6 +49,7 @@ struct Episode: Decodable, Identifiable {
         self.publishedAt = publishedAt
         self.duration = duration
         self.audioUrl = audioUrl
+        self.enclosureType = enclosureType
         self.description = description
         self.bitrateKbps = bitrateKbps
         self.fileSizeBytes = fileSizeBytes
@@ -62,6 +65,7 @@ struct Episode: Decodable, Identifiable {
         title = try container.decode(String.self, forKey: .title)
         publishedAt = try container.decodeIfPresent(Date.self, forKey: .publishedAt)
         audioUrl = try container.decode(String.self, forKey: .audioUrl)
+        enclosureType = try container.decodeIfPresent(String.self, forKey: .enclosureType)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         bitrateKbps = try container.decodeIfPresent(Int.self, forKey: .bitrateKbps)
         fileSizeBytes = try container.decodeIfPresent(Int.self, forKey: .fileSizeBytes)
@@ -75,6 +79,22 @@ struct Episode: Decodable, Identifiable {
             duration = nil
         }
     }
+
+    var isAudioFormatSupportedOnIOS: Bool {
+        !Self.isUnsupportedAudioFormatOnIOS(enclosureType)
+    }
+
+    static func isUnsupportedAudioFormatOnIOS(_ enclosureType: String?) -> Bool {
+        guard let enclosureType else { return false }
+        let mediaType = enclosureType
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["audio/ogg", "audio/vorbis", "audio/opus"].contains(mediaType)
+    }
+
+    static let unsupportedAudioFormatMessage = "This episode's audio format isn't supported on iOS."
 
     // Parses .NET's TimeSpan format: [-][d.]hh:mm:ss[.fffffff], e.g. "00:45:00" or "1.02:03:04".
     static func parseDuration(_ text: String) -> TimeInterval? {

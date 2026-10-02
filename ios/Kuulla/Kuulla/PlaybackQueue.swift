@@ -70,6 +70,7 @@ final class PlaybackQueue {
     // screen the user opened then backed out of without pressing Play) against advancing when
     // some unrelated episode later finishes.
     private(set) var currentEpisodeId: String?
+    var onUnsupportedAudioFormat: (() -> Void)?
 
     // The remaining items after currentEpisodeId in the armed snapshot, minus any already
     // finished this session — CarPlay's Up Next screen (#640) reads this directly rather than
@@ -284,8 +285,9 @@ final class PlaybackQueue {
 
         preloadedNext = nil
         AudioPlayer.shared.discardPendingPreload()
-        currentEpisodeId = next.episodeId
-        await playItem(next, playlistId: source.playlistId)
+        await playItem(next, playlistId: source.playlistId) {
+            self.currentEpisodeId = next.episodeId
+        }
     }
 
     // The fast path counterpart to playItem() below — wires up onDidFinishPlaying and progress
@@ -379,19 +381,19 @@ final class PlaybackQueue {
     // list, and playback continues in the mini player. Arms this as a playlist queue session
     // exactly like EpisodeDetailView.startPlayback would, so auto-advance still works.
     func quickPlay(episodeId: String, showId: String, playlistId: String?) async {
-        await quickPlay(episodeId: episodeId, showId: showId) {
+        await quickPlay(episodeId: episodeId, showId: showId, playlistId: playlistId) {
             if let playlistId {
-                await begin(playlistId: playlistId, currentEpisodeId: episodeId)
+                await self.begin(playlistId: playlistId, currentEpisodeId: episodeId)
             } else {
-                clear()
+                self.clear()
             }
         }
     }
 
     // Same, for a row in a list the screen already has the ordered snapshot of (ShowDetailView).
     func quickPlay(episodeId: String, showId: String, list: PlaybackList) async {
-        await quickPlay(episodeId: episodeId, showId: showId) {
-            begin(list: list, currentEpisodeId: episodeId)
+        await quickPlay(episodeId: episodeId, showId: showId, playlistId: list.source.playlistId) {
+            self.begin(list: list, currentEpisodeId: episodeId)
         }
     }
 
@@ -400,9 +402,11 @@ final class PlaybackQueue {
     // way quickPlay's arm() closures do for a fresh list), so a later natural finish continues
     // from this item's own position in orderedItems, and handleNaturalFinish's manual-playlist
     // removal / PlayNextBehavior resolution still see the same source they would have otherwise.
-    func playUpNextItem(_ item: QueueItem) async {
-        currentEpisodeId = item.episodeId
-        await playItem(item, playlistId: source?.playlistId)
+    @discardableResult
+    func playUpNextItem(_ item: QueueItem) async -> Bool {
+        await playItem(item, playlistId: source?.playlistId) {
+            self.currentEpisodeId = item.episodeId
+        }
     }
 
     // The item that would play automatically when the current episode finishes — resolved exactly
@@ -417,7 +421,12 @@ final class PlaybackQueue {
         return Self.nextItem(after: currentEpisodeId, in: orderedItems, behavior: behavior, consumed: consumedEpisodeIds)
     }
 
-    private func quickPlay(episodeId: String, showId: String, arm: () async -> Void) async {
+    private func quickPlay(
+        episodeId: String,
+        showId: String,
+        playlistId: String?,
+        arm: @escaping () async -> Void
+    ) async {
         // Already loaded (just paused) — resume with no network round trip at all, rather than
         // re-fetching the episode/show/settings only to discover the same thing via playItem's
         // resolved audioUrl. Checked against nowPlayingContext (not currentURL) since that's
@@ -434,8 +443,10 @@ final class PlaybackQueue {
         quickPlayEpisodeIdInFlight = episodeId
         defer { quickPlayEpisodeIdInFlight = nil }
 
-        await arm()
-        await playItem(QueueItem(showId: showId, episodeId: episodeId), playlistId: source?.playlistId)
+        await playItem(
+            QueueItem(showId: showId, episodeId: episodeId),
+            playlistId: playlistId,
+            beforeStart: arm)
     }
 
     // Everything resolvePlayableEpisode() below needs to hand back to a caller that's actually
@@ -514,10 +525,21 @@ final class PlaybackQueue {
     // outside the detail screen" paths, and the app already keeps that resolution logic
     // duplicated per surface (resolvedPlaybackURL, the show-override-else-global settings fetch,
     // the periodic progress save).
-    private func playItem(_ item: QueueItem, playlistId: String?, startPositionOverride: TimeInterval? = nil) async {
+    @discardableResult
+    private func playItem(
+        _ item: QueueItem,
+        playlistId: String?,
+        startPositionOverride: TimeInterval? = nil,
+        beforeStart: (() async -> Void)? = nil
+    ) async -> Bool {
         guard var resolved = await resolvePlayableEpisode(item) else {
             clear()
-            return
+            return false
+        }
+        guard resolved.episode.isAudioFormatSupportedOnIOS else {
+            AudioPlayer.shared.reportUnsupportedAudioFormat()
+            onUnsupportedAudioFormat?()
+            return false
         }
         // A local-file failure (#781) hands back the exact position playback had reached — that's
         // more accurate than resolvePlayableEpisode's own EpisodeStateRecord lookup, which only
@@ -527,6 +549,7 @@ final class PlaybackQueue {
         if let startPositionOverride {
             resolved.startPosition = startPositionOverride
         }
+        await beforeStart?()
 
         let episodeId = item.episodeId
         let showId = item.showId
@@ -561,7 +584,8 @@ final class PlaybackQueue {
                 context: NowPlayingContext(showId: showId, episodeId: episodeId, playlistId: playlistId),
                 metadata: NowPlayingMetadata(
                     title: resolved.episode.title, showTitle: resolved.show?.title,
-                    artworkURL: resolved.show?.artworkUrl.flatMap(URL.init(string:))))
+                    artworkURL: resolved.show?.artworkUrl.flatMap(URL.init(string:))),
+                enclosureType: resolved.episode.enclosureType)
 
             armApproachingEndPreload(sessionEpisodeId: episodeId)
             startProgressTracking(audioUrl: url, episodeId: episodeId, showId: showId)
@@ -572,6 +596,7 @@ final class PlaybackQueue {
             on: AudioPlayer.shared, replay: startPlayback)
 
         startPlayback(url: resolved.audioUrl, startPosition: resolved.startPosition)
+        return true
     }
 
     // MARK: - Gapless preload (#683)
@@ -604,7 +629,10 @@ final class PlaybackQueue {
               let next = Self.nextItem(after: sessionEpisodeId, in: orderedItems, behavior: behavior, consumed: consumedEpisodeIds)
         else { return }
 
-        guard let resolved = await resolvePlayableEpisode(next), currentEpisodeId == sessionEpisodeId else { return }
+        guard let resolved = await resolvePlayableEpisode(next),
+              resolved.episode.isAudioFormatSupportedOnIOS,
+              currentEpisodeId == sessionEpisodeId
+        else { return }
 
         preloadedNext = PreloadedNext(item: next, audioUrl: resolved.audioUrl, duration: resolved.episode.duration)
         AudioPlayer.shared.preloadNext(

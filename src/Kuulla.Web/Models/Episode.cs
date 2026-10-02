@@ -12,4 +12,5 @@ public record Episode(
     long? FileSizeBytes,
     IReadOnlyList<EpisodeChapter>? Chapters = null,
     string? TranscriptUrl = null,
-    string? TranscriptType = null);
+    string? TranscriptType = null,
+    string? EnclosureType = null);

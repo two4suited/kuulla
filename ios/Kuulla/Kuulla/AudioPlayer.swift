@@ -74,6 +74,7 @@ final class AudioPlayer {
     // the user merely navigates away, without that other episode's own play() ever having run.
     private(set) var streamBlockedMessage: String?
     private(set) var streamBlockedURL: URL?
+    private(set) var unsupportedAudioFormatMessage: String?
 
     // Pessimistic default (mirrors DownloadManager's isOnWifi): only LocalSettings.wifiOnlyStreaming
     // == true even looks at this value, so defaulting to "not on Wi-Fi" costs nothing when the
@@ -348,12 +349,19 @@ final class AudioPlayer {
         autoSkipIntroSeconds: TimeInterval = 0, autoSkipOutroSeconds: TimeInterval = 0,
         playbackSpeed: Float = 1.0, smartSpeed: Bool = false, voiceBoost: Bool = false, trimSilence: Bool = false,
         volumeOffsetDb: Float = 0, excludedRanges: [SilenceRange] = [],
-        context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil
+        context: NowPlayingContext? = nil, metadata: NowPlayingMetadata? = nil,
+        enclosureType: String? = nil
     ) {
         streamBlockedMessage = nil
         streamBlockedURL = nil
+        unsupportedAudioFormatMessage = nil
         playbackErrorMessage = nil
         playbackErrorURL = nil
+
+        if Episode.isUnsupportedAudioFormatOnIOS(enclosureType) {
+            unsupportedAudioFormatMessage = Episode.unsupportedAudioFormatMessage
+            return
+        }
 
         // Only gates a genuine remote stream — a downloaded local file (#177) plays fine over
         // cellular, or with no connection at all; it isn't "streaming".
@@ -418,6 +426,14 @@ final class AudioPlayer {
         }
 
         wireUpFreshlyStartedPlayer(item: item, player: newPlayer, url: url)
+    }
+
+    func dismissUnsupportedAudioFormatMessage() {
+        unsupportedAudioFormatMessage = nil
+    }
+
+    func reportUnsupportedAudioFormat() {
+        unsupportedAudioFormatMessage = Episode.unsupportedAudioFormatMessage
     }
 
     // Builds the AVPlayerItem for a play()/preloadNext() session — an AVMutableComposition with

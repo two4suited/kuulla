@@ -14,6 +14,7 @@ final class CachedNewEpisodeRecord {
     var publishedAt: Date?
     var durationSeconds: Double?
     var audioUrl: String
+    var enclosureType: String?
     var episodeDescription: String?
     var bitrateKbps: Int?
     var fileSizeBytes: Int?
@@ -33,6 +34,7 @@ final class CachedNewEpisodeRecord {
         publishedAt: Date?,
         durationSeconds: Double?,
         audioUrl: String,
+        enclosureType: String?,
         episodeDescription: String?,
         bitrateKbps: Int?,
         fileSizeBytes: Int?,
@@ -51,6 +53,7 @@ final class CachedNewEpisodeRecord {
         self.publishedAt = publishedAt
         self.durationSeconds = durationSeconds
         self.audioUrl = audioUrl
+        self.enclosureType = enclosureType
         self.episodeDescription = episodeDescription
         self.bitrateKbps = bitrateKbps
         self.fileSizeBytes = fileSizeBytes
@@ -76,6 +79,7 @@ final class CachedNewEpisodeRecord {
             publishedAt: episode.publishedAt,
             durationSeconds: episode.duration,
             audioUrl: episode.audioUrl,
+            enclosureType: episode.enclosureType,
             episodeDescription: episode.description,
             bitrateKbps: episode.bitrateKbps,
             fileSizeBytes: episode.fileSizeBytes,
@@ -104,7 +108,8 @@ final class CachedNewEpisodeRecord {
             fileSizeBytes: fileSizeBytes,
             chapters: chapters,
             transcriptUrl: transcriptUrl,
-            transcriptType: transcriptType)
+            transcriptType: transcriptType,
+            enclosureType: enclosureType)
     }
 
     var newEpisode: NewEpisode {

@@ -497,6 +497,18 @@ final class AudioPlayerTests: XCTestCase {
             XCTAssertTrue(player.isPlaying)
             XCTAssertNil(player.streamBlockedMessage)
         }
+
+        func testPlayRejectsUnsupportedAudioFormatBeforeCreatingPlayer() {
+            let player = AudioPlayer(pathObserver: MockPathObserver())
+
+            player.play(
+                url: URL(string: "https://example.com/audio.ogg")!,
+                enclosureType: "audio/ogg")
+
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertNil(player.currentURL)
+            XCTAssertEqual(player.unsupportedAudioFormatMessage, Episode.unsupportedAudioFormatMessage)
+        }
     }
 
     func testPlayNeverGatesALocalFileURLRegardlessOfWifiOnlyStreaming() async throws {

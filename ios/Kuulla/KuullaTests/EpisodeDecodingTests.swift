@@ -26,6 +26,7 @@ final class EpisodeDecodingTests: XCTestCase {
             "publishedAt": "2024-01-15T10:30:00+00:00",
             "duration": "01:02:03",
             "audioUrl": "https://example.com/audio.mp3",
+            "enclosureType": "audio/mpeg",
             "description": "desc",
             "bitrateKbps": 128,
             "fileSizeBytes": 1000
@@ -38,6 +39,7 @@ final class EpisodeDecodingTests: XCTestCase {
         XCTAssertEqual(episode.duration, 3723)
         XCTAssertNotNil(episode.publishedAt)
         XCTAssertEqual(episode.bitrateKbps, 128)
+        XCTAssertEqual(episode.enclosureType, "audio/mpeg")
     }
 
     func testDecodesEpisodeWithMissingOptionalFields() throws {
@@ -58,6 +60,43 @@ final class EpisodeDecodingTests: XCTestCase {
         XCTAssertNil(episode.bitrateKbps)
         XCTAssertNil(episode.fileSizeBytes)
         XCTAssertNil(episode.chapters)
+        XCTAssertNil(episode.enclosureType)
+    }
+
+    func testRecognizesUnsupportedIOSAudioFormatsCaseInsensitivelyAndWithParameters() throws {
+        for enclosureType in ["audio/ogg", "AUDIO/VORBIS", " audio/opus; codecs=opus "] {
+            let json = """
+            {
+                "id": "e1",
+                "showId": "s1",
+                "title": "Episode 1",
+                "audioUrl": "https://example.com/audio",
+                "enclosureType": "\(enclosureType)"
+            }
+            """.data(using: .utf8)!
+
+            let episode = try JSONDecoder().decode(Episode.self, from: json)
+
+            XCTAssertFalse(episode.isAudioFormatSupportedOnIOS, enclosureType)
+        }
+    }
+
+    func testAllowsSupportedOrUnknownAudioFormats() throws {
+        for enclosureType in ["audio/mpeg", "audio/mp4", nil] as [String?] {
+            let typeProperty = enclosureType.map { #","enclosureType":"\#($0)""# } ?? ""
+            let json = """
+            {
+                "id": "e1",
+                "showId": "s1",
+                "title": "Episode 1",
+                "audioUrl": "https://example.com/audio"\(typeProperty)
+            }
+            """.data(using: .utf8)!
+
+            let episode = try JSONDecoder().decode(Episode.self, from: json)
+
+            XCTAssertTrue(episode.isAudioFormatSupportedOnIOS, enclosureType ?? "missing")
+        }
     }
 
     func testDecodesEpisodeWithChapters() throws {

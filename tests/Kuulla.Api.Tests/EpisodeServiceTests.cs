@@ -635,6 +635,38 @@ public class EpisodeServiceTests
     }
 
     [Fact]
+    public async Task CacheEpisodesAsync_BackfillsEnclosureTypeWithoutTreatingEpisodeAsNew()
+    {
+        var episode = MakeEpisode("already-cached") with { EnclosureType = "audio/ogg" };
+        _episodesContainer
+            .SetupSequence(c => c.GetItemQueryIterator<string>(
+                It.IsAny<QueryDefinition>(), null, It.IsAny<QueryRequestOptions>()))
+            .Returns(CosmosTestHelpers.FeedIterator(["already-cached"]))
+            .Returns(CosmosTestHelpers.FeedIterator(["already-cached"]));
+        IReadOnlyList<PatchOperation>? capturedOperations = null;
+        _episodesContainer
+            .Setup(c => c.PatchItemAsync<Episode>(
+                episode.Id,
+                It.IsAny<PartitionKey>(),
+                It.IsAny<IReadOnlyList<PatchOperation>>(),
+                null,
+                It.IsAny<CancellationToken>()))
+            .Callback<string, PartitionKey, IReadOnlyList<PatchOperation>, PatchItemRequestOptions?, CancellationToken>(
+                (_, _, operations, _, _) => capturedOperations = operations)
+            .ReturnsAsync(CosmosTestHelpers.ItemResponse(episode));
+
+        await _sut.CacheEpisodesAsync(ShowId, [episode], CancellationToken.None);
+
+        Assert.Single(capturedOperations!);
+        _episodesContainer.Verify(
+            c => c.CreateItemAsync(It.IsAny<Episode>(), It.IsAny<PartitionKey?>(), null, It.IsAny<CancellationToken>()),
+            Times.Never);
+        _subscriptionsContainer.Verify(
+            c => c.GetItemQueryIterator<string>(It.IsAny<QueryDefinition>(), null, null),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task CacheEpisodesAsync_InsertsNewEpisodeIntoDynamicPlaylistAtCorrectPosition()
     {
         var epoch = DateTimeOffset.UnixEpoch;

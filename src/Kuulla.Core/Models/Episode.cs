@@ -22,4 +22,5 @@ public record Episode(
     // (e.g. "application/json", "application/x-subrip", "text/vtt") — kept so the transcript
     // endpoint knows how to parse the document without sniffing.
     string? TranscriptUrl = null,
-    string? TranscriptType = null);
+    string? TranscriptType = null,
+    string? EnclosureType = null);

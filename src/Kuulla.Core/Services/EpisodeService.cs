@@ -158,6 +158,32 @@ public class EpisodeService(
         // (e.g. two overlapping polls of the same show), not as the primary dedup mechanism.
         var existingIds = await GetExistingEpisodeIdsAsync(showId, episodes.Select(e => e.Id).ToList(), cancellationToken);
         var candidates = episodes.Where(e => !existingIds.Contains(e.Id)).ToList();
+        var enclosureTypesById = episodes
+            .Where(e => existingIds.Contains(e.Id) && !string.IsNullOrWhiteSpace(e.EnclosureType))
+            .ToDictionary(e => e.Id, e => e.EnclosureType!);
+        if (enclosureTypesById.Count > 0)
+        {
+            var idsMissingEnclosureType = await GetEpisodeIdsMissingEnclosureTypeAsync(
+                showId, enclosureTypesById.Keys.ToList(), cancellationToken);
+            await Parallel.ForEachAsync(
+                idsMissingEnclosureType,
+                new ParallelOptions { MaxDegreeOfParallelism = 5, CancellationToken = cancellationToken },
+                async (episodeId, ct) =>
+                {
+                    try
+                    {
+                        await episodesContainer.PatchItemAsync<Episode>(
+                            episodeId,
+                            new PartitionKey(showId),
+                            [PatchOperation.Set("/EnclosureType", enclosureTypesById[episodeId])],
+                            cancellationToken: ct);
+                    }
+                    catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                    {
+                    }
+                });
+        }
+
         if (candidates.Count == 0)
         {
             return;
@@ -825,6 +851,26 @@ public class EpisodeService(
         }
 
         return existingIds;
+    }
+
+    private async Task<IReadOnlyList<string>> GetEpisodeIdsMissingEnclosureTypeAsync(
+        string showId, IReadOnlyList<string> episodeIds, CancellationToken cancellationToken)
+    {
+        var queryDefinition = new QueryDefinition(
+                "SELECT VALUE c.id FROM c WHERE c.ShowId = @showId AND ARRAY_CONTAINS(@episodeIds, c.id) " +
+                "AND (NOT IS_DEFINED(c.EnclosureType) OR IS_NULL(c.EnclosureType))")
+            .WithParameter("@showId", showId)
+            .WithParameter("@episodeIds", episodeIds);
+        var requestOptions = new QueryRequestOptions { PartitionKey = new PartitionKey(showId) };
+
+        var ids = new List<string>();
+        using var iterator = episodesContainer.GetItemQueryIterator<string>(queryDefinition, requestOptions: requestOptions);
+        while (iterator.HasMoreResults)
+        {
+            ids.AddRange(await iterator.ReadNextAsync(cancellationToken));
+        }
+
+        return ids;
     }
 
     public async Task<DateTimeOffset?> GetNewestCachedEpisodePublishedAtAsync(string showId, CancellationToken cancellationToken)

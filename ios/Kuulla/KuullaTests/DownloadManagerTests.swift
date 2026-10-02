@@ -61,9 +61,12 @@ final class DownloadManagerTests: XCTestCase {
         return nil
     }
 
-    private func makeEpisode(id: String = "ep1", audioUrl: String = "https://example.com/ep1.mp3") -> Episode {
+    private func makeEpisode(
+        id: String = "ep1", audioUrl: String = "https://example.com/ep1.mp3", enclosureType: String? = nil
+    ) -> Episode {
+        let enclosureProperty = enclosureType.map { #","enclosureType":"\#($0)""# } ?? ""
         let json = """
-        {"id":"\(id)","showId":"show1","title":"Title","audioUrl":"\(audioUrl)"}
+        {"id":"\(id)","showId":"show1","title":"Title","audioUrl":"\(audioUrl)"\(enclosureProperty)}
         """.data(using: .utf8)!
         return try! JSONDecoder().decode(Episode.self, from: json)
     }
@@ -85,6 +88,20 @@ final class DownloadManagerTests: XCTestCase {
         let record = try XCTUnwrap(try context.fetch(descriptor).first)
         XCTAssertTrue(durablyQueued)
         XCTAssertEqual(record.status, .downloading)
+    }
+
+    func testUnsupportedAudioFormatDoesNotStartDownloadOrCreateRecord() async throws {
+        let container = try makeContainer()
+        let manager = await makeManager(container: container)
+
+        let started = manager.startDownload(episode: makeEpisode(enclosureType: "audio/ogg"))
+
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<DownloadedEpisodeRecord>(predicate: #Predicate { $0.id == "ep1" })
+        XCTAssertFalse(started)
+        XCTAssertTrue(try context.fetch(descriptor).isEmpty)
+        XCTAssertEqual(manager.unsupportedAudioFormatMessage, Episode.unsupportedAudioFormatMessage)
+        XCTAssertTrue(MockURLProtocol.requestedURLs.isEmpty)
     }
 
     func testSuccessfulDownloadMarksRecordCompleteWithFileOnDisk() async throws {
